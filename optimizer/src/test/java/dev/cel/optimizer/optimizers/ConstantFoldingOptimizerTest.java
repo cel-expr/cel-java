@@ -302,6 +302,9 @@ public class ConstantFoldingOptimizerTest {
       "{source: 'cel.bind(r0, [1, 2, 3], cel.bind(r1, 1 in r0 && 2 in x, r1))', expected:"
           + " 'cel.bind(r0, [1, 2, 3], cel.bind(r1, 1 in r0 && 2 in x, r1))'}")
   @TestParameters("{source: 'false ? false : cel.bind(a, x, a)', expected: 'cel.bind(a, x, a)'}")
+  @TestParameters(
+      "{source: 'cel.bind(myMap, {\"foo\": \"bar\"}, myMap[?\"foo\"].optMap(x, x + \"baz\"))', "
+          + "expected: 'optional.of(\"barbaz\")'}")
   public void constantFold_macros_macroCallMetadataPopulated(String source, String expected)
       throws Exception {
     Cel cel =
@@ -557,4 +560,6 @@ public class ConstantFoldingOptimizerTest {
         assertThrows(CelOptimizationException.class, () -> optimizer.optimize(ast));
     assertThat(e).hasMessageThat().contains("Optimization failure: Max iteration count reached.");
   }
+
+
 }

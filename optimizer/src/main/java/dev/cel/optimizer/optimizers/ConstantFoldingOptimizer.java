@@ -369,30 +369,37 @@ public final class ConstantFoldingOptimizer implements CelAstOptimizer {
 
   private Optional<CelMutableAst> maybeRewriteOptional(
       Optional<?> optResult, CelMutableAst mutableAst, CelMutableExpr expr) {
-    if (!optResult.isPresent()) {
-      if (!expr.call().function().equals(Function.OPTIONAL_NONE.getFunction())) {
-        // An empty optional value was encountered. Rewrite the tree with optional.none call.
-        // This is to account for other optional functions returning an empty optional value
-        // e.g: optional.ofNonZeroValue(0)
-        return Optional.of(astMutator.replaceSubtree(mutableAst, newOptionalNoneExpr(), expr.id()));
-      }
-    } else if (!expr.call().function().equals(Function.OPTIONAL_OF.getFunction())) {
-      Object unwrappedResult = optResult.get();
-      if (!CelConstant.isConstantValue(unwrappedResult)) {
-        // Evaluated result is not a constant. Leave the optional as is.
+    Object unwrappedResult = optResult.orElse(null);
+    if (unwrappedResult == null) {
+      if (isCallToFunction(expr, Function.OPTIONAL_NONE.getFunction())) {
         return Optional.empty();
       }
-
-      CelMutableExpr newOptionalOfCall =
-          CelMutableExpr.ofCall(
-              CelMutableCall.create(
-                  Function.OPTIONAL_OF.getFunction(),
-                  CelMutableExpr.ofConstant(CelConstant.ofObjectValue(unwrappedResult))));
-
-      return Optional.of(astMutator.replaceSubtree(mutableAst, newOptionalOfCall, expr.id()));
+      // An empty optional value was encountered. Rewrite the tree with optional.none call.
+      // This is to account for other optional functions returning an empty optional value
+      // e.g: optional.ofNonZeroValue(0)
+      return Optional.of(astMutator.replaceSubtree(mutableAst, newOptionalNoneExpr(), expr.id()));
     }
 
-    return Optional.empty();
+    if (isCallToFunction(expr, Function.OPTIONAL_OF.getFunction())) {
+      return Optional.empty();
+    }
+
+    if (!CelConstant.isConstantValue(unwrappedResult)) {
+      // Evaluated result is not a constant. Leave the optional as is.
+      return Optional.empty();
+    }
+
+    CelMutableExpr newOptionalOfCall =
+        CelMutableExpr.ofCall(
+            CelMutableCall.create(
+                Function.OPTIONAL_OF.getFunction(),
+                CelMutableExpr.ofConstant(CelConstant.ofObjectValue(unwrappedResult))));
+
+    return Optional.of(astMutator.replaceSubtree(mutableAst, newOptionalOfCall, expr.id()));
+  }
+
+  private static boolean isCallToFunction(CelMutableExpr expr, String functionName) {
+    return expr.getKind().equals(Kind.CALL) && expr.call().function().equals(functionName);
   }
 
   /** Inspects the non-strict calls to determine whether a branch can be removed. */

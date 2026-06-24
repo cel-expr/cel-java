@@ -23,6 +23,7 @@ import dev.cel.common.CelOptions;
 import dev.cel.extensions.CelMathExtensions.Function;
 import java.util.EnumSet;
 import java.util.Set;
+import java.util.stream.Stream;
 
 /**
  * Collections of CEL Extensions.
@@ -381,6 +382,14 @@ public final class CelExtensions {
                 .map(CelListsExtensions.Function::getFunction),
             EnumSet.allOf(CelRegexExtensions.Function.class).stream()
                 .map(CelRegexExtensions.Function::getFunction),
+            Stream.of(
+                    CelOptionalLibrary.Function.VALUE,
+                    CelOptionalLibrary.Function.HAS_VALUE,
+                    CelOptionalLibrary.Function.OPTIONAL_NONE,
+                    CelOptionalLibrary.Function.OPTIONAL_OF,
+                    CelOptionalLibrary.Function.OPTIONAL_UNWRAP,
+                    CelOptionalLibrary.Function.OPTIONAL_OF_NON_ZERO_VALUE)
+                .map(CelOptionalLibrary.Function::getFunction),
             EnumSet.allOf(CelComprehensionsExtensions.Function.class).stream()
                 .map(CelComprehensionsExtensions.Function::getFunction))
         .collect(toImmutableSet());

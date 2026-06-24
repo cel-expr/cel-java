@@ -189,6 +189,12 @@ public class CelExtensionsTest {
             "regex.replace",
             "regex.extract",
             "regex.extractAll",
+            "value",
+            "hasValue",
+            "optional.none",
+            "optional.of",
+            "optional.unwrap",
+            "optional.ofNonZeroValue",
             "cel.@mapInsert");
   }
 }
