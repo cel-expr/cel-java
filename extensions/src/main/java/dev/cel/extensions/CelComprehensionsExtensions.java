@@ -52,7 +52,8 @@ public final class CelComprehensionsExtensions
   private static final TypeParamType TYPE_PARAM_V = TypeParamType.create("V");
   private static final MapType MAP_KV_TYPE = MapType.create(TYPE_PARAM_K, TYPE_PARAM_V);
 
-  enum Function {
+  /** Enumeration of functions for Comprehensions extension. */
+  public enum Function {
     MAP_INSERT(
         CelFunctionDecl.newFunctionDeclaration(
             MAP_INSERT_FUNCTION,
@@ -72,6 +73,10 @@ public final class CelComprehensionsExtensions
 
     private final CelFunctionDecl functionDecl;
 
+    public CelFunctionDecl functionDecl() {
+      return functionDecl;
+    }
+
     String getFunction() {
       return functionDecl.name();
     }
@@ -81,20 +86,25 @@ public final class CelComprehensionsExtensions
     }
   }
 
-  private static final CelExtensionLibrary<CelComprehensionsExtensions> LIBRARY =
-      new CelExtensionLibrary<CelComprehensionsExtensions>() {
-        private final CelComprehensionsExtensions version0 = new CelComprehensionsExtensions();
+  private static final class Library implements CelExtensionLibrary<CelComprehensionsExtensions> {
+    private final CelComprehensionsExtensions version0;
 
-        @Override
-        public String name() {
-          return "comprehensions";
-        }
+    Library() {
+      version0 = new CelComprehensionsExtensions();
+    }
 
-        @Override
-        public ImmutableSet<CelComprehensionsExtensions> versions() {
-          return ImmutableSet.of(version0);
-        }
-      };
+    @Override
+    public String name() {
+      return "comprehensions";
+    }
+
+    @Override
+    public ImmutableSet<CelComprehensionsExtensions> versions() {
+      return ImmutableSet.of(version0);
+    }
+  }
+
+  private static final Library LIBRARY = new Library();
 
   static CelExtensionLibrary<CelComprehensionsExtensions> library() {
     return LIBRARY;
@@ -103,7 +113,7 @@ public final class CelComprehensionsExtensions
   private final ImmutableSet<Function> functions;
 
   CelComprehensionsExtensions() {
-    this.functions = ImmutableSet.copyOf(Function.values());
+    this.functions = ImmutableSet.of(Function.MAP_INSERT);
   }
 
   @Override
@@ -175,10 +185,10 @@ public final class CelComprehensionsExtensions
   private static Map<Object, Object> mapInsertMap(
       Map<?, ?> targetMap, Map<?, ?> mapToMerge, RuntimeEquality equality) {
     for (Object key : mapToMerge.keySet()) {
-      if (equality.findInMap(targetMap, key).isPresent()) {
-        throw new IllegalArgumentException(
-            String.format("insert failed: key '%s' already exists", key));
-      }
+      checkArgument(
+          !equality.findInMap(targetMap, key).isPresent(),
+          "insert failed: key '%s' already exists",
+          key);
     }
 
     if (targetMap instanceof MutableMapValue) {
@@ -198,10 +208,10 @@ public final class CelComprehensionsExtensions
     Object key = args[1];
     Object value = args[2];
 
-    if (equality.findInMap(mapArg, key).isPresent()) {
-      throw new IllegalArgumentException(
-          String.format("insert failed: key '%s' already exists", key));
-    }
+    checkArgument(
+        !equality.findInMap(mapArg, key).isPresent(),
+        "insert failed: key '%s' already exists",
+        key);
 
     if (mapArg instanceof MutableMapValue) {
       MutableMapValue mutableMap = (MutableMapValue) mapArg;
