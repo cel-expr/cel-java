@@ -815,6 +815,14 @@ public final class CelStandardDeclarations {
                 SimpleType.STRING,
                 SimpleType.STRING)),
         ;
+
+        private static final ImmutableMap<String, StringMatchers> ID_TO_ENUM =
+            stream(values()).collect(toImmutableMap(e -> e.celOverloadDecl().overloadId(), e -> e));
+
+        public static Optional<StringMatchers> fromOverloadId(String overloadId) {
+          return Optional.ofNullable(ID_TO_ENUM.get(overloadId));
+        }
+
         private final CelOverloadDecl celOverloadDecl;
 
         StringMatchers(CelOverloadDecl overloadDecl) {
