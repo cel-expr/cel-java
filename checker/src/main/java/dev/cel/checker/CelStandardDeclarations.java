@@ -15,9 +15,11 @@
 package dev.cel.checker;
 
 import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static java.util.Arrays.stream;
 
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import com.google.errorprone.annotations.Immutable;
@@ -598,6 +600,13 @@ public final class CelStandardDeclarations {
         MAP_SIZE(
             CelOverloadDecl.newMemberOverload("map_size", "map size", SimpleType.INT, MAP_OF_AB)),
         ;
+
+        private static final ImmutableMap<String, Size> ID_TO_ENUM =
+            stream(values()).collect(toImmutableMap(e -> e.celOverloadDecl().overloadId(), e -> e));
+
+        public static Optional<Size> fromOverloadId(String overloadId) {
+          return Optional.ofNullable(ID_TO_ENUM.get(overloadId));
+        }
 
         private final CelOverloadDecl celOverloadDecl;
 
