@@ -30,7 +30,7 @@ jobs:
             # Avoid downloading Bazel every time.
             bazelisk-cache: true
             # Store build cache per workflow.
-            disk-cache: ${{ github.workflow }}
+            disk-cache: ${{ github.workflow }}-${{ github.job }}
             # Share repository cache between workflows.
             repository-cache: true
             # Prevent PRs from polluting cache
@@ -60,7 +60,7 @@ jobs:
             # Avoid downloading Bazel every time.
             bazelisk-cache: true
             # Store build cache per workflow.
-            disk-cache: ${{ github.workflow }}
+            disk-cache: ${{ github.workflow }}-${{ github.job }}
             # Share repository cache between workflows.
             repository-cache: true
             # Prevent PRs from polluting cache
@@ -95,7 +95,7 @@ jobs:
             # Avoid downloading Bazel every time.
             bazelisk-cache: true
             # Store build cache per workflow.
-            disk-cache: ${{ github.workflow }}
+            disk-cache: ${{ github.workflow }}-${{ github.job }}
             # Share repository cache between workflows.
             repository-cache: true
             # Never write to the cache, strictly read-only
