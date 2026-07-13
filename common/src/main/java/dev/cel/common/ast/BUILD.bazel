@@ -71,6 +71,20 @@ java_library(
     ],
 )
 
+cel_android_library(
+    name = "cel_block_android",
+    srcs = ["CelBlock.java"],
+    tags = [
+    ],
+    deps = [
+        ":ast_android",
+        "//common:cel_ast_android",
+        "//common/annotations",
+        "//common/navigation:navigation_android",
+        "@maven_android//:com_google_guava_guava",
+    ],
+)
+
 java_library(
     name = "expr_converter",
     srcs = EXPR_CONVERTER_SOURCES,

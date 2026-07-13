@@ -365,6 +365,18 @@ java_library(
     ],
 )
 
+cel_android_library(
+    name = "container_android",
+    srcs = ["CelContainer.java"],
+    tags = [
+    ],
+    deps = [
+        "//:auto_value",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven_android//:com_google_guava_guava",
+    ],
+)
+
 java_library(
     name = "operator",
     srcs = ["Operator.java"],

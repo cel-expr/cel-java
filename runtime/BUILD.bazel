@@ -226,9 +226,19 @@ java_library(
     exports = ["//runtime/src/main/java/dev/cel/runtime:interpreter_util"],
 )
 
+cel_android_library(
+    name = "interpreter_util_android",
+    exports = ["//runtime/src/main/java/dev/cel/runtime:interpreter_util_android"],
+)
+
 java_library(
     name = "evaluation_listener",
     exports = ["//runtime/src/main/java/dev/cel/runtime:evaluation_listener"],
+)
+
+cel_android_library(
+    name = "evaluation_listener_android",
+    exports = ["//runtime/src/main/java/dev/cel/runtime:evaluation_listener_android"],
 )
 
 cel_android_library(
@@ -352,7 +362,20 @@ java_library(
     ],
 )
 
+cel_android_library(
+    name = "accumulated_unknowns_android",
+    visibility = ["//:internal"],
+    exports = [
+        "//runtime/src/main/java/dev/cel/runtime:accumulated_unknowns_android",
+    ],
+)
+
 java_library(
     name = "partial_vars",
     exports = ["//runtime/src/main/java/dev/cel/runtime:partial_vars"],
+)
+
+cel_android_library(
+    name = "partial_vars_android",
+    exports = ["//runtime/src/main/java/dev/cel/runtime:partial_vars_android"],
 )

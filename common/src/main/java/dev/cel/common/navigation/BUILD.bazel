@@ -1,4 +1,5 @@
 load("@rules_java//java:defs.bzl", "java_library")
+load("//:cel_android_rules.bzl", "cel_android_library")
 
 package(
     default_applicable_licenses = [
@@ -28,6 +29,25 @@ java_library(
     ],
 )
 
+cel_android_library(
+    name = "common_android",
+    srcs = [
+        "BaseNavigableExpr.java",
+        "CelNavigableExprVisitor.java",
+        "ExprPropertyCalculator.java",
+        "TraversalOrder.java",
+    ],
+    tags = [
+    ],
+    deps = [
+        "//:auto_value",
+        "//common/ast:ast_android",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:org_jspecify_jspecify",
+        "@maven_android//:com_google_guava_guava",
+    ],
+)
+
 java_library(
     name = "navigation",
     srcs = [
@@ -44,6 +64,25 @@ java_library(
         "@maven//:com_google_errorprone_error_prone_annotations",
         "@maven//:com_google_guava_guava",
         "@maven//:org_jspecify_jspecify",
+    ],
+)
+
+cel_android_library(
+    name = "navigation_android",
+    srcs = [
+        "CelNavigableAst.java",
+        "CelNavigableExpr.java",
+    ],
+    tags = [
+    ],
+    deps = [
+        ":common_android",
+        "//:auto_value",
+        "//common:cel_ast_android",
+        "//common/ast:ast_android",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:org_jspecify_jspecify",
+        "@maven_android//:com_google_guava_guava",
     ],
 )
 

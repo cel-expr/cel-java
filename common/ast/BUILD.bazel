@@ -18,6 +18,12 @@ java_library(
 )
 
 cel_android_library(
+    name = "cel_block_android",
+    visibility = ["//:internal"],
+    exports = ["//common/src/main/java/dev/cel/common/ast:cel_block_android"],
+)
+
+cel_android_library(
     name = "ast_android",
     exports = ["//common/src/main/java/dev/cel/common/ast:ast_android"],
 )

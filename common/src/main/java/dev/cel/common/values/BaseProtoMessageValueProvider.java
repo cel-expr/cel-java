@@ -28,4 +28,9 @@ import dev.cel.common.annotations.Internal;
 public abstract class BaseProtoMessageValueProvider implements CelValueProvider {
 
   public abstract BaseProtoCelValueConverter protoCelValueConverter();
+
+  @Override
+  public CelValueConverter celValueConverter() {
+    return protoCelValueConverter();
+  }
 }

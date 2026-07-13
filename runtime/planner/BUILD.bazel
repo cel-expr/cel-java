@@ -1,4 +1,5 @@
 load("@rules_java//java:defs.bzl", "java_library")
+load("//:cel_android_rules.bzl", "cel_android_library")
 
 package(
     default_applicable_licenses = ["//:license"],
@@ -8,6 +9,11 @@ package(
 java_library(
     name = "program_planner",
     exports = ["//runtime/src/main/java/dev/cel/runtime/planner:program_planner"],
+)
+
+cel_android_library(
+    name = "program_planner_android",
+    exports = ["//runtime/src/main/java/dev/cel/runtime/planner:program_planner_android"],
 )
 
 java_library(

@@ -192,7 +192,10 @@ public class CelLiteRuntimeAndroidTest {
 
   @Test
   public void eval_stringLiteral() throws Exception {
-    CelLiteRuntime runtime = CelLiteRuntimeFactory.newLiteRuntimeBuilder().build();
+    CelLiteRuntime runtime =
+        CelLiteRuntimeFactory.newLiteRuntimeBuilder()
+            .setStandardFunctions(CelStandardFunctions.ALL_STANDARD_FUNCTIONS)
+            .build();
     // Expr: 'hello world'
     CelAbstractSyntaxTree ast = readCheckedExpr("compiled_hello_world");
     Program program = runtime.createProgram(ast);
@@ -205,7 +208,10 @@ public class CelLiteRuntimeAndroidTest {
   @Test
   @SuppressWarnings("unchecked")
   public void eval_listLiteral() throws Exception {
-    CelLiteRuntime runtime = CelLiteRuntimeFactory.newLiteRuntimeBuilder().build();
+    CelLiteRuntime runtime =
+        CelLiteRuntimeFactory.newLiteRuntimeBuilder()
+            .setStandardFunctions(CelStandardFunctions.ALL_STANDARD_FUNCTIONS)
+            .build();
     // Expr: ['a', 1, 2u, 3.5]
     CelAbstractSyntaxTree ast = readCheckedExpr("compiled_list_literal");
     Program program = runtime.createProgram(ast);
@@ -286,6 +292,7 @@ public class CelLiteRuntimeAndroidTest {
     CelLiteRuntime runtime =
         CelLiteRuntimeFactory.newLiteRuntimeBuilder()
             .addFunctionBindings(CelFunctionBinding.from("list_isEmpty", List.class, List::isEmpty))
+            .addLateBoundFunctions("isEmpty")
             .setStandardFunctions(CelStandardFunctions.ALL_STANDARD_FUNCTIONS)
             .build();
     // Expr: ''.isEmpty() && [].isEmpty()
@@ -307,11 +314,18 @@ public class CelLiteRuntimeAndroidTest {
   @TestParameters("{checkedExpr: 'compiled_proto2_select_primitives'}")
   @TestParameters("{checkedExpr: 'compiled_proto3_select_primitives'}")
   public void eval_protoMessage_unknowns(String checkedExpr) throws Exception {
-    CelLiteRuntime runtime = CelLiteRuntimeFactory.newLiteRuntimeBuilder().build();
+    CelLiteRuntime runtime =
+        CelLiteRuntimeFactory.newLiteRuntimeBuilder()
+            .setStandardFunctions(CelStandardFunctions.ALL_STANDARD_FUNCTIONS)
+            .build();
     CelAbstractSyntaxTree ast = readCheckedExpr(checkedExpr);
     Program program = runtime.createProgram(ast);
 
-    CelUnknownSet result = (CelUnknownSet) program.eval();
+    CelUnknownSet result =
+        (CelUnknownSet)
+            program.eval(
+                PartialVars.of(
+                    CelAttributePattern.create("proto2"), CelAttributePattern.create("proto3")));
 
     assertThat(result.unknownExprIds()).hasSize(15);
   }
@@ -516,7 +530,8 @@ public class CelLiteRuntimeAndroidTest {
                                     .setPayload(
                                         dev.cel.expr.conformance.proto2.TestAllTypes.newBuilder()
                                             .addAllRepeatedString(data)
-                                            .build())),
+                                            .build()))
+                            .build(),
                     "proto3",
                         TestAllTypes.newBuilder()
                             .setOneofType(
@@ -524,7 +539,8 @@ public class CelLiteRuntimeAndroidTest {
                                     .setPayload(
                                         TestAllTypes.newBuilder()
                                             .addAllRepeatedString(data)
-                                            .build()))));
+                                            .build()))
+                            .build()));
 
     assertThat(result).isEqualTo(data);
   }
@@ -713,7 +729,6 @@ public class CelLiteRuntimeAndroidTest {
   }
 
   private enum CelOptionsTestCase {
-    CEL_VALUE_DISABLED(newBaseTestOptions().enableCelValue(false).build()),
     UNSIGNED_LONG_DISABLED(newBaseTestOptions().enableUnsignedLongs(false).build()),
     UNWRAP_WKT_DISABLED(newBaseTestOptions().unwrapWellKnownTypesOnFunctionDispatch(false).build()),
     ;

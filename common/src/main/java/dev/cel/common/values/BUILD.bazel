@@ -408,6 +408,7 @@ java_library(
     ],
     deps = [
         "//common/annotations",
+        "//common/values",
         "//common/values:base_proto_cel_value_converter",
         "//common/values:cel_value_provider",
         "@maven//:com_google_errorprone_error_prone_annotations",
@@ -423,6 +424,7 @@ cel_android_library(
         "//common/annotations",
         "//common/values:base_proto_cel_value_converter_android",
         "//common/values:cel_value_provider_android",
+        "//common/values:values_android",
         "@maven//:com_google_errorprone_error_prone_annotations",
     ],
 )

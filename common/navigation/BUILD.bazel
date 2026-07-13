@@ -1,4 +1,5 @@
 load("@rules_java//java:defs.bzl", "java_library")
+load("//:cel_android_rules.bzl", "cel_android_library")
 
 package(
     default_applicable_licenses = ["//:license"],
@@ -13,6 +14,11 @@ java_library(
 java_library(
     name = "navigation",
     exports = ["//common/src/main/java/dev/cel/common/navigation"],
+)
+
+cel_android_library(
+    name = "navigation_android",
+    exports = ["//common/src/main/java/dev/cel/common/navigation:navigation_android"],
 )
 
 java_library(

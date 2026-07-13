@@ -16,10 +16,12 @@ package dev.cel.runtime.planner;
 
 import static dev.cel.runtime.planner.MissingAttribute.newMissingField;
 
+import com.google.errorprone.annotations.Immutable;
 import dev.cel.common.values.SelectableValue;
 import java.util.Map;
 
 /** A qualifier for presence testing a field or a map key. */
+@Immutable
 final class PresenceTestQualifier implements Qualifier {
 
   @SuppressWarnings("Immutable")

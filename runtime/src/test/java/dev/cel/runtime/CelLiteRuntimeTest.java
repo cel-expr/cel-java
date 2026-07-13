@@ -20,6 +20,7 @@ import static org.junit.Assert.assertThrows;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.primitives.UnsignedLong;
 import com.google.protobuf.BoolValue;
 import com.google.protobuf.ByteString;
@@ -42,6 +43,7 @@ import dev.cel.common.CelContainer;
 import dev.cel.common.CelFunctionDecl;
 import dev.cel.common.CelOverloadDecl;
 import dev.cel.common.internal.ProtoTimeUtils;
+import dev.cel.common.types.ProtoMessageTypeProvider;
 import dev.cel.common.types.SimpleType;
 import dev.cel.common.types.StructTypeReference;
 import dev.cel.common.values.CelByteString;
@@ -74,22 +76,33 @@ import org.junit.runner.RunWith;
 /** Exercises tests for CelLiteRuntime using <b>full version of protobuf messages</b>. */
 @RunWith(TestParameterInjector.class)
 public class CelLiteRuntimeTest {
+  private static final CelContainer CEL_CONTAINER =
+      CelContainer.ofName("cel.expr.conformance.proto3");
+
   private static final CelCompiler CEL_COMPILER =
       CelCompilerFactory.standardCelCompilerBuilder()
           .setStandardMacros(CelStandardMacro.STANDARD_MACROS)
           .addVar("msg", StructTypeReference.create(TestAllTypes.getDescriptor().getFullName()))
           .addVar("content", SimpleType.DYN)
           .addMessageTypes(TestAllTypes.getDescriptor())
-          .setContainer(CelContainer.ofName("cel.expr.conformance.proto3"))
+          .setContainer(CEL_CONTAINER)
           .build();
 
   private static final CelLiteRuntime CEL_RUNTIME =
       CelLiteRuntimeFactory.newLiteRuntimeBuilder()
           .setStandardFunctions(CelStandardFunctions.ALL_STANDARD_FUNCTIONS)
+          .setTypeProvider(
+              ProtoMessageTypeProvider.newBuilder()
+                  .addDescriptors(
+                      ImmutableSet.of(
+                          dev.cel.expr.conformance.proto2.TestAllTypes.getDescriptor(),
+                          TestAllTypes.getDescriptor()))
+                  .build())
           .setValueProvider(
               ProtoMessageLiteValueProvider.newInstance(
                   dev.cel.expr.conformance.proto2.TestAllTypesCelDescriptor.getDescriptor(),
                   TestAllTypesCelDescriptor.getDescriptor()))
+          .setContainer(CEL_CONTAINER)
           .build();
 
   @Test
@@ -596,6 +609,11 @@ public class CelLiteRuntimeTest {
                 ProtoMessageLiteValueProvider.newInstance(
                     SingleFileCelDescriptor.getDescriptor(),
                     MultiFileCelDescriptor.getDescriptor()))
+            .setTypeProvider(
+                ProtoMessageTypeProvider.newBuilder()
+                    .addDescriptors(
+                        ImmutableList.of(SingleFile.getDescriptor(), MultiFile.getDescriptor()))
+                    .build())
             .build();
 
     CelAbstractSyntaxTree ast = celCompiler.compile("multiFile.nested_single_file.name").getAst();
@@ -608,7 +626,8 @@ public class CelLiteRuntimeTest {
                     ImmutableMap.of(
                         "multiFile",
                         MultiFile.newBuilder()
-                            .setNestedSingleFile(SingleFile.newBuilder().setName("foo").build())));
+                            .setNestedSingleFile(SingleFile.newBuilder().setName("foo").build())
+                            .build()));
 
     assertThat(result).isEqualTo("foo");
   }
@@ -623,7 +642,10 @@ public class CelLiteRuntimeTest {
                     CelOverloadDecl.newGlobalOverload(
                         "lateBoundFunc_string", SimpleType.STRING, SimpleType.STRING)))
             .build();
-    CelLiteRuntime celRuntime = CelLiteRuntimeFactory.newLiteRuntimeBuilder().build();
+    CelLiteRuntime celRuntime =
+        CelLiteRuntimeFactory.newLiteRuntimeBuilder()
+            .addLateBoundFunctions("lateBoundFunc")
+            .build();
     CelAbstractSyntaxTree ast = celCompiler.compile("lateBoundFunc('hello')").getAst();
 
     String result =
@@ -680,6 +702,10 @@ public class CelLiteRuntimeTest {
             .setValueProvider(
                 ProtoMessageLiteValueProvider.newInstance(
                     MessageWithEnumCelDescriptor.getDescriptor()))
+            .setTypeProvider(
+                ProtoMessageTypeProvider.newBuilder()
+                    .addFileDescriptors(ImmutableList.of(MessageWithEnum.getDescriptor().getFile()))
+                    .build())
             .build();
     CelAbstractSyntaxTree ast = celCompiler.compile("msg.simple_enum").getAst();
 
@@ -689,7 +715,7 @@ public class CelLiteRuntimeTest {
                 .createProgram(ast)
                 .eval(
                     ImmutableMap.of(
-                        "msg", MessageWithEnum.newBuilder().setSimpleEnum(SimpleEnum.BAR)));
+                        "msg", MessageWithEnum.newBuilder().setSimpleEnum(SimpleEnum.BAR).build()));
 
     assertThat(result).isEqualTo(SimpleEnum.BAR.getNumber());
   }

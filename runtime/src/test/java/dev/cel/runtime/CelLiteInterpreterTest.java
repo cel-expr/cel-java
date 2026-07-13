@@ -27,16 +27,18 @@ import org.junit.runner.RunWith;
  * ProtoMessageLiteValueProvider} and <b>full version of protobuf messages</b>.
  */
 @RunWith(TestParameterInjector.class)
-public class CelLiteInterpreterTest extends BaseInterpreterTest {
+public class CelLiteInterpreterTest extends AbstractPlannerInterpreterTest {
 
   @Override
   protected CelRuntimeBuilder newBaseRuntimeBuilder(CelOptions celOptions) {
-    return CelRuntimeFactory.standardCelRuntimeBuilder()
+    return CelRuntimeFactory.plannerRuntimeBuilder()
         .setValueProvider(
             ProtoMessageLiteValueProvider.newInstance(
                 dev.cel.expr.conformance.proto2.TestAllTypesCelDescriptor.getDescriptor(),
                 TestAllTypesCelDescriptor.getDescriptor()))
         .addLibraries(CelOptionalLibrary.INSTANCE)
+        .addFileTypes(TEST_FILE_DESCRIPTORS)
+        .addLateBoundFunctions("record")
         .setOptions(celOptions.toBuilder().enableCelValue(true).build());
   }
 

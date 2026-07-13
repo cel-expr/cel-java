@@ -14,12 +14,14 @@
 
 package dev.cel.runtime.planner;
 
+import com.google.errorprone.annotations.Immutable;
 import dev.cel.common.exceptions.CelAttributeNotFoundException;
 import dev.cel.common.values.OptionalValue;
 import dev.cel.common.values.SelectableValue;
 import java.util.Map;
 
 /** A qualifier that accesses fields or map keys using a string identifier. */
+@Immutable
 final class StringQualifier implements Qualifier {
 
   private final String value;

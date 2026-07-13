@@ -75,7 +75,10 @@ def junit4_test_suites(
     test_files = srcs or native.glob(
         ["**/*Test.java"],
         # TODO: Inspect built JAR and derive the included test files from classpath instead (provided from java_library deps).
-        exclude = ["**/*AndroidTest.java"],
+        exclude = [
+            "**/*AndroidTest.java",
+            "**/AbstractPlannerInterpreterTest.java",
+        ],
     )
     test_classes = []
     for src in test_files:

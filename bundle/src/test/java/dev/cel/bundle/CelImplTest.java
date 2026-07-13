@@ -59,7 +59,6 @@ import com.google.protobuf.WrappersProto;
 import com.google.rpc.context.AttributeContext;
 import com.google.testing.junit.testparameterinjector.TestParameter;
 import com.google.testing.junit.testparameterinjector.TestParameterInjector;
-import com.google.testing.junit.testparameterinjector.TestParameters;
 import dev.cel.checker.CelCheckerLegacyImpl;
 import dev.cel.checker.DescriptorTypeProvider;
 import dev.cel.checker.ProtoTypeMask;
@@ -232,9 +231,7 @@ public final class CelImplTest {
   }
 
   @Test
-  @TestParameters("{useProtoResultType: false}")
-  @TestParameters("{useProtoResultType: true}")
-  public void compile(boolean useProtoResultType) throws Exception {
+  public void compile(@TestParameter boolean useProtoResultType) throws Exception {
     CelBuilder celBuilder = standardCelBuilderWithMacros();
     if (useProtoResultType) {
       celBuilder.setProtoResultType(CelProtoTypes.BOOL);
@@ -246,9 +243,7 @@ public final class CelImplTest {
   }
 
   @Test
-  @TestParameters("{useProtoResultType: false}")
-  @TestParameters("{useProtoResultType: true}")
-  public void compile_resultTypeCheckFailure(boolean useProtoResultType) {
+  public void compile_resultTypeCheckFailure(@TestParameter boolean useProtoResultType) {
     CelBuilder celBuilder = standardCelBuilderWithMacros();
     if (useProtoResultType) {
       celBuilder.setProtoResultType(CelProtoTypes.STRING);
@@ -563,23 +558,6 @@ public final class CelImplTest {
     assertThat(program.eval(ImmutableMap.of("variable", "hello"))).isEqualTo(true);
   }
 
-  @Test
-  public void program_withCelValue() throws Exception {
-    Cel cel =
-        standardCelBuilderWithMacros()
-            .setOptions(CelOptions.current().enableCelValue(true).build())
-            .addDeclarations(
-                Decl.newBuilder()
-                    .setName("variable")
-                    .setIdent(IdentDecl.newBuilder().setType(CelProtoTypes.STRING))
-                    .build())
-            .setResultType(SimpleType.BOOL)
-            .build();
-
-    CelRuntime.Program program = cel.createProgram(cel.compile("variable == 'hello'").getAst());
-
-    assertThat(program.eval(ImmutableMap.of("variable", "hello"))).isEqualTo(true);
-  }
 
   @Test
   public void program_withProtoVars() throws Exception {
@@ -1006,9 +984,8 @@ public final class CelImplTest {
   }
 
   @Test
-  @TestParameters("{resolveTypeDependencies: false}")
-  @TestParameters("{resolveTypeDependencies: true}")
-  public void program_enumTypeDirectResolution(boolean resolveTypeDependencies) throws Exception {
+  public void program_enumTypeDirectResolution(@TestParameter boolean resolveTypeDependencies)
+      throws Exception {
     Cel cel =
         standardCelBuilderWithMacros()
             .addFileTypes(StandaloneGlobalEnum.getDescriptor().getFile())
@@ -1029,9 +1006,7 @@ public final class CelImplTest {
   }
 
   @Test
-  @TestParameters("{resolveTypeDependencies: false}")
-  @TestParameters("{resolveTypeDependencies: true}")
-  public void program_enumTypeReferenceResolution(boolean resolveTypeDependencies)
+  public void program_enumTypeReferenceResolution(@TestParameter boolean resolveTypeDependencies)
       throws Exception {
     Cel cel =
         standardCelBuilderWithMacros()
@@ -1429,25 +1404,6 @@ public final class CelImplTest {
         .isEqualTo(CelUnknownSet.create(CelAttribute.fromQualifiedIdentifier("com.google.a")));
   }
 
-  @Test
-  public void programAdvanceEvaluation_nestedSelect_withCelValue() throws Exception {
-    Cel cel =
-        standardCelBuilderWithMacros()
-            .setOptions(
-                CelOptions.current().enableUnknownTracking(true).enableCelValue(true).build())
-            .addVar("com", MapType.create(SimpleType.STRING, SimpleType.DYN))
-            .addFunctionBindings()
-            .setResultType(SimpleType.BOOL)
-            .build();
-    CelRuntime.Program program = cel.createProgram(cel.compile("com.google.a || false").getAst());
-
-    assertThat(
-            program.advanceEvaluation(
-                UnknownContext.create(
-                    fromMap(ImmutableMap.of()),
-                    ImmutableList.of(CelAttributePattern.fromQualifiedIdentifier("com.google.a")))))
-        .isEqualTo(CelUnknownSet.create(CelAttribute.fromQualifiedIdentifier("com.google.a")));
-  }
 
   @Test
   public void programAdvanceEvaluation_argumentMergeErrorPriority() throws Exception {

@@ -15,10 +15,12 @@
 package dev.cel.runtime.planner;
 
 import com.google.common.collect.ImmutableSet;
+import com.google.errorprone.annotations.Immutable;
 import dev.cel.common.exceptions.CelAttributeNotFoundException;
 import dev.cel.runtime.GlobalResolver;
 
 /** Represents a missing attribute that is surfaced while resolving a struct field or a map key. */
+@Immutable
 final class MissingAttribute implements Attribute {
 
   private final ImmutableSet<String> missingAttributes;

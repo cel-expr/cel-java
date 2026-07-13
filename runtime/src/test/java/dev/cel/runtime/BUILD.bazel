@@ -19,6 +19,7 @@ java_library(
         ["*.java"],
         # keep sorted
         exclude = [
+            "AbstractPlannerInterpreterTest.java",
             "CelLiteInterpreterTest.java",
             "InterpreterTest.java",
             "PlannerInterpreterTest.java",
@@ -55,7 +56,6 @@ java_library(
         "//common/types:message_type_provider",
         "//common/values",
         "//common/values:cel_byte_string",
-        "//common/values:cel_value_provider",
         "//common/values:proto_message_lite_value_provider",
         "//compiler",
         "//compiler:compiler_builder",
@@ -128,6 +128,24 @@ java_library(
 )
 
 java_library(
+    name = "abstract_planner_interpreter_test",
+    testonly = 1,
+    srcs = ["AbstractPlannerInterpreterTest.java"],
+    deps = [
+        "//common:container",
+        "//common:options",
+        "//common/types",
+        "//runtime:function_binding",
+        "//runtime:unknown_attributes",
+        "//testing:base_interpreter_test",
+        "@cel_spec//proto/cel/expr/conformance/proto3:test_all_types_java_proto",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_protobuf_protobuf_java",
+        "@maven//:junit_junit",
+    ],
+)
+
+java_library(
     name = "planner_interpreter_test",
     testonly = 1,
     srcs = [
@@ -137,20 +155,15 @@ java_library(
         "//runtime/testdata",
     ],
     deps = [
+        ":abstract_planner_interpreter_test",
         "//common:cel_ast",
         "//common:compiler_common",
         "//common:container",
         "//common:options",
-        "//common/types",
         "//common/types:type_providers",
         "//extensions",
         "//runtime",
-        "//runtime:function_binding",
-        "//runtime:unknown_attributes",
-        "//testing:base_interpreter_test",
         "@cel_spec//proto/cel/expr/conformance/proto3:test_all_types_java_proto",
-        "@maven//:com_google_guava_guava",
-        "@maven//:com_google_protobuf_protobuf_java",
         "@maven//:com_google_testparameterinjector_test_parameter_injector",
         "@maven//:junit_junit",
     ],
@@ -176,6 +189,7 @@ cel_android_local_test(
         "//runtime:lite_runtime_android",
         "//runtime:lite_runtime_factory_android",
         "//runtime:lite_runtime_impl_android",
+        "//runtime:partial_vars_android",
         "//runtime:standard_functions_android",
         "//runtime:unknown_attributes_android",
         "//runtime/src/main/java/dev/cel/runtime:program_android",
@@ -199,7 +213,11 @@ java_library(
     srcs = [
         "CelLiteInterpreterTest.java",
     ],
+    resources = [
+        "//runtime/testdata",
+    ],
     deps = [
+        ":abstract_planner_interpreter_test",
         "//common:options",
         "//common/values:proto_message_lite_value_provider",
         "//extensions:optional_library",

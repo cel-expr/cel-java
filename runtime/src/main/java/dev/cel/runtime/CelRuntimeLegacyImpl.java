@@ -44,7 +44,6 @@ import dev.cel.common.types.CelTypeProvider;
 import dev.cel.common.types.CelTypes;
 import dev.cel.common.values.CelValueConverter;
 import dev.cel.common.values.CelValueProvider;
-import dev.cel.common.values.ProtoMessageValueProvider;
 import dev.cel.runtime.standard.IntFunction.IntOverload;
 import dev.cel.runtime.standard.TimestampFunction.TimestampOverload;
 import java.util.Arrays;
@@ -78,7 +77,6 @@ public final class CelRuntimeLegacyImpl implements CelRuntime {
   private final Function<String, Message.Builder> customTypeFactory;
 
   private final CelStandardFunctions overriddenStandardFunctions;
-  private final CelValueProvider celValueProvider;
   private final ImmutableSet<FileDescriptor> fileDescriptors;
 
   // This does not affect the evaluation behavior in any manner.
@@ -113,9 +111,6 @@ public final class CelRuntimeLegacyImpl implements CelRuntime {
       builder.setStandardFunctions(overriddenStandardFunctions);
     }
 
-    if (celValueProvider != null) {
-      builder.setValueProvider(celValueProvider);
-    }
 
     return builder;
   }
@@ -136,7 +131,6 @@ public final class CelRuntimeLegacyImpl implements CelRuntime {
     @VisibleForTesting final ImmutableSet.Builder<CelRuntimeLibrary> celRuntimeLibraries;
 
     @VisibleForTesting Function<String, Message.Builder> customTypeFactory;
-    @VisibleForTesting CelValueProvider celValueProvider;
     @VisibleForTesting CelStandardFunctions overriddenStandardFunctions;
 
     private CelOptions options;
@@ -209,8 +203,8 @@ public final class CelRuntimeLegacyImpl implements CelRuntime {
 
     @Override
     public CelRuntimeBuilder setValueProvider(CelValueProvider celValueProvider) {
-      this.celValueProvider = celValueProvider;
-      return this;
+      throw new UnsupportedOperationException(
+          "setValueProvider is not supported for legacy runtime");
     }
 
     @Override
@@ -335,19 +329,10 @@ public final class CelRuntimeLegacyImpl implements CelRuntime {
       RuntimeTypeProvider runtimeTypeProvider;
 
       if (options.enableCelValue()) {
-        CelValueProvider messageValueProvider = celValueProvider;
-
-        if (messageValueProvider == null) {
-          messageValueProvider = ProtoMessageValueProvider.newInstance(options, dynamicProto);
-        }
-
-        runtimeTypeProvider = CelValueRuntimeTypeProvider.newInstance(messageValueProvider);
-        celValueConverter = messageValueProvider.celValueConverter();
+        throw new UnsupportedOperationException(
+            "enableCelValue is not supported for legacy runtime");
       } else {
         runtimeTypeProvider = new DescriptorMessageProvider(runtimeTypeFactory, options);
-        if (celValueProvider != null) {
-          celValueConverter = celValueProvider.celValueConverter();
-        }
       }
 
       DefaultInterpreter interpreter =
@@ -364,7 +349,6 @@ public final class CelRuntimeLegacyImpl implements CelRuntime {
           extensionRegistry,
           customTypeFactory,
           overriddenStandardFunctions,
-          celValueProvider,
           fileDescriptors,
           runtimeLibraries,
           ImmutableList.copyOf(customFunctionBindings.values()));
@@ -452,7 +436,6 @@ public final class CelRuntimeLegacyImpl implements CelRuntime {
       ExtensionRegistry extensionRegistry,
       @Nullable Function<String, Message.Builder> customTypeFactory,
       @Nullable CelStandardFunctions overriddenStandardFunctions,
-      @Nullable CelValueProvider celValueProvider,
       ImmutableSet<FileDescriptor> fileDescriptors,
       ImmutableSet<CelRuntimeLibrary> celRuntimeLibraries,
       ImmutableList<CelFunctionBinding> celFunctionBindings) {
@@ -462,7 +445,6 @@ public final class CelRuntimeLegacyImpl implements CelRuntime {
     this.extensionRegistry = extensionRegistry;
     this.customTypeFactory = customTypeFactory;
     this.overriddenStandardFunctions = overriddenStandardFunctions;
-    this.celValueProvider = celValueProvider;
     this.fileDescriptors = fileDescriptors;
     this.celRuntimeLibraries = celRuntimeLibraries;
     this.celFunctionBindings = celFunctionBindings;
