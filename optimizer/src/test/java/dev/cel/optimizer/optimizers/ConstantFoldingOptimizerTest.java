@@ -94,6 +94,7 @@ public class ConstantFoldingOptimizerTest {
         .setContainer(CelContainer.ofName("cel.expr.conformance.proto3"))
         .setOptions(CEL_OPTIONS)
         .addCompilerLibraries(
+            CelExtensions.comprehensions(),
             CelExtensions.bindings(),
             CelOptionalLibrary.INSTANCE,
             CelExtensions.math(CEL_OPTIONS),
@@ -228,6 +229,23 @@ public class ConstantFoldingOptimizerTest {
   @TestParameters("{source: 'true == false', expected: 'false'}")
   @TestParameters("{source: 'true == true', expected: 'true'}")
   @TestParameters("{source: 'false == true', expected: 'false'}")
+  @TestParameters("{source: '[1, 2, 3].map(item, item * 2)', expected: '[2, 4, 6]'}")
+  @TestParameters("{source: '[1, 2, 3].filter(item, item > 1)', expected: '[2, 3]'}")
+  @TestParameters("{source: '[1, 2, 3].exists(item, item > 1)', expected: 'true'}")
+  @TestParameters("{source: '[1, 2, 3].all(item, item > 1)', expected: 'false'}")
+  @TestParameters("{source: '{\"a\": 1}.all(k, v, k == \"a\" || v > 0)', expected: 'true'}")
+  @TestParameters(
+      "{source: '{\"a\": 1, \"b\": x}.all(k, v, k == \"a\" || v > 0)', expected: '{\"a\": 1, \"b\":"
+          + " x}.all(k, v, k == \"a\" || v > 0)'}")
+  @TestParameters("{source: '[1, 2].map(x, [3, 4].map(y, x + y))', expected: '[[4, 5], [5, 6]]'}")
+  @TestParameters(
+      "{source: '[1, 2, x].map(item, item * 2)', expected: '[1, 2, x].map(item, item * 2)'}")
+  @TestParameters("{source: '[[1, 2], [3, 4]].map(x, x[0] == 1)', expected: '[true, false]'}")
+  @TestParameters("{source: '[{\"a\": 1}].map(item, item.a) == [1]', expected: 'true'}")
+  @TestParameters("{source: '[1].map(item, [1].exists(x, item == x))', expected: '[true]'}")
+  @TestParameters("{source: '[{\"a\": 1}].map(x, x.a == 1)', expected: '[true]'}")
+  @TestParameters(
+      "{source: '[1, 2, x].map(item, item * 2)', expected: '[1, 2, x].map(item, item * 2)'}")
   @TestParameters("{source: 'false == false', expected: 'true'}")
   @TestParameters("{source: '10 == 42', expected: 'false'}")
   @TestParameters("{source: '42 == 42', expected: 'true'}")
@@ -561,10 +579,7 @@ public class ConstantFoldingOptimizerTest {
     Cel cel =
         runtimeFlavor
             .builder()
-            .setOptions(
-                CelOptions.current()
-                    .enableHeterogeneousNumericComparisons(true)
-                    .build())
+            .setOptions(CelOptions.current().enableHeterogeneousNumericComparisons(true).build())
             .build();
     CelAbstractSyntaxTree ast = cel.compile("1 + 1").getAst();
     CelOptimizer optimizer =
