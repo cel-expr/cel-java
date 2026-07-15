@@ -464,6 +464,56 @@ final class CelAstToZ3Translator {
     return typeSystem.mkUnknown();
   }
 
+  private static final class FieldAccess {
+    final Expr<?> presence;
+    final Expr<?> value;
+
+    FieldAccess(Expr<?> presence, Expr<?> value) {
+      this.presence = presence;
+      this.value = value;
+    }
+  }
+
+  private FieldAccess getMapAccess(Expr<?> operand, String field, BoolExpr typeGuard) {
+    Expr<?> mapRef = typeSystem.getMapRef(operand);
+    Expr<?> mapFieldZ3Str = typeSystem.mkString(field);
+    Expr<?> presence = ctx.mkSelect((ArrayExpr) typeSystem.getMapPresence(mapRef), mapFieldZ3Str);
+    Expr<?> value = ctx.mkSelect((ArrayExpr) typeSystem.getMapValues(mapRef), mapFieldZ3Str);
+
+    BoolExpr valNotError = ctx.mkNot(ctx.mkEq(value, typeSystem.mkError()));
+    typeConstraints.add(
+        ctx.mkImplies(
+            CelZ3TypeSystem.mkAndFlattened(ctx, typeGuard, (BoolExpr) presence), valNotError));
+    if (unknownIdentifiers.isEmpty()) {
+      BoolExpr valNotUnknown = ctx.mkNot(ctx.mkEq(value, typeSystem.mkUnknown()));
+      typeConstraints.add(
+          ctx.mkImplies(
+              CelZ3TypeSystem.mkAndFlattened(ctx, typeGuard, (BoolExpr) presence), valNotUnknown));
+    }
+
+    return new FieldAccess(presence, value);
+  }
+
+  private FieldAccess getMsgAccess(Expr<?> operand, String field, BoolExpr typeGuard) {
+    Expr<?> msgRef = typeSystem.getMessageRef(operand);
+    Expr<?> msgFieldZ3Str = ctx.mkString(field);
+    Expr<?> presence = ctx.mkSelect((ArrayExpr) typeSystem.getMsgPresence(msgRef), msgFieldZ3Str);
+    Expr<?> value = ctx.mkSelect((ArrayExpr) typeSystem.getMsgValues(msgRef), msgFieldZ3Str);
+
+    BoolExpr valNotError = ctx.mkNot(ctx.mkEq(value, typeSystem.mkError()));
+    typeConstraints.add(
+        ctx.mkImplies(
+            CelZ3TypeSystem.mkAndFlattened(ctx, typeGuard, (BoolExpr) presence), valNotError));
+    if (unknownIdentifiers.isEmpty()) {
+      BoolExpr valNotUnknown = ctx.mkNot(ctx.mkEq(value, typeSystem.mkUnknown()));
+      typeConstraints.add(
+          ctx.mkImplies(
+              CelZ3TypeSystem.mkAndFlattened(ctx, typeGuard, (BoolExpr) presence), valNotUnknown));
+    }
+
+    return new FieldAccess(presence, value);
+  }
+
   private TranslatedValue translateSelect(CelExpr celExpr, CelAbstractSyntaxTree ast) {
     CelExpr.CelSelect select = celExpr.select();
     long exprId = celExpr.id();
@@ -476,76 +526,31 @@ final class CelAstToZ3Translator {
     Expr<?> valueResult;
 
     if (operandType instanceof MapType) {
-      Expr<?> mapFieldZ3Str = typeSystem.mkString(field);
-      Expr<?> mapRef = typeSystem.getMapRef(operand);
-      ArrayExpr mapPresence = (ArrayExpr) typeSystem.getMapPresence(mapRef);
-      ArrayExpr mapValues = (ArrayExpr) typeSystem.getMapValues(mapRef);
-      Expr<?> inMap = ctx.mkSelect(mapPresence, mapFieldZ3Str);
-      Expr<?> mapVal = ctx.mkSelect(mapValues, mapFieldZ3Str);
-
-      BoolExpr valNotError = ctx.mkNot(ctx.mkEq(mapVal, typeSystem.mkError()));
-      typeConstraints.add(ctx.mkImplies((BoolExpr) inMap, valNotError));
-      if (unknownIdentifiers.isEmpty()) {
-        BoolExpr valNotUnknown = ctx.mkNot(ctx.mkEq(mapVal, typeSystem.mkUnknown()));
-        typeConstraints.add(ctx.mkImplies((BoolExpr) inMap, valNotUnknown));
-      }
-
-      presenceResult = inMap;
-      valueResult = ctx.mkITE((BoolExpr) inMap, mapVal, typeSystem.mkError());
+      FieldAccess mapAcc = getMapAccess(operand, field, ctx.mkTrue());
+      presenceResult = mapAcc.presence;
+      valueResult = ctx.mkITE((BoolExpr) mapAcc.presence, mapAcc.value, typeSystem.mkError());
     } else if (operandType.kind() == CelKind.STRUCT) {
-      Expr<?> msgFieldZ3Str = ctx.mkString(field);
-      Expr<?> msgRef = typeSystem.getMessageRef(operand);
-      ArrayExpr msgPresence = (ArrayExpr) typeSystem.getMsgPresence(msgRef);
-      ArrayExpr msgValues = (ArrayExpr) typeSystem.getMsgValues(msgRef);
-      Expr<?> inMsg = ctx.mkSelect(msgPresence, msgFieldZ3Str);
-      Expr<?> msgVal = ctx.mkSelect(msgValues, msgFieldZ3Str);
-
-      presenceResult = inMsg;
+      FieldAccess msgAcc = getMsgAccess(operand, field, ctx.mkTrue());
+      presenceResult = msgAcc.presence;
       Expr<?> defaultVal = getDefaultValueForType(extractAstTypeOrDefault(ast, exprId));
-      valueResult = ctx.mkITE((BoolExpr) inMsg, msgVal, defaultVal);
+      valueResult = ctx.mkITE((BoolExpr) msgAcc.presence, msgAcc.value, defaultVal);
     } else {
       // Dynamic type: generate the full SMT decision tree
-      Expr<?> mapFieldZ3Str = typeSystem.mkString(field);
-      Expr<?> mapRef = typeSystem.getMapRef(operand);
-      ArrayExpr mapPresence = (ArrayExpr) typeSystem.getMapPresence(mapRef);
-      ArrayExpr mapValues = (ArrayExpr) typeSystem.getMapValues(mapRef);
-      Expr<?> inMap = ctx.mkSelect(mapPresence, mapFieldZ3Str);
-      Expr<?> mapVal = ctx.mkSelect(mapValues, mapFieldZ3Str);
-
-      Expr<?> msgFieldZ3Str = ctx.mkString(field);
-      Expr<?> msgRef = typeSystem.getMessageRef(operand);
-      ArrayExpr msgPresence = (ArrayExpr) typeSystem.getMsgPresence(msgRef);
-      ArrayExpr msgValues = (ArrayExpr) typeSystem.getMsgValues(msgRef);
-      Expr<?> inMsg = ctx.mkSelect(msgPresence, msgFieldZ3Str);
-      Expr<?> msgVal = ctx.mkSelect(msgValues, msgFieldZ3Str);
-
       BoolExpr isMap = typeSystem.isMap(operand);
       BoolExpr isMessage = typeSystem.isMessage(operand);
 
-      BoolExpr mapValNotError = ctx.mkNot(ctx.mkEq(mapVal, typeSystem.mkError()));
-      typeConstraints.add(ctx.mkImplies(ctx.mkAnd(isMap, (BoolExpr) inMap), mapValNotError));
-      if (unknownIdentifiers.isEmpty()) {
-        BoolExpr mapValNotUnknown = ctx.mkNot(ctx.mkEq(mapVal, typeSystem.mkUnknown()));
-        typeConstraints.add(ctx.mkImplies(ctx.mkAnd(isMap, (BoolExpr) inMap), mapValNotUnknown));
-      }
-
-      BoolExpr msgValNotError = ctx.mkNot(ctx.mkEq(msgVal, typeSystem.mkError()));
-      typeConstraints.add(ctx.mkImplies(ctx.mkAnd(isMessage, (BoolExpr) inMsg), msgValNotError));
-      if (unknownIdentifiers.isEmpty()) {
-        BoolExpr msgValNotUnknown = ctx.mkNot(ctx.mkEq(msgVal, typeSystem.mkUnknown()));
-        typeConstraints.add(
-            ctx.mkImplies(ctx.mkAnd(isMessage, (BoolExpr) inMsg), msgValNotUnknown));
-      }
+      FieldAccess mapAcc = getMapAccess(operand, field, isMap);
+      FieldAccess msgAcc = getMsgAccess(operand, field, isMessage);
 
       presenceResult =
           CelZ3TypeSystem.SwitchBuilder.newBuilder(ctx)
-              .addCase(isMessage, inMsg)
-              .addCase(isMap, inMap)
+              .addCase(isMessage, msgAcc.presence)
+              .addCase(isMap, mapAcc.presence)
               .build(ctx.mkFalse());
 
       Expr<?> defaultVal = getDefaultValueForType(extractAstTypeOrDefault(ast, exprId));
-      Expr<?> msgRead = ctx.mkITE((BoolExpr) inMsg, msgVal, defaultVal);
-      Expr<?> mapRead = ctx.mkITE((BoolExpr) inMap, mapVal, typeSystem.mkError());
+      Expr<?> msgRead = ctx.mkITE((BoolExpr) msgAcc.presence, msgAcc.value, defaultVal);
+      Expr<?> mapRead = ctx.mkITE((BoolExpr) mapAcc.presence, mapAcc.value, typeSystem.mkError());
 
       valueResult =
           CelZ3TypeSystem.SwitchBuilder.newBuilder(ctx)
@@ -1022,27 +1027,20 @@ final class CelAstToZ3Translator {
 
       BoolExpr isActive = iter.inBounds;
 
-      hasMatchList.add(CelZ3TypeSystem.mkAndFlattened(ctx, Arrays.asList(isActive, isMatch)));
-      hasErrorList.add(CelZ3TypeSystem.mkAndFlattened(ctx, Arrays.asList(isActive, isE)));
-      hasUnknownList.add(CelZ3TypeSystem.mkAndFlattened(ctx, Arrays.asList(isActive, isU)));
+      hasMatchList.add(CelZ3TypeSystem.mkAndFlattened(ctx, isActive, isMatch));
+      hasErrorList.add(CelZ3TypeSystem.mkAndFlattened(ctx, isActive, isE));
+      hasUnknownList.add(CelZ3TypeSystem.mkAndFlattened(ctx, isActive, isU));
 
       hasSafeMatchList.add(
           CelZ3TypeSystem.mkAndFlattened(
-              ctx,
-              Arrays.asList(
-                  isActive, isMatch, CelZ3TypeSystem.mkNotFlattened(ctx, stepTv.isApproximate()))));
+              ctx, isActive, isMatch, CelZ3TypeSystem.mkNotFlattened(ctx, stepTv.isApproximate())));
       hasSafeErrorList.add(
           CelZ3TypeSystem.mkAndFlattened(
-              ctx,
-              Arrays.asList(
-                  isActive, isE, CelZ3TypeSystem.mkNotFlattened(ctx, stepTv.isApproximate()))));
+              ctx, isActive, isE, CelZ3TypeSystem.mkNotFlattened(ctx, stepTv.isApproximate())));
       hasSafeUnknownList.add(
           CelZ3TypeSystem.mkAndFlattened(
-              ctx,
-              Arrays.asList(
-                  isActive, isU, CelZ3TypeSystem.mkNotFlattened(ctx, stepTv.isApproximate()))));
-      activeTaints.add(
-          CelZ3TypeSystem.mkAndFlattened(ctx, Arrays.asList(isActive, stepTv.isApproximate())));
+              ctx, isActive, isU, CelZ3TypeSystem.mkNotFlattened(ctx, stepTv.isApproximate())));
+      activeTaints.add(CelZ3TypeSystem.mkAndFlattened(ctx, isActive, stepTv.isApproximate()));
     }
 
     BoolExpr hasMatch = CelZ3TypeSystem.mkOrFlattened(ctx, hasMatchList);

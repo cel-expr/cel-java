@@ -733,6 +733,10 @@ public final class CelZ3TypeSystem {
    *
    * <p>Returns {@code false} if the list is empty.
    */
+  public static BoolExpr mkOrFlattened(Context ctx, BoolExpr... args) {
+    return mkOrFlattened(ctx, Arrays.asList(args));
+  }
+
   public static BoolExpr mkOrFlattened(Context ctx, List<BoolExpr> args) {
     // Pruning true/false constants in Java is significantly faster than building
     // larger ASTs and letting Z3 process them natively.
@@ -759,6 +763,10 @@ public final class CelZ3TypeSystem {
    *
    * <p>Returns {@code true} if the list is empty.
    */
+  public static BoolExpr mkAndFlattened(Context ctx, BoolExpr... args) {
+    return mkAndFlattened(ctx, Arrays.asList(args));
+  }
+
   public static BoolExpr mkAndFlattened(Context ctx, List<BoolExpr> args) {
     // Pruning true/false constants in Java is significantly faster than building
     // larger ASTs and letting Z3 process them natively.
