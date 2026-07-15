@@ -1,0 +1,123 @@
+load("@rules_java//java:defs.bzl", "java_library")
+
+package(
+    default_applicable_licenses = ["//:license"],
+    default_visibility = ["//verifier:__pkg__"],
+)
+
+java_library(
+    name = "verifier",
+    srcs = [
+        "CelVerificationException.java",
+        "CelVerificationResult.java",
+        "CelVerifier.java",
+        "CelVerifierBuilder.java",
+    ],
+    tags = [
+    ],
+    deps = [
+        "//:auto_value",
+        "//common:cel_ast",
+        "//common/types:type_providers",
+    ],
+)
+
+java_library(
+    name = "verifier_factory",
+    srcs = ["CelVerifierFactory.java"],
+    compatible_with = [],
+    tags = [
+    ],
+    deps = [
+        ":verifier",
+        ":z3_impl",
+    ],
+)
+
+java_library(
+    name = "policy_verifier",
+    srcs = [
+        "CelPolicyVerifier.java",
+        "CelPolicyVerifierBuilder.java",
+    ],
+    tags = [
+    ],
+    deps = [
+        ":verifier",
+        "//policy",
+        "//policy:validation_exception",
+    ],
+)
+
+java_library(
+    name = "policy_verifier_factory",
+    srcs = ["CelPolicyVerifierFactory.java"],
+    tags = [
+    ],
+    deps = [
+        ":policy_verifier",
+        ":policy_verifier_impl",
+        ":verifier",
+        "//policy:compiler",
+    ],
+)
+
+java_library(
+    name = "policy_verifier_impl",
+    srcs = ["CelPolicyVerifierImpl.java"],
+    tags = [
+    ],
+    deps = [
+        ":policy_verifier",
+        ":verifier",
+        "//common:cel_ast",
+        "//policy",
+        "//policy:compiler",
+        "//policy:validation_exception",
+    ],
+)
+
+java_library(
+    name = "type_system",
+    srcs = ["CelZ3TypeSystem.java"],
+    compatible_with = [],
+    tags = [
+    ],
+    deps = [
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:com_google_guava_guava",
+        "@maven//:tools_aqua_z3_turnkey",
+    ],
+)
+
+java_library(
+    name = "z3_impl",
+    srcs = [
+        "CelAstToZ3Translator.java",
+        "CelVerifierZ3Impl.java",
+        "CelZ3CounterexampleGenerator.java",
+        "CelZ3ExtensionalityAxioms.java",
+        "CelZ3FunctionRegistry.java",
+        "CelZ3OperatorTranslator.java",
+        "TranslatedValue.java",
+    ],
+    compatible_with = [],
+    tags = [
+    ],
+    deps = [
+        ":type_system",
+        ":verifier",
+        "//:auto_value",
+        "//common:cel_ast",
+        "//common:compiler_common",
+        "//common:operator",
+        "//common/ast",
+        "//common/ast:cel_block",
+        "//common/types",
+        "//common/types:type_providers",
+        "//verifier/axioms",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:com_google_guava_guava",
+        "@maven//:tools_aqua_z3_turnkey",
+    ],
+)

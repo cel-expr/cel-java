@@ -1,0 +1,65 @@
+load("@rules_java//java:defs.bzl", "java_library")
+load("//:testing.bzl", "junit4_test_suites")
+
+package(
+    default_applicable_licenses = ["//:license"],
+)
+
+java_library(
+    name = "tests",
+    testonly = True,
+    srcs = glob(
+        ["**/*.java"],
+    ),
+    compatible_with = [],
+    deps = [
+        "//bundle:cel",
+        "//common:cel_ast",
+        "//common:compiler_common",
+        "//common:container",
+        "//common:operator",
+        "//common:options",
+        "//common/ast",
+        "//common/types",
+        "//common/types:message_type_provider",
+        "//compiler:compiler_builder",
+        "//extensions",
+        "//extensions:optional_library",
+        #         "//java/com/google/testing/testsize:annotations",
+        "//optimizer",
+        "//optimizer:optimizer_builder",
+        "//optimizer/optimizers:common_subexpression_elimination",
+        "//optimizer/optimizers:constant_folding",
+        "//parser:macro",
+        "//parser:unparser",
+        "//policy",
+        "//policy:compiler",
+        "//policy:compiler_factory",
+        "//policy:parser",
+        "//policy:parser_factory",
+        "@maven//:junit_junit",
+        "@maven//:com_google_testparameterinjector_test_parameter_injector",
+        "//:java_truth",
+        "@maven//:tools_aqua_z3_turnkey",
+        "//verifier",
+        "//verifier:policy_verifier",
+        "//verifier:policy_verifier_factory",
+        "//verifier:type_system",
+        "//verifier:verifier_factory",
+        "//verifier:z3_impl",
+        "//verifier/axioms",
+        "@cel_spec//proto/cel/expr/conformance/proto3:test_all_types_java_proto",
+        "@maven//:com_google_guava_guava",
+    ],
+)
+
+junit4_test_suites(
+    name = "test_suites",
+    shard_count = 4,
+    sizes = [
+        "small",
+        "medium",
+    ],
+    src_dir = "src/test/java",
+    deps = [":tests"],
+)

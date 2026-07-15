@@ -1,0 +1,27 @@
+load("@rules_java//java:defs.bzl", "java_library")
+
+package(
+    default_applicable_licenses = ["//:license"],
+    default_visibility = ["//verifier/axioms:__pkg__"],
+)
+
+java_library(
+    name = "axioms",
+    srcs = glob(["*.java"]),
+    compatible_with = [],
+    tags = [
+    ],
+    deps = [
+        "//:auto_value",
+        "//checker:standard_decl",
+        "//common:compiler_common",
+        "//common/annotations",
+        "//common/types",
+        "//extensions:comprehensions",
+        "//extensions:optional_library",
+        "//verifier:type_system",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:com_google_guava_guava",
+        "@maven//:tools_aqua_z3_turnkey",
+    ],
+)

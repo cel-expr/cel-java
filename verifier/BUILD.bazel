@@ -1,0 +1,41 @@
+load("@rules_java//java:defs.bzl", "java_library")
+
+package(
+    default_applicable_licenses = ["//:license"],
+    default_visibility = ["//:internal"],
+)
+
+java_library(
+    name = "verifier",
+    exports = ["//verifier/src/main/java/dev/cel/verifier"],
+)
+
+java_library(
+    name = "policy_verifier",
+    exports = ["//verifier/src/main/java/dev/cel/verifier:policy_verifier"],
+)
+
+java_library(
+    name = "policy_verifier_factory",
+    exports = ["//verifier/src/main/java/dev/cel/verifier:policy_verifier_factory"],
+)
+
+java_library(
+    name = "verifier_factory",
+    compatible_with = [],
+    exports = ["//verifier/src/main/java/dev/cel/verifier:verifier_factory"],
+)
+
+java_library(
+    name = "type_system",
+    compatible_with = [],
+    visibility = ["//:internal"],
+    exports = ["//verifier/src/main/java/dev/cel/verifier:type_system"],
+)
+
+java_library(
+    name = "z3_impl",
+    compatible_with = [],
+    visibility = ["//:internal"],
+    exports = ["//verifier/src/main/java/dev/cel/verifier:z3_impl"],
+)
