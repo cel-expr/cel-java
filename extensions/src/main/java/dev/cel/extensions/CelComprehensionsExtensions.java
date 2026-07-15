@@ -48,9 +48,12 @@ public final class CelComprehensionsExtensions
   private static final String MAP_INSERT_FUNCTION = "cel.@mapInsert";
   private static final String MAP_INSERT_OVERLOAD_MAP_MAP = "cel_@mapInsert_map_map";
   private static final String MAP_INSERT_OVERLOAD_KEY_VALUE = "cel_@mapInsert_map_key_value";
-  private static final TypeParamType TYPE_PARAM_K = TypeParamType.create("K");
-  private static final TypeParamType TYPE_PARAM_V = TypeParamType.create("V");
-  private static final MapType MAP_KV_TYPE = MapType.create(TYPE_PARAM_K, TYPE_PARAM_V);
+
+  private static final class Types {
+    private static final TypeParamType TYPE_PARAM_K = TypeParamType.create("K");
+    private static final TypeParamType TYPE_PARAM_V = TypeParamType.create("V");
+    private static final MapType MAP_KV_TYPE = MapType.create(TYPE_PARAM_K, TYPE_PARAM_V);
+  }
 
   /** Enumeration of functions for Comprehensions extension. */
   public enum Function {
@@ -60,16 +63,16 @@ public final class CelComprehensionsExtensions
             CelOverloadDecl.newGlobalOverload(
                 MAP_INSERT_OVERLOAD_MAP_MAP,
                 "Returns a map that's the result of merging given two maps.",
-                MAP_KV_TYPE,
-                MAP_KV_TYPE,
-                MAP_KV_TYPE),
+                Types.MAP_KV_TYPE,
+                Types.MAP_KV_TYPE,
+                Types.MAP_KV_TYPE),
             CelOverloadDecl.newGlobalOverload(
                 MAP_INSERT_OVERLOAD_KEY_VALUE,
                 "Adds the given key-value pair to the map.",
-                MAP_KV_TYPE,
-                MAP_KV_TYPE,
-                TYPE_PARAM_K,
-                TYPE_PARAM_V)));
+                Types.MAP_KV_TYPE,
+                Types.MAP_KV_TYPE,
+                Types.TYPE_PARAM_K,
+                Types.TYPE_PARAM_V)));
 
     private final CelFunctionDecl functionDecl;
 
@@ -118,7 +121,7 @@ public final class CelComprehensionsExtensions
 
   @Override
   public void setCheckerOptions(CelCheckerBuilder checkerBuilder) {
-    functions.forEach(function -> checkerBuilder.addFunctionDeclarations(function.functionDecl));
+    functions.forEach(function -> checkerBuilder.addFunctionDeclarations(function.functionDecl()));
   }
 
   @Override
