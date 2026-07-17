@@ -35,7 +35,8 @@ final class CelZ3CounterexampleGenerator {
 
   private CelZ3CounterexampleGenerator() {}
 
-  static String generate(Context ctx, CelZ3TypeSystem typeSystem, Model model) {
+  static String generate(
+      Context ctx, CelZ3TypeSystem typeSystem, Model model, boolean isApproximate) {
     FuncDecl[] constDecls = model.getConstDecls();
 
     List<String> bindings = new ArrayList<>();
@@ -57,7 +58,8 @@ final class CelZ3CounterexampleGenerator {
       return " (The expression fails unconditionally, regardless of input state)";
     }
 
-    return " Counterexample input:" + String.join("", bindings);
+    String prefix = isApproximate ? " Potential counterexample input:" : " Counterexample input:";
+    return prefix + String.join("", bindings);
   }
 
   private static String formatExpr(

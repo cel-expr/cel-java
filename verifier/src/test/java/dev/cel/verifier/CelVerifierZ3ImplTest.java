@@ -602,7 +602,8 @@ public final class CelVerifierZ3ImplTest {
         "'key' in string_int_map ? type(string_int_map['key']) == int : true"),
     LITERAL_LIST_INDEX("[1, 2][0] == 1"),
     NESTED_LIST_VARIABLES_EQUALITY(
-        "nested_list == [[1]] && nested_list_2 == [[1]] ? nested_list == nested_list_2 : true");
+        "nested_list == [[1]] && nested_list_2 == [[1]] ? nested_list == nested_list_2 : true"),
+    ;
 
     final String expr;
 
@@ -1122,6 +1123,17 @@ public final class CelVerifierZ3ImplTest {
     CelVerificationResult result = VERIFIER.isAlwaysTrue(ast);
 
     assertThat(result.status()).isEqualTo(VerificationStatus.INCONCLUSIVE);
+  }
+
+  @Test
+  public void isAlwaysTrue_inconclusive_containsPotentialCounterexample() throws Exception {
+    CelAbstractSyntaxTree ast = CEL.compile("request.matches('^[a-z]+$') == true").getAst();
+
+    CelVerificationResult result = VERIFIER.isAlwaysTrue(ast);
+
+    assertThat(result.status()).isEqualTo(VerificationStatus.INCONCLUSIVE);
+    assertThat(result.message())
+        .containsMatch("Potential counterexample input:\\n\\s*request = .*");
   }
 
   private enum EquivalenceInconclusiveTestCase {
