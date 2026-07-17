@@ -82,12 +82,15 @@ final class CelZ3ExtensionalityAxioms {
     FuncDecl<?> mkListRef = ctx.mkFuncDecl(FUNC_MK_LIST_REF, new Sort[] {seqSort}, listRefSort);
 
     for (Expr<?> ref : refs) {
+      if (isAppOf(ref, FUNC_MK_LIST_REF)) {
+        continue;
+      }
       Expr<?> ufApp = ctx.mkApp(mkListRef, typeSystem.getSeq(ref));
       // Ground assertion: f_list(seq(ref)) = ref
       BoolExpr axiom = ctx.mkEq(ufApp, ref);
 
       // Guard the axiom with type check if the reference is extracted from a CelValue
-      if (ref.isApp() && ref.getFuncDecl().equals(typeSystem.listCons().getAccessorDecls()[0])) {
+      if (isAppOf(ref, typeSystem.listCons().getAccessorDecls()[0])) {
         Expr<?> inner = ref.getArgs()[0];
         axiom = ctx.mkImplies(typeSystem.isList(inner), axiom);
       }
@@ -109,13 +112,16 @@ final class CelZ3ExtensionalityAxioms {
         ctx.mkFuncDecl(FUNC_MK_MAP_REF, new Sort[] {valuesSort, presenceSort}, mapRefSort);
 
     for (Expr<?> ref : refs) {
+      if (isAppOf(ref, FUNC_MK_MAP_REF)) {
+        continue;
+      }
       Expr<?> ufApp =
           ctx.mkApp(mkMapRef, typeSystem.getMapValues(ref), typeSystem.getMapPresence(ref));
       // Ground assertion: f_map(values(ref), presence(ref)) = ref
       BoolExpr axiom = ctx.mkEq(ufApp, ref);
 
       // Guard the axiom with type check if the reference is extracted from a CelValue
-      if (ref.isApp() && ref.getFuncDecl().equals(typeSystem.mapCons().getAccessorDecls()[0])) {
+      if (isAppOf(ref, typeSystem.mapCons().getAccessorDecls()[0])) {
         Expr<?> inner = ref.getArgs()[0];
         axiom = ctx.mkImplies(typeSystem.isMap(inner), axiom);
       }
@@ -139,6 +145,9 @@ final class CelZ3ExtensionalityAxioms {
             FUNC_MK_MSG_REF, new Sort[] {typeNameSort, valuesSort, presenceSort}, msgRefSort);
 
     for (Expr<?> ref : refs) {
+      if (isAppOf(ref, FUNC_MK_MSG_REF)) {
+        continue;
+      }
       Expr<?> ufApp =
           ctx.mkApp(
               mkMsgRef,
@@ -149,12 +158,29 @@ final class CelZ3ExtensionalityAxioms {
       BoolExpr axiom = ctx.mkEq(ufApp, ref);
 
       // Guard the axiom with type check if the reference is extracted from a CelValue
-      if (ref.isApp() && ref.getFuncDecl().equals(typeSystem.messageCons().getAccessorDecls()[0])) {
+      if (isAppOf(ref, typeSystem.messageCons().getAccessorDecls()[0])) {
         Expr<?> inner = ref.getArgs()[0];
         axiom = ctx.mkImplies(typeSystem.isMessage(inner), axiom);
       }
       axioms.add(axiom);
     }
+  }
+
+  /**
+   * Returns true if the expression is an application of the specified uninterpreted function.
+   *
+   * <p>We check this to avoid generating redundant or nested extensionality axioms for references
+   * that are already constructed using the maker functions (e.g., {@code !mkListRef}). Congruence
+   * closure natively handles equality for these constructed references, so additional axioms are
+   * unnecessary and degrade solver performance.
+   */
+  private static boolean isAppOf(Expr<?> expr, String funcName) {
+    return expr.isApp() && expr.getFuncDecl().getName().toString().equals(funcName);
+  }
+
+  /** Returns true if the expression is an application of the specified function declaration. */
+  private static boolean isAppOf(Expr<?> expr, FuncDecl<?> funcDecl) {
+    return expr.isApp() && expr.getFuncDecl().equals(funcDecl);
   }
 
   private CelZ3ExtensionalityAxioms() {}

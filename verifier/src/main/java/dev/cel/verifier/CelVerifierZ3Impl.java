@@ -172,14 +172,20 @@ final class CelVerifierZ3Impl implements CelVerifier {
         solver.add(constraint);
       }
 
-      BoolExpr unknownCondition =
-          ctx.mkOr(
-              translator.getTypeSystem().isUnknown(tvA.z3Expr()),
-              translator.getTypeSystem().isUnknown(tvB.z3Expr()));
+      // Divergent parameterized Unknowns are naturally caught by Pass 2 (A != B is SAT).
+      // Identical Unknowns mean the ASTs are alpha-equivalent, so we WANT them to pass.
+      // We no longer need Pass 3 to conservatively bail out of equivalence checks.
+      BoolExpr unknownCondition = ctx.mkFalse();
 
       SolverRunResult result =
           runThreePassVerification(
-              ctx, solver, divergenceCondition, combinedTaint, unknownCondition, translator);
+              ctx,
+              solver,
+              divergenceCondition,
+              combinedTaint,
+              unknownCondition,
+              translator,
+              /* checkTruncation= */ false);
 
       switch (result.outcome) {
         case EXACT_MATCH:
@@ -230,7 +236,8 @@ final class CelVerifierZ3Impl implements CelVerifier {
               condition,
               tv.isApproximate(),
               translator.getTypeSystem().isUnknown(tv.z3Expr()),
-              translator);
+              translator,
+              /* checkTruncation= */ true);
 
       switch (result.outcome) {
         case EXACT_MATCH:
@@ -276,7 +283,8 @@ final class CelVerifierZ3Impl implements CelVerifier {
       BoolExpr condition,
       BoolExpr taint,
       BoolExpr unknownCondition,
-      CelAstToZ3Translator translator)
+      CelAstToZ3Translator translator,
+      boolean checkTruncation)
       throws CelVerificationException {
 
     // Pass 1: Search for an exact match/counterexample
@@ -301,6 +309,13 @@ final class CelVerifierZ3Impl implements CelVerifier {
       return SolverRunResult.approximateMatch(solver.getModel());
     } else if (approxStatus == Status.UNKNOWN) {
       return SolverRunResult.solverUnknown(checkTimeoutOrGetReason(solver));
+    }
+
+    // If we don't need to check truncation (e.g. for equivalence checks),
+    // we can pop the solver and return noMatch immediately.
+    if (!checkTruncation) {
+      solver.pop();
+      return SolverRunResult.noMatch();
     }
 
     // Pass 3: Check BMC truncation

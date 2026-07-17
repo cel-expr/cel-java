@@ -293,10 +293,12 @@ final class CelZ3OperatorTranslator {
             ctx.mkAnd(a.isZ3Unknown(), ctx.mkNot(a.isApproximate())),
             ctx.mkAnd(b.isZ3Unknown(), ctx.mkNot(b.isApproximate())));
 
+    Expr<?> unknownResult = ctx.mkITE(a.isZ3Unknown(), a.z3Expr(), b.z3Expr());
+
     Expr<?> resultZ3 =
         CelZ3TypeSystem.SwitchBuilder.newBuilder(ctx)
             .addCase(hasMatch, typeSystem.mkBool(!isAnd))
-            .addCase(hasUnknown, typeSystem.mkUnknown())
+            .addCase(hasUnknown, unknownResult)
             .addCase(hasError, typeSystem.mkError())
             .build(typeSystem.mkBool(isAnd));
 
@@ -593,7 +595,7 @@ final class CelZ3OperatorTranslator {
     BoolExpr valNotError = ctx.mkNot(ctx.mkEq(val, typeSystem.mkError()));
     constraintSink.accept(ctx.mkImplies(inBounds, valNotError));
     if (!allowUnknowns) {
-      BoolExpr valNotUnknown = ctx.mkNot(ctx.mkEq(val, typeSystem.mkUnknown()));
+      BoolExpr valNotUnknown = ctx.mkNot(typeSystem.isUnknown(val));
       constraintSink.accept(ctx.mkImplies(inBounds, valNotUnknown));
     }
 
@@ -610,7 +612,7 @@ final class CelZ3OperatorTranslator {
     BoolExpr valNotError = ctx.mkNot(ctx.mkEq(val, typeSystem.mkError()));
     constraintSink.accept(ctx.mkImplies(inMap, valNotError));
     if (!allowUnknowns) {
-      BoolExpr valNotUnknown = ctx.mkNot(ctx.mkEq(val, typeSystem.mkUnknown()));
+      BoolExpr valNotUnknown = ctx.mkNot(typeSystem.isUnknown(val));
       constraintSink.accept(ctx.mkImplies(inMap, valNotUnknown));
     }
 
@@ -669,7 +671,7 @@ final class CelZ3OperatorTranslator {
 
     Expr<?> resultZ3 =
         CelZ3TypeSystem.SwitchBuilder.newBuilder(ctx)
-            .addCase(hasUnknown, typeSystem.mkUnknown())
+            .addCase(hasUnknown, cond.z3Expr())
             .addCase(hasError, typeSystem.mkError())
             .addCase(condTrue, trueBranch.z3Expr())
             .build(falseBranch.z3Expr());

@@ -93,6 +93,7 @@ java_library(
 java_library(
     name = "z3_impl",
     srcs = [
+        "CelAstAlphaHasher.java",
         "CelAstToZ3Translator.java",
         "CelVerifierZ3Impl.java",
         "CelZ3CounterexampleGenerator.java",

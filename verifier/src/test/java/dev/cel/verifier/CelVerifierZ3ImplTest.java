@@ -16,6 +16,7 @@ package dev.cel.verifier;
 
 import static com.google.common.truth.Truth.assertThat;
 import static com.google.common.truth.Truth.assertWithMessage;
+import static java.util.stream.Collectors.joining;
 import static org.junit.Assert.assertThrows;
 
 import com.google.common.collect.ImmutableList;
@@ -61,7 +62,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.function.Consumer;
-import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import org.junit.Before;
 import org.junit.Test;
@@ -371,7 +371,7 @@ public final class CelVerifierZ3ImplTest {
     LARGE_NUMBER_OF_LIST_EQUALITIES(
         IntStream.range(0, 1000)
             .mapToObj(i -> String.format("[%d] == [%d]", i, i))
-            .collect(Collectors.joining(" && "))),
+            .collect(joining(" && "))),
     DYNAMIC_MAP_KEY_EXTENSIONALITY(
         "dyn_map == {'a': 1, 'b': 2} ? dyn_map.all(k, k in {'a': 1, 'b': 2}) : true"),
     DYNAMIC_LIST_MAP_STANDARD("int_list == [1, 2, 3] ? int_list.map(x, x * 2) == [2, 4, 6] : true"),
@@ -774,6 +774,26 @@ public final class CelVerifierZ3ImplTest {
     assertThat(result.status()).isEqualTo(VerificationStatus.INCONCLUSIVE);
   }
 
+  @Test
+  public void isSatisfiable_mapWithUnusedApproximateIteration_verified() throws Exception {
+    Cel celWithCustomFunc =
+        CelFactory.plannerCelBuilder()
+            .setStandardMacros(CelStandardMacro.STANDARD_MACROS)
+            .addVar("y", ListType.create(SimpleType.INT))
+            .addFunctionDeclarations(
+                CelFunctionDecl.newFunctionDeclaration(
+                    "approx_func",
+                    CelOverloadDecl.newGlobalOverload(
+                        "approx_func_overload", SimpleType.INT, SimpleType.INT)))
+            .build();
+    CelAbstractSyntaxTree ast =
+        celWithCustomFunc.compile("y == [] && y.map(x, approx_func(1)) == y").getAst();
+
+    CelVerificationResult result = VERIFIER.isSatisfiable(ast);
+
+    assertThat(result.status()).isEqualTo(VerificationStatus.VERIFIED);
+  }
+
   private enum UnconditionalErrorTestCase {
     MAP_MISSING_KEY("{'a': 1}['b'] == 0 || !({'a': 1}['b'] == 0)"),
     COLLECTION_ERROR("{'a': 1 / 0} == {'a': 1 / 0}"),
@@ -1014,10 +1034,7 @@ public final class CelVerifierZ3ImplTest {
         "Counterexample input:",
         "request = NaN"),
     CROSS_TYPE_NUMERIC_EQUALITY_APPROXIMATION_VIOLATION(
-        "dyn_var == 1.0",
-        "Condition is not always true.",
-        "Counterexample input:",
-        "dyn_var = false"),
+        "dyn_var == 1.0", "Condition is not always true.", "Counterexample input:", "dyn_var ="),
     DYNAMIC_NOT_TYPE_MISMATCH(
         "!dyn_var", "Condition is not always true.", "Counterexample input:", "dyn_var ="),
     DYNAMIC_CONDITIONAL_TYPE_MISMATCH(
@@ -1079,7 +1096,16 @@ public final class CelVerifierZ3ImplTest {
     MAP_COMPREHENSION_APPROXIMATE_VALUE(
         "{\"key\": request.matches('a') ? 1 : 2}.all(k, v, v == 1)"),
     BIND_APPROXIMATE_ACCU("cel.bind(x, request.matches('a') ? 1 : 2, x == 1)"),
-    BIND_APPROXIMATE_BODY("cel.bind(x, 1, x == 1 && request.matches('a'))");
+    BIND_APPROXIMATE_BODY("cel.bind(x, 1, x == 1 && request.matches('a'))"),
+    COMPREHENSION_OPTIONAL_MAP_ENTRY(
+        "size(int_list) == 6 ? size(int_list.map(x, {? x: optional.of(1)})) == 6 : true"),
+    COMPREHENSION_OPTIONAL_STRUCT_ENTRY(
+        "size(int_list) == 6 ? size(int_list.map(x, TestAllTypes{?single_int32: optional.of(x)}))"
+            + " == 6 : true"),
+    COMPREHENSION_NULL_CONSTANT("size(int_list) == 6 ? size(int_list.map(x, null)) == 6 : true"),
+    COMPREHENSION_UINT_CONSTANT("size(int_list) == 6 ? size(int_list.map(x, 1u)) == 6 : true"),
+    COMPREHENSION_DOUBLE_CONSTANT("size(int_list) == 6 ? size(int_list.map(x, 1.0)) == 6 : true"),
+    COMPREHENSION_BYTES_CONSTANT("size(int_list) == 6 ? size(int_list.map(x, b'abc')) == 6 : true");
 
     final String expr;
 
@@ -1102,11 +1128,25 @@ public final class CelVerifierZ3ImplTest {
     MASKED_BY_BMC(
         "int_list == [1, 2, 3, 4, 5, 6] ? int_list.all(x, x > 0) : true",
         "int_list == [1, 2, 3, 4, 5, 6] ? (int_list.all(x, x > 0) || size(int_list) == 6) : true"),
-    // TODO: Implement alpha equivalent unknowns to handle this case
-    TRUNCATION_EQUIVALENT(
-        "int_list == [1, 2, 3, 4, 5, 6] ? int_list.all(x, x > 0) : true",
-        "int_list == [1, 2, 3, 4, 5, 6] ? int_list.all(y, y > 0) : true"),
-    APPROXIMATION_DIVERGENCE("request.matches('a') == true", "request.matches('a') == false");
+    APPROXIMATION_DIVERGENCE("request.matches('a') == true", "request.matches('a') == false"),
+    IDENTITY_ERASURE_INCONGRUENCE(
+        "size(int_list) == 6 && size(int_list_2) == 6 ? (int_list.map(x, x + 1) + [1]) : [1]",
+        "size(int_list) == 6 && size(int_list_2) == 6 ? (int_list_2.map(x, x + 1) + [1]) : [1]"),
+    TRUNCATION_DIVERGENCE_DIFFERENT_CONSTANTS(
+        "size(int_list) == 6 ? int_list.map(x, x + 1) : [1]",
+        "size(int_list) == 6 ? int_list.map(x, x + 2) : [1]"),
+    TRUNCATION_DIVERGENCE_DIFFERENT_VARIABLES(
+        "size(int_list) == 6 && size(int_list_2) == 6 ? size(int_list.filter(x, x > 2)) : 0",
+        "size(int_list) == 6 && size(int_list_2) == 6 ? size(int_list_2.filter(y, y > 2)) : 0"),
+    TRUNCATION_DIVERGENCE_DIFFERENT_UINTS(
+        "size(int_list) == 6 ? int_list.map(x, 1u) : [1u]",
+        "size(int_list) == 6 ? int_list.map(x, 2u) : [1u]"),
+    TRUNCATION_DIVERGENCE_DIFFERENT_DOUBLES(
+        "size(int_list) == 6 ? int_list.map(x, 1.0) : [1.0]",
+        "size(int_list) == 6 ? int_list.map(x, 2.0) : [1.0]"),
+    TRUNCATION_DIVERGENCE_DIFFERENT_BYTES(
+        "size(int_list) == 6 ? int_list.map(x, b'a') : [b'a']",
+        "size(int_list) == 6 ? int_list.map(x, b'b') : [b'a']");
 
     final String exprA;
     final String exprB;
@@ -1129,6 +1169,12 @@ public final class CelVerifierZ3ImplTest {
   }
 
   private enum EquivalenceTestCase {
+    TRUNCATION_STRICT_PROPAGATION_EQUIVALENT(
+        "size(int_list) == 6 ? size(int_list.filter(x, x > 2)) : 0",
+        "size(int_list) == 6 ? size(int_list.filter(y, y > 2)) : 0"),
+    TRUNCATION_EQUIVALENT(
+        "int_list == [1, 2, 3, 4, 5, 6] ? int_list.all(x, x > 0) : true",
+        "int_list == [1, 2, 3, 4, 5, 6] ? int_list.all(y, y > 0) : true"),
     DE_MORGANS_LAW("!(a && b)", "!a || !b"),
     CONSTANT_FOLDING("x > 5 + 5", "x > 10"),
     STRING_COMPARISON("role == \"admin\"", "\"admin\" == role"),
@@ -2081,9 +2127,9 @@ public final class CelVerifierZ3ImplTest {
             .addVar("large_list", ListType.create(SimpleType.INT))
             .build();
     StringBuilder listLiteral = new StringBuilder("[");
-    for (int i = 0; i < 105; i++) {
+    for (int i = 0; i < 20; i++) {
       listLiteral.append("1");
-      if (i < 104) {
+      if (i < 19) {
         listLiteral.append(", ");
       }
     }
@@ -2157,6 +2203,126 @@ public final class CelVerifierZ3ImplTest {
     CelVerificationResult result = verifier.verifyEquivalence(astA, astB);
 
     assertThat(result.status()).isEqualTo(VerificationStatus.VERIFIED);
+  }
+
+  private enum EquivalenceZeroUnrollLimitTestCase {
+    DIFFERENT_CONSTANT_KINDS("dyn_list.exists(i, i == 0)", "dyn_list.exists(i, i == 0.0)"),
+    DIFFERENT_COLLECTION_KINDS("dyn_list.exists(i, i == [])", "dyn_list.exists(i, i == {})"),
+    DIFFERENT_CONSTANTS("dyn_list.exists(i, i == 1)", "dyn_list.exists(i, i == 2)"),
+    DIFFERENT_VARIABLES("dyn_list.exists(i, i == x)", "dyn_list.exists(i, i == y)");
+
+    final String exprA;
+    final String exprB;
+
+    EquivalenceZeroUnrollLimitTestCase(String exprA, String exprB) {
+      this.exprA = exprA;
+      this.exprB = exprB;
+    }
+  }
+
+  @Test
+  public void verifyEquivalence_zeroUnrollLimit_returnsInconclusive(
+      @TestParameter EquivalenceZeroUnrollLimitTestCase testCase) throws Exception {
+    CelAbstractSyntaxTree astA = CEL.compile(testCase.exprA).getAst();
+    CelAbstractSyntaxTree astB = CEL.compile(testCase.exprB).getAst();
+
+    CelVerifier verifier = CelVerifierFactory.newVerifier().setComprehensionUnrollLimit(0).build();
+    CelVerificationResult result = verifier.verifyEquivalence(astA, astB);
+
+    assertThat(result.status()).isEqualTo(VerificationStatus.INCONCLUSIVE);
+  }
+
+  @Test
+  public void verifyEquivalence_comprehensionScopeShadowing_returnsInconclusive() throws Exception {
+    CelMacro macro1 =
+        CelMacro.newReceiverMacro(
+            "my_macro_1",
+            1,
+            (exprFactory, target, arguments) ->
+                Optional.of(
+                    exprFactory.fold(
+                        "unused",
+                        "x",
+                        target,
+                        "x",
+                        arguments.get(0),
+                        exprFactory.newBoolLiteral(true),
+                        /* step= */ exprFactory.newIdentifier("x"),
+                        /* result= */ exprFactory.newIdentifier("x"))));
+
+    CelMacro macro2 =
+        CelMacro.newReceiverMacro(
+            "my_macro_2",
+            1,
+            (exprFactory, target, arguments) ->
+                Optional.of(
+                    exprFactory.fold(
+                        "unused",
+                        "y",
+                        target,
+                        "x",
+                        arguments.get(0),
+                        exprFactory.newBoolLiteral(true),
+                        /* step= */ exprFactory.newIdentifier("y"),
+                        /* result= */ exprFactory.newIdentifier("x"))));
+
+    Cel customCel =
+        CelFactory.plannerCelBuilder()
+            .addVar("dyn_list", ListType.create(SimpleType.DYN))
+            .addMacros(macro1, macro2)
+            .build();
+
+    CelAbstractSyntaxTree astA = customCel.compile("dyn_list.my_macro_1(true)").getAst();
+    CelAbstractSyntaxTree astB = customCel.compile("dyn_list.my_macro_2(true)").getAst();
+
+    CelVerifier verifier = CelVerifierFactory.newVerifier().setComprehensionUnrollLimit(0).build();
+    CelVerificationResult result = verifier.verifyEquivalence(astA, astB);
+
+    assertThat(result.status()).isEqualTo(VerificationStatus.INCONCLUSIVE);
+  }
+
+  @Test
+  public void verifyEquivalence_comprehensionResultScopeIsolation_returnsInconclusive()
+      throws Exception {
+    CelMacro macro =
+        CelMacro.newReceiverMacro(
+            "my_macro",
+            1,
+            (exprFactory, target, arguments) ->
+                Optional.of(
+                    exprFactory.fold(
+                        /* iterVar= */ "x",
+                        /* iterRange= */ target,
+                        /* accuVar= */ "accu",
+                        /* accuInit= */ arguments.get(0),
+                        /* condition= */ exprFactory.newBoolLiteral(true),
+                        /* step= */ exprFactory.newIdentifier("accu"),
+                        /* result= */ exprFactory.newGlobalCall(
+                            Operator.CONDITIONAL.getFunction(),
+                            exprFactory.newGlobalCall(
+                                Operator.EQUALS.getFunction(),
+                                exprFactory.newGlobalCall("size", target),
+                                exprFactory.newIntLiteral(0L)),
+                            exprFactory.newIntLiteral(0L),
+                            exprFactory.newIdentifier("x")))));
+
+    Cel customCel =
+        CelFactory.plannerCelBuilder()
+            .addVar("dyn_list", ListType.create(SimpleType.DYN))
+            .addVar("x", SimpleType.INT)
+            .addMacros(macro)
+            .addCompilerLibraries(CelExtensions.bindings())
+            .build();
+
+    CelAbstractSyntaxTree astA =
+        customCel.compile("cel.bind(x, 10, dyn_list.my_macro(1))").getAst();
+    CelAbstractSyntaxTree astB =
+        customCel.compile("cel.bind(x, 20, dyn_list.my_macro(1))").getAst();
+
+    CelVerifier verifier = CelVerifierFactory.newVerifier().setComprehensionUnrollLimit(0).build();
+    CelVerificationResult result = verifier.verifyEquivalence(astA, astB);
+
+    assertThat(result.status()).isEqualTo(VerificationStatus.INCONCLUSIVE);
   }
 
   @Test

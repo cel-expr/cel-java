@@ -485,7 +485,7 @@ final class CelAstToZ3Translator {
         ctx.mkImplies(
             CelZ3TypeSystem.mkAndFlattened(ctx, typeGuard, (BoolExpr) presence), valNotError));
     if (unknownIdentifiers.isEmpty()) {
-      BoolExpr valNotUnknown = ctx.mkNot(ctx.mkEq(value, typeSystem.mkUnknown()));
+      BoolExpr valNotUnknown = ctx.mkNot(typeSystem.isUnknown(value));
       typeConstraints.add(
           ctx.mkImplies(
               CelZ3TypeSystem.mkAndFlattened(ctx, typeGuard, (BoolExpr) presence), valNotUnknown));
@@ -505,7 +505,7 @@ final class CelAstToZ3Translator {
         ctx.mkImplies(
             CelZ3TypeSystem.mkAndFlattened(ctx, typeGuard, (BoolExpr) presence), valNotError));
     if (unknownIdentifiers.isEmpty()) {
-      BoolExpr valNotUnknown = ctx.mkNot(ctx.mkEq(value, typeSystem.mkUnknown()));
+      BoolExpr valNotUnknown = ctx.mkNot(typeSystem.isUnknown(value));
       typeConstraints.add(
           ctx.mkImplies(
               CelZ3TypeSystem.mkAndFlattened(ctx, typeGuard, (BoolExpr) presence), valNotUnknown));
@@ -896,7 +896,7 @@ final class CelAstToZ3Translator {
     }
 
     TranslatedValue reducedTv =
-        reduceAllOrExists(iterations, isTruncated, iterRangeTv, isAllMacro(comp));
+        reduceAllOrExists(iterations, isTruncated, iterRangeTv, isAllMacro(comp), celExpr, ast);
     return TranslatedValue.create(
         typeSystem.propagateErrorAndUnknown(reducedTv.z3Expr(), iterRangeTv.z3Expr()),
         celExpr,
@@ -924,7 +924,6 @@ final class CelAstToZ3Translator {
     List<BoolExpr> taints = new ArrayList<>();
     taints.add(chainedAccuTv.isApproximate());
     taints.add(iterRangeTv.isApproximate());
-    taints.add(isTruncated);
 
     for (int i = 0; i < comprehensionUnrollLimit; i++) {
       IntExpr idx = ctx.mkInt(i);
@@ -954,7 +953,10 @@ final class CelAstToZ3Translator {
       Expr<?> stepVal =
           ctx.mkITE((BoolExpr) typeSystem.unwrapBool(condExpr), stepExpr, currentAccu);
       Expr<?> typeErrorOrStep = typeSystem.withRuntimeError(stepVal, ctx.mkNot(condIsBool));
-      taints.add(condAndStep[1].isApproximate());
+      // Standard macros' loop condition can't be approximate. However, we still
+      // keep the check here for custom macros to be safe.
+      taints.add(ctx.mkAnd(isActive, condAndStep[0].isApproximate()));
+      taints.add(ctx.mkAnd(isActive, condAndStep[1].isApproximate()));
 
       chainedAccu =
           ctx.mkITE(
@@ -973,9 +975,13 @@ final class CelAstToZ3Translator {
 
     taints.add(resultTv.isApproximate());
 
+    BoolExpr isNotError = ctx.mkNot(typeSystem.isError(resultTv.z3Expr()));
+    BoolExpr shouldYieldUnknown = ctx.mkAnd(isTruncated, isNotError);
+    taints.add(shouldYieldUnknown);
+
     return TranslatedValue.create(
         typeSystem.propagateErrorAndUnknown(
-            ctx.mkITE(isTruncated, typeSystem.mkUnknown(), resultTv.z3Expr()),
+            ctx.mkITE(shouldYieldUnknown, mkParameterizedUnknown(celExpr, ast), resultTv.z3Expr()),
             iterRangeTv.z3Expr()),
         celExpr,
         typeSystem,
@@ -1001,7 +1007,9 @@ final class CelAstToZ3Translator {
       List<BoundedIteration> iterations,
       BoolExpr isTruncated,
       TranslatedValue iterRangeTv,
-      boolean isAll) {
+      boolean isAll,
+      CelExpr compExpr,
+      CelAbstractSyntaxTree ast) {
     List<BoolExpr> hasMatchList = new ArrayList<>();
     List<BoolExpr> hasErrorList = new ArrayList<>();
     List<BoolExpr> hasUnknownList = new ArrayList<>();
@@ -1055,7 +1063,7 @@ final class CelAstToZ3Translator {
     Expr<?> result =
         CelZ3TypeSystem.SwitchBuilder.newBuilder(ctx)
             .addCase(hasMatch, typeSystem.mkBool(!isAll))
-            .addCase(ctx.mkOr(hasUnknown, isTruncated), typeSystem.mkUnknown())
+            .addCase(ctx.mkOr(hasUnknown, isTruncated), mkParameterizedUnknown(compExpr, ast))
             .addCase(hasError, typeSystem.mkError())
             .build(typeSystem.mkBool(isAll));
 
@@ -1231,5 +1239,16 @@ final class CelAstToZ3Translator {
       default:
         return Optional.empty();
     }
+  }
+
+  private Expr<?> mkParameterizedUnknown(CelExpr expr, CelAbstractSyntaxTree ast) {
+    CelAstAlphaHasher.AlphaSignature sig = CelAstAlphaHasher.computeSignature(expr);
+
+    ImmutableList.Builder<Expr<?>> smtArgs = ImmutableList.builder();
+    for (CelExpr freeVar : sig.freeVariables()) {
+      smtArgs.add(translateExpr(freeVar, ast).z3Expr());
+    }
+
+    return typeSystem.mkParameterizedUnknown(sig.staticHash(), smtArgs.build());
   }
 }

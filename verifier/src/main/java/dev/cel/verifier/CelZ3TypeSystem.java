@@ -86,6 +86,8 @@ public final class CelZ3TypeSystem {
 
   private static final String CONS_UNKNOWN = "CelUnknown";
   private static final String IS_UNKNOWN = "isUnknown";
+  private static final String GET_UNKNOWN = "getUnknownId";
+  private static final String GENERIC_UNKNOWN_ID = "!generic_unknown";
 
   private static final String CONS_NULL = "CelNull";
   private static final String IS_NULL = "isNull";
@@ -172,6 +174,7 @@ public final class CelZ3TypeSystem {
   private final Constructor nullCons;
   private final Constructor optionalCons;
 
+  private final Sort unknownIdSort;
   private final Sort optionalRefSort;
   private final FuncDecl<?> optionalValueFunc;
   private final FuncDecl<?> optionalOfRefFunc;
@@ -402,7 +405,35 @@ public final class CelZ3TypeSystem {
 
   /** Creates a CelValue representing an unknown value. */
   public Expr<?> mkUnknown() {
-    return ctx.mkConst(unknownCons.ConstructorDecl());
+    return mkUnknown(ctx.mkConst(GENERIC_UNKNOWN_ID, unknownIdSort));
+  }
+
+  /** Creates a CelValue representing an unknown value with a specific ID. */
+  public Expr<?> mkUnknown(Expr<?> unknownId) {
+    return ctx.mkApp(unknownCons.ConstructorDecl(), unknownId);
+  }
+
+  /** Creates a parameterized unknown representing a truncated comprehension. */
+  public Expr<?> mkParameterizedUnknown(long staticHash, List<Expr<?>> smtArgs) {
+    Sort[] domain = new Sort[smtArgs.size()];
+    for (int i = 0; i < smtArgs.size(); i++) {
+      domain[i] = celValueSort();
+    }
+
+    String ufName = "!trunc_" + Long.toHexString(staticHash);
+    FuncDecl<?> truncUf = internFuncDecl(ufName, domain, unknownIdSort());
+
+    Expr<?> uniqueUnknownId =
+        smtArgs.isEmpty()
+            ? ctx.mkConst(ufName, unknownIdSort())
+            : ctx.mkApp(truncUf, smtArgs.toArray(new Expr<?>[0]));
+
+    return mkUnknown(uniqueUnknownId);
+  }
+
+  /** Gets the sort used for unknown identifiers. */
+  public Sort unknownIdSort() {
+    return unknownIdSort;
   }
 
   /**
@@ -422,19 +453,24 @@ public final class CelZ3TypeSystem {
     if (args.isEmpty()) {
       return result;
     }
-    BoolExpr[] errors = new BoolExpr[args.size()];
-    BoolExpr[] unknowns = new BoolExpr[args.size()];
-    int i = 0;
-    for (Expr<?> arg : args) {
+    List<Expr<?>> argsList = new ArrayList<>(args);
+    BoolExpr[] errors = new BoolExpr[argsList.size()];
+    BoolExpr[] unknowns = new BoolExpr[argsList.size()];
+    Expr<?> unknownResult = mkUnknown();
+    // Walk backwards to preserve the earliest unknown in case of multiple unknowns (applicable for
+    // nested ITE chain)
+    for (int i = argsList.size() - 1; i >= 0; i--) {
+      Expr<?> arg = argsList.get(i);
       errors[i] = isError(arg);
-      unknowns[i] = isUnknown(arg);
-      i++;
+      BoolExpr isUnknown = isUnknown(arg);
+      unknowns[i] = isUnknown;
+      unknownResult = ctx.mkITE(isUnknown, arg, unknownResult);
     }
     BoolExpr hasError = ctx.mkOr(errors);
     BoolExpr hasUnknown = ctx.mkOr(unknowns);
     // Unknowns have higher precedence than error
     return SwitchBuilder.newBuilder(ctx)
-        .addCase(hasUnknown, mkUnknown())
+        .addCase(hasUnknown, unknownResult)
         .addCase(hasError, mkError())
         .build(result);
   }
@@ -832,7 +868,12 @@ public final class CelZ3TypeSystem {
         ctx.mkConstructor(
             CONS_BYTES, IS_BYTES, new String[] {GET_BYTES}, new Sort[] {ctx.getStringSort()}, null);
     this.errorCons = ctx.mkConstructor(CONS_ERROR, IS_ERROR, null, null, null);
-    this.unknownCons = ctx.mkConstructor(CONS_UNKNOWN, IS_UNKNOWN, null, null, null);
+
+    this.unknownIdSort = ctx.mkUninterpretedSort("UnknownId");
+    this.unknownCons =
+        ctx.mkConstructor(
+            CONS_UNKNOWN, IS_UNKNOWN, new String[] {GET_UNKNOWN}, new Sort[] {unknownIdSort}, null);
+
     this.nullCons = ctx.mkConstructor(CONS_NULL, IS_NULL, null, null, null);
     this.optionalRefSort = ctx.mkUninterpretedSort(SORT_OPTIONAL_REF);
     this.optionalCons =

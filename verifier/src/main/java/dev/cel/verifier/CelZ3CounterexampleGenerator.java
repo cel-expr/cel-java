@@ -31,6 +31,8 @@ import org.jspecify.annotations.Nullable;
 @SuppressWarnings({"unchecked", "rawtypes"}) // Z3 Java API uses raw types.
 final class CelZ3CounterexampleGenerator {
 
+  private static final int MAX_LIST_ELEMENTS_TO_PRINT = 15;
+
   private CelZ3CounterexampleGenerator() {}
 
   static String generate(Context ctx, CelZ3TypeSystem typeSystem, Model model) {
@@ -121,7 +123,7 @@ final class CelZ3CounterexampleGenerator {
             ctx.mkLength(typeSystem.getSeq(listRef)),
             String.format("Z3 failed to evaluate length for list %s", listRef));
     int length = ((IntNum) lenExpr).getInt();
-    int printLimit = Math.min(length, 100);
+    int printLimit = Math.min(length, MAX_LIST_ELEMENTS_TO_PRINT);
     List<String> elements = new ArrayList<>();
     for (int i = 0; i < printLimit; i++) {
       Expr<?> elem =

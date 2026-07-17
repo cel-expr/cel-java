@@ -150,7 +150,9 @@ abstract class TranslatedValue {
     taints.add(baseTaint);
 
     boolean hasNonConstantArgs = false;
-    for (TranslatedValue arg : args) {
+    List<TranslatedValue> argsList = new ArrayList<>(args);
+    for (int i = argsList.size() - 1; i >= 0; i--) {
+      TranslatedValue arg = argsList.get(i);
       taints.add(arg.isApproximate());
       if (arg.isLiteral(ExprKind.Kind.CONSTANT)) {
         continue;
