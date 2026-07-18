@@ -2,7 +2,10 @@ load("@rules_java//java:defs.bzl", "java_library")
 
 package(
     default_applicable_licenses = ["//:license"],
-    default_visibility = ["//verifier/axioms:__pkg__"],
+    default_visibility = [
+        "//publish:__pkg__",
+        "//verifier/axioms:__pkg__",
+    ],
 )
 
 java_library(

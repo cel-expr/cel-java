@@ -98,6 +98,7 @@ maven.install(
         "org.jspecify:jspecify:1.0.0",
         "org.threeten:threeten-extra:1.8.0",
         "org.yaml:snakeyaml:2.5",
+        "tools.aqua:z3-turnkey:4.14.1",
     ],
     repositories = [
         "https://maven.google.com",

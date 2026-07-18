@@ -2,7 +2,10 @@ load("@rules_java//java:defs.bzl", "java_library")
 
 package(
     default_applicable_licenses = ["//:license"],
-    default_visibility = ["//verifier:__pkg__"],
+    default_visibility = [
+        "//publish:__pkg__",
+        "//verifier:__pkg__",
+    ],
 )
 
 java_library(
@@ -19,6 +22,7 @@ java_library(
         "//:auto_value",
         "//common:cel_ast",
         "//common/types:type_providers",
+        "@maven//:com_google_errorprone_error_prone_annotations",
     ],
 )
 
@@ -119,6 +123,7 @@ java_library(
         "//verifier/axioms",
         "@maven//:com_google_errorprone_error_prone_annotations",
         "@maven//:com_google_guava_guava",
+        "@maven//:org_jspecify_jspecify",
         "@maven//:tools_aqua_z3_turnkey",
     ],
 )

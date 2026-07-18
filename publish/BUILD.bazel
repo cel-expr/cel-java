@@ -130,6 +130,18 @@ BUNDLE_TARGETS = [
 
 CEL_MISC_TARGETS = BUNDLE_TARGETS + EXTENSION_TARGETS + OPTIMIZER_TARGETS + VALIDATOR_TARGETS + POLICY_COMPILER_TARGETS
 
+# keep sorted
+VERIFIER_TARGETS = [
+    "//verifier/src/main/java/dev/cel/verifier",
+    "//verifier/src/main/java/dev/cel/verifier:policy_verifier",
+    "//verifier/src/main/java/dev/cel/verifier:policy_verifier_factory",
+    "//verifier/src/main/java/dev/cel/verifier:policy_verifier_impl",
+    "//verifier/src/main/java/dev/cel/verifier:type_system",
+    "//verifier/src/main/java/dev/cel/verifier:verifier_factory",
+    "//verifier/src/main/java/dev/cel/verifier:z3_impl",
+    "//verifier/src/main/java/dev/cel/verifier/axioms",
+]
+
 # Excluded from the JAR as their source of truth is elsewhere
 EXCLUDED_TARGETS = [
     "@com_google_googleapis//google/api/expr/v1alpha1:expr_java_proto",
@@ -315,4 +327,25 @@ java_export(
     maven_coordinates = "dev.cel:runtime-android:%s" % CEL_VERSION,
     pom_template = ":cel_runtime_android_pom",
     exports = LITE_RUNTIME_TARGETS,
+)
+
+pom_file(
+    name = "cel_verifier_pom",
+    substitutions = {
+        "CEL_VERSION": CEL_VERSION,
+        "CEL_ARTIFACT_ID": "verifier",
+        "PACKAGE_NAME": "CEL Java Verifier",
+        "PACKAGE_DESC": "Formal verification tools for Common Expression Language for Java.",
+    },
+    targets = VERIFIER_TARGETS,
+    template_file = "pom_template.xml",
+)
+
+java_export(
+    name = "cel_verifier",
+    deploy_env = EXCLUDED_TARGETS,
+    javadocopts = JAVA_DOC_OPTIONS,
+    maven_coordinates = "dev.cel:verifier:%s" % CEL_VERSION,
+    pom_template = ":cel_verifier_pom",
+    exports = VERIFIER_TARGETS + [":cel"],
 )

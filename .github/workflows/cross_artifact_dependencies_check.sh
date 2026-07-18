@@ -22,6 +22,7 @@ TARGETS=(
   "//publish:cel_runtime"
   "//publish:cel_protobuf"
   "//publish:cel_v1alpha1"
+  "//publish:cel_verifier"
 )
 
 echo "------------------------------------------------"
