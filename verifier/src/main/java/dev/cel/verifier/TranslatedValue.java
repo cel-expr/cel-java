@@ -194,12 +194,10 @@ abstract class TranslatedValue {
     BoolExpr isSafe =
         CelZ3TypeSystem.mkOrFlattened(
             ctx,
-            Arrays.asList(
-                hasExactUnknown,
-                CelZ3TypeSystem.mkAndFlattened(
-                    ctx,
-                    Arrays.asList(hasExactError, CelZ3TypeSystem.mkNotFlattened(ctx, hasUnknown))),
-                CelZ3TypeSystem.mkNotFlattened(ctx, anyTaint)));
+            hasExactUnknown,
+            CelZ3TypeSystem.mkAndFlattened(
+                ctx, hasExactError, CelZ3TypeSystem.mkNotFlattened(ctx, hasUnknown)),
+            CelZ3TypeSystem.mkNotFlattened(ctx, anyTaint));
 
     return create(finalResult, celExpr, ts, CelZ3TypeSystem.mkNotFlattened(ctx, isSafe));
   }

@@ -723,7 +723,9 @@ public final class CelZ3TypeSystem {
   /**
    * Helper to build a chain of nested ITE (If-Then-Else) conditions.
    *
-   * <p>Conditions are evaluated in the order they are added.
+   * <p>Conditions are evaluated in the order they are added. Branches with {@code isFalse()}
+   * conditions are skipped, and redundant {@code ITE(condition, X, X)} creations are omitted to
+   * avoid allocating dead AST paths in Z3.
    */
   public static final class SwitchBuilder {
 
@@ -746,6 +748,10 @@ public final class CelZ3TypeSystem {
 
     @CanIgnoreReturnValue
     public SwitchBuilder addCase(BoolExpr condition, Expr<?> value) {
+      // Skip branches that can never be hit (e.g. `isFalse()` probes).
+      if (condition.isFalse()) {
+        return this;
+      }
       cases.add(new SwitchCase(condition, value));
       return this;
     }
@@ -753,6 +759,10 @@ public final class CelZ3TypeSystem {
     public Expr<?> build(Expr<?> defaultFallback) {
       Expr<?> result = defaultFallback;
       for (SwitchCase c : Lists.reverse(cases)) {
+        // ITE(condition, X, X) simplifies to X; skip calling into native C++ Z3_mk_ite.
+        if (c.value.equals(result)) {
+          continue;
+        }
         result = ctx.mkITE(c.condition, c.value, result);
       }
       return result;
@@ -762,6 +772,15 @@ public final class CelZ3TypeSystem {
       this.ctx = ctx;
       this.cases = new ArrayList<>();
     }
+  }
+
+  /**
+   * Helper to construct a flattened logical OR expression to avoid deep left-leaning ASTs.
+   *
+   * <p>Returns {@code false} if the list is empty.
+   */
+  public static BoolExpr mkOrFlattened(Context ctx, BoolExpr... args) {
+    return mkOrFlattened(ctx, Arrays.asList(args));
   }
 
   /**

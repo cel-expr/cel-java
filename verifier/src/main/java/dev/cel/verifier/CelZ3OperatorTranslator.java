@@ -654,15 +654,16 @@ final class CelZ3OperatorTranslator {
     BoolExpr inMap2 = (BoolExpr) ctx.mkSelect(mapPresence, key2);
     Expr<?> val2 = ctx.mkSelect(mapValues, key2);
 
-    BoolExpr altInMap = ctx.mkOr(inMapOrig, ctx.mkAnd(cond1, inMap1), ctx.mkAnd(cond2, inMap2));
+    BoolExpr condMap1 = CelZ3TypeSystem.mkAndFlattened(ctx, cond1, inMap1);
+    BoolExpr condMap2 = CelZ3TypeSystem.mkAndFlattened(ctx, cond2, inMap2);
+
+    BoolExpr altInMap = CelZ3TypeSystem.mkOrFlattened(ctx, inMapOrig, condMap1, condMap2);
     Expr<?> altVal =
-        ctx.mkITE(
-            inMapOrig,
-            valOrig,
-            ctx.mkITE(
-                ctx.mkAnd(cond1, inMap1),
-                val1,
-                ctx.mkITE(ctx.mkAnd(cond2, inMap2), val2, valOrig)));
+        CelZ3TypeSystem.SwitchBuilder.newBuilder(ctx)
+            .addCase(inMapOrig, valOrig)
+            .addCase(condMap1, val1)
+            .addCase(condMap2, val2)
+            .build(valOrig);
 
     return new ProbeResult(altInMap, altVal);
   }
