@@ -277,7 +277,7 @@ public final class CelPolicyVerifierImplTest {
     assertThat(result.status()).isEqualTo(VerificationStatus.VIOLATED);
     assertThat(result.message())
         .containsMatch(
-            "Equivalence violation detected\\. Counterexample input:\\n  x = (6|7|8|9|10)");
+            "Equivalence violation detected\\. Counterexample input:\\n {2}x = (6|7|8|9|10)");
   }
 
   @Test

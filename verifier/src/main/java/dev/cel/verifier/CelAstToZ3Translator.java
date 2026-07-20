@@ -564,7 +564,7 @@ final class CelAstToZ3Translator {
     typeConstraints.add(createTypeConstraint(fieldAccess, exprId, ast));
 
     return TranslatedValue.propagateStrict(
-        ctx, typeSystem, fieldAccess, celExpr, Arrays.asList(operandTv));
+        ctx, typeSystem, fieldAccess, celExpr, ImmutableList.of(operandTv));
   }
 
   private TranslatedValue translateBlock(

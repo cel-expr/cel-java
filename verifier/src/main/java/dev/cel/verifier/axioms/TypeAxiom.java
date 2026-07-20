@@ -24,9 +24,7 @@ import dev.cel.common.types.MapType;
 import dev.cel.common.types.OptionalType;
 import dev.cel.common.types.SimpleType;
 import dev.cel.verifier.CelZ3TypeSystem;
-import java.util.List;
 import java.util.Optional;
-import java.util.function.Consumer;
 
 /** Axiomatization for CEL's type() function. */
 final class TypeAxiom {
@@ -38,30 +36,21 @@ final class TypeAxiom {
       CelZ3FunctionAxiom.newBuilder(StandardFunction.TYPE.functionDecl())
           .addOverloadTranslator(
               StandardFunction.Overload.InternalOperator.TYPE.celOverloadDecl(),
-              new CelZ3OverloadTranslator() {
-                @Override
-                public Optional<CelZ3OverloadResult> translate(
-                    Context ctx,
-                    CelZ3TypeSystem typeSystem,
-                    Consumer<BoolExpr> constraintSink,
-                    List<Expr<?>> unwrappedArgs,
-                    List<BoolExpr> argApproximations) {
-                  Preconditions.checkArgument(unwrappedArgs.size() == 1);
-                  Preconditions.checkArgument(argApproximations.size() == 1);
+              (ctx, typeSystem, constraintSink, unwrappedArgs, argApproximations) -> {
+                Preconditions.checkArgument(unwrappedArgs.size() == 1);
+                Preconditions.checkArgument(argApproximations.size() == 1);
 
-                  Expr<?> val = unwrappedArgs.get(0);
-                  BoolExpr argApprox = argApproximations.get(0);
+                Expr<?> val = unwrappedArgs.get(0);
+                BoolExpr argApprox = argApproximations.get(0);
 
-                  Expr<?> result = getTypeExpression(ctx, typeSystem, val);
+                Expr<?> result = getTypeExpression(ctx, typeSystem, val);
 
-                  // Custom approximation logic for type(): it is only approximate if the argument
-                  // is approximate AND the argument is an Error or Unknown.
-                  BoolExpr isErrOrUnk =
-                      ctx.mkOr(typeSystem.isError(val), typeSystem.isUnknown(val));
-                  BoolExpr typeApprox = ctx.mkAnd(argApprox, isErrOrUnk);
+                // Custom approximation logic for type(): it is only approximate if the argument
+                // is approximate AND the argument is an Error or Unknown.
+                BoolExpr isErrOrUnk = ctx.mkOr(typeSystem.isError(val), typeSystem.isUnknown(val));
+                BoolExpr typeApprox = ctx.mkAnd(argApprox, isErrOrUnk);
 
-                  return Optional.of(CelZ3OverloadResult.create(result, typeApprox));
-                }
+                return Optional.of(CelZ3OverloadResult.create(result, typeApprox));
               })
           .build();
 

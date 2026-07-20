@@ -229,16 +229,6 @@ public class PolicyVerifierExample {
 
 ### Limitations
 
-*   **Cross-Type Numeric Comparisons:**
-    *   **Equality (`==`, `!=`):** Equality comparisons between different
-        numeric types (e.g., `int` vs `double` or `uint` vs `double`) are
-        currently not supported and will evaluate to `false` during
-        verification, even if they have the same mathematical value (e.g.,
-        `dyn(1) == dyn(1.0)` is false). Note that `int` vs `uint` equality *is*
-        supported.
-    *   **Relational Operators (`<`, `>`, `<=`, `>=`):** Cross-type relational
-        comparisons are fully supported mathematically across all numeric
-        combinations (`int`, `uint`, and `double`).
 *   **Unsupported Standard Functions (Uninterpreted Functions):** Not all
     CEL standard library functions have SMT axioms defined yet. Unsupported
     functions are treated as *uninterpreted functions* by Z3 (the solver

@@ -266,6 +266,7 @@ public final class CelVerifierZ3ImplTest {
     UINT_ARITHMETIC_ZERO("0u + 0u == 0u"),
     MAP_COMPREHENSION("{1: 2, 3: 4}.all(k, k > 0)"),
     NESTED_COMPREHENSIONS("[1, 2].all(x, [3, 4].all(y, x < y || y <= x))"),
+    CYCLIC_BIND_DOES_NOT_HANG("cel.bind(x, x, x) == x"),
     CEL_BIND_SHADOWING("cel.bind(x, 1, cel.bind(x, 2, x) + x) == 3"),
     CEL_BIND_TO_TRUE("cel.bind(x, true, !x) == false"),
     CEL_BIND_TO_FALSE("cel.bind(x, false, !x) == true"),
@@ -460,7 +461,14 @@ public final class CelVerifierZ3ImplTest {
     HETEROGENEOUS_INT_UINT_GE("2 >= 1u"),
     HETEROGENEOUS_UINT_INT_GE("2u >= 1"),
     HETEROGENEOUS_INT_DOUBLE_PRECISION("9007199254740993 > 9007199254740992.0"),
-    CYCLIC_BIND_DOES_NOT_HANG("cel.bind(x, x, x) == x"),
+    HETEROGENEOUS_INT_EQ_DOUBLE(
+        "type(dyn_var) == int && type(dyn_var2) == double && dyn_var == 1 && dyn_var2 == 1.0 ?"
+            + " dyn_var == dyn_var2 : true"),
+    HETEROGENEOUS_INT_NEQ_DOUBLE(
+        "type(dyn_var) == int && type(dyn_var2) == double && dyn_var == 1 && dyn_var2 == 1.5 ?"
+            + " dyn_var != dyn_var2 : true"),
+    HETEROGENEOUS_INF_VS_INT("dyn_var == 9223372036854775807 ? dyn_var != 1.0 / 0.0 : true"),
+    HETEROGENEOUS_NAN_VS_INT("dyn_var == 1 ? dyn_var != 0.0 / 0.0 : true"),
     HETEROGENEOUS_INT_UINT_VARIABLE_EQ("unknown_var == 1u ? unknown_var == 1 : true"),
     HETEROGENEOUS_INT_UINT_VARIABLE_VARIABLE_EQ(
         "unknown_var == u && x == 1 && u == 1u ? unknown_var == x : true"),
@@ -469,6 +477,32 @@ public final class CelVerifierZ3ImplTest {
     HETEROGENEOUS_INT_UINT_VARIABLE_NEQ("unknown_var == 2u ? unknown_var != 1 : true"),
     HETEROGENEOUS_DOUBLE_INT_OVERFLOW(
         "unknown_var == 9223372036854775807 ? unknown_var != 1e100 : true"),
+    HETEROGENEOUS_MAX_EXACT_INT("dyn(9007199254740992) == 9007199254740992.0"),
+    HETEROGENEOUS_MIN_EXACT_INT("dyn(-9007199254740992) == -9007199254740992.0"),
+    HETEROGENEOUS_INT_PRECISION_LOSS_POS("dyn(9007199254740993) != 9007199254740992.0"),
+    HETEROGENEOUS_INT_PRECISION_LOSS_NEG("dyn(-9007199254740993) != -9007199254740992.0"),
+    HETEROGENEOUS_UINT_PRECISION_LOSS("dyn(9007199254740993u) != 9007199254740992.0"),
+    HETEROGENEOUS_LONG_MAX_VS_DOUBLE("dyn(9223372036854775807) == 9223372036854775808.0"),
+    HETEROGENEOUS_LONG_MIN_VS_DOUBLE("dyn(-9223372036854775808) == -9223372036854775808.0"),
+    HETEROGENEOUS_UINT_MAX_VS_DOUBLE("dyn(18446744073709551615u) != 18446744073709551616.0"),
+    HETEROGENEOUS_DYNAMIC_PRECISION(
+        "type(dyn_var) == int && type(dyn_var2) == double && dyn_var == 9007199254740993 &&"
+            + " dyn_var2 == 9007199254740992.0 ? dyn_var != dyn_var2 : true"),
+    HETEROGENEOUS_DYNAMIC_TRANSITIVITY(
+        "type(dyn_var) == int && type(dyn_var2) == double && dyn_var == 1 && dyn_var2 == 1.0 ?"
+            + " dyn_var == dyn_var2 : true"),
+    HETEROGENEOUS_DYNAMIC_ZERO("type(dyn_var) == double && dyn_var == -0.0 ? dyn_var == 0 : true"),
+    HETEROGENEOUS_MAP_INT_KEY_DOUBLE_LOOKUP("{1: 'a'}[dyn(1.0)] == 'a'"),
+    HETEROGENEOUS_MAP_DOUBLE_KEY_INT_LOOKUP("{1.0: 'a'}[dyn(1)] == 'a'"),
+    HETEROGENEOUS_MAP_DOUBLE_KEY_UINT_LOOKUP("{1.0: 'a'}[dyn(1u)] == 'a'"),
+    HETEROGENEOUS_MAP_UINT_KEY_DOUBLE_LOOKUP("{1u: 'a'}[dyn(1.0)] == 'a'"),
+    HETEROGENEOUS_MAP_UINT_KEY_INT_LOOKUP_ZERO("{0u: 'a'}[dyn(0)] == 'a'"),
+    HETEROGENEOUS_MAP_UINT_KEY_DOUBLE_LOOKUP_ZERO("{0u: 'a'}[dyn(0.0)] == 'a'"),
+    HETEROGENEOUS_MAP_DOUBLE_KEY_UINT_LOOKUP_ZERO("{0.0: 'a'}[dyn(0u)] == 'a'"),
+    HETEROGENEOUS_MAP_INT_KEY_UINT_LOOKUP_ZERO("{0: 'a'}[dyn(0u)] == 'a'"),
+    HETEROGENEOUS_MAP_PRECISION_MISS(
+        "{9007199254740993: 'exact', 9007199254740992: 'rounded'}[dyn(9007199254740992.0)] =="
+            + " 'rounded'"),
     DYNAMIC_LIST_RESOLVES_QUANTIFIER_LOOPS(
         "int_list == [1] ? !(int_list.all(x, int_list.exists(y, y == x + 1))) : true"),
     DYNAMIC_LIST_RESOLVES_PIGEONHOLE(
@@ -493,10 +527,6 @@ public final class CelVerifierZ3ImplTest {
         "string_int_map == {'a': 1} ? string_int_map.map(k, k) == ['a'] : true"),
     UINT_SUBTRACT("3u - 2u == 1u"),
     DOUBLE_SUBTRACT("3.0 - 2.0 == 1.0"),
-    // TODO: Cross-type numeric equality evaluates to strictly false, causing this
-    // test's condition to become a tautology.
-    // CROSS_TYPE_DYNAMIC_EQUALITY_NOT_ALWAYS_UNEQUAL_INT_DOUBLE(
-    //     "!(request == unknown_var && type(request) == int && type(unknown_var) == double)"),
     DYNAMIC_LIST_V2_ALL("int_list == [1, 2] ? int_list.all(i, v, v > 0 && i >= 0) : true"),
     DYNAMIC_LIST_V2_EXISTS("int_list == [1, 2] ? int_list.exists(i, v, i == 0 && v == 1) : true"),
     DYNAMIC_MAP_V2_ALL(
@@ -603,6 +633,29 @@ public final class CelVerifierZ3ImplTest {
     LITERAL_LIST_INDEX("[1, 2][0] == 1"),
     NESTED_LIST_VARIABLES_EQUALITY(
         "nested_list == [[1]] && nested_list_2 == [[1]] ? nested_list == nested_list_2 : true"),
+    DYNAMIC_NUMERIC_EQUALITY_CROSS_TYPE_INT_DOUBLE(
+        "type(dyn_var) == int && type(dyn_var2) == double && dyn_var == 1 && dyn_var2 == 1.0 ?"
+            + " dyn_var == dyn_var2 : true"),
+    DYNAMIC_NUMERIC_EQUALITY_CROSS_TYPE_DOUBLE_INT(
+        "type(dyn_var) == double && type(dyn_var2) == int && dyn_var == 1.0 && dyn_var2 == 1 ?"
+            + " dyn_var == dyn_var2 : true"),
+    DYNAMIC_NUMERIC_EQUALITY_CROSS_TYPE_UINT_DOUBLE(
+        "type(dyn_var) == uint && type(dyn_var2) == double && dyn_var == 1u && dyn_var2 == 1.0 ?"
+            + " dyn_var == dyn_var2 : true"),
+    DYNAMIC_EQUALITY_NON_NUMERIC_WITH_DYN(
+        "role == 'admin' && dyn_var == 'admin' ? role == dyn_var : true"),
+    DYNAMIC_EQUALITY_DYN_WITH_NON_NUMERIC(
+        "dyn_var == 'admin' && role == 'admin' ? dyn_var == role : true"),
+    DYNAMIC_NUMERIC_EQUALITY_CROSS_TYPE_DOUBLE_UINT(
+        "type(dyn_var) == double && type(dyn_var2) == uint && dyn_var == 1.0 && dyn_var2 == 1u ?"
+            + " dyn_var == dyn_var2 : true"),
+    DYNAMIC_NUMERIC_EQUALITY_CROSS_TYPE_DYN_INT(
+        "type(dyn_var) == int && dyn_var == 5 && x == 5 ? dyn_var == x : true"),
+    DYNAMIC_NUMERIC_EQUALITY_CROSS_TYPE_DYN_UINT(
+        "type(dyn_var) == uint && dyn_var == 5u && u == 5u ? dyn_var == u : true"),
+    DYNAMIC_NUMERIC_EQUALITY_CROSS_TYPE_DYN_DOUBLE(
+        "type(dyn_var) == double && dyn_var == 5.0 && dyn_var2 == 5.0 && type(dyn_var2) == double ?"
+            + " dyn_var == dyn_var2 : true"),
     ;
 
     final String expr;
@@ -838,8 +891,6 @@ public final class CelVerifierZ3ImplTest {
                 + " input state)");
   }
 
-
-
   @Test
   public void verifyEquivalence_dynamicMapEquality_enforcesExtensionalityOnPresentKeys()
       throws Exception {
@@ -882,8 +933,6 @@ public final class CelVerifierZ3ImplTest {
       this.expectedError = expectedError;
     }
   }
-
-
 
   @Test
   public void isAlwaysTrue_malformedAst_throwsIllegalArgumentException(
@@ -937,6 +986,10 @@ public final class CelVerifierZ3ImplTest {
         "dyn(x) != dyn(u)", "Condition is not always true."),
     CROSS_TYPE_SYMBOLIC_EQUALITY_NOT_ALWAYS_UNEQUAL_UINT_INT(
         "dyn(u) != dyn(x)", "Condition is not always true."),
+    CROSS_TYPE_DYNAMIC_EQUALITY_NOT_ALWAYS_UNEQUAL_INT_DOUBLE(
+        "!(request == unknown_var && type(request) == int && type(unknown_var) == double)",
+        "Condition is not always true.",
+        "Counterexample input:"),
     DYNAMIC_MAP_ALL_VIOLATION(
         "string_int_map == {'a': 1, 'b': 2} ? string_int_map.all(k, k == 'a') : true",
         "Condition is not always true.",
@@ -1404,8 +1457,8 @@ public final class CelVerifierZ3ImplTest {
     assertThat(result.status()).isEqualTo(VerificationStatus.VIOLATED);
     String message = result.message();
     assertThat(message).contains("Equivalence violation detected. Counterexample input:");
-    assertThat(message).containsMatch("  x = -?\\d+");
-    assertThat(message).containsMatch("  y = -?\\d+");
+    assertThat(message).containsMatch(" {2}x = -?\\d+");
+    assertThat(message).containsMatch(" {2}y = -?\\d+");
   }
 
   @Test
@@ -1420,7 +1473,6 @@ public final class CelVerifierZ3ImplTest {
     assertThat(result.status()).isEqualTo(VerificationStatus.VIOLATED);
   }
 
-
   @Test
   public void verifyEquivalence_dynamicIndexingWithExplicitMap_hydratesMap() throws Exception {
     CelAbstractSyntaxTree astA =
@@ -1433,7 +1485,7 @@ public final class CelVerifierZ3ImplTest {
     assertThat(result.status()).isEqualTo(VerificationStatus.VIOLATED);
     assertThat(result.message()).contains("string_int_list_map = {");
     assertThat(result.message()).contains("\"a\": [1, 2]");
-    assertThat(result.message()).containsMatch("\"b\": \\[3, [45]\\]");
+    assertThat(result.message()).containsMatch("\"b\": \\[3, [45]]");
   }
 
   @Test
@@ -1605,7 +1657,8 @@ public final class CelVerifierZ3ImplTest {
                     result
                         .message()
                         .matches(
-                            "(?s).*Equivalence violation detected\\. Counterexample input:\n  "
+                            "(?s).*Equivalence violation detected\\. Counterexample input:\n"
+                                + " {2}"
                                 + f
                                 + ".*"));
     assertWithMessage(result.message()).that(matched).isTrue();
@@ -1952,7 +2005,7 @@ public final class CelVerifierZ3ImplTest {
             .addFunctionAxioms(ImmutableList.of(dummyAxiom1, dummyAxiom2));
 
     IllegalArgumentException exception =
-        assertThrows(IllegalArgumentException.class, () -> builder.build());
+        assertThrows(IllegalArgumentException.class, builder::build);
 
     assertThat(exception).hasMessageThat().contains("dummy_func");
   }

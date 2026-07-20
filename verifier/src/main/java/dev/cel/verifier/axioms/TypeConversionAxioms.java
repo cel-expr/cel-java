@@ -95,8 +95,7 @@ final class TypeConversionAxioms {
               true)
           .addUnaryOverloadTranslator(
               Conversions.STRING_TO_DOUBLE.celOverloadDecl(),
-              createUninterpretedConversion(Conversions.STRING_TO_DOUBLE),
-              true)
+              createUninterpretedConversion(Conversions.STRING_TO_DOUBLE))
           .build();
 
   private static final CelZ3FunctionAxiom STRING_AXIOM =

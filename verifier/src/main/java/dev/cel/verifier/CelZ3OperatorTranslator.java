@@ -23,7 +23,9 @@ import com.microsoft.z3.BoolExpr;
 import com.microsoft.z3.Context;
 import com.microsoft.z3.Expr;
 import com.microsoft.z3.FPExpr;
+import com.microsoft.z3.FuncDecl;
 import com.microsoft.z3.IntExpr;
+import com.microsoft.z3.IntNum;
 import com.microsoft.z3.SeqExpr;
 import dev.cel.common.CelAbstractSyntaxTree;
 import dev.cel.common.CelFunctionDecl;
@@ -223,9 +225,9 @@ final class CelZ3OperatorTranslator {
       case LOGICAL_NOT:
         return translateLogicalNot(args, ast);
       case EQUALS:
-        return translateEquals(args.get(0), args.get(1), ast);
+        return translateEquality(args.get(0), args.get(1), ast, /* isEquals= */ true);
       case NOT_EQUALS:
-        return translateNotEquals(args.get(0), args.get(1), ast);
+        return translateEquality(args.get(0), args.get(1), ast, /* isEquals= */ false);
       case LESS:
       case GREATER:
       case LESS_EQUALS:
@@ -422,9 +424,7 @@ final class CelZ3OperatorTranslator {
     return getDynamicNumericEquality(arg0.z3Expr(), arg1.z3Expr());
   }
 
-  /**
-   * Evaluates numeric equality when types are statically known.
-   */
+  /** Evaluates numeric equality when types are statically known. */
   private BoolExpr getStaticallyKnownNumericEquality(
       Expr<?> z3Expr0, CelType type0, Expr<?> z3Expr1) {
     switch (type0.kind()) {
@@ -440,21 +440,50 @@ final class CelZ3OperatorTranslator {
     }
   }
 
+  private BoolExpr mkIsFiniteDouble(Expr<?> z3Expr) {
+    Expr<?> fpVal = typeSystem.getDouble(z3Expr);
+    return ctx.mkAnd(
+        typeSystem.isDouble(z3Expr),
+        ctx.mkNot(ctx.mkOr(ctx.mkFPIsNaN((FPExpr) fpVal), ctx.mkFPIsInfinite((FPExpr) fpVal))));
+  }
+
   private BoolExpr getDynamicNumericEquality(Expr<?> z3Expr0, Expr<?> z3Expr1) {
     BoolExpr isIntOrUint0 = ctx.mkOr(typeSystem.isInt(z3Expr0), typeSystem.isUint(z3Expr0));
     BoolExpr isIntOrUint1 = ctx.mkOr(typeSystem.isInt(z3Expr1), typeSystem.isUint(z3Expr1));
     BoolExpr bothIntOrUint = ctx.mkAnd(isIntOrUint0, isIntOrUint1);
 
+    // Fall back to 0 if the expression is neither an INT nor a UINT.
+    // This prevents Z3 from evaluating getUint() on a DOUBLE, which causes the OSS solver to enter
+    // an incomplete state.
     IntExpr val0 =
         (IntExpr)
             ctx.mkITE(
-                typeSystem.isInt(z3Expr0), typeSystem.getInt(z3Expr0), typeSystem.getUint(z3Expr0));
+                typeSystem.isInt(z3Expr0),
+                typeSystem.getInt(z3Expr0),
+                ctx.mkITE(typeSystem.isUint(z3Expr0), typeSystem.getUint(z3Expr0), ctx.mkInt(0)));
     IntExpr val1 =
         (IntExpr)
             ctx.mkITE(
-                typeSystem.isInt(z3Expr1), typeSystem.getInt(z3Expr1), typeSystem.getUint(z3Expr1));
+                typeSystem.isInt(z3Expr1),
+                typeSystem.getInt(z3Expr1),
+                ctx.mkITE(typeSystem.isUint(z3Expr1), typeSystem.getUint(z3Expr1), ctx.mkInt(0)));
 
     BoolExpr bothDouble = ctx.mkAnd(typeSystem.isDouble(z3Expr0), typeSystem.isDouble(z3Expr1));
+
+    BoolExpr isIntOrUintAndDouble = ctx.mkAnd(isIntOrUint0, typeSystem.isDouble(z3Expr1));
+    BoolExpr isDoubleAndIntOrUint = ctx.mkAnd(typeSystem.isDouble(z3Expr0), isIntOrUint1);
+
+    Expr<?> fpVal1 = typeSystem.getDouble(z3Expr1);
+    BoolExpr intDoubleEq =
+        ctx.mkAnd(
+            mkIsFiniteDouble(z3Expr1),
+            ctx.mkEq(ctx.mkInt2Real(val0), ctx.mkFPToReal((FPExpr) fpVal1)));
+
+    Expr<?> fpVal0 = typeSystem.getDouble(z3Expr0);
+    BoolExpr doubleIntEq =
+        ctx.mkAnd(
+            mkIsFiniteDouble(z3Expr0),
+            ctx.mkEq(ctx.mkFPToReal((FPExpr) fpVal0), ctx.mkInt2Real(val1)));
 
     return (BoolExpr)
         CelZ3TypeSystem.SwitchBuilder.newBuilder(ctx)
@@ -463,6 +492,8 @@ final class CelZ3OperatorTranslator {
                 bothDouble,
                 ctx.mkFPEq(
                     (FPExpr) typeSystem.getDouble(z3Expr0), (FPExpr) typeSystem.getDouble(z3Expr1)))
+            .addCase(isIntOrUintAndDouble, intDoubleEq)
+            .addCase(isDoubleAndIntOrUint, doubleIntEq)
             .build(ctx.mkFalse());
   }
 
@@ -487,7 +518,7 @@ final class CelZ3OperatorTranslator {
       TranslatedValue elemB =
           TranslatedValue.create(elem1, listB.listElementAt(i), typeSystem, listB.isApproximate());
 
-      TranslatedValue elemEquality = translateEquals(elemA, elemB, ast);
+      TranslatedValue elemEquality = translateEquality(elemA, elemB, ast, /* isEquals= */ true);
       Expr<?> eqZ3 = elemEquality.z3Expr();
 
       BoolExpr isBool = typeSystem.isBool(eqZ3);
@@ -500,14 +531,12 @@ final class CelZ3OperatorTranslator {
   }
 
   private TranslatedValue translateEquality(
-      TranslatedValue arg0, TranslatedValue arg1, CelAbstractSyntaxTree ast, boolean isNotEquals) {
+      TranslatedValue arg0, TranslatedValue arg1, CelAbstractSyntaxTree ast, boolean isEquals) {
     Expr<?> z3Arg0 = arg0.z3Expr();
     Expr<?> z3Arg1 = arg1.z3Expr();
 
-    CelType type0 =
-        arg0.celExpr().map(node -> ast.getTypeOrThrow(node.id())).orElse(SimpleType.DYN);
-    CelType type1 =
-        arg1.celExpr().map(node -> ast.getTypeOrThrow(node.id())).orElse(SimpleType.DYN);
+    CelType type0 = extractAstTypeOrDefault(arg0, ast);
+    CelType type1 = extractAstTypeOrDefault(arg1, ast);
 
     BoolExpr equality;
 
@@ -520,7 +549,8 @@ final class CelZ3OperatorTranslator {
     } else if (isStaticallyKnown(type0) && isStaticallyKnown(type1)) {
       equality = typeSystem.getStructuralEquality(z3Arg0, z3Arg1);
     } else {
-      BoolExpr bothNumeric = ctx.mkAnd(isNumeric(z3Arg0), isNumeric(z3Arg1));
+      boolean canBeNumeric0 = type0.kind() == CelKind.DYN || isNumericType(type0);
+      boolean canBeNumeric1 = type1.kind() == CelKind.DYN || isNumericType(type1);
 
       // Check if one side is an explicit LIST that we can unroll
       BoolExpr structuralEq = typeSystem.getStructuralEquality(z3Arg0, z3Arg1);
@@ -533,11 +563,16 @@ final class CelZ3OperatorTranslator {
                     structuralEq);
       }
 
-      equality =
-          (BoolExpr) ctx.mkITE(bothNumeric, getNumericEquality(arg0, arg1, ast), structuralEq);
+      if (canBeNumeric0 && canBeNumeric1) {
+        BoolExpr bothNumeric = ctx.mkAnd(isNumeric(z3Arg0), isNumeric(z3Arg1));
+        equality =
+            (BoolExpr) ctx.mkITE(bothNumeric, getNumericEquality(arg0, arg1, ast), structuralEq);
+      } else {
+        equality = structuralEq;
+      }
     }
 
-    if (isNotEquals) {
+    if (!isEquals) {
       equality = ctx.mkNot(equality);
     }
 
@@ -550,42 +585,16 @@ final class CelZ3OperatorTranslator {
       return TranslatedValue.create(finalResult, typeSystem, ctx.mkFalse());
     }
 
-    BoolExpr bothIntOrUint =
-        ctx.mkAnd(
-            ctx.mkOr(typeSystem.isInt(z3Arg0), typeSystem.isUint(z3Arg0)),
-            ctx.mkOr(typeSystem.isInt(z3Arg1), typeSystem.isUint(z3Arg1)));
-    BoolExpr bothDouble = ctx.mkAnd(typeSystem.isDouble(z3Arg0), typeSystem.isDouble(z3Arg1));
-    BoolExpr bothNumeric = ctx.mkAnd(isNumeric(z3Arg0), isNumeric(z3Arg1));
-    BoolExpr sameNumericType = ctx.mkOr(bothIntOrUint, bothDouble);
-
-    // crossNumeric equality is only an approximation if we rely on getDynamicNumericEquality.
-    // getNumericEqualityWithConstant is exact because it evaluates heterogeneous numeric equality
-    // accurately.
-    BoolExpr crossNumeric;
-    if (arg0.isNumericConstant() || arg1.isNumericConstant()) {
-      crossNumeric = ctx.mkFalse();
-    } else {
-      crossNumeric = ctx.mkAnd(bothNumeric, ctx.mkNot(sameNumericType));
-    }
-
     return TranslatedValue.propagateStrict(ctx, typeSystem, equalityExpr, arg0, arg1)
-        .withApproximation(crossNumeric);
+        // Mathematically redundant, but needed to prevent exponentially branching Z3 logic tree of
+        // mkOr tracking exact unknowns and errors
+        .withApproximation(ctx.mkFalse());
   }
 
-  private TranslatedValue translateEquals(
-      TranslatedValue arg0, TranslatedValue arg1, CelAbstractSyntaxTree ast) {
-    return translateEquality(arg0, arg1, ast, false);
-  }
-
-  private TranslatedValue translateNotEquals(
-      TranslatedValue arg0, TranslatedValue arg1, CelAbstractSyntaxTree ast) {
-    return translateEquality(arg0, arg1, ast, true);
-  }
-
-  private Expr<?> buildListIndex(Expr<?> lhsTrans, Expr<?> rhsTrans) {
+  private Expr<?> buildListIndex(Expr<?> lhsTrans, Expr<?> rhsTrans, BoolExpr typeGuard) {
     Expr<?> listRef = typeSystem.getListRef(lhsTrans);
     SeqExpr<?> seq = typeSystem.getSeq(listRef);
-    Expr<?> index = ctx.mkApp(typeSystem.intCons().getAccessorDecls()[0], rhsTrans);
+    Expr<?> index = typeSystem.getInt(rhsTrans);
     BoolExpr inBounds =
         ctx.mkAnd(
             ctx.mkGe((ArithExpr) index, ctx.mkInt(0)),
@@ -593,30 +602,175 @@ final class CelZ3OperatorTranslator {
 
     Expr<?> val = ctx.mkNth(seq, (ArithExpr) index);
     BoolExpr valNotError = ctx.mkNot(ctx.mkEq(val, typeSystem.mkError()));
-    constraintSink.accept(ctx.mkImplies(inBounds, valNotError));
+    constraintSink.accept(ctx.mkImplies(ctx.mkAnd(typeGuard, inBounds), valNotError));
     if (!allowUnknowns) {
       BoolExpr valNotUnknown = ctx.mkNot(typeSystem.isUnknown(val));
-      constraintSink.accept(ctx.mkImplies(inBounds, valNotUnknown));
+      constraintSink.accept(ctx.mkImplies(ctx.mkAnd(typeGuard, inBounds), valNotUnknown));
     }
 
     return ctx.mkITE(inBounds, val, typeSystem.mkError());
   }
 
-  private Expr<?> buildMapIndex(Expr<?> lhsTrans, Expr<?> rhsTrans) {
+  private Optional<Long> extractIntNumSafe(Expr<?> expr) {
+    Expr<?> simplified = expr.simplify();
+
+    if (!simplified.isApp()) {
+      return Optional.empty();
+    }
+
+    FuncDecl<?> decl = simplified.getFuncDecl();
+    if (decl.equals(typeSystem.intCons().ConstructorDecl())
+        || decl.equals(typeSystem.uintCons().ConstructorDecl())) {
+      return Optional.of(simplified.getArgs()[0])
+          .filter(IntNum.class::isInstance)
+          .map(IntNum.class::cast)
+          .map(IntNum::getInt64);
+    }
+
+    return Optional.empty();
+  }
+
+  private static final class ProbeResult {
+    final BoolExpr altInMap;
+    final Expr<?> altVal;
+
+    ProbeResult(BoolExpr altInMap, Expr<?> altVal) {
+      this.altInMap = altInMap;
+      this.altVal = altVal;
+    }
+  }
+
+  private ProbeResult createProbeResult(
+      BoolExpr inMapOrig,
+      Expr<?> valOrig,
+      BoolExpr cond1,
+      Expr<?> key1,
+      BoolExpr cond2,
+      Expr<?> key2,
+      ArrayExpr mapPresence,
+      ArrayExpr mapValues) {
+    BoolExpr inMap1 = (BoolExpr) ctx.mkSelect(mapPresence, key1);
+    Expr<?> val1 = ctx.mkSelect(mapValues, key1);
+    BoolExpr inMap2 = (BoolExpr) ctx.mkSelect(mapPresence, key2);
+    Expr<?> val2 = ctx.mkSelect(mapValues, key2);
+
+    BoolExpr altInMap = ctx.mkOr(inMapOrig, ctx.mkAnd(cond1, inMap1), ctx.mkAnd(cond2, inMap2));
+    Expr<?> altVal =
+        ctx.mkITE(
+            inMapOrig,
+            valOrig,
+            ctx.mkITE(
+                ctx.mkAnd(cond1, inMap1),
+                val1,
+                ctx.mkITE(ctx.mkAnd(cond2, inMap2), val2, valOrig)));
+
+    return new ProbeResult(altInMap, altVal);
+  }
+
+  private Expr<?> buildMapIndex(Expr<?> lhsTrans, Expr<?> rhsTrans, BoolExpr typeGuard) {
     Expr<?> mapRef = typeSystem.getMapRef(lhsTrans);
     ArrayExpr mapValues = (ArrayExpr) typeSystem.getMapValues(mapRef);
     ArrayExpr mapPresence = (ArrayExpr) typeSystem.getMapPresence(mapRef);
-    BoolExpr inMap = (BoolExpr) ctx.mkSelect(mapPresence, rhsTrans);
 
-    Expr<?> val = ctx.mkSelect(mapValues, rhsTrans);
-    BoolExpr valNotError = ctx.mkNot(ctx.mkEq(val, typeSystem.mkError()));
-    constraintSink.accept(ctx.mkImplies(inMap, valNotError));
+    BoolExpr inMapOrig = (BoolExpr) ctx.mkSelect(mapPresence, rhsTrans);
+    Expr<?> valOrig = ctx.mkSelect(mapValues, rhsTrans);
+
+    BoolExpr isInt = typeSystem.isInt(rhsTrans);
+    BoolExpr isUint = typeSystem.isUint(rhsTrans);
+    BoolExpr isDouble = typeSystem.isDouble(rhsTrans);
+
+    // Common double key for both int and uint
+    FPExpr intUintFp;
+    Optional<Long> rhsNum = extractIntNumSafe(rhsTrans);
+    boolean hasExactDouble = rhsNum.isPresent();
+    if (hasExactDouble) {
+      intUintFp = typeSystem.mkFpDouble((double) rhsNum.get());
+    } else {
+      intUintFp = typeSystem.mkFpDouble(0.0);
+    }
+    Expr<?> intUintDoubleKey = typeSystem.wrapDouble(intUintFp);
+
+    // Int probes
+    IntExpr rawInt = (IntExpr) ctx.mkITE(isInt, typeSystem.getInt(rhsTrans), ctx.mkInt(0));
+    BoolExpr intHasUint = ctx.mkGe(rawInt, ctx.mkInt(0));
+    Expr<?> intUintKey = typeSystem.wrapUint(rawInt);
+
+    BoolExpr intHasDouble = hasExactDouble ? isInt : ctx.mkFalse();
+    ProbeResult intProbe =
+        createProbeResult(
+            inMapOrig,
+            valOrig,
+            intHasUint,
+            intUintKey,
+            intHasDouble,
+            intUintDoubleKey,
+            mapPresence,
+            mapValues);
+
+    // Uint probes
+    IntExpr rawUint = (IntExpr) ctx.mkITE(isUint, typeSystem.getUint(rhsTrans), ctx.mkInt(0));
+    BoolExpr uintHasInt = ctx.mkLe(rawUint, ctx.mkInt(CelZ3TypeSystem.MAX_INT64));
+    Expr<?> uintIntKey = typeSystem.wrapInt(rawUint);
+
+    BoolExpr uintHasDouble = hasExactDouble ? isUint : ctx.mkFalse();
+    ProbeResult uintProbe =
+        createProbeResult(
+            inMapOrig,
+            valOrig,
+            uintHasInt,
+            uintIntKey,
+            uintHasDouble,
+            intUintDoubleKey,
+            mapPresence,
+            mapValues);
+
+    // Double probes
+    FPExpr dVal =
+        (FPExpr)
+            (Expr) ctx.mkITE(isDouble, typeSystem.getDouble(rhsTrans), typeSystem.mkFpDouble(0.0));
+    IntExpr dInt = ctx.mkReal2Int(ctx.mkFPToReal(dVal));
+    BoolExpr doubleIsExact =
+        ctx.mkAnd(
+            isDouble,
+            ctx.mkNot(ctx.mkOr(ctx.mkFPIsNaN(dVal), ctx.mkFPIsInfinite(dVal))),
+            ctx.mkEq(ctx.mkInt2Real(dInt), ctx.mkFPToReal(dVal)));
+    Expr<?> doubleIntKey = typeSystem.wrapInt(dInt);
+    Expr<?> doubleUintKey = typeSystem.wrapUint(dInt);
+    BoolExpr doubleHasUint = ctx.mkAnd(doubleIsExact, ctx.mkGe(dInt, ctx.mkInt(0)));
+    ProbeResult doubleProbe =
+        createProbeResult(
+            inMapOrig,
+            valOrig,
+            doubleIsExact,
+            doubleIntKey,
+            doubleHasUint,
+            doubleUintKey,
+            mapPresence,
+            mapValues);
+
+    BoolExpr finalInMap =
+        (BoolExpr)
+            CelZ3TypeSystem.SwitchBuilder.newBuilder(ctx)
+                .addCase(isInt, intProbe.altInMap)
+                .addCase(isUint, uintProbe.altInMap)
+                .addCase(isDouble, doubleProbe.altInMap)
+                .build(inMapOrig);
+
+    Expr<?> finalVal =
+        CelZ3TypeSystem.SwitchBuilder.newBuilder(ctx)
+            .addCase(isInt, intProbe.altVal)
+            .addCase(isUint, uintProbe.altVal)
+            .addCase(isDouble, doubleProbe.altVal)
+            .build(valOrig);
+
+    BoolExpr valNotError = ctx.mkNot(ctx.mkEq(finalVal, typeSystem.mkError()));
+    constraintSink.accept(ctx.mkImplies(ctx.mkAnd(typeGuard, finalInMap), valNotError));
     if (!allowUnknowns) {
-      BoolExpr valNotUnknown = ctx.mkNot(typeSystem.isUnknown(val));
-      constraintSink.accept(ctx.mkImplies(inMap, valNotUnknown));
+      BoolExpr valNotUnknown = ctx.mkNot(typeSystem.isUnknown(finalVal));
+      constraintSink.accept(ctx.mkImplies(ctx.mkAnd(typeGuard, finalInMap), valNotUnknown));
     }
 
-    return ctx.mkITE(inMap, val, typeSystem.mkError());
+    return ctx.mkITE(finalInMap, finalVal, typeSystem.mkError());
   }
 
   private TranslatedValue translateIndex(List<TranslatedValue> args, CelAbstractSyntaxTree ast) {
@@ -630,24 +784,24 @@ final class CelZ3OperatorTranslator {
 
     Expr<?> actualValue;
     if (lhsType.kind() == CelKind.LIST && rhsType.kind() == CelKind.INT) {
-      actualValue = buildListIndex(lhsTrans, rhsTrans);
+      actualValue = buildListIndex(lhsTrans, rhsTrans, ctx.mkTrue());
       constraintSink.accept(
           ctx.mkImplies(
               ctx.mkNot(typeSystem.isError(actualValue)),
               typeConstraintGenerator.apply(actualValue, ((ListType) lhsType).elemType())));
     } else if (lhsType.kind() == CelKind.MAP) {
-      actualValue = buildMapIndex(lhsTrans, rhsTrans);
+      actualValue = buildMapIndex(lhsTrans, rhsTrans, ctx.mkTrue());
       constraintSink.accept(
           ctx.mkImplies(
               ctx.mkNot(typeSystem.isError(actualValue)),
               typeConstraintGenerator.apply(actualValue, ((MapType) lhsType).valueType())));
     } else {
+      BoolExpr isListGuard = ctx.mkAnd(typeSystem.isList(lhsTrans), typeSystem.isInt(rhsTrans));
+      BoolExpr isMapGuard = typeSystem.isMap(lhsTrans);
       actualValue =
           CelZ3TypeSystem.SwitchBuilder.newBuilder(ctx)
-              .addCase(
-                  ctx.mkAnd(typeSystem.isList(lhsTrans), typeSystem.isInt(rhsTrans)),
-                  buildListIndex(lhsTrans, rhsTrans))
-              .addCase(typeSystem.isMap(lhsTrans), buildMapIndex(lhsTrans, rhsTrans))
+              .addCase(isListGuard, buildListIndex(lhsTrans, rhsTrans, isListGuard))
+              .addCase(isMapGuard, buildMapIndex(lhsTrans, rhsTrans, isMapGuard))
               .build(typeSystem.mkError());
     }
 
