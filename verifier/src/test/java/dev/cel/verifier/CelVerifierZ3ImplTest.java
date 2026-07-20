@@ -303,6 +303,7 @@ public final class CelVerifierZ3ImplTest {
     UINT_ARITHMETIC_ZERO("0u + 0u == 0u"),
     MAP_COMPREHENSION("{1: 2, 3: 4}.all(k, k > 0)"),
     NESTED_COMPREHENSIONS("[1, 2].all(x, [3, 4].all(y, x < y || y <= x))"),
+    COMPREHENSION_EXISTS_UNKNOWN_INITIAL_STEP("[1, 2].exists(x, x == 1 ? unknown_var > 0 : true)"),
     CYCLIC_BIND_DOES_NOT_HANG("cel.bind(x, x, x) == x"),
     CEL_BIND_SHADOWING("cel.bind(x, 1, cel.bind(x, 2, x) + x) == 3"),
     CEL_BIND_TO_TRUE("cel.bind(x, true, !x) == false"),

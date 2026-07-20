@@ -848,8 +848,8 @@ final class CelZ3OperatorTranslator {
   private TranslatedValue translateNotStrictlyFalse(List<TranslatedValue> args) {
     TranslatedValue arg = args.get(0);
     BoolExpr isFalse = ctx.mkAnd(arg.isZ3Bool(), ctx.mkNot((BoolExpr) arg.unwrapZ3Bool()));
-    return TranslatedValue.propagateStrict(
-        ctx, typeSystem, typeSystem.wrapBool(ctx.mkNot(isFalse)), arg);
+    return TranslatedValue.create(
+        typeSystem.wrapBool(ctx.mkNot(isFalse)), typeSystem, arg.isApproximate());
   }
 
   private static CelType extractAstTypeOrDefault(TranslatedValue val, CelAbstractSyntaxTree ast) {
