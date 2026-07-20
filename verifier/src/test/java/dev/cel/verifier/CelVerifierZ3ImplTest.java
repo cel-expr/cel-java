@@ -172,6 +172,43 @@ public final class CelVerifierZ3ImplTest {
     assertThat(result.status()).isEqualTo(VerificationStatus.VERIFIED);
   }
 
+  @Test
+  public void isSatisfiable_withVariable_returnsSatisfyingModel() throws Exception {
+    CelAbstractSyntaxTree ast = CEL.compile("x > 5").getAst();
+
+    CelVerificationResult result = VERIFIER.isSatisfiable(ast);
+
+    assertThat(result.status()).isEqualTo(VerificationStatus.VERIFIED);
+    assertThat(result.message()).contains("Condition is satisfiable.");
+    assertThat(result.message()).contains("Satisfying input:");
+    assertThat(result.message()).containsMatch("x = (?:[6-9]|[1-9]\\d+)");
+  }
+
+  @Test
+  public void isSatisfiable_unconditional_returnsUnconditionalMessage() throws Exception {
+    CelAbstractSyntaxTree ast = CEL.compile("1 + 1 == 2").getAst();
+
+    CelVerificationResult result = VERIFIER.isSatisfiable(ast);
+
+    assertThat(result.status()).isEqualTo(VerificationStatus.VERIFIED);
+    assertThat(result.message())
+        .isEqualTo(
+            "Condition is satisfiable. (The expression is satisfiable unconditionally, regardless"
+                + " of input state)");
+  }
+
+  @Test
+  public void isSatisfiable_approximate_returnsPotentialSatisfyingInput() throws Exception {
+    CelAbstractSyntaxTree ast = CEL.compile("int('123') == 123 ? x > 5 : false").getAst();
+
+    CelVerificationResult result = VERIFIER.isSatisfiable(ast);
+
+    assertThat(result.status()).isEqualTo(VerificationStatus.INCONCLUSIVE);
+    assertThat(result.message()).contains("Inconclusive: a satisfying model may exist");
+    assertThat(result.message()).contains("Potential satisfying input:");
+    assertThat(result.message()).containsMatch("x = (?:[6-9]|[1-9]\\d+)");
+  }
+
   private enum IsSatisfiableInconclusiveTestCase {
     MASKED_BY_BMC("int_list == [1, 2, 3, 4, 5, 6] ? int_list.exists(x, x == 42) : false"),
     MASKED_BY_BMC_ALL("int_list == [1, 2, 3, 4, 5, 6] ? int_list.all(x, x > 0) : false"),

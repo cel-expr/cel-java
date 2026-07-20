@@ -22,7 +22,9 @@ import dev.cel.common.CelAbstractSyntaxTree;
 public interface CelVerifier {
 
   /**
-   * Returns verified if there is at least one input combination where the AST evaluates to true.
+   * Returns verified if there is at least one input combination where the AST evaluates to true. If
+   * the expression is satisfiable and depends on input variables, the result message will contain a
+   * satisfying model (witness) with concrete variable assignments.
    *
    * @param ast The input expression to verify. Must be a type-checked AST.
    */

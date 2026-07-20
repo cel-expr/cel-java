@@ -34,13 +34,18 @@ public abstract class CelVerificationResult {
   public abstract VerificationStatus status();
 
   /**
-   * Returns a message detailing why the verification failed or was inconclusive (e.g., the
-   * counterexample input or truncation reason). Empty if status is VERIFIED.
+   * Returns a message detailing the outcome of the verification check, such as a counterexample
+   * input, satisfying model assignments, or truncation reason. May be empty if status is VERIFIED
+   * and no model inputs apply (e.g., when verifying isAlwaysTrue without counterexamples).
    */
   public abstract String message();
 
   static CelVerificationResult verified() {
     return new AutoValue_CelVerificationResult(VerificationStatus.VERIFIED, "");
+  }
+
+  static CelVerificationResult verified(String message) {
+    return new AutoValue_CelVerificationResult(VerificationStatus.VERIFIED, message);
   }
 
   static CelVerificationResult failed(String message) {

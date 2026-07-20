@@ -36,7 +36,11 @@ final class CelZ3CounterexampleGenerator {
   private CelZ3CounterexampleGenerator() {}
 
   static String generate(
-      Context ctx, CelZ3TypeSystem typeSystem, Model model, boolean isApproximate) {
+      Context ctx,
+      CelZ3TypeSystem typeSystem,
+      Model model,
+      boolean isApproximate,
+      boolean isCounterexample) {
     FuncDecl[] constDecls = model.getConstDecls();
 
     List<String> bindings = new ArrayList<>();
@@ -55,10 +59,17 @@ final class CelZ3CounterexampleGenerator {
     }
 
     if (bindings.isEmpty()) {
-      return " (The expression fails unconditionally, regardless of input state)";
+      return isCounterexample
+          ? " (The expression fails unconditionally, regardless of input state)"
+          : " (The expression is satisfiable unconditionally, regardless of input state)";
     }
 
-    String prefix = isApproximate ? " Potential counterexample input:" : " Counterexample input:";
+    String prefix;
+    if (isCounterexample) {
+      prefix = isApproximate ? " Potential counterexample input:" : " Counterexample input:";
+    } else {
+      prefix = isApproximate ? " Potential satisfying input:" : " Satisfying input:";
+    }
     return prefix + String.join("", bindings);
   }
 
@@ -227,6 +238,9 @@ final class CelZ3CounterexampleGenerator {
     while (true) {
       if (++iterations > 100_000) {
         throw new IllegalStateException("Exceeded maximum number of extractKeys iterations.");
+      }
+      if (!arrayExpr.isApp()) {
+        break;
       }
       FuncDecl<?> decl = arrayExpr.getFuncDecl();
       String declName = decl.getName().toString();
