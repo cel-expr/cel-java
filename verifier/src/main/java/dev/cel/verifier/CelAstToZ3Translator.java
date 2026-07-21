@@ -644,6 +644,12 @@ final class CelAstToZ3Translator {
   private TranslatedValue translateComprehension(CelExpr celExpr, CelAbstractSyntaxTree ast) {
     CelComprehension comp = celExpr.comprehension();
     CelExpr iterRangeExpr = comp.iterRange();
+    if (iterRangeExpr.exprKind().getKind() == ExprKind.Kind.IDENT) {
+      TranslatedValue boundTv = symbolTable.get(iterRangeExpr.ident().name());
+      if (boundTv != null) {
+        iterRangeExpr = boundTv.celExpr().orElse(iterRangeExpr);
+      }
+    }
     List<IterationElement> iterationElements = new ArrayList<>();
     List<BoolExpr> taints = new ArrayList<>();
     List<Expr<?>> allRangeElems = new ArrayList<>();
