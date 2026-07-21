@@ -48,6 +48,7 @@ import dev.cel.common.types.TypeType;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -88,7 +89,11 @@ final class CelAstToZ3Translator {
   private final ImmutableSet<String> unknownIdentifiers;
   private final int comprehensionUnrollLimit;
   private final CelTypeProvider typeProvider;
-  private final List<BoolExpr> truncationConditions;
+  private final Set<BoolExpr> truncationConditions;
+  private final Set<SeqExpr<?>> boundedMapBijections;
+  private final Set<Expr<?>> appliedBijections;
+  private final Map<Long, TranslatedValue> pureExprCache;
+  private final Set<String> activeLoopVars;
   private final Map<String, Expr<?>> emptyMessageCache;
   private final Map<Object, Expr<?>> listLiteralCache;
   private Expr<?> emptyListCache;
@@ -102,7 +107,7 @@ final class CelAstToZ3Translator {
   }
 
   BoolExpr hasTruncation() {
-    return CelZ3TypeSystem.mkOrFlattened(ctx, truncationConditions);
+    return CelZ3TypeSystem.mkOrFlattened(ctx, new ArrayList<>(truncationConditions));
   }
 
   CelZ3TypeSystem getTypeSystem() {
@@ -264,12 +269,14 @@ final class CelAstToZ3Translator {
 
               return TranslatedValue.create(
                   v,
-                  CelExpr.newBuilder().setIdent(ident).setId(exprId).build(),
+                  Optional.of(CelExpr.newBuilder().setIdent(ident).setId(exprId).build()),
                   typeSystem,
-                  /* isApproximate= */ ctx.mkFalse());
+                  /* isApproximate= */ ctx.mkFalse(),
+                  /* isLoopInvariant= */ true);
             });
 
-    return TranslatedValue.create(tv.z3Expr(), celExpr, typeSystem, tv.isApproximate());
+    boolean isLoopInvariant = !activeLoopVars.contains(name) && tv.isLoopInvariant();
+    return TranslatedValue.create(tv.z3Expr(), Optional.of(celExpr), typeSystem, tv.isApproximate(), isLoopInvariant);
   }
 
   private TranslatedValue translateList(CelExpr celExpr, CelAbstractSyntaxTree ast) {
@@ -284,11 +291,23 @@ final class CelAstToZ3Translator {
     // check to a trivial identity check (e.g., `list_ref_0 == list_ref_0`).
     if (listRef == null) {
       SeqExpr seq = ctx.mkEmptySeq(ctx.mkSeqSort(typeSystem.celValueSort()));
-      for (CelExpr element : createList.elements()) {
+      ImmutableSet<Integer> optionalIndices = ImmutableSet.copyOf(createList.optionalIndices());
+      for (int i = 0; i < createList.elements().size(); i++) {
+        CelExpr element = createList.elements().get(i);
         TranslatedValue elem = translateExpr(element, ast);
         elementsTv.add(elem);
 
-        seq = typeSystem.mkConcatSafe(seq, ctx.mkUnit(elem.z3Expr()));
+        boolean isOptional = optionalIndices.contains(i);
+        OptionalUnwrap opt = unwrapOptional(elem.z3Expr(), isOptional);
+        SeqExpr optSeq =
+            isOptional
+                ? (SeqExpr)
+                    ctx.mkITE(
+                        opt.isPresent,
+                        ctx.mkUnit(opt.effectiveValue),
+                        ctx.mkEmptySeq(ctx.mkSeqSort(typeSystem.celValueSort())))
+                : ctx.mkUnit(opt.effectiveValue);
+        seq = typeSystem.mkConcatSafe(seq, optSeq);
       }
       listRef = typeSystem.mkListRefConst(LIST_REF_PREFIX);
       typeConstraints.add(ctx.mkEq(typeSystem.getSeq(listRef), seq));
@@ -297,7 +316,9 @@ final class CelAstToZ3Translator {
     }
 
     Expr<?> result = typeSystem.wrapList(listRef);
-    return TranslatedValue.propagateStrict(ctx, typeSystem, result, celExpr, elementsTv);
+    BoolExpr baseTaint = ctx.mkFalse();
+    return TranslatedValue.propagateStrict(
+        ctx, typeSystem, result, Optional.of(celExpr), baseTaint, elementsTv);
   }
 
   private TranslatedValue translateMap(CelExpr celExpr, CelAbstractSyntaxTree ast) {
@@ -318,12 +339,21 @@ final class CelAstToZ3Translator {
       Expr<?> value = valueTv.z3Expr();
       elementsTv.add(valueTv);
 
-      BoolExpr keyAlreadyPresent = (BoolExpr) ctx.mkSelect(mapPresence, key);
-      keysSeq =
-          ctx.mkITE(keyAlreadyPresent, keysSeq, typeSystem.mkConcatSafe(keysSeq, ctx.mkUnit(key)));
+      OptionalUnwrap opt = unwrapOptional(value, entryAst.optionalEntry());
 
-      mapValues = ctx.mkStore(mapValues, key, value);
-      mapPresence = ctx.mkStore(mapPresence, key, ctx.mkTrue());
+      BoolExpr keyAlreadyPresent = (BoolExpr) ctx.mkSelect(mapPresence, key);
+      BoolExpr shouldAddKey = ctx.mkAnd(opt.isPresent, ctx.mkNot(keyAlreadyPresent));
+
+      SeqExpr keyOptSeq =
+          (SeqExpr)
+              ctx.mkITE(
+                  shouldAddKey,
+                  ctx.mkUnit(key),
+                  ctx.mkEmptySeq(ctx.mkSeqSort(typeSystem.celValueSort())));
+
+      keysSeq = typeSystem.mkConcatSafe(keysSeq, keyOptSeq);
+      mapValues = storeIf(opt.isPresent, mapValues, key, opt.effectiveValue);
+      mapPresence = storeIf(opt.isPresent, mapPresence, key, ctx.mkTrue());
     }
 
     typeConstraints.add(ctx.mkEq(typeSystem.getMapValues(mapRef), mapValues));
@@ -331,7 +361,9 @@ final class CelAstToZ3Translator {
     typeConstraints.add(ctx.mkEq(typeSystem.getMapKeys(mapRef), keysSeq));
 
     Expr<?> result = typeSystem.wrapMap(mapRef);
-    return TranslatedValue.propagateStrict(ctx, typeSystem, result, celExpr, elementsTv);
+    BoolExpr baseTaint = ctx.mkFalse();
+    return TranslatedValue.propagateStrict(
+        ctx, typeSystem, result, Optional.of(celExpr), baseTaint, elementsTv);
   }
 
   private TranslatedValue translateStruct(CelExpr celExpr, CelAbstractSyntaxTree ast) {
@@ -379,15 +411,15 @@ final class CelAstToZ3Translator {
       // (`msg1 == msg2`) to work without using quantifiers (which avoids MBQI loops).
       // Because proto3 singular primitives do not have field presence, we also skip setting
       // `msgPresence`.
+      OptionalUnwrap opt = unwrapOptional(value, entryAst.optionalEntry());
+
       BoolExpr shouldBypass =
-          fieldType.kind().isPrimitive() ? ctx.mkEq(value, defaultVal) : ctx.mkFalse();
+          fieldType.kind().isPrimitive() ? ctx.mkEq(opt.effectiveValue, defaultVal) : ctx.mkFalse();
 
-      msgValues =
-          (ArrayExpr) ctx.mkITE(shouldBypass, msgValues, ctx.mkStore(msgValues, key, value));
+      BoolExpr shouldStore = ctx.mkAnd(opt.isPresent, ctx.mkNot(shouldBypass));
 
-      msgPresence =
-          (ArrayExpr)
-              ctx.mkITE(shouldBypass, msgPresence, ctx.mkStore(msgPresence, key, ctx.mkTrue()));
+      msgValues = storeIf(shouldStore, msgValues, key, opt.effectiveValue);
+      msgPresence = storeIf(shouldStore, msgPresence, key, ctx.mkTrue());
     }
 
     typeConstraints.add(
@@ -396,7 +428,9 @@ final class CelAstToZ3Translator {
     typeConstraints.add(ctx.mkEq(typeSystem.getMsgPresence(msgRef), msgPresence));
 
     Expr<?> result = typeSystem.wrapMessage(msgRef);
-    return TranslatedValue.propagateStrict(ctx, typeSystem, result, celExpr, elementsTv);
+    BoolExpr baseTaint = ctx.mkFalse();
+    return TranslatedValue.propagateStrict(
+        ctx, typeSystem, result, Optional.of(celExpr), baseTaint, elementsTv);
   }
 
   private Expr<?> getDefaultValueForType(CelType type) {
@@ -470,6 +504,28 @@ final class CelAstToZ3Translator {
       return typeSystem.wrapMessage(msgRef);
     }
     return typeSystem.mkUnknown();
+  }
+
+  private static final class OptionalUnwrap {
+    final BoolExpr isPresent;
+    final Expr<?> effectiveValue;
+
+    OptionalUnwrap(BoolExpr isPresent, Expr<?> effectiveValue) {
+      this.isPresent = isPresent;
+      this.effectiveValue = effectiveValue;
+    }
+  }
+
+  private OptionalUnwrap unwrapOptional(Expr<?> value, boolean isOptional) {
+    if (!isOptional) {
+      return new OptionalUnwrap(ctx.mkTrue(), value);
+    }
+    Expr<?> optRef = typeSystem.getOptionalRef(value);
+    return new OptionalUnwrap(typeSystem.optHasValue(optRef), typeSystem.getOptionalValue(optRef));
+  }
+
+  private ArrayExpr storeIf(BoolExpr condition, ArrayExpr array, Expr<?> key, Expr<?> value) {
+    return (ArrayExpr) ctx.mkITE(condition, ctx.mkStore(array, key, value), array);
   }
 
   private static final class FieldAccess {
@@ -657,12 +713,27 @@ final class CelAstToZ3Translator {
     // For statically known list/map literals, unroll them exactly.
     if (iterRangeExpr.exprKind().getKind() == ExprKind.Kind.LIST) {
       ImmutableList<CelExpr> elements = iterRangeExpr.list().elements();
+      ImmutableList<Integer> optionalIndices = iterRangeExpr.list().optionalIndices();
       for (int i = 0; i < elements.size(); i++) {
         TranslatedValue valueTv = translateExpr(elements.get(i), ast);
-        Expr<?> value = valueTv.z3Expr();
-        taints.add(valueTv.isApproximate());
-        iterationElements.add(new IterationElement(typeSystem.mkInt(i), value));
-        allRangeElems.add(value);
+        boolean isOptional = optionalIndices.contains(i);
+        OptionalUnwrap opt = unwrapOptional(valueTv.z3Expr(), isOptional);
+        if (isOptional && ctx.mkFalse().equals(opt.isPresent)) {
+          continue;
+        }
+        taints.add(
+            isOptional
+                ? CelZ3TypeSystem.mkAndFlattened(ctx, opt.isPresent, valueTv.isApproximate())
+                : valueTv.isApproximate());
+        iterationElements.add(
+            new IterationElement(
+                typeSystem.mkInt(i),
+                opt.effectiveValue,
+                isOptional ? Optional.of(opt.isPresent) : Optional.empty()));
+        allRangeElems.add(
+            isOptional
+                ? ctx.mkITE(opt.isPresent, opt.effectiveValue, typeSystem.mkInt(0))
+                : opt.effectiveValue);
       }
     } else if (iterRangeExpr.exprKind().getKind() == ExprKind.Kind.MAP) {
       for (CelExpr.CelMap.Entry entry : iterRangeExpr.map().entries()) {
@@ -670,11 +741,25 @@ final class CelAstToZ3Translator {
         Expr<?> key = keyTv.z3Expr();
         taints.add(keyTv.isApproximate());
         TranslatedValue valueTv = translateExpr(entry.value(), ast);
-        Expr<?> value = valueTv.z3Expr();
-        taints.add(valueTv.isApproximate());
-        iterationElements.add(new IterationElement(key, value));
+        boolean isOptional = entry.optionalEntry();
+        OptionalUnwrap opt = unwrapOptional(valueTv.z3Expr(), isOptional);
+        if (isOptional && ctx.mkFalse().equals(opt.isPresent)) {
+          continue;
+        }
+        taints.add(
+            isOptional
+                ? CelZ3TypeSystem.mkAndFlattened(ctx, opt.isPresent, valueTv.isApproximate())
+                : valueTv.isApproximate());
+        iterationElements.add(
+            new IterationElement(
+                key,
+                opt.effectiveValue,
+                isOptional ? Optional.of(opt.isPresent) : Optional.empty()));
         allRangeElems.add(key);
-        allRangeElems.add(value);
+        allRangeElems.add(
+            isOptional
+                ? ctx.mkITE(opt.isPresent, opt.effectiveValue, typeSystem.mkInt(0))
+                : opt.effectiveValue);
       }
     } else {
       return translateDynamicComprehension(celExpr, ast);
@@ -693,13 +778,23 @@ final class CelAstToZ3Translator {
               comp, ast, iterElem.keyOrIndex, iterElem.value, currentAccu, isMap, isTwoVar);
       Expr<?> condition = condAndStep[0].z3Expr();
       Expr<?> step = condAndStep[1].z3Expr();
-      taints.add(condAndStep[1].isApproximate());
+      if (iterElem.hasValue.isPresent()) {
+        taints.add(
+            CelZ3TypeSystem.mkAndFlattened(
+                ctx, iterElem.hasValue.get(), condAndStep[1].isApproximate()));
+      } else {
+        taints.add(condAndStep[1].isApproximate());
+      }
 
       Expr<?> stepVal = ctx.mkITE((BoolExpr) typeSystem.unwrapBool(condition), step, currentAccu);
       Expr<?> typeErrorOrStep =
           typeSystem.withRuntimeError(stepVal, ctx.mkNot(typeSystem.isBool(condition)));
 
-      accu = typeSystem.propagateErrorAndUnknown(typeErrorOrStep, condition);
+      Expr<?> updatedAccu = typeSystem.propagateErrorAndUnknown(typeErrorOrStep, condition);
+      accu =
+          iterElem.hasValue.isPresent()
+              ? ctx.mkITE(iterElem.hasValue.get(), updatedAccu, currentAccu)
+              : updatedAccu;
     }
 
     TranslatedValue resultTv =
@@ -773,6 +868,9 @@ final class CelAstToZ3Translator {
 
   private void applyBoundedMapBijection(
       ArrayExpr mapPresence, SeqExpr<?> seq, ArithExpr lengthExpr) {
+    if (!boundedMapBijections.add(seq)) {
+      return;
+    }
     for (int i = 0; i < comprehensionUnrollLimit; i++) {
       for (int j = i + 1; j < comprehensionUnrollLimit; j++) {
         BoolExpr validPair = ctx.mkLt(ctx.mkInt(j), lengthExpr);
@@ -1223,16 +1321,26 @@ final class CelAstToZ3Translator {
     this.emptyMessageCache = new HashMap<>();
     this.listLiteralCache = new HashMap<>();
     this.typeProvider = typeProvider;
-    this.truncationConditions = new ArrayList<>();
+    this.truncationConditions = new LinkedHashSet<>();
+    this.boundedMapBijections = new LinkedHashSet<>();
+    this.appliedBijections = new HashSet<>();
+    this.pureExprCache = new HashMap<>();
+    this.activeLoopVars = new LinkedHashSet<>();
   }
 
   private static class IterationElement {
     final Expr<?> keyOrIndex;
     final Expr<?> value;
+    final Optional<BoolExpr> hasValue;
 
     IterationElement(Expr<?> keyOrIndex, Expr<?> value) {
+      this(keyOrIndex, value, Optional.empty());
+    }
+
+    IterationElement(Expr<?> keyOrIndex, Expr<?> value, Optional<BoolExpr> hasValue) {
       this.keyOrIndex = keyOrIndex;
       this.value = value;
+      this.hasValue = hasValue;
     }
   }
 
@@ -1249,6 +1357,7 @@ final class CelAstToZ3Translator {
           }
           builder.add(elemKey.get());
         }
+        builder.add(expr.list().optionalIndices());
         return Optional.of(builder.build());
       default:
         return Optional.empty();

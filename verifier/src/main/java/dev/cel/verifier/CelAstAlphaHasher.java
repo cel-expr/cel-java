@@ -24,7 +24,9 @@ import com.google.common.hash.Hashing;
 import dev.cel.common.ast.CelConstant;
 import dev.cel.common.ast.CelExpr;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -83,16 +85,11 @@ final class CelAstAlphaHasher {
           context.hasher.putByte((byte) 0); // 0 = bound
           context.hasher.putInt(bIdx);
         } else {
-          int fIdx = -1;
-          for (int i = 0; i < context.freeVars.size(); i++) {
-            if (context.freeVars.get(i).ident().name().equals(name)) {
-              fIdx = i;
-              break;
-            }
-          }
-          if (fIdx == -1) {
+          Integer fIdx = context.freeVarIndices.get(name);
+          if (fIdx == null) {
+            fIdx = context.freeVars.size();
             context.freeVars.add(expr);
-            fIdx = context.freeVars.size() - 1;
+            context.freeVarIndices.put(name, fIdx);
           }
           context.hasher.putByte((byte) 1); // 1 = free
           context.hasher.putInt(fIdx);
@@ -120,6 +117,10 @@ final class CelAstAlphaHasher {
         context.hasher.putInt(expr.list().elements().size());
         for (CelExpr elem : expr.list().elements()) {
           hashAst(elem, scope, context);
+        }
+        context.hasher.putInt(expr.list().optionalIndices().size());
+        for (int optIndex : expr.list().optionalIndices()) {
+          context.hasher.putInt(optIndex);
         }
         break;
       case STRUCT:
@@ -208,10 +209,13 @@ final class CelAstAlphaHasher {
 
   private static final class HasherContext {
     final Hasher hasher;
-    final List<CelExpr> freeVars = new ArrayList<>();
+    final List<CelExpr> freeVars;
+    final Map<String, Integer> freeVarIndices;
 
     HasherContext(HashFunction hashFunction) {
       this.hasher = hashFunction.newHasher();
+      this.freeVars = new ArrayList<>();
+      this.freeVarIndices = new HashMap<>();
     }
   }
 

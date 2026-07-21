@@ -38,15 +38,28 @@ abstract class TranslatedValue {
 
   abstract BoolExpr isApproximate();
 
+  abstract boolean isLoopInvariant();
+
   /** Safely checks if this is a specific literal type */
   boolean isLiteral(ExprKind.Kind kind) {
     return celExpr().map(node -> node.exprKind().getKind() == kind).orElse(false);
   }
 
-  /** Safely extracts a list element AST if it exists */
+  /** Safely checks if this is a list literal without optional indices that can be unrolled */
+  boolean isUnrollableList() {
+    return celExpr()
+        .map(
+            node ->
+                node.exprKind().getKind() == ExprKind.Kind.LIST
+                    && node.list().optionalIndices().isEmpty())
+        .orElse(false);
+  }
+
+  /** Safely extracts a list element AST if it exists and has no optional indices */
   Optional<CelExpr> listElementAt(int index) {
     return celExpr()
         .filter(node -> node.exprKind().getKind() == ExprKind.Kind.LIST)
+        .filter(node -> node.list().optionalIndices().isEmpty())
         .filter(node -> index < node.list().elements().size())
         .map(node -> node.list().elements().get(index));
   }
@@ -81,7 +94,12 @@ abstract class TranslatedValue {
 
   static TranslatedValue create(
       Expr<?> z3Expr, CelExpr celExpr, CelZ3TypeSystem typeSystem, BoolExpr isApproximate) {
-    return new AutoValue_TranslatedValue(z3Expr, Optional.of(celExpr), typeSystem, isApproximate);
+    return create(z3Expr, Optional.of(celExpr), typeSystem, isApproximate, true);
+  }
+
+  static TranslatedValue create(
+      Expr<?> z3Expr, CelExpr celExpr, CelZ3TypeSystem typeSystem, BoolExpr isApproximate, boolean isLoopInvariant) {
+    return new AutoValue_TranslatedValue(z3Expr, Optional.of(celExpr), typeSystem, isApproximate, isLoopInvariant);
   }
 
   static TranslatedValue create(
@@ -89,12 +107,26 @@ abstract class TranslatedValue {
       Optional<CelExpr> celExpr,
       CelZ3TypeSystem typeSystem,
       BoolExpr isApproximate) {
-    return new AutoValue_TranslatedValue(z3Expr, celExpr, typeSystem, isApproximate);
+    return create(z3Expr, celExpr, typeSystem, isApproximate, true);
+  }
+
+  static TranslatedValue create(
+      Expr<?> z3Expr,
+      Optional<CelExpr> celExpr,
+      CelZ3TypeSystem typeSystem,
+      BoolExpr isApproximate,
+      boolean isLoopInvariant) {
+    return new AutoValue_TranslatedValue(z3Expr, celExpr, typeSystem, isApproximate, isLoopInvariant);
   }
 
   static TranslatedValue create(
       Expr<?> z3Expr, CelZ3TypeSystem typeSystem, BoolExpr isApproximate) {
-    return new AutoValue_TranslatedValue(z3Expr, Optional.empty(), typeSystem, isApproximate);
+    return create(z3Expr, Optional.empty(), typeSystem, isApproximate, true);
+  }
+
+  static TranslatedValue create(
+      Expr<?> z3Expr, CelZ3TypeSystem typeSystem, BoolExpr isApproximate, boolean isLoopInvariant) {
+    return new AutoValue_TranslatedValue(z3Expr, Optional.empty(), typeSystem, isApproximate, isLoopInvariant);
   }
 
   /**
@@ -150,10 +182,14 @@ abstract class TranslatedValue {
     taints.add(baseTaint);
 
     boolean hasNonConstantArgs = false;
+    boolean isLoopInvariant = true;
     List<TranslatedValue> argsList = new ArrayList<>(args);
     for (int i = argsList.size() - 1; i >= 0; i--) {
       TranslatedValue arg = argsList.get(i);
       taints.add(arg.isApproximate());
+      if (!arg.isLoopInvariant()) {
+        isLoopInvariant = false;
+      }
       if (arg.isLiteral(ExprKind.Kind.CONSTANT)) {
         continue;
       }
@@ -177,7 +213,7 @@ abstract class TranslatedValue {
 
     BoolExpr anyTaint = CelZ3TypeSystem.mkOrFlattened(ctx, taints);
     if (!hasNonConstantArgs) {
-      return create(baseResult, celExpr, ts, anyTaint);
+      return create(baseResult, celExpr, ts, anyTaint, isLoopInvariant);
     }
 
     BoolExpr hasExactError = CelZ3TypeSystem.mkOrFlattened(ctx, exactErrors);
@@ -199,7 +235,7 @@ abstract class TranslatedValue {
                 ctx, hasExactError, CelZ3TypeSystem.mkNotFlattened(ctx, hasUnknown)),
             CelZ3TypeSystem.mkNotFlattened(ctx, anyTaint));
 
-    return create(finalResult, celExpr, ts, CelZ3TypeSystem.mkNotFlattened(ctx, isSafe));
+    return create(finalResult, celExpr, ts, CelZ3TypeSystem.mkNotFlattened(ctx, isSafe), isLoopInvariant);
   }
 
   /**
@@ -211,7 +247,8 @@ abstract class TranslatedValue {
         z3Expr(),
         celExpr(),
         typeSystem(),
-        typeSystem().ctx().mkOr(isApproximate(), approxCondition));
+        typeSystem().ctx().mkOr(isApproximate(), approxCondition),
+        isLoopInvariant());
   }
 }
 
