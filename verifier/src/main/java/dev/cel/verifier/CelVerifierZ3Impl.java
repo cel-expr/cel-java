@@ -33,7 +33,10 @@ import dev.cel.common.types.CelTypeProvider;
 import dev.cel.verifier.axioms.CelZ3FunctionAxiom;
 import dev.cel.verifier.axioms.CelZ3StandardAxioms;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import org.jspecify.annotations.Nullable;
 
@@ -211,6 +214,95 @@ final class CelVerifierZ3Impl implements CelVerifier {
           return CelVerificationResult.inconclusive(
               "Inconclusive: expressions are equivalent within the current loop unroll limit, but"
                   + " may diverge for larger collections.");
+        case NO_MATCH:
+          return CelVerificationResult.verified();
+        case SOLVER_UNKNOWN:
+          return CelVerificationResult.inconclusive(
+              "Inconclusive: the solver returned unknown status (" + result.reason + ").");
+      }
+      throw new AssertionError("Unknown verification outcome: " + result.outcome);
+    }
+  }
+
+  CelVerificationResult verifyImplication(
+      CelAbstractSyntaxTree assumeAst,
+      CelAbstractSyntaxTree assertAst,
+      Map<String, CelAbstractSyntaxTree> boundSymbols)
+      throws CelVerificationException {
+    Preconditions.checkArgument(assumeAst.isChecked(), "assumeAst must be type-checked.");
+    Preconditions.checkArgument(assertAst.isChecked(), "assertAst must be type-checked.");
+    for (Map.Entry<String, CelAbstractSyntaxTree> entry : boundSymbols.entrySet()) {
+      Preconditions.checkArgument(
+          entry.getValue().isChecked(),
+          "boundSymbol AST for '%s' must be type-checked.",
+          entry.getKey());
+    }
+
+    try (Context ctx = new Context(ImmutableMap.of("model", "true"))) {
+      CelAstToZ3Translator translator =
+          new CelAstToZ3Translator(
+              ctx, comprehensionUnrollLimit, unknownIdentifiers, functionRegistry, typeProvider);
+
+      List<BoolExpr> taints = new ArrayList<>();
+      for (Map.Entry<String, CelAbstractSyntaxTree> entry : boundSymbols.entrySet()) {
+        TranslatedValue tv = translator.translate(entry.getValue());
+        translator.bindSymbol(entry.getKey(), tv);
+      }
+
+      TranslatedValue assumeTv = translator.translate(assumeAst);
+      TranslatedValue assertTv = translator.translate(assertAst);
+      taints.add(assumeTv.isApproximate());
+      taints.add(assertTv.isApproximate());
+
+      BoolExpr assumeCondition = translator.isTrue(assumeTv.z3Expr());
+      BoolExpr assertCondition = translator.isTrue(assertTv.z3Expr());
+      BoolExpr violationCondition = ctx.mkAnd(assumeCondition, ctx.mkNot(assertCondition));
+
+      BoolExpr combinedTaint = CelZ3TypeSystem.mkOrFlattened(ctx, taints);
+      BoolExpr unknownCondition =
+          ctx.mkOr(
+              translator.getTypeSystem().isUnknown(assumeTv.z3Expr()),
+              translator.getTypeSystem().isUnknown(assertTv.z3Expr()));
+
+      Solver solver = newSolver(ctx);
+      for (BoolExpr constraint : translator.getTypeConstraints()) {
+        solver.add(constraint);
+      }
+
+      SolverRunResult result =
+          runThreePassVerification(
+              ctx,
+              solver,
+              violationCondition,
+              combinedTaint,
+              unknownCondition,
+              translator,
+              /* checkTruncation= */ true);
+
+      switch (result.outcome) {
+        case EXACT_MATCH:
+          return CelVerificationResult.failed(
+              "Implication violation detected."
+                  + getCounterexampleString(
+                      ctx,
+                      translator.getTypeSystem(),
+                      result.model,
+                      /* isApproximate= */ false,
+                      /* isCounterexample= */ true));
+        case APPROXIMATE_MATCH:
+          return CelVerificationResult.inconclusive(
+              "Inconclusive: a counterexample may exist, but it depends on approximations, missing"
+                  + " theories, or loop bounds."
+                  + getCounterexampleString(
+                      ctx,
+                      translator.getTypeSystem(),
+                      result.model,
+                      /* isApproximate= */ true,
+                      /* isCounterexample= */ true));
+        case TRUNCATED:
+          return CelVerificationResult.inconclusive(
+              "Inconclusive: implication holds within the current loop unroll limit, but"
+                  + " may be violated for larger collections.");
         case NO_MATCH:
           return CelVerificationResult.verified();
         case SOLVER_UNKNOWN:

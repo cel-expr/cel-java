@@ -15,6 +15,7 @@
 package dev.cel.policy;
 
 import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static dev.cel.common.formats.YamlHelper.ERROR;
 import static dev.cel.common.formats.YamlHelper.assertRequiredFields;
 import static dev.cel.common.formats.YamlHelper.assertYamlType;
@@ -28,6 +29,7 @@ import dev.cel.common.formats.YamlHelper.YamlNodeType;
 import dev.cel.common.formats.YamlParserContextImpl;
 import dev.cel.common.internal.CelCodePointArray;
 import dev.cel.policy.CelPolicy.Import;
+import dev.cel.policy.CelPolicy.Invariant;
 import dev.cel.policy.CelPolicy.Match;
 import dev.cel.policy.CelPolicy.Match.Result;
 import dev.cel.policy.CelPolicy.Variable;
@@ -47,6 +49,8 @@ final class CelPolicyYamlParser implements CelPolicyParser {
       Match.newBuilder(0).setCondition(ERROR_VALUE).setResult(Result.ofOutput(ERROR_VALUE)).build();
   private static final Variable ERROR_VARIABLE =
       Variable.newBuilder().setExpression(ERROR_VALUE).setName(ERROR_VALUE).build();
+  private static final Invariant ERROR_INVARIANT =
+      Invariant.newBuilder(0).setInvariantId(ERROR_VALUE).setAssertClause(ERROR_VALUE).build();
 
   private final TagVisitor<Node> tagVisitor;
   private final boolean enableSimpleVariables;
@@ -137,15 +141,80 @@ final class CelPolicyYamlParser implements CelPolicyParser {
           case "rule":
             policyBuilder.setRule(parseRule(ctx, policyBuilder, valueNode));
             break;
+          case "verification":
+            parseVerification(policyBuilder, ctx, valueNode);
+            break;
           default:
             tagVisitor.visitPolicyTag(ctx, keyId, fieldName, valueNode, policyBuilder);
             break;
         }
       }
 
+      ImmutableSet<String> ruleVarNames =
+          policyBuilder.rule().variables().stream()
+              .map(CelPolicy.Variable::name)
+              .filter(name -> !name.equals(ERROR_VALUE))
+              .map(ValueString::value)
+              .collect(toImmutableSet());
+      for (Variable verVar : policyBuilder.verificationVariables()) {
+        if (!verVar.name().equals(ERROR_VALUE)
+            && ruleVarNames.contains(verVar.name().value())) {
+          ctx.reportError(
+              verVar.name().id(),
+              "Duplicate variable name '"
+                  + verVar.name().value()
+                  + "' in verification.variables; already defined in rule.variables");
+        }
+      }
+
       return policyBuilder
           .setPolicySource(policySource.toBuilder().setPositionsMap(ctx.getIdToOffsetMap()).build())
           .build();
+    }
+
+    private void parseVerification(
+        CelPolicy.Builder policyBuilder, PolicyParserContext<Node> ctx, Node node) {
+      long id = ctx.collectMetadata(node);
+      if (!assertYamlType(ctx, id, node, YamlNodeType.MAP)) {
+        return;
+      }
+      MappingNode mappingNode = (MappingNode) node;
+      for (NodeTuple nodeTuple : mappingNode.getValue()) {
+        Node key = nodeTuple.getKeyNode();
+        long keyId = ctx.collectMetadata(key);
+        if (!assertYamlType(ctx, keyId, key, YamlNodeType.STRING, YamlNodeType.TEXT)) {
+          continue;
+        }
+        String fieldName = ((ScalarNode) key).getValue();
+        Node valueNode = nodeTuple.getValueNode();
+        switch (fieldName) {
+          case "invariants": {
+            long valueId = ctx.collectMetadata(valueNode);
+            if (!assertYamlType(ctx, valueId, valueNode, YamlNodeType.LIST)) {
+              continue;
+            }
+            SequenceNode invariantListNode = (SequenceNode) valueNode;
+            for (Node invariantNode : invariantListNode.getValue()) {
+              policyBuilder.addInvariant(parseInvariant(ctx, policyBuilder, invariantNode));
+            }
+            break;
+          }
+          case "variables": {
+            long valueId = ctx.collectMetadata(valueNode);
+            if (!assertYamlType(ctx, valueId, valueNode, YamlNodeType.LIST)) {
+              continue;
+            }
+            SequenceNode variableListNode = (SequenceNode) valueNode;
+            for (Node varNode : variableListNode.getValue()) {
+              policyBuilder.addVerificationVariable(parseVariable(ctx, policyBuilder, varNode));
+            }
+            break;
+          }
+          default:
+            ctx.reportError(keyId, "Unexpected key in verification block: " + fieldName);
+            break;
+        }
+      }
     }
 
     private void parseImports(
@@ -404,6 +473,82 @@ final class CelPolicyYamlParser implements CelPolicyParser {
 
       if (!assertRequiredFields(ctx, id, builder.getMissingRequiredFieldNames())) {
         return ERROR_VARIABLE;
+      }
+
+      return builder.build();
+    }
+
+    @Override
+    public CelPolicy.Invariant parseInvariant(
+        PolicyParserContext<Node> ctx, CelPolicy.Builder policyBuilder, Node node) {
+      long id = ctx.collectMetadata(node);
+      Invariant.Builder builder = Invariant.newBuilder(id);
+      if (!assertYamlType(ctx, id, node, YamlNodeType.MAP)) {
+        return ERROR_INVARIANT;
+      }
+
+      MappingNode invariantMap = (MappingNode) node;
+      for (NodeTuple nodeTuple : invariantMap.getValue()) {
+        Node keyNode = nodeTuple.getKeyNode();
+        long keyId = ctx.collectMetadata(keyNode);
+        if (!assertYamlType(ctx, keyId, keyNode, YamlNodeType.STRING, YamlNodeType.TEXT)) {
+          continue;
+        }
+        Node valueNode = nodeTuple.getValueNode();
+        String keyName = ((ScalarNode) keyNode).getValue();
+        switch (keyName) {
+          case "id":
+            builder.setInvariantId(ctx.newYamlString(valueNode));
+            break;
+          case "description":
+            builder.setDescription(ctx.newYamlString(valueNode));
+            break;
+          case "assume": {
+            if (!assertYamlType(
+                ctx,
+                ctx.collectMetadata(valueNode),
+                valueNode,
+                YamlNodeType.STRING,
+                YamlNodeType.TEXT,
+                YamlNodeType.LIST)) {
+              break;
+            }
+            if (valueNode instanceof SequenceNode) {
+              for (Node itemNode : ((SequenceNode) valueNode).getValue()) {
+                builder.addAssume(ctx.newSourceString(itemNode));
+              }
+            } else {
+              builder.addAssume(ctx.newSourceString(valueNode));
+            }
+            break;
+          }
+          case "assert": {
+            if (!assertYamlType(
+                ctx,
+                ctx.collectMetadata(valueNode),
+                valueNode,
+                YamlNodeType.STRING,
+                YamlNodeType.TEXT,
+                YamlNodeType.LIST)) {
+              break;
+            }
+            if (valueNode instanceof SequenceNode) {
+              for (Node itemNode : ((SequenceNode) valueNode).getValue()) {
+                builder.addAssertClause(ctx.newSourceString(itemNode));
+              }
+            } else {
+              builder.addAssertClause(ctx.newSourceString(valueNode));
+            }
+            break;
+          }
+          default:
+            ctx.reportError(keyId, "Unexpected key in invariant block: " + keyName);
+            break;
+        }
+      }
+
+      if (!assertRequiredFields(ctx, id, builder.getMissingRequiredFieldNames())) {
+        return ERROR_INVARIANT;
       }
 
       return builder.build();

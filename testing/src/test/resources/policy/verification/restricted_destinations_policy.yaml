@@ -1,0 +1,63 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#    https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: "restricted_destinations"
+description: >
+  Tests a realistic conformance policy verbatim with restricted
+  destinations, verifying security boundary assertions.
+rule:
+  variables:
+    - matches_origin_ip: "locationCode(origin.ip) == spec.origin"
+    - has_nationality: "has(request.auth.claims.nationality)"
+    - matches_nationality: "variables.has_nationality && request.auth.claims.nationality == spec.origin"
+    - matches_dest_ip: "locationCode(destination.ip) in spec.restricted_destinations"
+    - matches_dest_label: "resource.labels.location in spec.restricted_destinations"
+    - matches_dest: "variables.matches_dest_ip || variables.matches_dest_label"
+  match:
+    - condition: "variables.matches_nationality && variables.matches_dest"
+      output: "true"
+    - condition: "!variables.has_nationality && variables.matches_origin_ip && variables.matches_dest"
+      output: "true"
+    - output: "false"
+verification:
+  variables:
+    - is_prohibited_origin_ip: "!variables.has_nationality && variables.matches_origin_ip"
+    - is_unrestricted_dest: "!variables.matches_dest_ip && !variables.matches_dest_label"
+  invariants:
+    - id: restricted_by_nationality_prohibited
+      description: >
+        Verifies that requests to restricted destinations from users with
+        matching origin nationality are prohibited.
+      assume:
+        - "variables.matches_nationality"
+        - "variables.matches_dest"
+      assert:
+        - "rule.result == true"
+    - id: restricted_by_origin_ip_prohibited
+      description: >
+        Verifies that requests to restricted destinations from users without
+        nationality claims but matching origin IP are prohibited.
+      assume:
+        - "variables.is_prohibited_origin_ip"
+        - "variables.matches_dest"
+      assert:
+        - "rule.result == true"
+    - id: unrestricted_destination_allowed
+      description: >
+        Verifies that requests to destinations not in the restricted list
+        and without restricted labels are allowed ('false').
+      assume:
+        - "variables.is_unrestricted_dest"
+      assert:
+        - "rule.result == false"

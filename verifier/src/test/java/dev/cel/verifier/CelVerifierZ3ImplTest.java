@@ -20,6 +20,7 @@ import static java.util.stream.Collectors.joining;
 import static org.junit.Assert.assertThrows;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.testing.junit.testparameterinjector.TestParameter;
 import com.google.testing.junit.testparameterinjector.TestParameterInjector;
@@ -2453,5 +2454,22 @@ public final class CelVerifierZ3ImplTest {
         assertThrows(
             CelVerificationException.class, () -> timeoutVerifier.verifyEquivalence(astA, astB));
     assertThat(e).hasMessageThat().containsMatch("timeout|canceled");
+  }
+
+  @Test
+  public void verifyImplication_loopExceedsLimit_returnsTruncatedInconclusive() throws Exception {
+    CelAbstractSyntaxTree assumeAst =
+        CEL.compile("size(int_list) <= 2 && int_list[0] > 0 && int_list[1] > 0").getAst();
+    CelAbstractSyntaxTree assertAst = CEL.compile("int_list.all(x, x > 0)").getAst();
+
+    CelVerifier verifier =
+        CelVerifierFactory.newVerifier().setComprehensionUnrollLimit(2).build();
+    CelVerificationResult result =
+        ((CelVerifierZ3Impl) verifier)
+            .verifyImplication(assumeAst, assertAst, ImmutableMap.of());
+
+    assertThat(result.status()).isEqualTo(VerificationStatus.INCONCLUSIVE);
+    assertThat(result.message())
+        .contains("implication holds within the current loop unroll limit");
   }
 }

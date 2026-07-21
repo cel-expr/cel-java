@@ -12,6 +12,9 @@ java_library(
         ["**/*.java"],
     ),
     compatible_with = [],
+    data = [
+        "//testing:policy_test_resources",
+    ],
     deps = [
         "//bundle:cel",
         "//common:cel_ast",
@@ -37,6 +40,8 @@ java_library(
         "//policy:compiler_factory",
         "//policy:parser",
         "//policy:parser_factory",
+        "//policy:validation_exception",
+        "@bazel_tools//tools/java/runfiles",
         "@maven//:junit_junit",
         "@maven//:com_google_testparameterinjector_test_parameter_injector",
         "//:java_truth",

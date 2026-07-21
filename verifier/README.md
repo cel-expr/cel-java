@@ -34,18 +34,26 @@ properties about your expressions.
 
 *   **Satisfiability & Validity Proving:** Check if an expression can ever
     evaluate to `true` (satisfiability) or if it is guaranteed to always be
-    `true` (validity).
+    `true` (validity). When checking satisfiability (`isSatisfiable`), the
+    verifier produces a satisfying model (witness assignments) showing concrete
+    inputs that make the expression true.
 *   **Logical Equivalence:** Prove that two different ASTs or Policies are
     semantically identical.
 *   **Bounded Model Checking (BMC):** Safely verify list and map comprehensions
     (`all`, `exists`, `map`, `filter`) by statically unrolling them up to a
     configurable limit.
-*   **Counterexample Generation:** When verification fails (e.g., two
-    expressions are not equivalent), the verifier generates a human-readable
-    counterexample showing the inputs that caused the mismatch.
+*   **Counterexample & Witness Generation:** When validity (`isAlwaysTrue`) or
+    equivalence verification fails, the verifier generates a human-readable
+    counterexample showing the inputs that caused the violation. When checking
+    satisfiability (`isSatisfiable`), it generates concrete variable assignments
+    (satisfying model / witness) showing the inputs that satisfy the condition.
 *   **Partial Evaluation (Unknowns) Support:** Define variables that are
     permitted to evaluate to `Unknown` during verification, mirroring CEL's
     runtime partial evaluation.
+*   **Custom Invariants Verification:** Allows policy authors to define safety
+    invariants (e.g., "port must always be secure if external access is
+    allowed") and mathematically prove that the policy never violates them
+    across all possible input states.
 
 ```java
 CelVerifier verifier = CelVerifierFactory.newVerifier()
@@ -59,9 +67,6 @@ CelVerifier verifier = CelVerifierFactory.newVerifier()
 
 The following features are planned for future releases:
 
-*   **Custom Invariants Verification:** Allows policy authors to define safety
-    invariants (e.g., "port must always be secure if external access is
-    allowed") and mathematically prove that the policy never violates them.
 *   **Deep Reachability Analysis:** Statically analyzes nested policy rules
     to detect unreachable execution paths (dead code) that can never be
     executed under any input.
@@ -115,17 +120,21 @@ public class VerifierExample {
       return;
     }
 
-    if (result.status() == VerificationStatus.VERIFIED) {
-      System.out.println("Expressions are logically equivalent!");
-    } else if (result.status() == VerificationStatus.VIOLATED) {
-      System.out.println(result.message());
-      // Example output if expressions were NOT equivalent:
-      // Equivalence violation detected. Counterexample input:
-      //   x = ...
-    } else {
-      // INCONCLUSIVE means the solver could not positively confirm VERIFIED or VIOLATED
-      // due to things like loop truncation (BMC) or uninterpreted functions.
-      System.out.println("Verification was inconclusive: " + result.message());
+    switch (result.status()) {
+      case VERIFIED:
+        System.out.println("Expressions are logically equivalent!");
+        break;
+      case VIOLATED:
+        System.out.println(result.message());
+        // Example output if expressions were NOT equivalent:
+        // Equivalence violation detected. Counterexample input:
+        //   x = ...
+        break;
+      case INCONCLUSIVE:
+        // INCONCLUSIVE means the solver could not positively confirm VERIFIED or VIOLATED
+        // due to things like loop truncation (BMC) or uninterpreted functions.
+        System.out.println("Verification was inconclusive: " + result.message());
+        break;
     }
   }
 }
@@ -153,7 +162,7 @@ import dev.cel.verifier.CelVerifier;
 import dev.cel.verifier.CelVerifierFactory;
 
 public class PolicyVerifierExample {
-  private static final Cel CEL = CelFactory.standardCelBuilder()
+  private static final Cel CEL = CelFactory.plannerCelBuilder()
       .addVar("role", SimpleType.STRING)
       .addVar("country", SimpleType.STRING)
       .addVar("port", SimpleType.INT)
@@ -206,18 +215,150 @@ public class PolicyVerifierExample {
       return;
     }
 
-    if (result.status() == VerificationStatus.VERIFIED) {
-      System.out.println("Policies are equivalent!");
-    } else if (result.status() == VerificationStatus.VIOLATED) {
-      System.out.println("Refactoring bug detected!");
-      System.out.println(result.message());
-      // Output:
-      // Equivalence violation detected. Counterexample input:
-      //   country = "a"
-      //   role = "editor"
-      //   port = 443
-    } else {
-      System.out.println("Verification was inconclusive: " + result.message());
+    switch (result.status()) {
+      case VERIFIED:
+        System.out.println("Policies are equivalent!");
+        break;
+      case VIOLATED:
+        System.out.println("Refactoring bug detected!");
+        System.out.println(result.message());
+        // Output:
+        // Equivalence violation detected. Counterexample input:
+        //   country = "a"
+        //   role = "editor"
+        //   port = 443
+        break;
+      case INCONCLUSIVE:
+        System.out.println("Verification was inconclusive: " + result.message());
+        break;
+    }
+  }
+}
+```
+
+### 3. Satisfiability Checking & Witness Generation
+
+When checking whether an expression is satisfiable using `isSatisfiable`, the
+verifier returns `VERIFIED` if there exists at least one input combination
+where the expression evaluates to `true`. Furthermore, `result.message()`
+provides concrete satisfying model assignments (witness/test case generation).
+
+```java
+import dev.cel.common.CelAbstractSyntaxTree;
+import dev.cel.common.types.SimpleType;
+import dev.cel.compiler.CelCompiler;
+import dev.cel.compiler.CelCompilerFactory;
+import dev.cel.verifier.CelVerificationResult;
+import dev.cel.verifier.CelVerificationResult.VerificationStatus;
+import dev.cel.verifier.CelVerifier;
+import dev.cel.verifier.CelVerifierFactory;
+
+public class SatisfiabilityExample {
+  public static void main(String[] args) throws Exception {
+    CelCompiler compiler = CelCompilerFactory.standardCelCompilerBuilder()
+        .addVar("role", SimpleType.STRING)
+        .addVar("port", SimpleType.INT)
+        .build();
+
+    // Check if an authorization condition can ever be met
+    CelAbstractSyntaxTree ast =
+        compiler.compile("role == 'editor' && port > 1024 && port < 65535").getAst();
+
+    CelVerifier verifier = CelVerifierFactory.newVerifier().build();
+    CelVerificationResult result = verifier.isSatisfiable(ast);
+
+    switch (result.status()) {
+      case VERIFIED:
+        System.out.println("Condition is satisfiable!");
+        System.out.println(result.message());
+        // Output:
+        // Condition is satisfiable. Satisfying input:
+        //   port = 1025
+        //   role = "editor"
+        break;
+      case VIOLATED:
+        System.out.println("Condition is completely unsatisfiable.");
+        break;
+      case INCONCLUSIVE:
+        System.out.println("Verification was inconclusive: " + result.message());
+        break;
+    }
+  }
+}
+```
+
+### 4. Policy Invariants Verification
+
+You can verify that custom invariants (`assume` preconditions and `assert`
+clauses) declared on a `CelPolicy` hold mathematically across all possible
+input states. The reserved `rule.result` identifier matches the return
+value of the policy.
+
+```java
+import com.google.common.collect.ImmutableMap;
+import dev.cel.bundle.Cel;
+import dev.cel.bundle.CelFactory;
+import dev.cel.common.types.SimpleType;
+import dev.cel.policy.CelPolicy;
+import dev.cel.policy.CelPolicyCompiler;
+import dev.cel.policy.CelPolicyCompilerFactory;
+import dev.cel.policy.CelPolicyParser;
+import dev.cel.policy.CelPolicyParserFactory;
+import dev.cel.verifier.CelPolicyVerifier;
+import dev.cel.verifier.CelPolicyVerifierFactory;
+import dev.cel.verifier.CelVerificationResult;
+import dev.cel.verifier.CelVerificationResult.VerificationStatus;
+import dev.cel.verifier.CelVerifier;
+import dev.cel.verifier.CelVerifierFactory;
+
+public class InvariantsExample {
+  private static final Cel CEL = CelFactory.plannerCelBuilder()
+      .addVar("port", SimpleType.INT)
+      .build();
+
+  private static final CelPolicyParser PARSER = CelPolicyParserFactory.newYamlParserBuilder().build();
+
+  private static final CelPolicyCompiler POLICY_COMPILER =
+      CelPolicyCompilerFactory.newPolicyCompiler(CEL).build();
+
+  private static final CelVerifier AST_VERIFIER = CelVerifierFactory.newVerifier().build();
+
+  private static final CelPolicyVerifier POLICY_VERIFIER =
+      CelPolicyVerifierFactory.newVerifier(POLICY_COMPILER, AST_VERIFIER).build();
+
+  public static void main(String[] args) throws Exception {
+    String yamlPolicy = """
+        name: secure_access_policy
+        rule:
+          match:
+            - condition: port == 80
+              output: 'true'
+            - output: 'false'
+        verification:
+          invariants:
+            - id: always_secure
+              assert:
+                - rule.result == false
+        """;
+
+    CelPolicy policy = PARSER.parse(yamlPolicy);
+    ImmutableMap<String, CelVerificationResult> results = POLICY_VERIFIER.verifyInvariants(policy);
+
+    CelVerificationResult result = results.get("always_secure");
+    switch (result.status()) {
+      case VERIFIED:
+        System.out.println("Invariant proven!");
+        break;
+      case VIOLATED:
+        System.out.println("Invariant violated!");
+        System.out.println(result.message());
+        // Output:
+        // Implication violation detected. Counterexample input:
+        //   port = 80
+        break;
+      case INCONCLUSIVE:
+        System.out.println("Verification was inconclusive: " + result.message());
+        break;
     }
   }
 }

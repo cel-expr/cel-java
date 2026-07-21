@@ -1,0 +1,67 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#    https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: "workload_admission_flawed"
+description: >
+  Controls deployment of workloads to Kubernetes clusters.
+  Note: This is an intentional buggy example.
+  The fixed example is shown in workload_admission_fixed.
+rule:
+  variables:
+    - is_cluster_admin: "is_admin"
+    - is_namespace_owner: "is_owner"
+    - is_privileged_container: "is_privileged"
+    - is_prod_cluster: "is_prod"
+    - has_security_approval: "has_approval"
+
+  match:
+    # Break-glass admin bypass
+    # BUG: This completely bypasses the production restriction for privileged containers below!
+    - condition: "variables.is_cluster_admin"
+      output: "'ALLOW'"
+
+    # Namespace owners can deploy workloads to their namespace
+    # BUG: The author forgot to enforce the privileged container rule for namespace owners!
+    - condition: "variables.is_namespace_owner"
+      output: "'ALLOW'"
+
+    # Strictly restrict privileged containers in production
+    - condition: "variables.is_privileged_container && variables.is_prod_cluster"
+      rule:
+        match:
+          - condition: "variables.has_security_approval"
+            output: "'ALLOW'"
+          - output: "'DENY'"
+            explanation: >
+              'Privileged containers in production require explicit security approval.'
+
+    # Standard non-privileged deployments
+    - condition: "!variables.is_privileged_container"
+      output: "'ALLOW'"
+
+    # Default Deny
+    - output: "'DENY'"
+
+verification:
+  invariants:
+    - id: universal_no_unapproved_privileged_prod
+      description: >
+        Mathematically guarantees that NO ONE can deploy a privileged container
+        to production without explicit security approval, including admins.
+      assume:
+        - "variables.is_privileged_container"
+        - "variables.is_prod_cluster"
+        - "!variables.has_security_approval"
+      assert:
+        - "rule.result == 'DENY'"

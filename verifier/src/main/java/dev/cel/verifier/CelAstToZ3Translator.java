@@ -116,6 +116,14 @@ final class CelAstToZ3Translator {
     return ctx.mkAnd(typeSystem.isBool(celValue), (BoolExpr) typeSystem.unwrapBool(celValue));
   }
 
+  /**
+   * Binds an identifier name in the symbol table to an already-translated value. Used to bind
+   * reserved policy symbols such as 'rule.result' to the composed policy graph.
+   */
+  void bindSymbol(String varName, TranslatedValue value) {
+    symbolTable.put(varName, value);
+  }
+
   TranslatedValue translate(CelAbstractSyntaxTree ast) {
     TranslatedValue result;
     CelBlock celBlock = CelBlock.extract(ast).orElse(null);
@@ -261,7 +269,7 @@ final class CelAstToZ3Translator {
                   /* isApproximate= */ ctx.mkFalse());
             });
 
-    return TranslatedValue.create(tv.z3Expr(), celExpr, typeSystem, ctx.mkFalse());
+    return TranslatedValue.create(tv.z3Expr(), celExpr, typeSystem, tv.isApproximate());
   }
 
   private TranslatedValue translateList(CelExpr celExpr, CelAbstractSyntaxTree ast) {

@@ -15,6 +15,7 @@
 package dev.cel.policy;
 
 import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.stream.Collectors.joining;
 
 import com.google.auto.value.AutoOneOf;
 import com.google.auto.value.AutoValue;
@@ -53,6 +54,10 @@ public abstract class CelPolicy {
 
   public abstract ImmutableList<Import> imports();
 
+  public abstract ImmutableList<Invariant> invariants();
+
+  public abstract ImmutableList<Variable> verificationVariables();
+
   /** Creates a new builder to construct a {@link CelPolicy} instance. */
   public static Builder newBuilder() {
     return new AutoValue_CelPolicy.Builder()
@@ -74,6 +79,8 @@ public abstract class CelPolicy {
 
     public abstract Builder setDisplayName(ValueString displayName);
 
+    public abstract Rule rule();
+
     public abstract Builder setRule(Rule rule);
 
     public abstract Builder setPolicySource(CelPolicySource policySource);
@@ -90,6 +97,14 @@ public abstract class CelPolicy {
       return Collections.unmodifiableList(importList);
     }
 
+    abstract ImmutableList<Invariant> invariants();
+
+    abstract ImmutableList.Builder<Invariant> invariantsBuilder();
+
+    abstract ImmutableList<Variable> verificationVariables();
+
+    abstract ImmutableList.Builder<Variable> verificationVariablesBuilder();
+
     public Map<String, Object> metadata() {
       return Collections.unmodifiableMap(metadata);
     }
@@ -103,6 +118,24 @@ public abstract class CelPolicy {
     @CanIgnoreReturnValue
     public Builder addImports(Collection<Import> values) {
       importList.addAll(values);
+      return this;
+    }
+
+    @CanIgnoreReturnValue
+    public Builder addInvariant(Invariant value) {
+      invariantsBuilder().add(value);
+      return this;
+    }
+
+    @CanIgnoreReturnValue
+    public Builder addVerificationVariable(Variable value) {
+      verificationVariablesBuilder().add(value);
+      return this;
+    }
+
+    @CanIgnoreReturnValue
+    public Builder addVerificationVariables(Collection<Variable> values) {
+      verificationVariablesBuilder().addAll(values);
       return this;
     }
 
@@ -326,6 +359,117 @@ public abstract class CelPolicy {
 
     public static Import create(long id, ValueString name) {
       return new AutoValue_CelPolicy_Import(id, name);
+    }
+  }
+
+  /**
+   * Invariant declares a required logical property that must hold true under specified
+   * preconditions.
+   */
+  @AutoValue
+  public abstract static class Invariant {
+    public abstract long id();
+
+    public abstract ValueString invariantId();
+
+    public abstract Optional<ValueString> description();
+
+    public abstract ImmutableList<ValueString> assume();
+
+    public abstract ImmutableList<ValueString> assertClause();
+
+    public String assumeSourceString() {
+      if (assume().isEmpty()) {
+        return "true";
+      }
+      if (assume().size() == 1) {
+        return assume().get(0).value();
+      }
+      return assume().stream().map(v -> "(" + v.value() + ")").collect(joining(" && "));
+    }
+
+    public String assertSourceString() {
+      if (assertClause().isEmpty()) {
+        return "true";
+      }
+      if (assertClause().size() == 1) {
+        return assertClause().get(0).value();
+      }
+      return assertClause().stream().map(v -> "(" + v.value() + ")").collect(joining(" && "));
+    }
+
+    /** Builder for {@link Invariant}. */
+    @AutoValue.Builder
+    public abstract static class Builder implements RequiredFieldsChecker {
+      public abstract Builder setId(long value);
+
+      abstract Optional<ValueString> invariantId();
+
+      abstract ImmutableList<ValueString> assume();
+
+      abstract ImmutableList.Builder<ValueString> assumeBuilder();
+
+      abstract ImmutableList<ValueString> assertClause();
+
+      abstract ImmutableList.Builder<ValueString> assertClauseBuilder();
+
+      public abstract Builder setInvariantId(ValueString value);
+
+      public abstract Builder setDescription(ValueString value);
+
+      public Builder setAssume(ValueString value) {
+        return setAssume(ImmutableList.of(value));
+      }
+
+      abstract Builder setAssume(ImmutableList<ValueString> values);
+
+      @CanIgnoreReturnValue
+      public Builder addAssume(ValueString value) {
+        assumeBuilder().add(value);
+        return this;
+      }
+
+      @CanIgnoreReturnValue
+      public Builder addAssume(Iterable<ValueString> values) {
+        assumeBuilder().addAll(values);
+        return this;
+      }
+
+      public Builder setAssertClause(ValueString value) {
+        return setAssertClause(ImmutableList.of(value));
+      }
+
+      abstract Builder setAssertClause(ImmutableList<ValueString> values);
+
+      @CanIgnoreReturnValue
+      public Builder addAssertClause(ValueString value) {
+        assertClauseBuilder().add(value);
+        return this;
+      }
+
+      @CanIgnoreReturnValue
+      public Builder addAssertClause(Iterable<ValueString> values) {
+        assertClauseBuilder().addAll(values);
+        return this;
+      }
+
+      @Override
+      public ImmutableList<RequiredField> requiredFields() {
+        return ImmutableList.of(
+            RequiredField.of("id", this::invariantId),
+            RequiredField.of(
+                "assert",
+                () ->
+                    assertClause().isEmpty()
+                        ? Optional.empty()
+                        : Optional.of(assertClause().get(0))));
+      }
+
+      public abstract Invariant build();
+    }
+
+    public static Builder newBuilder(long id) {
+      return new AutoValue_CelPolicy_Invariant.Builder().setId(id);
     }
   }
 }

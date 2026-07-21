@@ -16,6 +16,7 @@ package dev.cel.policy;
 
 import com.google.auto.value.AutoValue;
 import dev.cel.common.formats.ParserContext;
+import dev.cel.policy.CelPolicy.Invariant;
 import dev.cel.policy.CelPolicy.Match;
 import dev.cel.policy.CelPolicy.Rule;
 import dev.cel.policy.CelPolicy.Variable;
@@ -51,4 +52,6 @@ public interface PolicyParserContext<T> extends ParserContext<T> {
   Match parseMatch(PolicyParserContext<T> ctx, CelPolicy.Builder policyBuilder, T node);
 
   Variable parseVariable(PolicyParserContext<T> ctx, CelPolicy.Builder policyBuilder, T node);
+
+  Invariant parseInvariant(PolicyParserContext<T> ctx, CelPolicy.Builder policyBuilder, T node);
 }

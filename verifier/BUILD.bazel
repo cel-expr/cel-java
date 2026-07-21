@@ -17,6 +17,7 @@ java_library(
 
 java_library(
     name = "policy_verifier_factory",
+    compatible_with = [],
     exports = ["//verifier/src/main/java/dev/cel/verifier:policy_verifier_factory"],
 )
 

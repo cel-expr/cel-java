@@ -8,9 +8,7 @@ package(
 java_library(
     name = "tests",
     testonly = True,
-    srcs = glob(
-        ["*.java"],
-    ),
+    srcs = glob(["*.java"]),
     data = [
         "@cel_policy//conformance:testdata",
     ],

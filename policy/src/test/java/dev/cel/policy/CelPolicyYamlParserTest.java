@@ -22,6 +22,8 @@ import com.google.testing.junit.testparameterinjector.TestParameter;
 import com.google.testing.junit.testparameterinjector.TestParameterInjector;
 import dev.cel.common.formats.ValueString;
 import dev.cel.policy.CelPolicy.Import;
+import dev.cel.policy.CelPolicy.Invariant;
+import dev.cel.policy.CelPolicy.Variable;
 import dev.cel.policy.PolicyTestHelper.TestYamlPolicy;
 import dev.cel.policy.testing.K8sTagHandler;
 import org.junit.Test;
@@ -192,6 +194,115 @@ public final class CelPolicyYamlParserTest {
         assertThrows(
             CelPolicyValidationException.class, () -> POLICY_PARSER.parse(testCase.yamlPolicy));
     assertThat(e).hasMessageThat().isEqualTo(testCase.expectedErrorMessage);
+  }
+
+  @Test
+  public void policyBuilder_addInvariant() {
+    Invariant invariant =
+        Invariant.newBuilder(1L)
+            .setInvariantId(ValueString.newBuilder().setValue("id").build())
+            .setAssertClause(ValueString.newBuilder().setValue("true").build())
+            .build();
+    CelPolicy policy =
+        CelPolicy.newBuilder()
+            .setName(ValueString.of(0, "test"))
+            .setPolicySource(CelPolicySource.newBuilder("").build())
+            .addInvariant(invariant)
+            .build();
+    assertThat(policy.invariants()).containsExactly(invariant);
+  }
+
+  @Test
+  public void parseYamlPolicy_invariants_success() throws Exception {
+    String policySource =
+        "name: 'policy_with_invariants'\n"
+            + "verification:\n"
+            + "  invariants:\n"
+            + "    - id: 'inv_1'\n"
+            + "      description: 'invariant description'\n"
+            + "      assume: 'true'\n"
+            + "      assert: 'rule.result == true'";
+
+    CelPolicy policy = POLICY_PARSER.parse(policySource);
+
+    assertThat(policy.invariants()).hasSize(1);
+    Invariant invariant = Iterables.getOnlyElement(policy.invariants());
+    assertThat(invariant.invariantId().value()).isEqualTo("inv_1");
+    assertThat(invariant.description().get().value()).isEqualTo("invariant description");
+    assertThat(invariant.assume().get(0).value()).isEqualTo("true");
+    assertThat(invariant.assertClause().get(0).value()).isEqualTo("rule.result == true");
+  }
+
+  @Test
+  public void parseYamlPolicy_invariants_multiClauseLists_success() throws Exception {
+    String policySource =
+        "name: 'policy_with_list_invariants'\n"
+            + "verification:\n"
+            + "  invariants:\n"
+            + "    - id: 'inv_multi'\n"
+            + "      assume:\n"
+            + "        - 'x > 0'\n"
+            + "        - 'y > 0'\n"
+            + "      assert:\n"
+            + "        - 'rule.result == true'\n"
+            + "        - 'x + y > 0'";
+
+    CelPolicy policy = POLICY_PARSER.parse(policySource);
+
+    Invariant invariant = Iterables.getOnlyElement(policy.invariants());
+    assertThat(invariant.assumeSourceString()).isEqualTo("(x > 0) && (y > 0)");
+    assertThat(invariant.assertSourceString()).isEqualTo("(rule.result == true) && (x + y > 0)");
+  }
+
+  @Test
+  public void parseYamlPolicy_verificationVariables_success() throws Exception {
+    String policySource =
+        "name: 'policy_with_verification_vars'\n"
+            + "rule:\n"
+            + "  variables:\n"
+            + "    - name: rule_var\n"
+            + "      expression: 'true'\n"
+            + "verification:\n"
+            + "  variables:\n"
+            + "    - name: ver_var\n"
+            + "      expression: 'rule_var && true'\n"
+            + "  invariants:\n"
+            + "    - id: 'inv_var'\n"
+            + "      assume: 'variables.ver_var'\n"
+            + "      assert: 'rule.result == true'";
+
+    CelPolicy policy = POLICY_PARSER.parse(policySource);
+
+    assertThat(policy.verificationVariables()).hasSize(1);
+    Variable var = Iterables.getOnlyElement(policy.verificationVariables());
+    assertThat(var.name().value()).isEqualTo("ver_var");
+    assertThat(var.expression().value()).isEqualTo("rule_var && true");
+  }
+
+  @Test
+  public void parseYamlPolicy_verificationVariables_duplicateWithRuleVariables_throwsError() {
+    String policySource =
+        "name: 'policy_with_dup_vars'\n"
+            + "rule:\n"
+            + "  variables:\n"
+            + "    - name: dup_var\n"
+            + "      expression: 'true'\n"
+            + "verification:\n"
+            + "  variables:\n"
+            + "    - name: dup_var\n"
+            + "      expression: 'false'\n"
+            + "  invariants:\n"
+            + "    - id: 'inv_dup'\n"
+            + "      assume: 'variables.dup_var'\n"
+            + "      assert: 'rule.result == true'";
+
+    CelPolicyValidationException e =
+        assertThrows(CelPolicyValidationException.class, () -> POLICY_PARSER.parse(policySource));
+    assertThat(e)
+        .hasMessageThat()
+        .contains(
+            "Duplicate variable name 'dup_var' in verification.variables; already defined in"
+                + " rule.variables");
   }
 
   private enum PolicyParseErrorTestCase {
@@ -400,7 +511,70 @@ public final class CelPolicyYamlParserTest {
             + "- foo: bar",
         "ERROR: <input>:2:3: Invalid import key: foo, expected 'name'\n"
             + " | - foo: bar\n"
-            + " | ..^");
+            + " | ..^"),
+    UNSUPPORTED_VERIFICATION_TAG(
+        "verification:\n" //
+            + "  bad_key: true",
+        "ERROR: <input>:2:3: Unexpected key in verification block: bad_key\n"
+            + " |   bad_key: true\n"
+            + " | ..^"),
+    UNSUPPORTED_INVARIANT_TAG(
+        "verification:\n" //
+            + "  invariants:\n" //
+            + "    - id: foo\n" //
+            + "      bad_inv_key: true\n" //
+            + "      assert: 'true'",
+        "ERROR: <input>:4:7: Unexpected key in invariant block: bad_inv_key\n"
+            + " |       bad_inv_key: true\n"
+            + " | ......^"),
+    MISSING_INVARIANT_ID(
+        "verification:\n" //
+            + "  invariants:\n" //
+            + "    - assert: 'true'",
+        "ERROR: <input>:3:7: Missing required attribute(s): id\n"
+            + " |     - assert: 'true'\n"
+            + " | ......^"),
+    MISSING_INVARIANT_ASSERT(
+        "verification:\n" //
+            + "  invariants:\n" //
+            + "    - id: foo",
+        "ERROR: <input>:3:7: Missing required attribute(s): assert\n"
+            + " |     - id: foo\n"
+            + " | ......^"),
+    ILLEGAL_YAML_TYPE_ON_VERIFICATION_VALUE(
+        "verification: illegal\n",
+        "ERROR: <input>:1:15: Got yaml node type tag:yaml.org,2002:str, wanted type(s)"
+            + " [tag:yaml.org,2002:map]\n"
+            + " | verification: illegal\n"
+            + " | ..............^"),
+    ILLEGAL_YAML_TYPE_ON_VERIFICATION_MAP_KEY(
+        "verification:\n" + "  1: foo",
+        "ERROR: <input>:2:3: Got yaml node type tag:yaml.org,2002:int, wanted type(s)"
+            + " [tag:yaml.org,2002:str !txt]\n"
+            + " |   1: foo\n"
+            + " | ..^"),
+    ILLEGAL_YAML_TYPE_ON_INVARIANTS_VALUE(
+        "verification:\n" + "  invariants: illegal\n",
+        "ERROR: <input>:2:15: Got yaml node type tag:yaml.org,2002:str, wanted type(s)"
+            + " [tag:yaml.org,2002:seq]\n"
+            + " |   invariants: illegal\n"
+            + " | ..............^"),
+    ILLEGAL_YAML_TYPE_ON_INVARIANTS_LIST(
+        "verification:\n" + "  invariants:\n" + "    - illegal",
+        "ERROR: <input>:3:7: Got yaml node type tag:yaml.org,2002:str, wanted type(s)"
+            + " [tag:yaml.org,2002:map]\n"
+            + " |     - illegal\n"
+            + " | ......^"),
+    ILLEGAL_YAML_TYPE_ON_INVARIANT_MAP_KEY(
+        "verification:\n"
+            + "  invariants:\n"
+            + "    - 1: foo\n"
+            + "      id: 'hi'\n"
+            + "      assert: 'true'",
+        "ERROR: <input>:3:7: Got yaml node type tag:yaml.org,2002:int, wanted type(s)"
+            + " [tag:yaml.org,2002:str !txt]\n"
+            + " |     - 1: foo\n"
+            + " | ......^");
 
     private final String yamlPolicy;
     private final String expectedErrorMessage;

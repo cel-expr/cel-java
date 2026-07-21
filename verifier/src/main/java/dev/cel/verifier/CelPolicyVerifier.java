@@ -14,6 +14,7 @@
 
 package dev.cel.verifier;
 
+import com.google.common.collect.ImmutableMap;
 import dev.cel.policy.CelPolicy;
 import dev.cel.policy.CelPolicyValidationException;
 
@@ -27,4 +28,15 @@ public interface CelPolicyVerifier {
    */
   CelVerificationResult verifyEquivalence(CelPolicy policyA, CelPolicy policyB)
       throws CelPolicyValidationException, CelVerificationException;
+
+  /**
+   * Verifies all custom invariants defined in the policy against all possible input states.
+   *
+   * @return A map of invariant IDs to their verification results.
+   * @throws CelPolicyValidationException if the policy or any invariant fails compilation.
+   * @throws CelVerificationException if the verification check encounters an internal solver error.
+   */
+  ImmutableMap<String, CelVerificationResult> verifyInvariants(CelPolicy policy)
+      throws CelPolicyValidationException, CelVerificationException;
 }
+

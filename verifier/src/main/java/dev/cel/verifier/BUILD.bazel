@@ -50,12 +50,14 @@ java_library(
         ":verifier",
         "//policy",
         "//policy:validation_exception",
+        "@maven//:com_google_guava_guava",
     ],
 )
 
 java_library(
     name = "policy_verifier_factory",
     srcs = ["CelPolicyVerifierFactory.java"],
+    compatible_with = [],
     tags = [
     ],
     deps = [
@@ -69,15 +71,23 @@ java_library(
 java_library(
     name = "policy_verifier_impl",
     srcs = ["CelPolicyVerifierImpl.java"],
+    compatible_with = [],
     tags = [
     ],
     deps = [
         ":policy_verifier",
         ":verifier",
+        ":z3_impl",
+        "//bundle:cel",
         "//common:cel_ast",
+        "//common:cel_source",
+        "//common:compiler_common",
+        "//common/formats:value_string",
         "//policy",
+        "//policy:compiled_rule",
         "//policy:compiler",
         "//policy:validation_exception",
+        "@maven//:com_google_guava_guava",
     ],
 )
 
