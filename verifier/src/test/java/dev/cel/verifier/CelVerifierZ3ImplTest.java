@@ -1430,8 +1430,9 @@ public final class CelVerifierZ3ImplTest {
         "TestAllTypes{?repeated_int32: optional.of([1, 2])}",
         "cel.expr.conformance.proto3.TestAllTypes{repeated_int32: [1, 2]}"),
     OPTIONAL_PRUNE_LIST_EQUALITY("[?optional.none(), 1] == [1]", "true"),
-    OPTIONAL_PRUNE_LIST_COMPREHENSION("[1, ?optional.none()].all(x, x > 0)", "true");
-
+    OPTIONAL_PRUNE_LIST_COMPREHENSION("[1, ?optional.none()].all(x, x > 0)", "true"),
+    MAP_COMPREHENSION(
+        "{'a': 1, 'b': 2}.exists(k, k == 'a')", "{'a': 1, 'b': 2}.exists(k, k == 'a')");
     private final String exprA;
     private final String exprB;
 

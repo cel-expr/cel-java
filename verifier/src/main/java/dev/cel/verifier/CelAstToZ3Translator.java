@@ -23,7 +23,6 @@ import com.microsoft.z3.Context;
 import com.microsoft.z3.Expr;
 import com.microsoft.z3.FuncDecl;
 import com.microsoft.z3.IntExpr;
-import com.microsoft.z3.Pattern;
 import com.microsoft.z3.Quantifier;
 import com.microsoft.z3.SeqExpr;
 import com.microsoft.z3.Sort;
@@ -79,7 +78,6 @@ final class CelAstToZ3Translator {
   private static final String EMPTY_MSG_REF_PREFIX = "!empty_msg_ref_";
   private static final String EMPTY_LIST_PREFIX = "!empty_list";
   private static final String EMPTY_MAP_PREFIX = "!empty_map";
-  private static final String MAP_BIJECTION_PREFIX = "k_map_bijection";
   private final Context ctx;
   private final CelZ3TypeSystem typeSystem;
   private final CelZ3OperatorTranslator operatorTranslator;
@@ -819,36 +817,18 @@ final class CelAstToZ3Translator {
       }
     }
 
-    Expr<?> kVar = ctx.mkFreshConst(MAP_BIJECTION_PREFIX, typeSystem.celValueSort());
-    BoolExpr isValidKey =
-        ctx.mkOr(
-            typeSystem.isInt(kVar), typeSystem.isUint(kVar),
-            typeSystem.isBool(kVar), typeSystem.isString(kVar));
-    BoolExpr inMap = (BoolExpr) ctx.mkSelect(mapPresence, kVar);
-
-    List<BoolExpr> inSeqMatches = new ArrayList<>();
-    for (int i = 0; i < comprehensionUnrollLimit; i++) {
-      BoolExpr match =
-          ctx.mkAnd(
-              ctx.mkLt(ctx.mkInt(i), lengthExpr), ctx.mkEq(kVar, ctx.mkNth(seq, ctx.mkInt(i))));
-      inSeqMatches.add(match);
-    }
-    BoolExpr inSeq = CelZ3TypeSystem.mkOrFlattened(ctx, inSeqMatches);
-
     BoolExpr isNotTruncated = ctx.mkLe(lengthExpr, ctx.mkInt(comprehensionUnrollLimit));
 
-    Pattern inMapPattern = ctx.mkPattern(inMap);
-
-    BoolExpr completeness =
-        ctx.mkForall(
-            new Expr<?>[] {kVar},
-            ctx.mkImplies(ctx.mkAnd(isNotTruncated, isValidKey, inMap), inSeq),
-            1,
-            new Pattern[] {inMapPattern},
-            null,
-            null,
-            null);
-    typeConstraints.add(completeness);
+    ArrayExpr seqMap = ctx.mkConstArray(typeSystem.celValueSort(), ctx.mkFalse());
+    for (int i = 0; i < comprehensionUnrollLimit; i++) {
+      seqMap =
+          (ArrayExpr)
+              ctx.mkITE(
+                  ctx.mkLt(ctx.mkInt(i), lengthExpr),
+                  ctx.mkStore(seqMap, ctx.mkNth(seq, ctx.mkInt(i)), ctx.mkTrue()),
+                  seqMap);
+    }
+    typeConstraints.add(ctx.mkImplies(isNotTruncated, ctx.mkEq(mapPresence, seqMap)));
   }
 
   private TranslatedValue[] evaluateLoopCondAndStep(
