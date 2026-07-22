@@ -42,6 +42,7 @@ import dev.cel.common.ast.CelExpr;
 import dev.cel.common.ast.CelExpr.CelCall;
 import dev.cel.common.types.ListType;
 import dev.cel.common.types.MapType;
+import dev.cel.common.types.OptionalType;
 import dev.cel.common.types.ProtoMessageTypeProvider;
 import dev.cel.common.types.SimpleType;
 import dev.cel.common.types.StructTypeReference;
@@ -87,6 +88,7 @@ public final class CelVerifierZ3ImplTest {
           .addVar("y", SimpleType.INT)
           .addVar("a", SimpleType.BOOL)
           .addVar("b", SimpleType.BOOL)
+          .addVar("opt_var", OptionalType.create(SimpleType.INT))
           .addVar("role", SimpleType.STRING)
           .addVar("country", SimpleType.STRING)
           .addVar("port", SimpleType.INT)
@@ -1250,8 +1252,8 @@ public final class CelVerifierZ3ImplTest {
         "size(int_list) == 6 ? int_list.map(x, 2.0) : [1.0]"),
     TRUNCATION_DIVERGENCE_DIFFERENT_BYTES(
         "size(int_list) == 6 ? int_list.map(x, b'a') : [b'a']",
-        "size(int_list) == 6 ? int_list.map(x, b'b') : [b'a']");
-
+        "size(int_list) == 6 ? int_list.map(x, b'b') : [b'a']"),
+    ;
     final String exprA;
     final String exprB;
 
@@ -1320,7 +1322,6 @@ public final class CelVerifierZ3ImplTest {
     MACRO_STRUCTURAL_EQUIVALENCE_PRESERVED(
         "request.auth.claims.groups.all(g, g == 'admin')",
         "request.auth.claims.groups.all(x, x == 'admin')"),
-
     CONSTANTS_BYTES("by == b\"abc\"", "b\"abc\" == by"),
     STRING_CONCATENATION("\"abc\" + \"def\"", "\"abcdef\""),
     COMPLEX_MESSAGE(
@@ -1334,6 +1335,14 @@ public final class CelVerifierZ3ImplTest {
     OPTIONAL_VALUE_EQUIVALENCE("optional.of(x).value()", "x"),
     OPTIONAL_HAS_VALUE_EQUIVALENCE("optional.of(x).hasValue()", "true"),
     OPTIONAL_NONE_HAS_VALUE_EQUIVALENCE("optional.none().hasValue()", "false"),
+    OPTIONAL_PRUNE_LIST_LITERAL("[1, ?optional.of(3)]", "[1,3]"),
+    OPTIONAL_PRUNE_LIST_NONE("[?optional.none(), ?opt_var]", "[?opt_var]"),
+    OPTIONAL_PRUNE_MAP_NONE("{?1: optional.none()}", "{}"),
+    OPTIONAL_PRUNE_STRUCT_LIST(
+        "TestAllTypes{?repeated_int32: optional.of([1, 2])}",
+        "cel.expr.conformance.proto3.TestAllTypes{repeated_int32: [1, 2]}"),
+    OPTIONAL_PRUNE_LIST_EQUALITY("[?optional.none(), 1] == [1]", "true"),
+    OPTIONAL_PRUNE_LIST_COMPREHENSION("[1, ?optional.none()].all(x, x > 0)", "true"),
     FUNCTIONS("size(\"abc\") == size(role)", "size(role) == size(\"abc\")"),
     NOT_EQUALS("x != y", "!(x == y)"),
     LESS("x < y", "y > x"),
@@ -1420,7 +1429,8 @@ public final class CelVerifierZ3ImplTest {
         "has(dyn({'a': 1}).a) && has(dyn(TestAllTypes{single_int32: 1}).single_int32)"),
     DYNAMIC_INDEXING_TYPE_MISMATCH(
         "type(request) == type(1) && request[1] == 1 && request[2] == 2",
-        "type(request) == type(1) && 1 / 0 == 1 && request[2] == 2");
+        "type(request) == type(1) && 1 / 0 == 1 && request[2] == 2"),
+    ;
 
     private final String exprA;
     private final String exprB;
@@ -1463,7 +1473,8 @@ public final class CelVerifierZ3ImplTest {
     CROSS_TYPE_SYMBOLIC_INEQUALITY_UINT_INT("dyn(u) == dyn(x)", "false"),
     OPTIONAL_OR_VALUE_VIOLATION("optional.of(x).orValue(y)", "y"),
     OPTIONAL_VALUE_VIOLATION("optional.of(x).value()", "y"),
-    CROSS_NUMERIC_EQUALITY_INT_DYN_VIOLATION("1 == request", "false");
+    CROSS_NUMERIC_EQUALITY_INT_DYN_VIOLATION("1 == request", "false"),
+    OPTIONAL_INVALID_PRUNE_OPT_VAR("[1, ?opt_var]", "[1]");
 
     final String exprA;
     final String exprB;

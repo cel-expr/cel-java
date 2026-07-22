@@ -33,7 +33,6 @@ import dev.cel.common.CelOverloadDecl;
 import dev.cel.common.Operator;
 import dev.cel.common.ast.CelConstant;
 import dev.cel.common.ast.CelExpr;
-import dev.cel.common.ast.CelExpr.ExprKind;
 import dev.cel.common.ast.CelReference;
 import dev.cel.common.types.CelKind;
 import dev.cel.common.types.CelType;
@@ -500,7 +499,7 @@ final class CelZ3OperatorTranslator {
   private BoolExpr unrollListEquality(
       TranslatedValue listA, TranslatedValue listB, CelAbstractSyntaxTree ast) {
     CelExpr literalListAst =
-        listA.isLiteral(ExprKind.Kind.LIST) ? listA.celExpr().get() : listB.celExpr().get();
+        listA.isUnrollableList() ? listA.celExpr().get() : listB.celExpr().get();
 
     SeqExpr<?> seq0 = typeSystem.getSeq(typeSystem.getListRef(listA.z3Expr()));
     SeqExpr<?> seq1 = typeSystem.getSeq(typeSystem.getListRef(listB.z3Expr()));
@@ -538,13 +537,12 @@ final class CelZ3OperatorTranslator {
     CelType type0 = extractAstTypeOrDefault(arg0, ast);
     CelType type1 = extractAstTypeOrDefault(arg1, ast);
 
+    boolean canUnrollList = arg0.isUnrollableList() || arg1.isUnrollableList();
     BoolExpr equality;
 
     if (isNumericType(type0) && isNumericType(type1)) {
       equality = getNumericEquality(arg0, arg1, ast);
-    } else if (type0.kind() == CelKind.LIST
-        && type1.kind() == CelKind.LIST
-        && (arg0.isLiteral(ExprKind.Kind.LIST) || arg1.isLiteral(ExprKind.Kind.LIST))) {
+    } else if (type0.kind() == CelKind.LIST && type1.kind() == CelKind.LIST && canUnrollList) {
       equality = unrollListEquality(arg0, arg1, ast);
     } else if (isStaticallyKnown(type0) && isStaticallyKnown(type1)) {
       equality = typeSystem.getStructuralEquality(z3Arg0, z3Arg1);
@@ -554,7 +552,7 @@ final class CelZ3OperatorTranslator {
 
       // Check if one side is an explicit LIST that we can unroll
       BoolExpr structuralEq = typeSystem.getStructuralEquality(z3Arg0, z3Arg1);
-      if (arg0.isLiteral(ExprKind.Kind.LIST) || arg1.isLiteral(ExprKind.Kind.LIST)) {
+      if (canUnrollList) {
         structuralEq =
             (BoolExpr)
                 ctx.mkITE(
