@@ -18,6 +18,8 @@ import static com.google.common.truth.Truth.assertThat;
 import static org.junit.Assert.assertThrows;
 
 import com.google.common.collect.ImmutableList;
+import com.google.protobuf.Duration;
+import com.google.protobuf.Timestamp;
 import com.google.testing.junit.testparameterinjector.TestParameter;
 import com.google.testing.junit.testparameterinjector.TestParameterInjector;
 import com.google.testing.junit.testparameterinjector.TestParameters;
@@ -31,6 +33,9 @@ import dev.cel.common.CelOverloadDecl;
 import dev.cel.common.types.ListType;
 import dev.cel.common.types.MapType;
 import dev.cel.common.types.SimpleType;
+import dev.cel.common.types.StructTypeReference;
+import dev.cel.expr.conformance.proto2.TestAllTypes.NestedMessage;
+import dev.cel.expr.conformance.proto2.TestAllTypesExtensions;
 import dev.cel.expr.conformance.proto3.TestAllTypes;
 import dev.cel.extensions.CelExtensions;
 import dev.cel.extensions.CelOptionalLibrary;
@@ -91,6 +96,7 @@ public class ConstantFoldingOptimizerTest {
         .addFunctionBindings(
             CelFunctionBinding.from("get_true_overload", ImmutableList.of(), unused -> true))
         .addMessageTypes(TestAllTypes.getDescriptor())
+        .addMessageTypes(dev.cel.expr.conformance.proto2.TestAllTypes.getDescriptor())
         .setContainer(CelContainer.ofName("cel.expr.conformance.proto3"))
         .setOptions(CEL_OPTIONS)
         .addCompilerLibraries(
@@ -196,6 +202,8 @@ public class ConstantFoldingOptimizerTest {
   @TestParameters(
       "{source: 'TestAllTypes{single_nested_message: TestAllTypes.NestedMessage{bb:"
           + " 42}}.single_nested_message.bb', expected: '42'}")
+  @TestParameters("{source: 'TestAllTypes{single_int64: 1 + 2 + 3}.single_int64', expected: '6'}")
+  @TestParameters("{source: 'TestAllTypes{single_int64: 3}.single_int64', expected: '3'}")
   @TestParameters("{source: '{\"a\": 1}[\"a\"]', expected: '1'}")
   @TestParameters("{source: '{\"a\": {\"b\": 2}}[\"a\"][\"b\"]', expected: '2'}")
   @TestParameters("{source: '{\"hello\": \"world\"}.hello == x', expected: '\"world\" == x'}")
@@ -294,6 +302,52 @@ public class ConstantFoldingOptimizerTest {
   // TODO: Support folding lists with mixed types. This requires mutable lists.
   // @TestParameters("{source: 'dyn([1]) + [1.0]'}")
   public void constantFold_success(String source, String expected) throws Exception {
+    CelAbstractSyntaxTree ast = cel.compile(source).getAst();
+
+    CelAbstractSyntaxTree optimizedAst = celOptimizer.optimize(ast);
+
+    assertThat(CEL_UNPARSER.unparse(optimizedAst)).isEqualTo(expected);
+  }
+
+  @Test
+  @TestParameters(
+      "{source: 'TestAllTypes{single_int32: 3}', "
+          + " expected: 'cel.expr.conformance.proto3.TestAllTypes{single_int32: 3}'}")
+  @TestParameters(
+      "{source: 'TestAllTypes{single_float: 1.5}', "
+          + " expected: 'cel.expr.conformance.proto3.TestAllTypes{single_float: 1.5}'}")
+  @TestParameters(
+      "{source: 'TestAllTypes{single_nested_message: TestAllTypes.NestedMessage{bb: 42}}', "
+          + " expected: 'cel.expr.conformance.proto3.TestAllTypes{single_nested_message:"
+          + " cel.expr.conformance.proto3.TestAllTypes.NestedMessage{bb: 42}}'}")
+  @TestParameters(
+      "{source: 'TestAllTypes{repeated_int32: [1, 2, 3]}', "
+          + " expected: 'cel.expr.conformance.proto3.TestAllTypes{repeated_int32: [1, 2, 3]}'}")
+  @TestParameters(
+      "{source: 'TestAllTypes{map_int32_int64: {1: 2}}', "
+          + " expected: 'cel.expr.conformance.proto3.TestAllTypes{map_int32_int64: {1: 2}}'}")
+  @TestParameters(
+      "{source: 'TestAllTypes{single_any: google.protobuf.Any{type_url:"
+          + " \"type.googleapis.com/google.protobuf.Int32Value\", value: b\"\\010\\001\"}}', "
+          + " expected: 'cel.expr.conformance.proto3.TestAllTypes{single_any:"
+          + " google.protobuf.Any{type_url:"
+          + " \"type.googleapis.com/google.protobuf.Int32Value\", value: b\"\\010\\001\"}}'}")
+  @TestParameters(
+      "{source: '[TestAllTypes{single_int32: 42}][0]', "
+          + " expected: 'cel.expr.conformance.proto3.TestAllTypes{single_int32: 42}'}")
+  @TestParameters(
+      "{source: 'TestAllTypes{single_bytes: b\"\\010\\001\"}', "
+          + " expected: 'cel.expr.conformance.proto3.TestAllTypes{single_bytes: b\"\\010\\001\"}'}")
+  @TestParameters(
+      "{source: 'TestAllTypes{standalone_enum: 1}', "
+          + " expected: 'cel.expr.conformance.proto3.TestAllTypes{standalone_enum: 1}'}")
+  public void constantFold_protoMessageLiteral_success(String source, String expected)
+      throws Exception {
+    // Legacy runtime does not support adapting protobuf messages into CelValue (via
+    // CelValueProvider).
+    if (runtimeFlavor.equals(CelRuntimeFlavor.LEGACY)) {
+      return;
+    }
     CelAbstractSyntaxTree ast = cel.compile(source).getAst();
 
     CelAbstractSyntaxTree optimizedAst = celOptimizer.optimize(ast);
@@ -465,6 +519,204 @@ public class ConstantFoldingOptimizerTest {
     CelAbstractSyntaxTree optimizedAst = optimizer.optimize(ast);
 
     assertThat(CEL_UNPARSER.unparse(optimizedAst)).isEqualTo("true");
+  }
+
+  @Test
+  public void constantFold_protoMessage_success() throws Exception {
+    // Legacy runtime does not support adapting protobuf messages into CelValue (via
+    // CelValueProvider).
+    if (runtimeFlavor.equals(CelRuntimeFlavor.LEGACY)) {
+      return;
+    }
+    Cel customCel =
+        cel.toCelBuilder()
+            .addFunctionDeclarations(
+                CelFunctionDecl.newFunctionDeclaration(
+                    "get_test_all_types",
+                    CelOverloadDecl.newGlobalOverload(
+                        "get_test_all_types_overload",
+                        StructTypeReference.create("cel.expr.conformance.proto3.TestAllTypes"))))
+            .addFunctionBindings(
+                CelFunctionBinding.from(
+                    "get_test_all_types_overload",
+                    ImmutableList.of(),
+                    unused ->
+                        TestAllTypes.newBuilder()
+                            .setSingleInt32(1)
+                            .setSingleString("hello")
+                            .build()))
+            .build();
+    CelAbstractSyntaxTree ast = customCel.compile("get_test_all_types()").getAst();
+    ConstantFoldingOptions options =
+        ConstantFoldingOptions.newBuilder().addFoldableFunctions("get_test_all_types").build();
+    CelOptimizer optimizer =
+        CelOptimizerFactory.standardCelOptimizerBuilder(customCel)
+            .addAstOptimizers(ConstantFoldingOptimizer.newInstance(options))
+            .build();
+
+    CelAbstractSyntaxTree optimizedAst = optimizer.optimize(ast);
+
+    assertThat(CEL_UNPARSER.unparse(optimizedAst))
+        .isEqualTo(
+            "cel.expr.conformance.proto3.TestAllTypes{single_int32: 1, single_string: \"hello\"}");
+  }
+
+  @Test
+  public void constantFold_protoMessage_complexFields_success() throws Exception {
+    // Legacy runtime does not support adapting protobuf messages into CelValue (via
+    // CelValueProvider).
+    if (runtimeFlavor.equals(CelRuntimeFlavor.LEGACY)) {
+      return;
+    }
+    Cel customCel =
+        cel.toCelBuilder()
+            .addFunctionDeclarations(
+                CelFunctionDecl.newFunctionDeclaration(
+                    "get_test_all_types_complex",
+                    CelOverloadDecl.newGlobalOverload(
+                        "get_test_all_types_complex_overload",
+                        StructTypeReference.create("cel.expr.conformance.proto3.TestAllTypes"))))
+            .addFunctionBindings(
+                CelFunctionBinding.from(
+                    "get_test_all_types_complex_overload",
+                    ImmutableList.of(),
+                    unused ->
+                        TestAllTypes.newBuilder()
+                            .setSingleUint32(123)
+                            .setSingleUint64(456L)
+                            .setSingleDuration(Duration.newBuilder().setSeconds(10).build())
+                            .setSingleTimestamp(Timestamp.newBuilder().setSeconds(10).build())
+                            .addRepeatedNestedMessage(
+                                TestAllTypes.NestedMessage.newBuilder().setBb(99).build())
+                            .build()))
+            .build();
+    CelAbstractSyntaxTree ast = customCel.compile("get_test_all_types_complex()").getAst();
+    ConstantFoldingOptions options =
+        ConstantFoldingOptions.newBuilder()
+            .addFoldableFunctions("get_test_all_types_complex")
+            .build();
+    CelOptimizer optimizer =
+        CelOptimizerFactory.standardCelOptimizerBuilder(customCel)
+            .addAstOptimizers(ConstantFoldingOptimizer.newInstance(options))
+            .build();
+
+    CelAbstractSyntaxTree optimizedAst = optimizer.optimize(ast);
+
+    assertThat(CEL_UNPARSER.unparse(optimizedAst)).contains("123u");
+  }
+
+  @Test
+  public void constantFold_proto2Message_success() throws Exception {
+    // Legacy runtime does not support adapting protobuf messages into CelValue (via
+    // CelValueProvider).
+    if (runtimeFlavor.equals(CelRuntimeFlavor.LEGACY)) {
+      return;
+    }
+    Cel customCel =
+        cel.toCelBuilder()
+            .addFunctionDeclarations(
+                CelFunctionDecl.newFunctionDeclaration(
+                    "get_test_all_types_proto2",
+                    CelOverloadDecl.newGlobalOverload(
+                        "get_test_all_types_proto2_overload",
+                        StructTypeReference.create("cel.expr.conformance.proto2.TestAllTypes"))))
+            .addFunctionBindings(
+                CelFunctionBinding.from(
+                    "get_test_all_types_proto2_overload",
+                    ImmutableList.of(),
+                    unused ->
+                        dev.cel.expr.conformance.proto2.TestAllTypes.newBuilder()
+                            .setSingleInt32(2)
+                            .setExtension(TestAllTypesExtensions.int32Ext, 3)
+                            .build()))
+            .build();
+    CelAbstractSyntaxTree ast = customCel.compile("get_test_all_types_proto2()").getAst();
+    ConstantFoldingOptions options =
+        ConstantFoldingOptions.newBuilder()
+            .addFoldableFunctions("get_test_all_types_proto2")
+            .build();
+    CelOptimizer optimizer =
+        CelOptimizerFactory.standardCelOptimizerBuilder(customCel)
+            .addAstOptimizers(ConstantFoldingOptimizer.newInstance(options))
+            .build();
+
+    CelAbstractSyntaxTree optimizedAst = optimizer.optimize(ast);
+
+    assertThat(CEL_UNPARSER.unparse(optimizedAst))
+        .isEqualTo("cel.expr.conformance.proto2.TestAllTypes{single_int32: 2}");
+  }
+
+  @Test
+  public void constantFold_proto2Message_complexFields_success() throws Exception {
+    // Legacy runtime does not support adapting protobuf messages into CelValue (via
+    // CelValueProvider).
+    if (runtimeFlavor.equals(CelRuntimeFlavor.LEGACY)) {
+      return;
+    }
+    Cel customCel =
+        cel.toCelBuilder()
+            .addFunctionDeclarations(
+                CelFunctionDecl.newFunctionDeclaration(
+                    "get_test_all_types_proto2_complex",
+                    CelOverloadDecl.newGlobalOverload(
+                        "get_test_all_types_proto2_complex_overload",
+                        StructTypeReference.create("cel.expr.conformance.proto2.TestAllTypes"))))
+            .addFunctionBindings(
+                CelFunctionBinding.from(
+                    "get_test_all_types_proto2_complex_overload",
+                    ImmutableList.of(),
+                    unused ->
+                        dev.cel.expr.conformance.proto2.TestAllTypes.newBuilder()
+                            .setSingleUint32(123)
+                            .setSingleUint64(456L)
+                            .addRepeatedNestedMessage(NestedMessage.newBuilder().setBb(99).build())
+                            .build()))
+            .build();
+    CelAbstractSyntaxTree ast = customCel.compile("get_test_all_types_proto2_complex()").getAst();
+    ConstantFoldingOptions options =
+        ConstantFoldingOptions.newBuilder()
+            .addFoldableFunctions("get_test_all_types_proto2_complex")
+            .build();
+    CelOptimizer optimizer =
+        CelOptimizerFactory.standardCelOptimizerBuilder(customCel)
+            .addAstOptimizers(ConstantFoldingOptimizer.newInstance(options))
+            .build();
+
+    CelAbstractSyntaxTree optimizedAst = optimizer.optimize(ast);
+
+    assertThat(CEL_UNPARSER.unparse(optimizedAst)).contains("123u");
+  }
+
+  @Test
+  public void constantFold_functionReturningUnregisteredMessage_doesNotFold() throws Exception {
+    Cel customCel =
+        runtimeFlavor
+            .builder()
+            .addVar("x", SimpleType.DYN)
+            .addFunctionDeclarations(
+                CelFunctionDecl.newFunctionDeclaration(
+                    "get_unregistered_message",
+                    CelOverloadDecl.newGlobalOverload(
+                        "get_unregistered_message_overload", SimpleType.ANY)))
+            .addFunctionBindings(
+                CelFunctionBinding.from(
+                    "get_unregistered_message_overload",
+                    ImmutableList.of(),
+                    unused -> TestAllTypes.getDefaultInstance()))
+            .build();
+    ConstantFoldingOptions options =
+        ConstantFoldingOptions.newBuilder()
+            .addFoldableFunctions("get_unregistered_message")
+            .build();
+    CelOptimizer optimizer =
+        CelOptimizerFactory.standardCelOptimizerBuilder(customCel)
+            .addAstOptimizers(ConstantFoldingOptimizer.newInstance(options))
+            .build();
+    CelAbstractSyntaxTree ast = customCel.compile("get_unregistered_message()").getAst();
+
+    CelAbstractSyntaxTree optimizedAst = optimizer.optimize(ast);
+
+    assertThat(CEL_UNPARSER.unparse(optimizedAst)).isEqualTo("get_unregistered_message()");
   }
 
   @Test

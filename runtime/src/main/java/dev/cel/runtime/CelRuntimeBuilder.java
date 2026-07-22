@@ -167,6 +167,9 @@ public interface CelRuntimeBuilder {
   @CanIgnoreReturnValue
   CelRuntimeBuilder setValueProvider(CelValueProvider celValueProvider);
 
+  /** Returns the configured {@link CelValueProvider}, or null if not set. */
+  CelValueProvider valueProvider();
+
   /** Enable or disable the standard CEL library functions and variables. */
   @CanIgnoreReturnValue
   CelRuntimeBuilder setStandardEnvironmentEnabled(boolean value);

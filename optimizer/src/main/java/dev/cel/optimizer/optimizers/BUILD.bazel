@@ -31,6 +31,10 @@ java_library(
         "//common/navigation:common",
         "//common/navigation:mutable_navigation",
         "//common/types",
+        "//common/types:type_providers",
+        "//common/values",
+        "//common/values:cel_value",
+        "//common/values:cel_value_provider",
         "//extensions:optional_library",
         "//optimizer:ast_optimizer",
         "//optimizer:mutable_ast",
@@ -40,6 +44,7 @@ java_library(
         "//runtime:unknown_attributes",
         "@maven//:com_google_errorprone_error_prone_annotations",
         "@maven//:com_google_guava_guava",
+        "@maven//:org_jspecify_jspecify",
     ],
 )
 

@@ -211,6 +211,9 @@ public interface CelBuilder {
   @CanIgnoreReturnValue
   CelBuilder setValueProvider(CelValueProvider celValueProvider);
 
+  /** Returns the configured {@link CelValueProvider}, or null if not set. */
+  CelValueProvider valueProvider();
+
   /**
    * Set the {@code typeProvider} for use with type-checking expressions.
    *

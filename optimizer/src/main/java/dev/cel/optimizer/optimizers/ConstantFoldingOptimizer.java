@@ -24,6 +24,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import dev.cel.bundle.Cel;
+import dev.cel.bundle.CelBuilder;
 import dev.cel.common.CelAbstractSyntaxTree;
 import dev.cel.common.CelMutableAst;
 import dev.cel.common.CelSource;
@@ -42,7 +43,13 @@ import dev.cel.common.internal.DateTimeHelpers;
 import dev.cel.common.navigation.CelNavigableMutableAst;
 import dev.cel.common.navigation.CelNavigableMutableExpr;
 import dev.cel.common.navigation.TraversalOrder;
+import dev.cel.common.types.CelType;
+import dev.cel.common.types.CelTypeProvider;
 import dev.cel.common.types.SimpleType;
+import dev.cel.common.types.StructType;
+import dev.cel.common.values.CelValue;
+import dev.cel.common.values.CelValueProvider;
+import dev.cel.common.values.StructValue;
 import dev.cel.extensions.CelOptionalLibrary.Function;
 import dev.cel.optimizer.AstMutator;
 import dev.cel.optimizer.CelAstOptimizer;
@@ -59,6 +66,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Performs optimization for inlining constant scalar and aggregate literal values within function
@@ -95,8 +103,16 @@ public final class ConstantFoldingOptimizer implements CelAstOptimizer {
   @Override
   public OptimizationResult optimize(CelAbstractSyntaxTree ast, Cel cel)
       throws CelOptimizationException {
+    CelBuilder builder = cel.toCelBuilder();
+    CelValueProvider valueProvider;
+    try {
+      valueProvider = builder.valueProvider();
+    } catch (UnsupportedOperationException e) {
+      // Legacy runtime does not support valueProvider and may throw.
+      valueProvider = null;
+    }
     // Override the environment's expected type to generally allow all subtrees to be folded.
-    Cel optimizerEnv = cel.toCelBuilder().setResultType(SimpleType.DYN).build();
+    Cel optimizerEnv = builder.setResultType(SimpleType.DYN).build();
 
     CelMutableAst mutableAst = CelMutableAst.fromCelAst(ast);
     int iterCount = 0;
@@ -123,7 +139,7 @@ public final class ConstantFoldingOptimizer implements CelAstOptimizer {
         if (!mutatedResult.isPresent()) {
           // Evaluate the call then fold
           try {
-            mutatedResult = maybeFold(optimizerEnv, mutableAst, foldableExpr);
+            mutatedResult = maybeFold(optimizerEnv, valueProvider, mutableAst, foldableExpr);
           } catch (CelEvaluationException e) {
             throw new CelOptimizationException(
                 "Constant folding failure. Failed to evaluate subtree due to: " + e.getMessage(),
@@ -290,7 +306,10 @@ public final class ConstantFoldingOptimizer implements CelAstOptimizer {
   }
 
   private Optional<CelMutableAst> maybeFold(
-      Cel cel, CelMutableAst mutableAst, CelNavigableMutableExpr node)
+      Cel cel,
+      CelValueProvider valueProvider,
+      CelMutableAst mutableAst,
+      CelNavigableMutableExpr node)
       throws CelOptimizationException, CelEvaluationException {
     Object result;
     try {
@@ -305,10 +324,12 @@ public final class ConstantFoldingOptimizer implements CelAstOptimizer {
     // ex2: optional.ofNonZeroValue(5) -> optional.of(5)
     if (result instanceof Optional<?>) {
       Optional<?> optResult = ((Optional<?>) result);
-      return maybeRewriteOptional(optResult, mutableAst, node.expr());
+      return maybeRewriteOptional(
+          cel.getTypeProvider(), valueProvider, optResult, mutableAst, node.expr());
     }
 
-    CelMutableExpr adaptedResult = maybeAdaptEvaluatedResult(result).orElse(null);
+    CelMutableExpr adaptedResult =
+        maybeAdaptEvaluatedResult(cel.getTypeProvider(), valueProvider, result).orElse(null);
     if (adaptedResult == null) {
       return Optional.empty();
     }
@@ -316,14 +337,20 @@ public final class ConstantFoldingOptimizer implements CelAstOptimizer {
     return Optional.of(astMutator.replaceSubtree(mutableAst, adaptedResult, node.id()));
   }
 
-  private Optional<CelMutableExpr> maybeAdaptEvaluatedResult(Object result) {
+  private Optional<CelMutableExpr> maybeAdaptEvaluatedResult(
+      CelTypeProvider typeProvider, @Nullable CelValueProvider valueProvider, Object result) {
+    if (valueProvider != null && !(result instanceof CelValue)) {
+      result = valueProvider.celValueConverter().toRuntimeValue(result);
+    }
+
     if (CelConstant.isConstantValue(result)) {
       return Optional.of(CelMutableExpr.ofConstant(CelConstant.ofObjectValue(result)));
     } else if (result instanceof Collection<?>) {
       Collection<?> collection = (Collection<?>) result;
       List<CelMutableExpr> listElements = new ArrayList<>();
       for (Object evaluatedElement : collection) {
-        CelMutableExpr adaptedExpr = maybeAdaptEvaluatedResult(evaluatedElement).orElse(null);
+        CelMutableExpr adaptedExpr =
+            maybeAdaptEvaluatedResult(typeProvider, valueProvider, evaluatedElement).orElse(null);
         if (adaptedExpr == null) {
           return Optional.empty();
         }
@@ -335,11 +362,13 @@ public final class ConstantFoldingOptimizer implements CelAstOptimizer {
       Map<?, ?> map = (Map<?, ?>) result;
       List<CelMutableMap.Entry> mapEntries = new ArrayList<>();
       for (Map.Entry<?, ?> entry : map.entrySet()) {
-        CelMutableExpr adaptedKey = maybeAdaptEvaluatedResult(entry.getKey()).orElse(null);
+        CelMutableExpr adaptedKey =
+            maybeAdaptEvaluatedResult(typeProvider, valueProvider, entry.getKey()).orElse(null);
         if (adaptedKey == null) {
           return Optional.empty();
         }
-        CelMutableExpr adaptedValue = maybeAdaptEvaluatedResult(entry.getValue()).orElse(null);
+        CelMutableExpr adaptedValue =
+            maybeAdaptEvaluatedResult(typeProvider, valueProvider, entry.getValue()).orElse(null);
         if (adaptedValue == null) {
           return Optional.empty();
         }
@@ -364,6 +393,31 @@ public final class ConstantFoldingOptimizer implements CelAstOptimizer {
               CelMutableExpr.ofConstant(CelConstant.ofValue(timestampStrArg)));
 
       return Optional.of(CelMutableExpr.ofCall(timestampCall));
+    } else if (result instanceof StructValue) {
+      @SuppressWarnings("unchecked") // Unchecked: StructValue only supports String keys.
+      StructValue<String, ?> structValue = (StructValue<String, ?>) result;
+      List<CelMutableStruct.Entry> structEntries = new ArrayList<>();
+
+      String typeName = structValue.celType().name();
+      CelType optType = typeProvider.findType(typeName).orElse(null);
+      if (!(optType instanceof StructType)) {
+        return Optional.empty();
+      }
+      StructType structType = (StructType) optType;
+      for (String fieldName : structType.fieldNames()) {
+        Optional<?> fieldOpt = structValue.find(fieldName);
+        if (!fieldOpt.isPresent()) {
+          continue;
+        }
+        CelMutableExpr adaptedFieldExpr =
+            maybeAdaptEvaluatedResult(typeProvider, valueProvider, fieldOpt.get()).orElse(null);
+        if (adaptedFieldExpr == null) {
+          return Optional.empty();
+        }
+        structEntries.add(CelMutableStruct.Entry.create(0, fieldName, adaptedFieldExpr));
+      }
+      return Optional.of(
+          CelMutableExpr.ofStruct(CelMutableStruct.create(structType.name(), structEntries)));
     }
 
     // Evaluated result cannot be folded (e.g: unknowns)
@@ -371,7 +425,11 @@ public final class ConstantFoldingOptimizer implements CelAstOptimizer {
   }
 
   private Optional<CelMutableAst> maybeRewriteOptional(
-      Optional<?> optResult, CelMutableAst mutableAst, CelMutableExpr expr) {
+      CelTypeProvider typeProvider,
+      CelValueProvider valueProvider,
+      Optional<?> optResult,
+      CelMutableAst mutableAst,
+      CelMutableExpr expr) {
     Object unwrappedResult = optResult.orElse(null);
     if (unwrappedResult == null) {
       if (isCallToFunction(expr, Function.OPTIONAL_NONE.getFunction())) {
@@ -387,7 +445,8 @@ public final class ConstantFoldingOptimizer implements CelAstOptimizer {
       return Optional.empty();
     }
 
-    CelMutableExpr adaptedResult = maybeAdaptEvaluatedResult(unwrappedResult).orElse(null);
+    CelMutableExpr adaptedResult =
+        maybeAdaptEvaluatedResult(typeProvider, valueProvider, unwrappedResult).orElse(null);
     if (adaptedResult == null) {
       // Evaluated result is not an adaptable constant. Leave the optional as is.
       return Optional.empty();

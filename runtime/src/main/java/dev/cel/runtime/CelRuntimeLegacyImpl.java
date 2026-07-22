@@ -208,6 +208,11 @@ public final class CelRuntimeLegacyImpl implements CelRuntime {
     }
 
     @Override
+    public CelValueProvider valueProvider() {
+      throw new UnsupportedOperationException("valueProvider is not supported for legacy runtime");
+    }
+
+    @Override
     public CelRuntimeBuilder setTypeFactory(Function<String, Message.Builder> typeFactory) {
       this.customTypeFactory = typeFactory;
       return this;

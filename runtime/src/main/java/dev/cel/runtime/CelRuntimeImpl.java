@@ -286,7 +286,8 @@ public abstract class CelRuntimeImpl implements CelRuntime {
 
     abstract CelTypeProvider typeProvider();
 
-    abstract CelValueProvider valueProvider();
+    @Override
+    public abstract CelValueProvider valueProvider();
 
     abstract CelStandardFunctions standardFunctions();
 
@@ -503,6 +504,7 @@ public abstract class CelRuntimeImpl implements CelRuntime {
         protoMessageValueProvider =
             CombinedCelValueProvider.combine(protoMessageValueProvider, valueProvider());
       }
+      setValueProvider(protoMessageValueProvider);
       CelValueConverter celValueConverter = protoMessageValueProvider.celValueConverter();
 
       CelTypeProvider messageTypeProvider =
