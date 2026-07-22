@@ -497,6 +497,11 @@ final class CelZ3OperatorTranslator {
             .build(ctx.mkFalse());
   }
 
+  private boolean hasOptionalElements(TranslatedValue arg) {
+    return arg.isLiteral(ExprKind.Kind.LIST)
+        && !arg.celExpr().get().list().optionalIndices().isEmpty();
+  }
+
   private BoolExpr unrollListEquality(
       TranslatedValue listA, TranslatedValue listB, CelAbstractSyntaxTree ast) {
     CelExpr literalListAst =
@@ -544,7 +549,9 @@ final class CelZ3OperatorTranslator {
       equality = getNumericEquality(arg0, arg1, ast);
     } else if (type0.kind() == CelKind.LIST
         && type1.kind() == CelKind.LIST
-        && (arg0.isLiteral(ExprKind.Kind.LIST) || arg1.isLiteral(ExprKind.Kind.LIST))) {
+        && (arg0.isLiteral(ExprKind.Kind.LIST) || arg1.isLiteral(ExprKind.Kind.LIST))
+        && !hasOptionalElements(arg0)
+        && !hasOptionalElements(arg1)) {
       equality = unrollListEquality(arg0, arg1, ast);
     } else if (isStaticallyKnown(type0) && isStaticallyKnown(type1)) {
       equality = typeSystem.getStructuralEquality(z3Arg0, z3Arg1);
@@ -554,7 +561,9 @@ final class CelZ3OperatorTranslator {
 
       // Check if one side is an explicit LIST that we can unroll
       BoolExpr structuralEq = typeSystem.getStructuralEquality(z3Arg0, z3Arg1);
-      if (arg0.isLiteral(ExprKind.Kind.LIST) || arg1.isLiteral(ExprKind.Kind.LIST)) {
+      if ((arg0.isLiteral(ExprKind.Kind.LIST) || arg1.isLiteral(ExprKind.Kind.LIST))
+          && !hasOptionalElements(arg0)
+          && !hasOptionalElements(arg1)) {
         structuralEq =
             (BoolExpr)
                 ctx.mkITE(

@@ -284,11 +284,24 @@ final class CelAstToZ3Translator {
     // check to a trivial identity check (e.g., `list_ref_0 == list_ref_0`).
     if (listRef == null) {
       SeqExpr seq = ctx.mkEmptySeq(ctx.mkSeqSort(typeSystem.celValueSort()));
-      for (CelExpr element : createList.elements()) {
+      ImmutableList<Integer> optionalIndices = createList.optionalIndices();
+      ImmutableList<CelExpr> elements = createList.elements();
+      for (int i = 0; i < elements.size(); i++) {
+        CelExpr element = elements.get(i);
         TranslatedValue elem = translateExpr(element, ast);
         elementsTv.add(elem);
 
-        seq = typeSystem.mkConcatSafe(seq, ctx.mkUnit(elem.z3Expr()));
+        if (optionalIndices.contains(i)) {
+          Expr<?> optRef = typeSystem.getOptionalRef(elem.z3Expr());
+          seq =
+              (SeqExpr)
+                  ctx.mkITE(
+                      typeSystem.optHasValue(optRef),
+                      typeSystem.mkConcatSafe(seq, ctx.mkUnit(typeSystem.getOptionalValue(optRef))),
+                      seq);
+        } else {
+          seq = typeSystem.mkConcatSafe(seq, ctx.mkUnit(elem.z3Expr()));
+        }
       }
       listRef = typeSystem.mkListRefConst(LIST_REF_PREFIX);
       typeConstraints.add(ctx.mkEq(typeSystem.getSeq(listRef), seq));
@@ -318,12 +331,24 @@ final class CelAstToZ3Translator {
       Expr<?> value = valueTv.z3Expr();
       elementsTv.add(valueTv);
 
-      BoolExpr keyAlreadyPresent = (BoolExpr) ctx.mkSelect(mapPresence, key);
-      keysSeq =
-          ctx.mkITE(keyAlreadyPresent, keysSeq, typeSystem.mkConcatSafe(keysSeq, ctx.mkUnit(key)));
+      Expr<?> finalValue = value;
+      BoolExpr finalPresence = ctx.mkTrue();
+      if (entryAst.optionalEntry()) {
+        Expr<?> optRef = typeSystem.getOptionalRef(value);
+        finalPresence = typeSystem.optHasValue(optRef);
+        finalValue = typeSystem.getOptionalValue(optRef);
+      }
 
-      mapValues = ctx.mkStore(mapValues, key, value);
-      mapPresence = ctx.mkStore(mapPresence, key, ctx.mkTrue());
+      BoolExpr keyAlreadyPresent = (BoolExpr) ctx.mkSelect(mapPresence, key);
+      BoolExpr shouldInsertKey = ctx.mkAnd(ctx.mkNot(keyAlreadyPresent), finalPresence);
+      keysSeq =
+          ctx.mkITE(shouldInsertKey, typeSystem.mkConcatSafe(keysSeq, ctx.mkUnit(key)), keysSeq);
+
+      mapValues =
+          (ArrayExpr) ctx.mkITE(finalPresence, ctx.mkStore(mapValues, key, finalValue), mapValues);
+      mapPresence =
+          (ArrayExpr)
+              ctx.mkITE(finalPresence, ctx.mkStore(mapPresence, key, ctx.mkTrue()), mapPresence);
     }
 
     typeConstraints.add(ctx.mkEq(typeSystem.getMapValues(mapRef), mapValues));
@@ -371,6 +396,14 @@ final class CelAstToZ3Translator {
               .orElseGet(() -> extractAstTypeOrDefault(ast, entryAst.value().id()));
       Expr<?> defaultVal = getDefaultValueForType(fieldType);
 
+      Expr<?> finalValue = value;
+      BoolExpr optionalHasValue = ctx.mkTrue();
+      if (entryAst.optionalEntry()) {
+        Expr<?> optRef = typeSystem.getOptionalRef(value);
+        optionalHasValue = typeSystem.optHasValue(optRef);
+        finalValue = typeSystem.getOptionalValue(optRef);
+      }
+
       // Canonicalization Trick:
       //
       // We avoid storing explicit default values (e.g. `single_int32: 0`)
@@ -379,11 +412,13 @@ final class CelAstToZ3Translator {
       // (`msg1 == msg2`) to work without using quantifiers (which avoids MBQI loops).
       // Because proto3 singular primitives do not have field presence, we also skip setting
       // `msgPresence`.
-      BoolExpr shouldBypass =
-          fieldType.kind().isPrimitive() ? ctx.mkEq(value, defaultVal) : ctx.mkFalse();
+      BoolExpr isDefaultPrimitive =
+          fieldType.kind().isPrimitive() ? ctx.mkEq(finalValue, defaultVal) : ctx.mkFalse();
+
+      BoolExpr shouldBypass = ctx.mkOr(ctx.mkNot(optionalHasValue), isDefaultPrimitive);
 
       msgValues =
-          (ArrayExpr) ctx.mkITE(shouldBypass, msgValues, ctx.mkStore(msgValues, key, value));
+          (ArrayExpr) ctx.mkITE(shouldBypass, msgValues, ctx.mkStore(msgValues, key, finalValue));
 
       msgPresence =
           (ArrayExpr)
@@ -655,7 +690,8 @@ final class CelAstToZ3Translator {
     List<Expr<?>> allRangeElems = new ArrayList<>();
 
     // For statically known list/map literals, unroll them exactly.
-    if (iterRangeExpr.exprKind().getKind() == ExprKind.Kind.LIST) {
+    if (iterRangeExpr.exprKind().getKind() == ExprKind.Kind.LIST
+        && iterRangeExpr.list().optionalIndices().isEmpty()) {
       ImmutableList<CelExpr> elements = iterRangeExpr.list().elements();
       for (int i = 0; i < elements.size(); i++) {
         TranslatedValue valueTv = translateExpr(elements.get(i), ast);
@@ -664,7 +700,8 @@ final class CelAstToZ3Translator {
         iterationElements.add(new IterationElement(typeSystem.mkInt(i), value));
         allRangeElems.add(value);
       }
-    } else if (iterRangeExpr.exprKind().getKind() == ExprKind.Kind.MAP) {
+    } else if (iterRangeExpr.exprKind().getKind() == ExprKind.Kind.MAP
+        && iterRangeExpr.map().entries().stream().noneMatch(CelExpr.CelMap.Entry::optionalEntry)) {
       for (CelExpr.CelMap.Entry entry : iterRangeExpr.map().entries()) {
         TranslatedValue keyTv = translateExpr(entry.key(), ast);
         Expr<?> key = keyTv.z3Expr();

@@ -42,6 +42,7 @@ import dev.cel.common.ast.CelExpr;
 import dev.cel.common.ast.CelExpr.CelCall;
 import dev.cel.common.types.ListType;
 import dev.cel.common.types.MapType;
+import dev.cel.common.types.OptionalType;
 import dev.cel.common.types.ProtoMessageTypeProvider;
 import dev.cel.common.types.SimpleType;
 import dev.cel.common.types.StructTypeReference;
@@ -100,6 +101,7 @@ public final class CelVerifierZ3ImplTest {
           .addVar("dyn_map", MapType.create(SimpleType.DYN, SimpleType.DYN))
           .addVar("dyn_var", SimpleType.DYN)
           .addVar("dyn_var2", SimpleType.DYN)
+          .addVar("opt_var", OptionalType.create(SimpleType.INT))
           .addVar("string_int_map", MapType.create(SimpleType.STRING, SimpleType.INT))
           .addVar("bytes_val", SimpleType.BYTES)
           .addVar(
@@ -1420,7 +1422,15 @@ public final class CelVerifierZ3ImplTest {
         "has(dyn({'a': 1}).a) && has(dyn(TestAllTypes{single_int32: 1}).single_int32)"),
     DYNAMIC_INDEXING_TYPE_MISMATCH(
         "type(request) == type(1) && request[1] == 1 && request[2] == 2",
-        "type(request) == type(1) && 1 / 0 == 1 && request[2] == 2");
+        "type(request) == type(1) && 1 / 0 == 1 && request[2] == 2"),
+    OPTIONAL_PRUNE_LIST_LITERAL("[1, ?optional.of(3)]", "[1,3]"),
+    OPTIONAL_PRUNE_LIST_NONE("[?optional.none(), ?opt_var]", "[?opt_var]"),
+    OPTIONAL_PRUNE_MAP_NONE("{?1: optional.none()}", "{}"),
+    OPTIONAL_PRUNE_STRUCT_LIST(
+        "TestAllTypes{?repeated_int32: optional.of([1, 2])}",
+        "cel.expr.conformance.proto3.TestAllTypes{repeated_int32: [1, 2]}"),
+    OPTIONAL_PRUNE_LIST_EQUALITY("[?optional.none(), 1] == [1]", "true"),
+    OPTIONAL_PRUNE_LIST_COMPREHENSION("[1, ?optional.none()].all(x, x > 0)", "true");
 
     private final String exprA;
     private final String exprB;
@@ -1458,11 +1468,13 @@ public final class CelVerifierZ3ImplTest {
     HETEROGENEOUS_FIELD_SELECTION(
         "test_all_types.single_int32 == 10", "test_all_types.single_int64 == 10"),
     STRUCT_VARIABLE_NOT_EQUIVALENT_TO_DEFAULT("test_all_types == TestAllTypes{}", "true"),
+    OPTIONAL_INVALID_PRUNE_OPT_VAR("[1, ?opt_var]", "[1]"),
     CROSS_TYPE_NUMERIC_INEQUALITY_INT_DOUBLE("request == 1.0", "request == 2.0 || request == 1"),
     CROSS_TYPE_SYMBOLIC_INEQUALITY_INT_UINT("dyn(x) == dyn(u)", "false"),
     CROSS_TYPE_SYMBOLIC_INEQUALITY_UINT_INT("dyn(u) == dyn(x)", "false"),
     OPTIONAL_OR_VALUE_VIOLATION("optional.of(x).orValue(y)", "y"),
     OPTIONAL_VALUE_VIOLATION("optional.of(x).value()", "y"),
+    LIST_OPTIONAL_ELEMENTS_COLLISION("[1, ?opt_var]", "[1, opt_var]"),
     CROSS_NUMERIC_EQUALITY_INT_DYN_VIOLATION("1 == request", "false");
 
     final String exprA;

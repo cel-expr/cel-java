@@ -118,7 +118,9 @@ final class CelAstAlphaHasher {
         break;
       case LIST:
         context.hasher.putInt(expr.list().elements().size());
-        for (CelExpr elem : expr.list().elements()) {
+        for (int i = 0; i < expr.list().elements().size(); i++) {
+          CelExpr elem = expr.list().elements().get(i);
+          context.hasher.putBoolean(expr.list().optionalIndices().contains(i));
           hashAst(elem, scope, context);
         }
         break;
