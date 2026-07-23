@@ -42,6 +42,7 @@ import dev.cel.common.ast.CelExpr;
 import dev.cel.common.ast.CelExpr.CelCall;
 import dev.cel.common.types.ListType;
 import dev.cel.common.types.MapType;
+import dev.cel.common.types.NullableType;
 import dev.cel.common.types.OptionalType;
 import dev.cel.common.types.ProtoMessageTypeProvider;
 import dev.cel.common.types.SimpleType;
@@ -102,6 +103,8 @@ public final class CelVerifierZ3ImplTest {
           .addVar("dyn_var", SimpleType.DYN)
           .addVar("dyn_var2", SimpleType.DYN)
           .addVar("opt_var", OptionalType.create(SimpleType.INT))
+          .addVar("opt_dyn_var", OptionalType.create(SimpleType.DYN))
+          .addVar("nullable_int", NullableType.create(SimpleType.INT))
           .addVar("string_int_map", MapType.create(SimpleType.STRING, SimpleType.INT))
           .addVar("bytes_val", SimpleType.BYTES)
           .addVar(
@@ -147,7 +150,8 @@ public final class CelVerifierZ3ImplTest {
         "timestamp('2023-01-01T00:00:00Z') == timestamp('2023-01-01T00:00:00Z')"),
     CROSS_NUMERIC_EQUALITY_INT_DYN_EXACT("1 == request"),
     MACRO_LIMIT("dyn_list.all(x, x == 1)"),
-    STRUCT_FIELD_MISSING_APPROXIMATE_SATISFIABLE("dyn_var.unknown_field");
+    STRUCT_FIELD_MISSING_APPROXIMATE_SATISFIABLE("dyn_var.unknown_field"),
+    NULLABLE_INT_SATISFIABLE("nullable_int == 123");
 
     final String expr;
 
@@ -463,6 +467,8 @@ public final class CelVerifierZ3ImplTest {
     OPTIONAL_OR_NONE_IS_NONE("optional.none().or(optional.none()) == optional.none()"),
     OPTIONAL_VALUE_VAR("optional.of(x).value() == x"),
     OPTIONAL_HAS_VALUE_VAR("optional.of(x).hasValue()"),
+    OPTIONAL_VAR_HAS_VALUE_IMPLIES_INT("opt_var.hasValue() ? type(opt_var.value()) == int : true"),
+
     IEEE_754_PROTO_NEG_ZERO_NEQ(
         "TestAllTypes{single_double: -0.0} != TestAllTypes{single_double: 0.0}"),
     IEEE_754_ROUND_NEAREST_TIES_TO_EVEN_DOWN("1.0 + 1.1102230246251565e-16 == 1.0"),
@@ -584,6 +590,7 @@ public final class CelVerifierZ3ImplTest {
         "dyn_map == {'a': 1, 1: 'b'} ? dyn_map.exists(k, v, type(k) == string && type(v) == int &&"
             + " k == 'a' && v == 1) : true"),
     TYPE_AXIOM_BOOL("type(true) == bool"),
+    NULLABLE_INT_IS_NULL_OR_INT("type(nullable_int) == int || type(nullable_int) == null_type"),
     TYPE_AXIOM_INT("type(1) == int"),
     TYPE_AXIOM_UINT("type(1u) == uint"),
     TYPE_AXIOM_DOUBLE("type(1.0) == double"),
@@ -637,6 +644,7 @@ public final class CelVerifierZ3ImplTest {
     WRAPPER_SET_NULL_IS_NULL(
         "TestAllTypes{single_int64_wrapper: null}.single_int64_wrapper == null"),
     WRAPPER_SET_NULL_EQ_UNSET("TestAllTypes{single_int64_wrapper: null} == TestAllTypes{}"),
+    WRAPPER_SET_NON_NULL_EQ("TestAllTypes{single_int64_wrapper: 123}.single_int64_wrapper == 123"),
     STRING_CONTAINS_EMPTY("role.contains('')"),
     STRING_STARTS_WITH_EMPTY("role.startsWith('')"),
     STRING_ENDS_WITH_EMPTY("role.endsWith('')"),
@@ -1013,140 +1021,184 @@ public final class CelVerifierZ3ImplTest {
   }
 
   private enum IsAlwaysTrueViolationTestCase {
-    NOT_ALWAYS_TRUE("x > 5", "Condition is not always true.", "Counterexample input:", "x ="),
+    NOT_ALWAYS_TRUE(
+        "x > 5", "Condition is not always true\\.", "Counterexample input:", "x = -?\\d+"),
     LAW_OF_EXCLUDED_MIDDLE_FAILS_WITH_ERRORS(
-        "(1 / 0 == 5) || !(1 / 0 == 5)", "Condition is not always true."),
+        "(1 / 0 == 5) || !(1 / 0 == 5)", "Condition is not always true\\."),
     INTEGER_OVERFLOW_FAILS_WITH_ERRORS(
-        "(x + 1) - 1 == x", "Condition is not always true.", "Counterexample input:", "x ="),
+        "(x + 1) - 1 == x",
+        "Condition is not always true\\.",
+        "Counterexample input:",
+        "x = -?\\d+"),
     UINT_SUBTRACT_UNDERFLOW_FAILS_WITH_ERRORS(
-        "(u - 1u) + 1u == u", "Condition is not always true.", "Counterexample input:", "u ="),
+        "(u - 1u) + 1u == u",
+        "Condition is not always true\\.",
+        "Counterexample input:",
+        "u = \\d+u?"),
     NEGATE_MIN_INT_FAILS_WITH_ERRORS(
-        "-(-x) == x", "Condition is not always true.", "Counterexample input:", "x ="),
-    HETEROGENEOUS_ARITHMETIC_FAILS("dyn(1) + 1u == 2u", "Condition is not always true."),
+        "-(-x) == x", "Condition is not always true\\.", "Counterexample input:", "x = -?\\d+"),
+    HETEROGENEOUS_ARITHMETIC_FAILS("dyn(1) + 1u == 2u", "Condition is not always true\\."),
     CROSS_TYPE_SYMBOLIC_EQUALITY_NOT_ALWAYS_UNEQUAL_INT_UINT(
-        "dyn(x) != dyn(u)", "Condition is not always true."),
+        "dyn(x) != dyn(u)",
+        "Condition is not always true\\.",
+        "Counterexample input:",
+        "x = -?\\d+",
+        "u = \\d+u?"),
     CROSS_TYPE_SYMBOLIC_EQUALITY_NOT_ALWAYS_UNEQUAL_UINT_INT(
-        "dyn(u) != dyn(x)", "Condition is not always true."),
+        "dyn(u) != dyn(x)",
+        "Condition is not always true\\.",
+        "Counterexample input:",
+        "x = -?\\d+",
+        "u = \\d+u?"),
     CROSS_TYPE_DYNAMIC_EQUALITY_NOT_ALWAYS_UNEQUAL_INT_DOUBLE(
         "!(request == unknown_var && type(request) == int && type(unknown_var) == double)",
-        "Condition is not always true.",
-        "Counterexample input:"),
+        "Condition is not always true\\.",
+        "Counterexample input:",
+        "unknown_var = -?\\d+\\.\\d+",
+        "request = -?\\d+"),
+    OPTIONAL_DYN_VAR_HAS_VALUE_NOT_IMPLIES_INT(
+        "opt_dyn_var.hasValue() ? type(opt_dyn_var.value()) == int : true",
+        "Condition is not always true\\.",
+        "Counterexample input:",
+        "opt_dyn_var = \\(Optional OptionalRef!val!\\d+\\)"),
+    OPTIONAL_ENTRY_DYN_VAR_TYPE_MISMATCH(
+        "[?dyn_var] == [?dyn_var] ? true : true",
+        "Condition is not always true\\.",
+        "Counterexample input:",
+        "dyn_var = b\\\"![01]!\\\""),
+    OPTIONAL_MAP_ENTRY_DYN_VAR_TYPE_MISMATCH(
+        "{?1: dyn_var} == {?1: dyn_var} ? true : true",
+        "Condition is not always true\\.",
+        "Counterexample input:",
+        "dyn_var = b\\\"![01]!\\\""),
+    OPTIONAL_STRUCT_ENTRY_DYN_VAR_TYPE_MISMATCH(
+        "cel.expr.conformance.proto3.TestAllTypes{?single_int32: dyn_var} =="
+            + " cel.expr.conformance.proto3.TestAllTypes{?single_int32: dyn_var} ? true : true",
+        "Condition is not always true\\.",
+        "Counterexample input:",
+        "dyn_var = b\\\"(!0!|i)\\\""),
     DYNAMIC_MAP_ALL_VIOLATION(
         "string_int_map == {'a': 1, 'b': 2} ? string_int_map.all(k, k == 'a') : true",
-        "Condition is not always true.",
+        "Condition is not always true\\.",
         "Counterexample input:",
-        "string_int_map = {",
+        "string_int_map = \\{",
         "\"a\": 1",
         "\"b\": 2"),
     DYNAMIC_MAP_EXISTS_VIOLATION(
         "string_int_map == {'a': 1, 'b': 2} ? string_int_map.exists(k, k == 'c') : true",
-        "Condition is not always true.",
+        "Condition is not always true\\.",
         "Counterexample input:",
-        "string_int_map = {",
+        "string_int_map = \\{",
         "\"a\": 1",
         "\"b\": 2"),
     LITERAL_MAP_KEY_ERROR_PROPAGATES(
         "{1/0: 1}.all(k, true) == true",
-        "Condition is not always true.",
-        "(The expression fails unconditionally, regardless of input state)"),
+        "Condition is not always true\\.",
+        "\\(The expression fails unconditionally, regardless of input state\\)"),
     DYNAMIC_LIST_EXISTS_ONE_UNKNOWN_MATH(
         "int_list == [1, 2] ? int_list.exists_one(x, x == 1 || unknown_var) : true",
-        "Condition is not always true.",
+        "Condition is not always true\\.",
         "Counterexample input:",
-        "unknown_var =",
-        "int_list = [1, 2]"),
+        "unknown_var = (true|false|\\d+)",
+        "int_list = \\[1, 2\\]"),
     DYNAMIC_LIST_EXISTS_ONE_UNKNOWN_POISONING(
         "int_list == [1, 2] ? !(int_list.exists_one(x, x == 1 || unknown_var) == true ||"
             + " int_list.exists_one(x, x == 1 || unknown_var) == false) : true",
-        "Condition is not always true.",
+        "Condition is not always true\\.",
         "Counterexample input:",
-        "unknown_var =",
-        "int_list = [1, 2]"),
+        "unknown_var = (true|false)",
+        "int_list = \\[1, 2\\]"),
     DYNAMIC_ITERATION_OVER_SCALAR_RETURNS_UNKNOWN(
         "unknown_var == 1 ? !(unknown_var.all(x, false) == true || unknown_var.all(x, false) =="
             + " false) : true",
-        "Condition is not always true.",
+        "Condition is not always true\\.",
         "Counterexample input:",
         "unknown_var = 1"),
     ERROR_UNKNOWN_PRECEDENCE(
         "[1, 2].all(x, x == 1 ? unknown_var : 1/0 == 0) == true",
-        "Condition is not always true.",
+        "Condition is not always true\\.",
         "Counterexample input:",
-        "unknown_var ="),
+        "unknown_var = (true|false)"),
     LIST_LITERAL_ELEMENT_ERROR_PROPAGATES(
         "[true, 1/0].exists(x, x) == true",
-        "Condition is not always true.",
-        "(The expression fails unconditionally, regardless of input state)"),
+        "Condition is not always true\\.",
+        "\\(The expression fails unconditionally, regardless of input state\\)"),
     DYNAMIC_STRING_MACRO_TYPE_MISMATCH(
         "unknown_var == 1 ? !(unknown_var.contains('a') == true || unknown_var.contains('a') =="
             + " false) : true",
-        "Condition is not always true.",
+        "Condition is not always true\\.",
         "Counterexample input:",
-        "unknown_var = 1"),
+        "unknown_var = \\d+u?"),
     STRING_CONTAINS_IS_NOT_EQUALITY(
         "role.contains('admin') ? role == 'admin' : true",
-        "Condition is not always true.",
+        "Condition is not always true\\.",
         "Counterexample input:",
-        "role ="),
+        "role = \\\".*\\\""),
     STRING_OVERLAP_FALLACY(
         "role.startsWith('A') && role.endsWith('B') ? role == 'AB' : true",
-        "Condition is not always true.",
+        "Condition is not always true\\.",
         "Counterexample input:",
-        "role ="),
+        "role = \\\".*\\\""),
     TYPE_CONVERSION_INT_TO_UINT_UNDERFLOW_ERROR(
         "uint(-1) == 1u",
-        "Condition is not always true.",
-        "(The expression fails unconditionally, regardless of input state)"),
+        "Condition is not always true\\.",
+        "\\(The expression fails unconditionally, regardless of input state\\)"),
     TYPE_CONVERSION_UINT_TO_INT_OVERFLOW_ERROR(
         "int(9223372036854775808u) == 1",
-        "Condition is not always true.",
-        "(The expression fails unconditionally, regardless of input state)"),
+        "Condition is not always true\\.",
+        "\\(The expression fails unconditionally, regardless of input state\\)"),
     STRING_STARTS_VS_ENDS_WITH(
         "role.startsWith('admin') == role.endsWith('admin')",
-        "Condition is not always true.",
+        "Condition is not always true\\.",
         "Counterexample input:",
-        "role ="),
+        "role = \\\".*\\\""),
     STRING_CONTAINS_VS_STARTS_WITH(
         "role.contains('admin') == role.startsWith('admin')",
-        "Condition is not always true.",
+        "Condition is not always true\\.",
         "Counterexample input:",
-        "role ="),
+        "role = \\\".*\\\""),
     DYNAMIC_MAP_INDEX_COMPUTATION_VIOLATION(
         "type(dyn_map[1 + 1]) == list && size(dyn_map[1 + 1]) == 0 "
             + "? dyn_map[1 + 1] == [] : true",
-        "Condition is not always true.",
+        "Condition is not always true\\.",
         "Counterexample input:",
-        "dyn_map ="),
+        "dyn_map = \\{\\}"),
     DYNAMIC_MAP_COMPREHENSION_NESTED_EQUALITY_VIOLATION(
         "cel.bind(r, request, r.l == [[1], [2], [3], [4], [5]] && r.m == {1: [1], 2: [2],"
             + " 3: [3]} ? r.l.all(x, r.m.exists(k, r.m[k] == x)) : true)",
-        "Condition is not always true.",
+        "Condition is not always true\\.",
         "Counterexample input:",
-        "request ="),
+        "request = .*"),
     UNINTERPRETED_EQUALITY_VIOLATION(
         "request == request",
-        "Condition is not always true.",
+        "Condition is not always true\\.",
         "Counterexample input:",
         "request = NaN"),
     CROSS_TYPE_NUMERIC_EQUALITY_APPROXIMATION_VIOLATION(
-        "dyn_var == 1.0", "Condition is not always true.", "Counterexample input:", "dyn_var ="),
+        "dyn_var == 1.0",
+        "Condition is not always true\\.",
+        "Counterexample input:",
+        "dyn_var = b\\\"![01]!\\\""),
     DYNAMIC_NOT_TYPE_MISMATCH(
-        "!dyn_var", "Condition is not always true.", "Counterexample input:", "dyn_var ="),
+        "!dyn_var",
+        "Condition is not always true\\.",
+        "Counterexample input:",
+        "dyn_var = (true|false)"),
     DYNAMIC_CONDITIONAL_TYPE_MISMATCH(
         "dyn_var ? true : false",
-        "Condition is not always true.",
+        "Condition is not always true\\.",
         "Counterexample input:",
-        "dyn_var ="),
+        "dyn_var = b\\\"![01]!\\\""),
     DYNAMIC_NOT_TYPE_MISMATCH_SURVIVOR(
         "type(dyn_var) == int ? (!dyn_var == !dyn_var) : true",
-        "Condition is not always true.",
+        "Condition is not always true\\.",
         "Counterexample input:",
-        "dyn_var ="),
+        "dyn_var = int\\{\\}"),
     DYNAMIC_CONDITIONAL_TYPE_MISMATCH_SURVIVOR(
         "type(dyn_var) == int ? (dyn_var ? true : false) == (dyn_var ? true : false) : true",
-        "Condition is not always true.",
+        "Condition is not always true\\.",
         "Counterexample input:",
-        "dyn_var =");
+        "dyn_var = int\\{\\}");
 
     final String expr;
     final ImmutableList<String> expectedFragments;
@@ -1166,7 +1218,7 @@ public final class CelVerifierZ3ImplTest {
 
     assertThat(result.status()).isEqualTo(VerificationStatus.VIOLATED);
     for (String fragment : testCase.expectedFragments) {
-      assertThat(result.message()).contains(fragment);
+      assertThat(result.message()).containsMatch(fragment);
     }
   }
 

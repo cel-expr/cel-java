@@ -40,6 +40,7 @@ import dev.cel.common.types.CelTypeProvider;
 import dev.cel.common.types.ListType;
 import dev.cel.common.types.MapType;
 import dev.cel.common.types.NullableType;
+import dev.cel.common.types.OptionalType;
 import dev.cel.common.types.SimpleType;
 import dev.cel.common.types.StructType;
 import dev.cel.common.types.StructTypeReference;
@@ -287,9 +288,13 @@ final class CelAstToZ3Translator {
       for (int i = 0; i < elements.size(); i++) {
         CelExpr element = elements.get(i);
         TranslatedValue elem = translateExpr(element, ast);
-        elementsTv.add(elem);
 
         if (optionalIndices.contains(i)) {
+          Expr<?> checkedValue =
+              typeSystem.withRuntimeError(
+                  elem.z3Expr(), ctx.mkNot(typeSystem.isOptional(elem.z3Expr())));
+          elem = TranslatedValue.create(checkedValue, element, typeSystem, elem.isApproximate());
+
           Expr<?> optRef = typeSystem.getOptionalRef(elem.z3Expr());
           seq =
               (SeqExpr)
@@ -300,6 +305,7 @@ final class CelAstToZ3Translator {
         } else {
           seq = typeSystem.mkConcatSafe(seq, ctx.mkUnit(elem.z3Expr()));
         }
+        elementsTv.add(elem);
       }
       listRef = typeSystem.mkListRefConst(LIST_REF_PREFIX);
       typeConstraints.add(ctx.mkEq(typeSystem.getSeq(listRef), seq));
@@ -327,15 +333,20 @@ final class CelAstToZ3Translator {
       elementsTv.add(keyTv);
       TranslatedValue valueTv = translateExpr(entryAst.value(), ast);
       Expr<?> value = valueTv.z3Expr();
-      elementsTv.add(valueTv);
 
       Expr<?> finalValue = value;
       BoolExpr finalPresence = ctx.mkTrue();
       if (entryAst.optionalEntry()) {
-        Expr<?> optRef = typeSystem.getOptionalRef(value);
+        Expr<?> checkedValue =
+            typeSystem.withRuntimeError(value, ctx.mkNot(typeSystem.isOptional(value)));
+        valueTv =
+            TranslatedValue.create(
+                checkedValue, entryAst.value(), typeSystem, valueTv.isApproximate());
+        Expr<?> optRef = typeSystem.getOptionalRef(checkedValue);
         finalPresence = typeSystem.optHasValue(optRef);
         finalValue = typeSystem.getOptionalValue(optRef);
       }
+      elementsTv.add(valueTv);
 
       BoolExpr keyAlreadyPresent = (BoolExpr) ctx.mkSelect(mapPresence, key);
       BoolExpr shouldInsertKey = ctx.mkAnd(ctx.mkNot(keyAlreadyPresent), finalPresence);
@@ -382,7 +393,6 @@ final class CelAstToZ3Translator {
       Expr<?> key = ctx.mkString(entryAst.fieldKey());
       TranslatedValue valueTv = translateExpr(entryAst.value(), ast);
       Expr<?> value = valueTv.z3Expr();
-      elementsTv.add(valueTv);
 
       CelType fieldType =
           typeProvider
@@ -397,10 +407,16 @@ final class CelAstToZ3Translator {
       Expr<?> finalValue = value;
       BoolExpr optionalHasValue = ctx.mkTrue();
       if (entryAst.optionalEntry()) {
-        Expr<?> optRef = typeSystem.getOptionalRef(value);
+        Expr<?> checkedValue =
+            typeSystem.withRuntimeError(value, ctx.mkNot(typeSystem.isOptional(value)));
+        valueTv =
+            TranslatedValue.create(
+                checkedValue, entryAst.value(), typeSystem, valueTv.isApproximate());
+        Expr<?> optRef = typeSystem.getOptionalRef(checkedValue);
         optionalHasValue = typeSystem.optHasValue(optRef);
         finalValue = typeSystem.getOptionalValue(optRef);
       }
+      elementsTv.add(valueTv);
 
       // Canonicalization Trick:
       //
@@ -435,6 +451,9 @@ final class CelAstToZ3Translator {
   private Expr<?> getDefaultValueForType(CelType type) {
     if (type instanceof NullableType) {
       return typeSystem.mkNull();
+    }
+    if (type instanceof OptionalType) {
+      return typeSystem.mkOptionalNone();
     }
     if (type.equals(SimpleType.INT)) {
       return typeSystem.mkInt(0);
@@ -1147,6 +1166,23 @@ final class CelAstToZ3Translator {
   }
 
   private BoolExpr createTypeConstraintForType(Expr<?> val, CelType type) {
+    if (type instanceof NullableType) {
+      NullableType nullableType = (NullableType) type;
+      return ctx.mkOr(
+          typeSystem.isNull(val), createTypeConstraintForType(val, nullableType.targetType()));
+    }
+    if (type instanceof OptionalType) {
+      BoolExpr isOpt = typeSystem.isOptional(val);
+      CelType paramType = type.parameters().get(0);
+      if (paramType.kind().isDyn() || paramType.kind().isTypeParam()) {
+        return isOpt;
+      }
+      Expr<?> optRef = typeSystem.getOptionalRef(val);
+      BoolExpr hasValue = typeSystem.optHasValue(optRef);
+      BoolExpr valConstraint =
+          createTypeConstraintForType(typeSystem.getOptionalValue(optRef), paramType);
+      return ctx.mkAnd(isOpt, ctx.mkImplies(hasValue, valConstraint));
+    }
     if (type.equals(SimpleType.BOOL)) {
       return (BoolExpr) ctx.mkApp(typeSystem.boolCons().getTesterDecl(), val);
     }
