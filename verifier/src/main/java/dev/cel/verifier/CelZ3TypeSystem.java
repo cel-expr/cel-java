@@ -256,6 +256,10 @@ public final class CelZ3TypeSystem {
     return bytesCons;
   }
 
+  Constructor optionalCons() {
+    return optionalCons;
+  }
+
   /** Creates a CelValue containing a boolean. */
   public Expr<?> mkBool(boolean val) {
     return ctx.mkApp(boolCons.ConstructorDecl(), ctx.mkBool(val));

@@ -123,6 +123,23 @@ final class CelZ3CounterexampleGenerator {
       return "Error";
     } else if (decl.equals(typeSystem.unknownCons().ConstructorDecl())) {
       return "Unknown";
+    } else if (decl.equals(typeSystem.optionalCons().ConstructorDecl())) {
+      Expr<?> optRef = expr.getArgs()[0];
+      Expr<?> hasValueExpr =
+          evaluateStrict(
+              model,
+              typeSystem.optHasValue(optRef),
+              String.format("Z3 failed to evaluate optHasValue natively for %s", optRef));
+      if (hasValueExpr.isTrue()) {
+        Expr<?> valueExpr =
+            evaluateStrict(
+                model,
+                typeSystem.getOptionalValue(optRef),
+                String.format("Z3 failed to evaluate optValue natively for %s", optRef));
+        return "optional(" + formatExpr(ctx, typeSystem, model, valueExpr) + ")";
+      } else if (hasValueExpr.isFalse()) {
+        return "optional.none()";
+      }
     }
 
     return expr.toString();

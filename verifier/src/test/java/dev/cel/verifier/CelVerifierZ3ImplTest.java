@@ -1060,23 +1060,28 @@ public final class CelVerifierZ3ImplTest {
         "opt_dyn_var.hasValue() ? type(opt_dyn_var.value()) == int : true",
         "Condition is not always true\\.",
         "Counterexample input:",
-        "opt_dyn_var = \\(Optional OptionalRef!val!\\d+\\)"),
+        "opt_dyn_var = optional\\(Unknown\\)"),
     OPTIONAL_ENTRY_DYN_VAR_TYPE_MISMATCH(
         "[?dyn_var] == [?dyn_var] ? true : true",
         "Condition is not always true\\.",
         "Counterexample input:",
-        "dyn_var = b\\\"![01]!\\\""),
+        "dyn_var = b\"![01]!\""),
     OPTIONAL_MAP_ENTRY_DYN_VAR_TYPE_MISMATCH(
         "{?1: dyn_var} == {?1: dyn_var} ? true : true",
         "Condition is not always true\\.",
         "Counterexample input:",
-        "dyn_var = b\\\"![01]!\\\""),
+        "dyn_var = b\"![01]!\""),
     OPTIONAL_STRUCT_ENTRY_DYN_VAR_TYPE_MISMATCH(
         "cel.expr.conformance.proto3.TestAllTypes{?single_int32: dyn_var} =="
             + " cel.expr.conformance.proto3.TestAllTypes{?single_int32: dyn_var} ? true : true",
         "Condition is not always true\\.",
         "Counterexample input:",
-        "dyn_var = b\\\"(!0!|i)\\\""),
+        "dyn_var = b\"(!0!|i)\""),
+    OPTIONAL_NONE_COUNTEREXAMPLE(
+        "opt_dyn_var.hasValue()",
+        "Condition is not always true\\.",
+        "Counterexample input:",
+        "opt_dyn_var = optional\\.none\\(\\)"),
     DYNAMIC_MAP_ALL_VIOLATION(
         "string_int_map == {'a': 1, 'b': 2} ? string_int_map.all(k, k == 'a') : true",
         "Condition is not always true\\.",
@@ -1133,12 +1138,12 @@ public final class CelVerifierZ3ImplTest {
         "role.contains('admin') ? role == 'admin' : true",
         "Condition is not always true\\.",
         "Counterexample input:",
-        "role = \\\".*\\\""),
+        "role = \".*admin.*\""),
     STRING_OVERLAP_FALLACY(
         "role.startsWith('A') && role.endsWith('B') ? role == 'AB' : true",
         "Condition is not always true\\.",
         "Counterexample input:",
-        "role = \\\".*\\\""),
+        "role = \"A.*B\""),
     TYPE_CONVERSION_INT_TO_UINT_UNDERFLOW_ERROR(
         "uint(-1) == 1u",
         "Condition is not always true\\.",
@@ -1151,12 +1156,12 @@ public final class CelVerifierZ3ImplTest {
         "role.startsWith('admin') == role.endsWith('admin')",
         "Condition is not always true\\.",
         "Counterexample input:",
-        "role = \\\".*\\\""),
+        "role = \"(admin.*|.*admin)\""),
     STRING_CONTAINS_VS_STARTS_WITH(
         "role.contains('admin') == role.startsWith('admin')",
         "Condition is not always true\\.",
         "Counterexample input:",
-        "role = \\\".*\\\""),
+        "role = \".*admin.*\""),
     DYNAMIC_MAP_INDEX_COMPUTATION_VIOLATION(
         "type(dyn_map[1 + 1]) == list && size(dyn_map[1 + 1]) == 0 "
             + "? dyn_map[1 + 1] == [] : true",
@@ -1178,7 +1183,7 @@ public final class CelVerifierZ3ImplTest {
         "dyn_var == 1.0",
         "Condition is not always true\\.",
         "Counterexample input:",
-        "dyn_var = b\\\"![01]!\\\""),
+        "dyn_var = b\"![01]!\""),
     DYNAMIC_NOT_TYPE_MISMATCH(
         "!dyn_var",
         "Condition is not always true\\.",
@@ -1188,7 +1193,7 @@ public final class CelVerifierZ3ImplTest {
         "dyn_var ? true : false",
         "Condition is not always true\\.",
         "Counterexample input:",
-        "dyn_var = b\\\"![01]!\\\""),
+        "dyn_var = b\"![01]!\""),
     DYNAMIC_NOT_TYPE_MISMATCH_SURVIVOR(
         "type(dyn_var) == int ? (!dyn_var == !dyn_var) : true",
         "Condition is not always true\\.",
