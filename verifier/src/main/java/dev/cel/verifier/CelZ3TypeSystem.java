@@ -16,6 +16,7 @@ package dev.cel.verifier;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.ObjectArrays;
+import com.google.common.primitives.UnsignedLongs;
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import com.microsoft.z3.ArithExpr;
 import com.microsoft.z3.ArrayExpr;
@@ -300,9 +301,14 @@ public final class CelZ3TypeSystem {
     return ctx.mkApp(intCons.ConstructorDecl(), ctx.mkInt(val));
   }
 
+  /** Creates a CelValue containing an unsigned integer from a string representation. */
+  public Expr<?> mkUint(String val) {
+    return ctx.mkApp(uintCons.ConstructorDecl(), ctx.mkInt(val));
+  }
+
   /** Creates a CelValue containing an unsigned integer. */
   public Expr<?> mkUint(long val) {
-    return ctx.mkApp(uintCons.ConstructorDecl(), ctx.mkInt(val));
+    return mkUint(UnsignedLongs.toString(val));
   }
 
   /** Creates a CelValue containing a double. */
@@ -859,10 +865,8 @@ public final class CelZ3TypeSystem {
     this.boolCons =
         ctx.mkConstructor(
             CONS_BOOL, IS_BOOL, new String[] {GET_BOOL}, new Sort[] {ctx.getBoolSort()}, null);
-    // Note: Z3's IntSort models unbounded mathematical integers. We do not currently use
-    // BitVecSort(64), which means CEL integer overflow semantics are not natively modeled,
-    // and bitwise operations are unsupported. We enforce 64-bit value bounds explicitly
-    // during variable constraint generation instead.
+    // We use Z3's IntSort instead of BitVecSort(64) for faster arithmetic solving without
+    // bit-blasting, explicitly enforcing 64-bit range bounds and overflow errors.
     this.intCons =
         ctx.mkConstructor(
             CONS_INT, IS_INT, new String[] {GET_INT}, new Sort[] {ctx.getIntSort()}, null);

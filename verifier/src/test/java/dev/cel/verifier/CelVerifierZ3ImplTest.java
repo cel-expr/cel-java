@@ -84,6 +84,8 @@ public final class CelVerifierZ3ImplTest {
           .addMessageTypes(TestAllTypes.getDescriptor(), TestAllTypes.NestedMessage.getDescriptor())
           .addVar("x", SimpleType.INT)
           .addVar("u", SimpleType.UINT)
+          .addVar("u1", SimpleType.UINT)
+          .addVar("u2", SimpleType.UINT)
           .addVar("d", SimpleType.DOUBLE)
           .addVar("by", SimpleType.BYTES)
           .addVar("y", SimpleType.INT)
@@ -705,6 +707,10 @@ public final class CelVerifierZ3ImplTest {
     DYNAMIC_NUMERIC_EQUALITY_CROSS_TYPE_DYN_DOUBLE(
         "type(dyn_var) == double && dyn_var == 5.0 && dyn_var2 == 5.0 && type(dyn_var2) == double ?"
             + " dyn_var == dyn_var2 : true"),
+    INT64_BOUNDS_ALWAYS_TRUE("x <= 9223372036854775807 && x >= -9223372036854775808"),
+    UINT64_BOUNDS_ALWAYS_TRUE("u <= 18446744073709551615u && u >= 0u"),
+    MODULO_INT64_MIN_INT_BY_NEG_ONE_ALWAYS_ZERO(
+        "x == -9223372036854775808 && y == -1 ? x % y == 0 : true"),
     ;
 
     final String expr;
@@ -1203,7 +1209,44 @@ public final class CelVerifierZ3ImplTest {
         "type(dyn_var) == int ? (dyn_var ? true : false) == (dyn_var ? true : false) : true",
         "Condition is not always true\\.",
         "Counterexample input:",
-        "dyn_var = int\\{\\}");
+        "dyn_var = int\\{\\}"),
+    ADD_INT64_OVERFLOW_FAILS_WITH_ERRORS(
+        "x > 0 && y > 0 ? x + y > x : true",
+        "Condition is not always true\\.",
+        "Counterexample input:",
+        "x = (1|9223372036854775807)",
+        "y = (1|9223372036854775807)"),
+    ADD_UINT64_OVERFLOW_FAILS_WITH_ERRORS(
+        "u1 > 0u && u2 > 0u ? u1 + u2 >= u1 : true",
+        "Condition is not always true\\.",
+        "Counterexample input:",
+        "u1 = (1u|18446744073709551615u)",
+        "u2 = (1u|18446744073709551615u)"),
+    SUBTRACT_INT64_UNDERFLOW_FAILS_WITH_ERRORS(
+        "x < 0 && y > 0 ? x - y < x : true",
+        "Condition is not always true\\.",
+        "Counterexample input:",
+        "x = (-2|9223372036854775807)",
+        "y = (-2|9223372036854775807)"),
+    MULTIPLY_INT64_OVERFLOW_FAILS_WITH_ERRORS(
+        "x > 1000000000 && y > 1000000000 ? x * y > 0 : true",
+        "Condition is not always true\\.",
+        "Counterexample input:",
+        "x = [0-9]+",
+        "y = [0-9]+"),
+    MULTIPLY_UINT64_OVERFLOW_FAILS_WITH_ERRORS(
+        "u1 > 1000000000u && u2 > 1000000000u ? u1 * u2 > 0u : true",
+        "Condition is not always true\\.",
+        "Counterexample input:",
+        "u1 = [0-9]+u",
+        "u2 = [0-9]+u"),
+    DIVIDE_INT64_OVERFLOW_MIN_INT_BY_NEG_ONE_FAILS_WITH_ERRORS(
+        "x == -9223372036854775808 && y == -1 ? x / y == -x : true",
+        "Condition is not always true\\.",
+        "Counterexample input:",
+        "x = -9223372036854775808",
+        "y = -1"),
+    ;
 
     final String expr;
     final ImmutableList<String> expectedFragments;
