@@ -7,9 +7,7 @@ package(
 
 java_library(
     name = "verifier",
-    visibility = [
-        "//:internal",
-    ],
+    visibility = ["//visibility:public"],
     exports = ["//verifier/src/main/java/dev/cel/verifier"],
 )
 
@@ -27,9 +25,7 @@ java_library(
 java_library(
     name = "verifier_factory",
     compatible_with = [],
-    visibility = [
-        "//:internal",
-    ],
+    visibility = ["//visibility:public"],
     exports = ["//verifier/src/main/java/dev/cel/verifier:verifier_factory"],
 )
 
