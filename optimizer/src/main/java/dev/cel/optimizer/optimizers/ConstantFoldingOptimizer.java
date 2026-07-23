@@ -70,7 +70,7 @@ import org.jspecify.annotations.Nullable;
 
 /**
  * Performs optimization for inlining constant scalar and aggregate literal values within function
- * calls and select statements with their evaluated result.
+ * calls and select statements with their evaluated result. test change
  */
 public final class ConstantFoldingOptimizer implements CelAstOptimizer {
   private static final ConstantFoldingOptimizer INSTANCE =
@@ -83,7 +83,7 @@ public final class ConstantFoldingOptimizer implements CelAstOptimizer {
 
   /**
    * Returns a new instance of constant folding optimizer configured with the provided {@link
-   * ConstantFoldingOptions}.
+   * ConstantFoldingOptions}. test change
    */
   public static ConstantFoldingOptimizer newInstance(
       ConstantFoldingOptions constantFoldingOptions) {
