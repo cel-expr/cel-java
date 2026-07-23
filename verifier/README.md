@@ -47,17 +47,17 @@ properties about your expressions.
     counterexample showing the inputs that caused the violation. When checking
     satisfiability (`isSatisfiable`), it generates concrete variable assignments
     (satisfying model / witness) showing the inputs that satisfy the condition.
-*   **Partial Evaluation (Unknowns) Support:** Define variables that are
-    permitted to evaluate to `Unknown` during verification, mirroring CEL's
-    runtime partial evaluation.
 *   **Custom Invariants Verification:** Allows policy authors to define safety
     invariants (e.g., "port must always be secure if external access is
     allowed") and mathematically prove that the policy never violates them
     across all possible input states.
+*   **Partial Evaluation (Unknowns) Support:** Define variables that are
+    permitted to evaluate to `Unknown` during verification, mirroring CEL's
+    runtime partial evaluation.
 
 ```java
 CelVerifier verifier = CelVerifierFactory.newVerifier()
-    .addUnknownIdentifier("request.headers") // Exclude dynamic fields from failure paths
+    .addUnknownIdentifier("request.headers") // Exclude unknown fields from failure paths
     .build();
 ```
 
