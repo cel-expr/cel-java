@@ -1393,6 +1393,31 @@ public final class CelVerifierZ3ImplTest {
     OPTIONAL_VALUE_EQUIVALENCE("optional.of(x).value()", "x"),
     OPTIONAL_HAS_VALUE_EQUIVALENCE("optional.of(x).hasValue()", "true"),
     OPTIONAL_NONE_HAS_VALUE_EQUIVALENCE("optional.none().hasValue()", "false"),
+    OPTIONAL_OF_NON_ZERO_VALUE_ARITHMETIC_EQUIVALENCE(
+        "[optional.ofNonZeroValue(1 + 2 + 3)]", "[optional.of(6)]"),
+    OPTIONAL_OF_NON_ZERO_VALUE_INT_ZERO_EQUIVALENCE(
+        "optional.ofNonZeroValue(0)", "optional.none()"),
+    OPTIONAL_OF_NON_ZERO_VALUE_INT_NON_ZERO_EQUIVALENCE(
+        "optional.ofNonZeroValue(5)", "optional.of(5)"),
+    OPTIONAL_OF_NON_ZERO_VALUE_STRING_EMPTY_EQUIVALENCE(
+        "optional.ofNonZeroValue('')", "optional.none()"),
+    OPTIONAL_OF_NON_ZERO_VALUE_STRING_NON_EMPTY_EQUIVALENCE(
+        "optional.ofNonZeroValue('hi')", "optional.of('hi')"),
+    OPTIONAL_OF_NON_ZERO_VALUE_BOOL_FALSE_EQUIVALENCE(
+        "optional.ofNonZeroValue(false)", "optional.none()"),
+    OPTIONAL_OF_NON_ZERO_VALUE_BOOL_TRUE_EQUIVALENCE(
+        "optional.ofNonZeroValue(true)", "optional.of(true)"),
+    OPTIONAL_OF_NON_ZERO_VALUE_DOUBLE_ZERO_EQUIVALENCE(
+        "optional.ofNonZeroValue(0.0)", "optional.none()"),
+    OPTIONAL_OF_NON_ZERO_VALUE_UINT_ZERO_EQUIVALENCE(
+        "optional.ofNonZeroValue(0u)", "optional.none()"),
+    OPTIONAL_OF_NON_ZERO_VALUE_LIST_EMPTY_EQUIVALENCE(
+        "optional.ofNonZeroValue([])", "optional.none()"),
+    OPTIONAL_OF_NON_ZERO_VALUE_MAP_EMPTY_EQUIVALENCE(
+        "optional.ofNonZeroValue({})", "optional.none()"),
+    OPTIONAL_OF_NON_ZERO_VALUE_BYTES_EMPTY_EQUIVALENCE(
+        "optional.ofNonZeroValue(b'')", "optional.none()"),
+    OPTIONAL_OF_NON_ZERO_VALUE_NULL_EQUIVALENCE("optional.ofNonZeroValue(null)", "optional.none()"),
     FUNCTIONS("size(\"abc\") == size(role)", "size(role) == size(\"abc\")"),
     NOT_EQUALS("x != y", "!(x == y)"),
     LESS("x < y", "y > x"),
