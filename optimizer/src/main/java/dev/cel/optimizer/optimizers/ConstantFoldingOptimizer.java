@@ -73,6 +73,19 @@ import org.jspecify.annotations.Nullable;
  * calls and select statements with their evaluated result.
  */
 public final class ConstantFoldingOptimizer implements CelAstOptimizer {
+  private static final ImmutableSet<String> BOOLEAN_RETURN_OPERATORS =
+      ImmutableSet.of(
+          Operator.LOGICAL_AND.getFunction(),
+          Operator.LOGICAL_OR.getFunction(),
+          Operator.LOGICAL_NOT.getFunction(),
+          Operator.EQUALS.getFunction(),
+          Operator.NOT_EQUALS.getFunction(),
+          Operator.LESS.getFunction(),
+          Operator.LESS_EQUALS.getFunction(),
+          Operator.GREATER.getFunction(),
+          Operator.GREATER_EQUALS.getFunction(),
+          Operator.IN.getFunction());
+
   private static final ConstantFoldingOptimizer INSTANCE =
       new ConstantFoldingOptimizer(ConstantFoldingOptions.newBuilder().build());
 
@@ -123,7 +136,6 @@ public final class ConstantFoldingOptimizer implements CelAstOptimizer {
       }
       iterCount++;
       continueFolding = false;
-
       ImmutableList<CelNavigableMutableExpr> foldableExprs =
           CelNavigableMutableAst.fromAst(mutableAst)
               .getRoot()
@@ -210,6 +222,9 @@ public final class ConstantFoldingOptimizer implements CelAstOptimizer {
 
         if (functionName.equals(Operator.EQUALS.getFunction())
             || functionName.equals(Operator.NOT_EQUALS.getFunction())) {
+          if (hasComprehensionVar(navigableExpr)) {
+            return false;
+          }
           if (mutableCall.args().stream()
                   .anyMatch(node -> isExprConstantOfKind(node, CelConstant.Kind.BOOLEAN_VALUE))
               || mutableCall.args().stream()
@@ -219,7 +234,7 @@ public final class ConstantFoldingOptimizer implements CelAstOptimizer {
         }
 
         if (functionName.equals(Operator.IN.getFunction())) {
-          return canFoldInOperator(navigableExpr);
+          return !hasComprehensionVar(navigableExpr);
         }
 
         // Default case: all call arguments must be constants. If the argument is a container (ex:
@@ -248,32 +263,31 @@ public final class ConstantFoldingOptimizer implements CelAstOptimizer {
         || call.function().equals(DURATION.functionName());
   }
 
-  private static boolean canFoldInOperator(CelNavigableMutableExpr navigableExpr) {
-    ImmutableList<CelNavigableMutableExpr> allIdents =
-        navigableExpr
-            .allNodes()
-            .filter(node -> node.getKind().equals(Kind.IDENT))
-            .collect(toImmutableList());
-    for (CelNavigableMutableExpr identNode : allIdents) {
-      CelNavigableMutableExpr parent = identNode.parent().orElse(null);
-      while (parent != null) {
-        if (parent.getKind().equals(Kind.COMPREHENSION)) {
-          String identName = identNode.expr().ident().name();
-          CelMutableComprehension parentComprehension = parent.expr().comprehension();
-          if (parentComprehension.accuVar().equals(identName)
-              || parentComprehension.iterVar().equals(identName)
-              || parentComprehension.iterVar2().equals(identName)) {
-            // Prevent folding a subexpression if it contains a variable declared by a
-            // comprehension. The subexpression cannot be compiled without the full context of the
-            // surrounding comprehension.
-            return false;
-          }
-        }
-        parent = parent.parent().orElse(null);
-      }
-    }
-
-    return true;
+  private static boolean hasComprehensionVar(CelNavigableMutableExpr expr) {
+    return expr.allNodes()
+        .filter(node -> node.getKind().equals(Kind.IDENT))
+        .anyMatch(
+            identNode -> {
+              String identName = identNode.expr().ident().name();
+              CelNavigableMutableExpr curr = identNode;
+              Optional<CelNavigableMutableExpr> maybeParent = curr.parent();
+              while (maybeParent.isPresent()) {
+                CelNavigableMutableExpr parent = maybeParent.get();
+                if (parent.getKind().equals(Kind.COMPREHENSION)) {
+                  CelMutableComprehension compre = parent.expr().comprehension();
+                  if ((compre.accuVar().equals(identName)
+                          || compre.iterVar().equals(identName)
+                          || compre.iterVar2().equals(identName))
+                      && curr.id() != compre.iterRange().id()
+                      && curr.id() != compre.accuInit().id()) {
+                    return true;
+                  }
+                }
+                curr = parent;
+                maybeParent = parent.parent();
+              }
+              return false;
+            });
   }
 
   private static boolean areChildrenArgConstant(CelNavigableMutableExpr expr) {
@@ -311,6 +325,9 @@ public final class ConstantFoldingOptimizer implements CelAstOptimizer {
       CelMutableAst mutableAst,
       CelNavigableMutableExpr node)
       throws CelOptimizationException, CelEvaluationException {
+    if (!node.getKind().equals(Kind.COMPREHENSION) && hasComprehensionVar(node)) {
+      return Optional.empty();
+    }
     Object result;
     try {
       result = evaluateExpr(cel, node);
@@ -518,8 +535,8 @@ public final class ConstantFoldingOptimizer implements CelAstOptimizer {
         || function.equals(Operator.NOT_EQUALS.getFunction())) {
       CelMutableExpr lhs = call.args().get(0);
       CelMutableExpr rhs = call.args().get(1);
-      boolean lhsIsBoolean = isExprConstantOfKind(lhs, CelConstant.Kind.BOOLEAN_VALUE);
-      boolean rhsIsBoolean = isExprConstantOfKind(rhs, CelConstant.Kind.BOOLEAN_VALUE);
+      boolean lhsIsBooleanConstant = isExprConstantOfKind(lhs, CelConstant.Kind.BOOLEAN_VALUE);
+      boolean rhsIsBooleanConstant = isExprConstantOfKind(rhs, CelConstant.Kind.BOOLEAN_VALUE);
       boolean invertCondition = function.equals(Operator.NOT_EQUALS.getFunction());
       Optional<CelMutableExpr> replacementExpr = Optional.empty();
 
@@ -527,7 +544,7 @@ public final class ConstantFoldingOptimizer implements CelAstOptimizer {
         // If both args are const, don't prune any branches and let maybeFold method evaluate this
         // subExpr
         return Optional.empty();
-      } else if (lhsIsBoolean) {
+      } else if (lhsIsBooleanConstant && evaluatesToBoolean(mutableAst, rhs)) {
         boolean cond = invertCondition != lhs.constant().booleanValue();
         replacementExpr =
             Optional.of(
@@ -535,7 +552,7 @@ public final class ConstantFoldingOptimizer implements CelAstOptimizer {
                     ? rhs
                     : CelMutableExpr.ofCall(
                         CelMutableCall.create(Operator.LOGICAL_NOT.getFunction(), rhs)));
-      } else if (rhsIsBoolean) {
+      } else if (rhsIsBooleanConstant && evaluatesToBoolean(mutableAst, lhs)) {
         boolean cond = invertCondition != rhs.constant().booleanValue();
         replacementExpr =
             Optional.of(
@@ -583,12 +600,32 @@ public final class ConstantFoldingOptimizer implements CelAstOptimizer {
       return Optional.of(astMutator.replaceSubtree(mutableAst, shortCircuitTarget, expr.id()));
     }
     if (newArgs.size() == 1) {
-      return Optional.of(astMutator.replaceSubtree(mutableAst, newArgs.get(0), expr.id()));
+      CelMutableExpr remainingArg = newArgs.get(0);
+      if (evaluatesToBoolean(mutableAst, remainingArg)) {
+        return Optional.of(astMutator.replaceSubtree(mutableAst, remainingArg, expr.id()));
+      }
+      return Optional.empty();
     }
 
     // TODO: Support folding variadic AND/ORs.
     throw new UnsupportedOperationException(
         "Folding variadic logical operator is not supported yet.");
+  }
+
+  private boolean evaluatesToBoolean(CelMutableAst mutableAst, CelMutableExpr expr) {
+    if (isExprConstantOfKind(expr, CelConstant.Kind.BOOLEAN_VALUE)) {
+      return true;
+    }
+    // The AST's type map relies on the type-checker having explicitly populated the type for a
+    // given node. However, during the optimization pipeline, mutated intermediate nodes might
+    // temporarily lack type metadata. Standard CEL operators like &&, ||, and == inherently
+    // always return a boolean, so checking the function name provides a reliable fallback when
+    // the type map is incomplete.
+    if (expr.getKind().equals(Kind.CALL)
+        && BOOLEAN_RETURN_OPERATORS.contains(expr.call().function())) {
+      return true;
+    }
+    return mutableAst.getType(expr.id()).map(SimpleType.BOOL::equals).orElse(false);
   }
 
   private boolean isFoldedAggregateLiteral(CelMutableExpr expr) {
