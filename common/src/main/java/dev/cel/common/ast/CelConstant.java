@@ -19,11 +19,9 @@ import com.google.auto.value.AutoValue;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.primitives.UnsignedLong;
 import com.google.errorprone.annotations.Immutable;
-import com.google.errorprone.annotations.InlineMe;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.Duration;
 import com.google.protobuf.Timestamp;
-import dev.cel.common.annotations.Internal;
 import dev.cel.common.values.CelByteString;
 import dev.cel.common.values.NullValue;
 
@@ -33,7 +31,6 @@ import dev.cel.common.values.NullValue;
  * <p>This is the CEL-Java native type equivalent of Constant message type from syntax.proto.
  */
 @AutoOneOf(CelConstant.Kind.class)
-@Internal
 @Immutable
 public abstract class CelConstant {
   private static final ImmutableSet<Class<?>> CONSTANT_CLASSES =
@@ -138,17 +135,6 @@ public abstract class CelConstant {
 
   public static CelConstant ofValue(CelByteString value) {
     return AutoOneOf_CelConstant.bytesValue(value);
-  }
-
-  /**
-   * @deprecated Use native type equivalent {@link #ofValue(NullValue)} instead.
-   */
-  @InlineMe(
-      replacement = "CelConstant.ofValue(NullValue.NULL_VALUE)",
-      imports = {"dev.cel.common.ast.CelConstant", "dev.cel.common.values.NullValue"})
-  @Deprecated
-  public static CelConstant ofValue(com.google.protobuf.NullValue unused) {
-    return ofValue(NullValue.NULL_VALUE);
   }
 
   /**

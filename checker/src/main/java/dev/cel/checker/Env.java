@@ -919,13 +919,8 @@ public class Env {
 
     /** Construct an empty {@code DeclGroup}. */
     public DeclGroup() {
-      this(new HashMap<>(), new HashMap<>());
-    }
-
-    /** Construct a new {@code DeclGroup} from the input {@code idents} and {@code functions}. */
-    public DeclGroup(Map<String, CelIdentDecl> idents, Map<String, CelFunctionDecl> functions) {
-      this.functions = functions;
-      this.idents = idents;
+      this.functions = new HashMap<>();
+      this.idents = new HashMap<>();
     }
 
     /**
@@ -958,11 +953,6 @@ public class Env {
     /** Put a function declaration into the {@code DeclGroup}. */
     public void putFunction(CelFunctionDecl function) {
       functions.put(function.name(), function);
-    }
-
-    /** Create a copy of the {@code DeclGroup} with immutable identifier and function maps. */
-    public DeclGroup immutableCopy() {
-      return new DeclGroup(getIdents(), getFunctions());
     }
   }
 

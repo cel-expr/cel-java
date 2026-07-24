@@ -277,8 +277,18 @@ public final class ExprChecker {
       // Overwrite the identifier with its fully qualified name.
       expr.setIdent(CelMutableIdent.create(refName));
     }
-    env.setType(expr, decl.type());
-    env.setRef(expr, makeReference(refName, decl));
+
+    if (decl.isInlinable()) {
+      decl.constant()
+          .ifPresent(
+              constant -> {
+                expr.setConstant(constant);
+                visit(expr, expr.constant());
+              });
+    } else {
+      env.setType(expr, decl.type());
+      env.setRef(expr, makeReference(refName, decl));
+    }
   }
 
   private void visit(CelMutableExpr expr, CelMutableSelect select) {

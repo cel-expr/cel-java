@@ -36,6 +36,7 @@ import dev.cel.common.CelSource;
 import dev.cel.common.CelValidationResult;
 import dev.cel.common.CelVarDecl;
 import dev.cel.common.annotations.Internal;
+import dev.cel.common.ast.CelConstant;
 import dev.cel.common.internal.EnvVisitable;
 import dev.cel.common.internal.EnvVisitor;
 import dev.cel.common.types.CelProtoTypes;
@@ -177,6 +178,12 @@ public final class CelCompilerImpl implements CelCompiler, EnvVisitable {
     @Override
     public CelCompilerBuilder addVar(String name, CelType type) {
       return addVarDeclarations(CelVarDecl.newVarDeclaration(name, type));
+    }
+
+    @Override
+    public CelCompilerBuilder addConstant(String name, CelConstant celConstant) {
+      checkerBuilder.addConstant(name, celConstant);
+      return this;
     }
 
     @Override

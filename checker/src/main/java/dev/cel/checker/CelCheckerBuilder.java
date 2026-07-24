@@ -25,6 +25,7 @@ import dev.cel.common.CelContainer;
 import dev.cel.common.CelFunctionDecl;
 import dev.cel.common.CelOptions;
 import dev.cel.common.CelVarDecl;
+import dev.cel.common.ast.CelConstant;
 import dev.cel.common.types.CelType;
 import dev.cel.common.types.CelTypeProvider;
 
@@ -71,6 +72,13 @@ public interface CelCheckerBuilder {
   /** Add variable declaration {@code CelVarDecl} to the CEL environment. */
   @CanIgnoreReturnValue
   CelCheckerBuilder addVarDeclarations(Iterable<CelVarDecl> celVarDecls);
+
+  /**
+   * Adds a named constant declaration to the CEL environment. The declared constant will be inlined
+   * into the expression during type-check.
+   */
+  @CanIgnoreReturnValue
+  CelCheckerBuilder addConstant(String name, CelConstant celConstant);
 
   /**
    * Add one or more {@link ProtoTypeMask} values. The {@code ProtoTypeMask} values will be used to
