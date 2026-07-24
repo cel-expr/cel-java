@@ -89,6 +89,7 @@ _ALL_TESTS = [
     "@cel_spec//tests/simple:testdata/macros2.textproto",
     "@cel_spec//tests/simple:testdata/math_ext.textproto",
     "@cel_spec//tests/simple:testdata/namespace.textproto",
+    "@cel_spec//tests/simple:testdata/network_ext.textproto",
     "@cel_spec//tests/simple:testdata/optionals.textproto",
     "@cel_spec//tests/simple:testdata/parse.textproto",
     "@cel_spec//tests/simple:testdata/plumbing.textproto",
@@ -144,6 +145,13 @@ _TESTS_TO_SKIP_LEGACY = [
     "type_deductions/legacy_nullable_types/null_assignable_to_abstract_parameter_candidate",
     "type_deductions/legacy_nullable_types/null_assignable_to_duration_parameter_candidate",
     "type_deductions/legacy_nullable_types/null_assignable_to_timestamp_parameter_candidate",
+
+    # Network extension conformance skips
+    # isIP(cidr) expects compile error which is not supported by Java runner
+    "network_ext/ip_type/is_ip_cidr_compile_error",
+    # Java implementation rejects IPv4-mapped IPv6 addresses
+    "network_ext/ipv4/ipv4_equals_ipv6",
+    "network_ext/ipv4/ipv4_not_equals_ipv6",
 ]
 
 _TESTS_TO_SKIP_PLANNER = [
@@ -180,6 +188,18 @@ _TESTS_TO_SKIP_PLANNER = [
     # TODO: Strong typing support for enums, specified but not implemented.
     "enums/strong_proto2",
     "enums/strong_proto3",
+
+    # PLANNER runtime does not support type() for custom non-proto types.
+    "network_ext/ip_type/ip_type",
+    "network_ext/cidr/cidr_type",
+    "network_ext/cidr/parse_cidr_ipv4",
+
+    # Network extension conformance skips
+    # isIP(cidr) expects compile error which is not supported by Java runner
+    "network_ext/ip_type/is_ip_cidr_compile_error",
+    # Java implementation rejects IPv4-mapped IPv6 addresses
+    "network_ext/ipv4/ipv4_equals_ipv6",
+    "network_ext/ipv4/ipv4_not_equals_ipv6",
 ]
 
 conformance_test(
