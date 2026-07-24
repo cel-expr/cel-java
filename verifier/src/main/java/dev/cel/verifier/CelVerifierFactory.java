@@ -23,5 +23,10 @@ public final class CelVerifierFactory {
     return CelVerifierZ3Impl.newBuilder();
   }
 
+  /** Create a builder for configuring a Z3-based {@link CelVerifier} with Z3-specific settings. */
+  public static CelVerifierZ3Impl.Builder newZ3Verifier() {
+    return CelVerifierZ3Impl.newBuilder();
+  }
+
   private CelVerifierFactory() {}
 }

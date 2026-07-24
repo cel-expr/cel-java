@@ -42,7 +42,7 @@ import org.jspecify.annotations.Nullable;
 
 /** Z3 implementation of the CelVerifier. */
 @Immutable
-final class CelVerifierZ3Impl implements CelVerifier {
+public final class CelVerifierZ3Impl implements CelVerifier {
 
   @VisibleForTesting
   static final CelTypeProvider EMPTY_TYPE_PROVIDER =
@@ -68,7 +68,7 @@ final class CelVerifierZ3Impl implements CelVerifier {
     return new Builder();
   }
 
-  static final class Builder implements CelVerifierBuilder {
+  public static final class Builder implements CelVerifierBuilder {
     private Duration timeout;
     private int comprehensionUnrollLimit;
     private final ImmutableSet.Builder<String> unknownIdentifiers;
@@ -116,12 +116,12 @@ final class CelVerifierZ3Impl implements CelVerifier {
     }
 
     @CanIgnoreReturnValue
-    Builder addFunctionAxioms(CelZ3FunctionAxiom... axioms) {
+    public Builder addFunctionAxioms(CelZ3FunctionAxiom... axioms) {
       return addFunctionAxioms(Arrays.asList(axioms));
     }
 
     @CanIgnoreReturnValue
-    Builder addFunctionAxioms(Iterable<CelZ3FunctionAxiom> axioms) {
+    public Builder addFunctionAxioms(Iterable<CelZ3FunctionAxiom> axioms) {
       functionAxioms.addAll(axioms);
       return this;
     }
