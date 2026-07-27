@@ -2604,7 +2604,7 @@ public final class CelVerifierZ3ImplTest {
         CelVerifierFactory.newVerifier().setComprehensionUnrollLimit(2).build();
     CelVerificationResult result =
         ((CelVerifierZ3Impl) verifier)
-            .verifyImplication(assumeAst, assertAst, ImmutableMap.of());
+            .verifyImplication(assumeAst, assertAst, ImmutableMap.of(), "Implication");
 
     assertThat(result.status()).isEqualTo(VerificationStatus.INCONCLUSIVE);
     assertThat(result.message())

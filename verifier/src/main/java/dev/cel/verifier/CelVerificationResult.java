@@ -34,25 +34,47 @@ public abstract class CelVerificationResult {
   public abstract VerificationStatus status();
 
   /**
+   * Returns the primary reason for the verification outcome.
+   */
+  public abstract String reason();
+
+  /**
+   * Returns a detailed counterexample or satisfying model assignment, if one was found.
+   */
+  public abstract String counterexample();
+
+  /**
    * Returns a message detailing the outcome of the verification check, such as a counterexample
    * input, satisfying model assignments, or truncation reason. May be empty if status is VERIFIED
    * and no model inputs apply (e.g., when verifying isAlwaysTrue without counterexamples).
    */
-  public abstract String message();
+  public String message() {
+    return reason() + counterexample();
+  }
 
   static CelVerificationResult verified() {
-    return new AutoValue_CelVerificationResult(VerificationStatus.VERIFIED, "");
+    return new AutoValue_CelVerificationResult(VerificationStatus.VERIFIED, "", "");
   }
 
-  static CelVerificationResult verified(String message) {
-    return new AutoValue_CelVerificationResult(VerificationStatus.VERIFIED, message);
+  static CelVerificationResult verified(String reason) {
+    return new AutoValue_CelVerificationResult(VerificationStatus.VERIFIED, reason, "");
   }
 
-  static CelVerificationResult failed(String message) {
-    return new AutoValue_CelVerificationResult(VerificationStatus.VIOLATED, message);
+  static CelVerificationResult failed(String reason) {
+    return new AutoValue_CelVerificationResult(VerificationStatus.VIOLATED, reason, "");
   }
 
-  static CelVerificationResult inconclusive(String message) {
-    return new AutoValue_CelVerificationResult(VerificationStatus.INCONCLUSIVE, message);
+  static CelVerificationResult failed(String reason, String counterexample) {
+    return new AutoValue_CelVerificationResult(
+        VerificationStatus.VIOLATED, reason, counterexample);
+  }
+
+  static CelVerificationResult inconclusive(String reason) {
+    return new AutoValue_CelVerificationResult(VerificationStatus.INCONCLUSIVE, reason, "");
+  }
+
+  static CelVerificationResult inconclusive(String reason, String counterexample) {
+    return new AutoValue_CelVerificationResult(
+        VerificationStatus.INCONCLUSIVE, reason, counterexample);
   }
 }

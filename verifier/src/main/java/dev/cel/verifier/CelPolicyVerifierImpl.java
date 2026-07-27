@@ -145,10 +145,15 @@ final class CelPolicyVerifierImpl implements CelPolicyVerifier {
         throw new UnsupportedOperationException(
             "Invariants verification requires Z3 verifier implementation.");
       }
+      String invariantId = invariant.invariantId().value();
       CelVerificationResult result =
           ((CelVerifierZ3Impl) astVerifier)
-              .verifyImplication(assumeAst, assertAst, boundSymbols);
-      resultsBuilder.put(invariant.invariantId().value(), result);
+              .verifyImplication(
+                  assumeAst,
+                  assertAst,
+                  boundSymbols,
+                  String.format("Invariant '%s'", invariantId));
+      resultsBuilder.put(invariantId, result);
     }
 
     return resultsBuilder.buildOrThrow();

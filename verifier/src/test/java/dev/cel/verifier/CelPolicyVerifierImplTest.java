@@ -526,7 +526,8 @@ public final class CelPolicyVerifierImplTest {
         .isEqualTo(VerificationStatus.VIOLATED);
     assertThat(results.get("universal_no_unapproved_privileged_prod").message())
         .isEqualTo(
-            "Implication violation detected. Counterexample input:\n"
+            "Invariant 'universal_no_unapproved_privileged_prod' violation detected."
+                + " Counterexample input:\n"
                 + "  is_owner = false\n"
                 + "  is_privileged = true\n"
                 + "  is_prod = true\n"

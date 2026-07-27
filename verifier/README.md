@@ -353,7 +353,7 @@ public class InvariantsExample {
         System.out.println("Invariant violated!");
         System.out.println(result.message());
         // Output:
-        // Implication violation detected. Counterexample input:
+        // Invariant 'always_secure' violation detected. Counterexample input:
         //   port = 80
         break;
       case INCONCLUSIVE:
