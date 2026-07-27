@@ -243,7 +243,9 @@ final class CelZ3OperatorTranslator {
         // by our axioms
         return TranslatedValue.propagateStrict(ctx, typeSystem, typeSystem.mkError(), args);
       case INDEX:
-        return translateIndex(args, ast);
+        return translateIndex(args, ast, false);
+      case OPTIONAL_INDEX:
+        return translateIndex(args, ast, true);
       case CONDITIONAL:
         return translateConditional(args, ast);
       case NOT_STRICTLY_FALSE:
@@ -600,7 +602,8 @@ final class CelZ3OperatorTranslator {
         .withApproximation(ctx.mkFalse());
   }
 
-  private Expr<?> buildListIndex(Expr<?> lhsTrans, Expr<?> rhsTrans, BoolExpr typeGuard) {
+  private Expr<?> buildListIndex(
+      Expr<?> lhsTrans, Expr<?> rhsTrans, BoolExpr typeGuard, boolean isOptional) {
     Expr<?> listRef = typeSystem.getListRef(lhsTrans);
     SeqExpr<?> seq = typeSystem.getSeq(listRef);
     Expr<?> index = typeSystem.getInt(rhsTrans);
@@ -615,6 +618,14 @@ final class CelZ3OperatorTranslator {
     if (!allowUnknowns) {
       BoolExpr valNotUnknown = ctx.mkNot(typeSystem.isUnknown(val));
       constraintSink.accept(ctx.mkImplies(ctx.mkAnd(typeGuard, inBounds), valNotUnknown));
+    }
+
+    if (isOptional) {
+      Expr<?> resultOptRef = ctx.mkApp(typeSystem.optionalOfRefFunc(), val);
+      constraintSink.accept(ctx.mkEq(typeSystem.getOptionalValue(resultOptRef), val));
+      constraintSink.accept(typeSystem.optHasValue(resultOptRef));
+      return ctx.mkITE(
+          inBounds, typeSystem.mkOptionalOf(resultOptRef), typeSystem.mkOptionalNone());
     }
 
     return ctx.mkITE(inBounds, val, typeSystem.mkError());
@@ -677,7 +688,8 @@ final class CelZ3OperatorTranslator {
     return new ProbeResult(altInMap, altVal);
   }
 
-  private Expr<?> buildMapIndex(Expr<?> lhsTrans, Expr<?> rhsTrans, BoolExpr typeGuard) {
+  private Expr<?> buildMapIndex(
+      Expr<?> lhsTrans, Expr<?> rhsTrans, BoolExpr typeGuard, boolean isOptional) {
     Expr<?> mapRef = typeSystem.getMapRef(lhsTrans);
     ArrayExpr mapValues = (ArrayExpr) typeSystem.getMapValues(mapRef);
     ArrayExpr mapPresence = (ArrayExpr) typeSystem.getMapPresence(mapRef);
@@ -780,10 +792,19 @@ final class CelZ3OperatorTranslator {
       constraintSink.accept(ctx.mkImplies(ctx.mkAnd(typeGuard, finalInMap), valNotUnknown));
     }
 
+    if (isOptional) {
+      Expr<?> resultOptRef = ctx.mkApp(typeSystem.optionalOfRefFunc(), finalVal);
+      constraintSink.accept(ctx.mkEq(typeSystem.getOptionalValue(resultOptRef), finalVal));
+      constraintSink.accept(typeSystem.optHasValue(resultOptRef));
+      return ctx.mkITE(
+          finalInMap, typeSystem.mkOptionalOf(resultOptRef), typeSystem.mkOptionalNone());
+    }
+
     return ctx.mkITE(finalInMap, finalVal, typeSystem.mkError());
   }
 
-  private TranslatedValue translateIndex(List<TranslatedValue> args, CelAbstractSyntaxTree ast) {
+  private TranslatedValue translateIndex(
+      List<TranslatedValue> args, CelAbstractSyntaxTree ast, boolean isOptional) {
     Expr<?> lhsTrans = args.get(0).z3Expr();
     Expr<?> rhsTrans = args.get(1).z3Expr();
 
@@ -794,13 +815,13 @@ final class CelZ3OperatorTranslator {
 
     Expr<?> actualValue;
     if (lhsType.kind() == CelKind.LIST && rhsType.kind() == CelKind.INT) {
-      actualValue = buildListIndex(lhsTrans, rhsTrans, ctx.mkTrue());
+      actualValue = buildListIndex(lhsTrans, rhsTrans, ctx.mkTrue(), isOptional);
       constraintSink.accept(
           ctx.mkImplies(
               ctx.mkNot(typeSystem.isError(actualValue)),
               typeConstraintGenerator.apply(actualValue, ((ListType) lhsType).elemType())));
     } else if (lhsType.kind() == CelKind.MAP) {
-      actualValue = buildMapIndex(lhsTrans, rhsTrans, ctx.mkTrue());
+      actualValue = buildMapIndex(lhsTrans, rhsTrans, ctx.mkTrue(), isOptional);
       constraintSink.accept(
           ctx.mkImplies(
               ctx.mkNot(typeSystem.isError(actualValue)),
@@ -810,8 +831,8 @@ final class CelZ3OperatorTranslator {
       BoolExpr isMapGuard = typeSystem.isMap(lhsTrans);
       actualValue =
           CelZ3TypeSystem.SwitchBuilder.newBuilder(ctx)
-              .addCase(isListGuard, buildListIndex(lhsTrans, rhsTrans, isListGuard))
-              .addCase(isMapGuard, buildMapIndex(lhsTrans, rhsTrans, isMapGuard))
+              .addCase(isListGuard, buildListIndex(lhsTrans, rhsTrans, isListGuard, isOptional))
+              .addCase(isMapGuard, buildMapIndex(lhsTrans, rhsTrans, isMapGuard, isOptional))
               .build(typeSystem.mkError());
     }
 

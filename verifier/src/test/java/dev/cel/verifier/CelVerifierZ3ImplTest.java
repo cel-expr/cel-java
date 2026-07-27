@@ -1557,7 +1557,41 @@ public final class CelVerifierZ3ImplTest {
     OPTIONAL_PRUNE_LIST_EQUALITY("[?optional.none(), 1] == [1]", "true"),
     OPTIONAL_PRUNE_LIST_COMPREHENSION("[1, ?optional.none()].all(x, x > 0)", "true"),
     MAP_COMPREHENSION(
-        "{'a': 1, 'b': 2}.exists(k, k == 'a')", "{'a': 1, 'b': 2}.exists(k, k == 'a')");
+        "{'a': 1, 'b': 2}.exists(k, k == 'a')", "{'a': 1, 'b': 2}.exists(k, k == 'a')"),
+    OPTIONAL_FIELD_SELECTION_HAS_EQUIVALENCE(
+        "dyn_map.?field.orValue('default')", "has(dyn_map.field) ? dyn_map.field : 'default'"),
+    OPTIONAL_FIELD_SELECTION_MACRO_EQUIVALENCE(
+        "dyn_map.?field.hasValue() ? dyn_map.?field.value() : 'default'",
+        "has(dyn_map.field) ? dyn_map.field : 'default'"),
+    OPTIONAL_FIELD_SELECTION_CHAINED("{\"a\": {\"b\": 42}}.?a.?b", "optional.of(42)"),
+    OPTIONAL_INDEX_LIST_PRESENT("[1, 2, 3][?0]", "optional.of(1)"),
+    OPTIONAL_INDEX_LIST_MISSING("[1, 2, 3][?5]", "optional.none()"),
+    OPTIONAL_INDEX_MAP_MISSING("{'a': 1}[?'missing_key']", "optional.none()"),
+    OPTIONAL_FIELD_SELECTION_PROTO3_PRIMITIVE_ZERO(
+        "TestAllTypes{single_int32: 0}.?single_int32", "optional.none()"),
+    OPTIONAL_FIELD_SELECTION_PROTO3_PRIMITIVE_NONZERO(
+        "TestAllTypes{single_int32: 5}.?single_int32", "optional.of(5)"),
+    OPTIONAL_FIELD_SELECTION_PROTO3_MESSAGE_EMPTY(
+        "TestAllTypes{}.?standalone_message", "optional.none()"),
+    OPTIONAL_FIELD_SELECTION_PROTO3_MESSAGE_PRESENT(
+        "TestAllTypes{standalone_message:"
+            + " TestAllTypes.NestedMessage{}}.?standalone_message.hasValue()",
+        "true"),
+    OPTIONAL_FIELD_SELECTION_PROTO3_WRAPPER_NULL(
+        "TestAllTypes{}.?single_int64_wrapper", "optional.none()"),
+    OPTIONAL_FIELD_SELECTION_PROTO3_WRAPPER_EXPLICIT_NULL(
+        "TestAllTypes{single_int64_wrapper: null}.?single_int64_wrapper", "optional.none()"),
+    OPTIONAL_FIELD_SELECTION_PROTO3_WRAPPER_PRESENT(
+        "TestAllTypes{single_int64_wrapper: 42}.?single_int64_wrapper", "optional.of(42)"),
+    OPTIONAL_FIELD_SELECTION_DYNAMIC_MISS(
+        "dyn_map == {'a': 1} ? dyn_map.?b : optional.none()", "optional.none()"),
+    OPTIONAL_FIELD_SELECTION_TYPE_GUARDING(
+        "type(dyn_var) == map ? dyn_var.?key == optional.none() || dyn_var.?key.hasValue() : true",
+        "true"),
+    OPTIONAL_FIELD_SELECTION_MAP_COMPREHENSION(
+        "{'a': 1, 'b': 2}.transformMap(k, v, v > 1, v).?b", "optional.of(2)"),
+    OPTIONAL_FIELD_SELECTION_BINDER("cel.bind(m, {'a': 1}, m.?a)", "optional.of(1)");
+
     private final String exprA;
     private final String exprB;
 
@@ -1601,7 +1635,16 @@ public final class CelVerifierZ3ImplTest {
     OPTIONAL_OR_VALUE_VIOLATION("optional.of(x).orValue(y)", "y"),
     OPTIONAL_VALUE_VIOLATION("optional.of(x).value()", "y"),
     LIST_OPTIONAL_ELEMENTS_COLLISION("[1, ?opt_var]", "[1, opt_var]"),
-    CROSS_NUMERIC_EQUALITY_INT_DYN_VIOLATION("1 == request", "false");
+    CROSS_NUMERIC_EQUALITY_INT_DYN_VIOLATION("1 == request", "false"),
+    OPTIONAL_SELECTION_VS_DIRECT_ERROR(
+        "{'a': 1}.?missing_key", "optional.of({'a': 1}.missing_key)"),
+    OPTIONAL_NESTED_NONE_VS_FLAT_NONE("{'a': optional.none()}.?a", "optional.none()"),
+    OPTIONAL_NULL_VALUE_VS_MISSING("{'a': null}.?a", "optional.none()"),
+    OPTIONAL_PROTO3_PRIMITIVE_ZERO_VS_OF_ZERO(
+        "TestAllTypes{single_int32: 0}.?single_int32", "optional.of(0)"),
+    OPTIONAL_PROTO3_WRAPPER_ZERO_VS_UNSET(
+        "TestAllTypes{single_int64_wrapper: 0}.?single_int64_wrapper",
+        "TestAllTypes{}.?single_int64_wrapper");
 
     final String exprA;
     final String exprB;
@@ -1961,8 +2004,8 @@ public final class CelVerifierZ3ImplTest {
     CelAbstractSyntaxTree ast =
         customCel
             .compile(
-                "d1 * d2 * d3 * d4 * d1 * d2 * d3 * d4 == 9429185123491285.0 && d1 > 100000.0 &&"
-                    + " d2 > 100000.0 && d3 > 100000.0 && d4 > 100000.0")
+                "d1 * d2 * d3 * d4 * d1 * d2 * d3 * d4 * d1 * d2 * d3 * d4 * d1 * d2 * d3 * d4 =="
+                    + " 9429185123491285.0 && d1 > 1.0 && d2 > 1.0 && d3 > 1.0 && d4 > 1.0")
             .getAst();
 
     CelVerificationException e =

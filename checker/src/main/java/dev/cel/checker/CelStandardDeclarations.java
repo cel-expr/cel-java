@@ -55,7 +55,7 @@ public final class CelStandardDeclarations {
   private final ImmutableSet<CelIdentDecl> celIdentDecls;
 
   /** Enumeration of Standard Functions. */
-  public enum StandardFunction {
+  public enum StandardFunction implements CelFunctionDecl.Declarer {
     // Deprecated - use {@link #IN}
     OLD_IN(
         true,
@@ -1504,6 +1504,7 @@ public final class CelStandardDeclarations {
       return newCelFunctionDecl(functionName, ImmutableSet.copyOf(overloads));
     }
 
+    @Override
     public CelFunctionDecl functionDecl() {
       return celFunctionDecl;
     }
@@ -1579,8 +1580,14 @@ public final class CelStandardDeclarations {
 
   /** General interface for defining a standard function overload. */
   @Immutable
-  public interface StandardOverload {
+  public interface StandardOverload extends CelFunctionDecl.Declarer {
     CelOverloadDecl celOverloadDecl();
+
+    @Override
+    default CelFunctionDecl functionDecl() {
+      // TODO: Remove default keyword by implementing this for all standard overloads
+      throw new UnsupportedOperationException("Unimplemented");
+    }
   }
 
   /** Set of all standard function names. */

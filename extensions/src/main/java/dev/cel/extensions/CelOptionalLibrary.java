@@ -97,95 +97,148 @@ public final class CelOptionalLibrary
     }
   }
 
+  private static final class Types {
+    private static final TypeParamType PARAM_TYPE_K = TypeParamType.create("K");
+    private static final TypeParamType PARAM_TYPE_V = TypeParamType.create("V");
+    private static final OptionalType OPTIONAL_TYPE_V = OptionalType.create(PARAM_TYPE_V);
+    private static final ListType LIST_TYPE_V = ListType.create(PARAM_TYPE_V);
+    private static final MapType MAP_TYPE_KV = MapType.create(PARAM_TYPE_K, PARAM_TYPE_V);
+  }
+
+  /** Declarations for the optional extension library. */
+  public enum OptionalDeclaration implements CelFunctionDecl.Declarer {
+    OPTIONAL_OF(
+        CelFunctionDecl.newFunctionDeclaration(
+            Function.OPTIONAL_OF.getFunction(),
+            CelOverloadDecl.newGlobalOverload(
+                "optional_of", Types.OPTIONAL_TYPE_V, Types.PARAM_TYPE_V))),
+    OPTIONAL_OF_NON_ZERO_VALUE(
+        CelFunctionDecl.newFunctionDeclaration(
+            Function.OPTIONAL_OF_NON_ZERO_VALUE.getFunction(),
+            CelOverloadDecl.newGlobalOverload(
+                "optional_ofNonZeroValue", Types.OPTIONAL_TYPE_V, Types.PARAM_TYPE_V))),
+    OPTIONAL_NONE(
+        CelFunctionDecl.newFunctionDeclaration(
+            Function.OPTIONAL_NONE.getFunction(),
+            CelOverloadDecl.newGlobalOverload("optional_none", Types.OPTIONAL_TYPE_V))),
+    OPTIONAL_VALUE(
+        CelFunctionDecl.newFunctionDeclaration(
+            Function.VALUE.getFunction(),
+            CelOverloadDecl.newMemberOverload(
+                "optional_value", Types.PARAM_TYPE_V, Types.OPTIONAL_TYPE_V))),
+    OPTIONAL_HAS_VALUE(
+        CelFunctionDecl.newFunctionDeclaration(
+            Function.HAS_VALUE.getFunction(),
+            CelOverloadDecl.newMemberOverload(
+                "optional_hasValue", SimpleType.BOOL, Types.OPTIONAL_TYPE_V))),
+    OPTIONAL_UNWRAP(
+        CelFunctionDecl.newFunctionDeclaration(
+            Function.OPTIONAL_UNWRAP.getFunction(),
+            CelOverloadDecl.newGlobalOverload(
+                "optional_unwrap_list",
+                Types.LIST_TYPE_V,
+                ListType.create(Types.OPTIONAL_TYPE_V)))),
+    OPTIONAL_OR(
+        CelFunctionDecl.newFunctionDeclaration(
+            "or",
+            CelOverloadDecl.newMemberOverload(
+                "optional_or_optional",
+                Types.OPTIONAL_TYPE_V,
+                Types.OPTIONAL_TYPE_V,
+                Types.OPTIONAL_TYPE_V))),
+    OPTIONAL_OR_VALUE(
+        CelFunctionDecl.newFunctionDeclaration(
+            "orValue",
+            CelOverloadDecl.newMemberOverload(
+                "optional_orValue_value",
+                Types.PARAM_TYPE_V,
+                Types.OPTIONAL_TYPE_V,
+                Types.PARAM_TYPE_V))),
+    OPTIONAL_SELECT(
+        CelFunctionDecl.newFunctionDeclaration(
+            Operator.OPTIONAL_SELECT.getFunction(),
+            CelOverloadDecl.newGlobalOverload(
+                "select_optional_field",
+                Types.OPTIONAL_TYPE_V,
+                SimpleType.DYN,
+                SimpleType.STRING))),
+    OPTIONAL_INDEX(
+        CelFunctionDecl.newFunctionDeclaration(
+            Operator.OPTIONAL_INDEX.getFunction(),
+            CelOverloadDecl.newGlobalOverload(
+                "list_optindex_optional_int",
+                Types.OPTIONAL_TYPE_V,
+                Types.LIST_TYPE_V,
+                SimpleType.INT),
+            CelOverloadDecl.newGlobalOverload(
+                "optional_list_optindex_optional_int",
+                Types.OPTIONAL_TYPE_V,
+                OptionalType.create(Types.LIST_TYPE_V),
+                SimpleType.INT),
+            CelOverloadDecl.newGlobalOverload(
+                "map_optindex_optional_value",
+                Types.OPTIONAL_TYPE_V,
+                Types.MAP_TYPE_KV,
+                Types.PARAM_TYPE_K),
+            CelOverloadDecl.newGlobalOverload(
+                "optional_map_optindex_optional_value",
+                Types.OPTIONAL_TYPE_V,
+                OptionalType.create(Types.MAP_TYPE_KV),
+                Types.PARAM_TYPE_K))),
+    OPTIONAL_INDEX_OPERAND(
+        CelFunctionDecl.newFunctionDeclaration(
+            Operator.INDEX.getFunction(),
+            CelOverloadDecl.newGlobalOverload(
+                "optional_list_index_int",
+                Types.OPTIONAL_TYPE_V,
+                OptionalType.create(Types.LIST_TYPE_V),
+                SimpleType.INT),
+            CelOverloadDecl.newGlobalOverload(
+                "optional_map_index_value",
+                Types.OPTIONAL_TYPE_V,
+                OptionalType.create(Types.MAP_TYPE_KV),
+                Types.PARAM_TYPE_K)));
+
+    private final CelFunctionDecl celFunctionDecl;
+
+    OptionalDeclaration(CelFunctionDecl celFunctionDecl) {
+      this.celFunctionDecl = celFunctionDecl;
+    }
+
+    @Override
+    public CelFunctionDecl functionDecl() {
+      return celFunctionDecl;
+    }
+  }
+
   private static final CelExtensionLibrary<CelOptionalLibrary> LIBRARY =
       new CelExtensionLibrary<CelOptionalLibrary>() {
-        final TypeParamType paramTypeK = TypeParamType.create("K");
-        final TypeParamType paramTypeV = TypeParamType.create("V");
-        final OptionalType optionalTypeV = OptionalType.create(paramTypeV);
-        final ListType listTypeV = ListType.create(paramTypeV);
-        final MapType mapTypeKv = MapType.create(paramTypeK, paramTypeV);
-
         private final CelOptionalLibrary version0 =
             new CelOptionalLibrary(
                 0,
                 ImmutableSet.of(
-                    CelFunctionDecl.newFunctionDeclaration(
-                        OPTIONAL_OF.getFunction(),
-                        CelOverloadDecl.newGlobalOverload(
-                            "optional_of", optionalTypeV, paramTypeV)),
-                    CelFunctionDecl.newFunctionDeclaration(
-                        OPTIONAL_OF_NON_ZERO_VALUE.getFunction(),
-                        CelOverloadDecl.newGlobalOverload(
-                            "optional_ofNonZeroValue", optionalTypeV, paramTypeV)),
-                    CelFunctionDecl.newFunctionDeclaration(
-                        OPTIONAL_NONE.getFunction(),
-                        CelOverloadDecl.newGlobalOverload("optional_none", optionalTypeV)),
-                    CelFunctionDecl.newFunctionDeclaration(
-                        VALUE.getFunction(),
-                        CelOverloadDecl.newMemberOverload(
-                            "optional_value", paramTypeV, optionalTypeV)),
-                    CelFunctionDecl.newFunctionDeclaration(
-                        HAS_VALUE.getFunction(),
-                        CelOverloadDecl.newMemberOverload(
-                            "optional_hasValue", SimpleType.BOOL, optionalTypeV)),
-                    CelFunctionDecl.newFunctionDeclaration(
-                        OPTIONAL_UNWRAP.getFunction(),
-                        CelOverloadDecl.newGlobalOverload(
-                            "optional_unwrap_list", listTypeV, ListType.create(optionalTypeV))),
+                    OptionalDeclaration.OPTIONAL_OF.functionDecl(),
+                    OptionalDeclaration.OPTIONAL_OF_NON_ZERO_VALUE.functionDecl(),
+                    OptionalDeclaration.OPTIONAL_NONE.functionDecl(),
+                    OptionalDeclaration.OPTIONAL_VALUE.functionDecl(),
+                    OptionalDeclaration.OPTIONAL_HAS_VALUE.functionDecl(),
+                    OptionalDeclaration.OPTIONAL_UNWRAP.functionDecl(),
                     // Note: Implementation of "or" and "orValue" are special-cased inside the
                     // interpreter. Hence, their bindings are not provided here.
-                    CelFunctionDecl.newFunctionDeclaration(
-                        "or",
-                        CelOverloadDecl.newMemberOverload(
-                            "optional_or_optional", optionalTypeV, optionalTypeV, optionalTypeV)),
-                    CelFunctionDecl.newFunctionDeclaration(
-                        "orValue",
-                        CelOverloadDecl.newMemberOverload(
-                            "optional_orValue_value", paramTypeV, optionalTypeV, paramTypeV)),
+                    OptionalDeclaration.OPTIONAL_OR.functionDecl(),
+                    OptionalDeclaration.OPTIONAL_OR_VALUE.functionDecl(),
                     // Note: Function bindings for optional field selection and indexer is defined
                     // in {@code StandardFunctions}.
-                    CelFunctionDecl.newFunctionDeclaration(
-                        Operator.OPTIONAL_SELECT.getFunction(),
-                        CelOverloadDecl.newGlobalOverload(
-                            "select_optional_field",
-                            optionalTypeV,
-                            SimpleType.DYN,
-                            SimpleType.STRING)),
-                    CelFunctionDecl.newFunctionDeclaration(
-                        Operator.OPTIONAL_INDEX.getFunction(),
-                        CelOverloadDecl.newGlobalOverload(
-                            "list_optindex_optional_int", optionalTypeV, listTypeV, SimpleType.INT),
-                        CelOverloadDecl.newGlobalOverload(
-                            "optional_list_optindex_optional_int",
-                            optionalTypeV,
-                            OptionalType.create(listTypeV),
-                            SimpleType.INT),
-                        CelOverloadDecl.newGlobalOverload(
-                            "map_optindex_optional_value", optionalTypeV, mapTypeKv, paramTypeK),
-                        CelOverloadDecl.newGlobalOverload(
-                            "optional_map_optindex_optional_value",
-                            optionalTypeV,
-                            OptionalType.create(mapTypeKv),
-                            paramTypeK)),
+                    OptionalDeclaration.OPTIONAL_SELECT.functionDecl(),
+                    OptionalDeclaration.OPTIONAL_INDEX.functionDecl(),
                     // Index overloads to accommodate using an optional value as the operand
-                    CelFunctionDecl.newFunctionDeclaration(
-                        Operator.INDEX.getFunction(),
-                        CelOverloadDecl.newGlobalOverload(
-                            "optional_list_index_int",
-                            optionalTypeV,
-                            OptionalType.create(listTypeV),
-                            SimpleType.INT),
-                        CelOverloadDecl.newGlobalOverload(
-                            "optional_map_index_value",
-                            optionalTypeV,
-                            OptionalType.create(mapTypeKv),
-                            paramTypeK))),
+                    OptionalDeclaration.OPTIONAL_INDEX_OPERAND.functionDecl()),
                 ImmutableSet.of(
                     CelMacro.newReceiverMacro("optMap", 2, CelOptionalLibrary::expandOptMap)),
                 ImmutableSet.of(
                     // Type declaration for optional_type -> type(optional_type(V))
                     CelVarDecl.newVarDeclaration(
-                        OptionalType.NAME, TypeType.create(optionalTypeV))));
+                        OptionalType.NAME, TypeType.create(Types.OPTIONAL_TYPE_V))));
 
         private final CelOptionalLibrary version1 =
             new CelOptionalLibrary(
@@ -211,16 +264,16 @@ public final class CelOptionalLibrary
                                 "optional_list_first",
                                 "Return the first value in a list if present, otherwise"
                                     + " optional.none()",
-                                optionalTypeV,
-                                listTypeV)),
+                                Types.OPTIONAL_TYPE_V,
+                                Types.LIST_TYPE_V)),
                         CelFunctionDecl.newFunctionDeclaration(
                             LAST.functionName,
                             CelOverloadDecl.newMemberOverload(
                                 "optional_list_last",
                                 "Return the last value in a list if present, otherwise"
                                     + " optional.none()",
-                                optionalTypeV,
-                                listTypeV)))
+                                Types.OPTIONAL_TYPE_V,
+                                Types.LIST_TYPE_V)))
                     .build(),
                 version1.macros,
                 version1.variables);

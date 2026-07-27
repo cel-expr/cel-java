@@ -38,6 +38,12 @@ public abstract class CelFunctionDecl {
   /** Required. List of function overloads. Must contain at least one overload. */
   public abstract ImmutableSet<CelOverloadDecl> overloads();
 
+  /** General interface for defining an extension function overload or standard declaration. */
+  @Immutable
+  public interface Declarer {
+    CelFunctionDecl functionDecl();
+  }
+
   /** Builder for configuring the {@link CelFunctionDecl}. */
   @AutoValue.Builder
   public abstract static class Builder {

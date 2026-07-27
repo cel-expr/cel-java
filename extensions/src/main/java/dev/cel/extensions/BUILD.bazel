@@ -13,7 +13,9 @@ package(
 
 java_library(
     name = "extension_library",
-    srcs = ["CelExtensionLibrary.java"],
+    srcs = [
+        "CelExtensionLibrary.java",
+    ],
     tags = [
     ],
     deps = [

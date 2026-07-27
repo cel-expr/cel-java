@@ -14,15 +14,25 @@
 
 package dev.cel.verifier.axioms;
 
+import static dev.cel.extensions.CelOptionalLibrary.OptionalDeclaration.OPTIONAL_HAS_VALUE;
+import static dev.cel.extensions.CelOptionalLibrary.OptionalDeclaration.OPTIONAL_NONE;
+import static dev.cel.extensions.CelOptionalLibrary.OptionalDeclaration.OPTIONAL_OF;
+import static dev.cel.extensions.CelOptionalLibrary.OptionalDeclaration.OPTIONAL_OF_NON_ZERO_VALUE;
+import static dev.cel.extensions.CelOptionalLibrary.OptionalDeclaration.OPTIONAL_OR;
+import static dev.cel.extensions.CelOptionalLibrary.OptionalDeclaration.OPTIONAL_OR_VALUE;
+import static dev.cel.extensions.CelOptionalLibrary.OptionalDeclaration.OPTIONAL_SELECT;
+import static dev.cel.extensions.CelOptionalLibrary.OptionalDeclaration.OPTIONAL_VALUE;
+
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.microsoft.z3.ArrayExpr;
 import com.microsoft.z3.BoolExpr;
 import com.microsoft.z3.Context;
 import com.microsoft.z3.Expr;
 import com.microsoft.z3.FPExpr;
 import com.microsoft.z3.SeqExpr;
 import dev.cel.common.CelFunctionDecl;
-import dev.cel.extensions.CelOptionalLibrary;
-import dev.cel.extensions.CelOptionalLibrary.Function;
+import dev.cel.common.CelOverloadDecl;
 import dev.cel.verifier.CelZ3TypeSystem;
 import java.util.Optional;
 
@@ -33,13 +43,11 @@ final class OptionalAxioms {
   static final ImmutableList<CelZ3FunctionAxiom> ALL_AXIOMS =
       ImmutableList.of(
           createAxiom(
-              Function.OPTIONAL_NONE,
-              "optional_none",
+              OPTIONAL_NONE,
               (ctx, ts, sink, args, argApproximations) ->
                   Optional.of(CelZ3OverloadResult.create(ts.mkOptionalNone(), ctx.mkFalse()))),
           createUnaryAxiom(
-              Function.OPTIONAL_OF,
-              "optional_of",
+              OPTIONAL_OF,
               (ctx, ts, sink, value) -> {
                 Expr<?> optRef = ctx.mkApp(ts.optionalOfRefFunc(), value);
                 sink.accept(ctx.mkEq(ts.getOptionalValue(optRef), value));
@@ -47,8 +55,7 @@ final class OptionalAxioms {
                 return Optional.of(ts.mkOptionalOf(optRef));
               }),
           createUnaryAxiom(
-              Function.OPTIONAL_OF_NON_ZERO_VALUE,
-              "optional_ofNonZeroValue",
+              OPTIONAL_OF_NON_ZERO_VALUE,
               (ctx, ts, sink, value) -> {
                 Expr<?> optRef = ctx.mkApp(ts.optionalOfRefFunc(), value);
                 BoolExpr isZero = isZeroValue(ctx, ts, value);
@@ -58,32 +65,85 @@ final class OptionalAxioms {
                 return Optional.of(ctx.mkITE(isZero, ts.mkOptionalNone(), ts.mkOptionalOf(optRef)));
               }),
           createUnaryAxiom(
-              Function.HAS_VALUE,
-              "optional_hasValue",
+              OPTIONAL_HAS_VALUE,
               (ctx, ts, sink, val) ->
                   Optional.of(ts.wrapBool(ts.optHasValue(ts.getOptionalRef(val))))),
           createUnaryAxiom(
-              Function.VALUE,
-              "optional_value",
+              OPTIONAL_VALUE,
               (ctx, ts, sink, val) -> {
                 Expr<?> optRef = ts.getOptionalRef(val);
                 return Optional.of(
                     ctx.mkITE(ts.optHasValue(optRef), ts.getOptionalValue(optRef), ts.mkError()));
               }),
           createBinaryAxiom(
-              Function.OR_VALUE,
-              "optional_orValue_value",
+              OPTIONAL_OR_VALUE,
               (ctx, ts, sink, val, other) -> {
                 Expr<?> optRef = ts.getOptionalRef(val);
                 return Optional.of(
                     ctx.mkITE(ts.optHasValue(optRef), ts.getOptionalValue(optRef), other));
               }),
           createBinaryAxiom(
-              Function.OR,
-              "optional_or_optional",
+              OPTIONAL_OR,
               (ctx, ts, sink, val, other) -> {
                 Expr<?> optRef = ts.getOptionalRef(val);
                 return Optional.of(ctx.mkITE(ts.optHasValue(optRef), val, other));
+              }),
+          createBinaryAxiom(
+              OPTIONAL_SELECT,
+              (ctx, ts, sink, operand, field) -> {
+                Expr<?> optRef = ts.getOptionalRef(operand);
+                BoolExpr isOpt = ts.isOptional(operand);
+                BoolExpr hasValue = ts.optHasValue(optRef);
+                Expr<?> actualOperand = ctx.mkITE(isOpt, ts.getOptionalValue(optRef), operand);
+
+                BoolExpr isMap = ts.isMap(actualOperand);
+                BoolExpr isMsg = ts.isMessage(actualOperand);
+                BoolExpr isValidTarget = ctx.mkOr(isMap, isMsg);
+
+                Expr<?> msgFieldZ3Str = ts.getString(field);
+                Expr<?> mapFieldCelVal = field;
+
+                Expr<?> msgRef = ts.getMessageRef(actualOperand);
+                Expr<?> mapRef = ts.getMapRef(actualOperand);
+
+                Expr<?> presence =
+                    CelZ3TypeSystem.SwitchBuilder.newBuilder(ctx)
+                        .addCase(
+                            isMsg,
+                            ctx.mkSelect((ArrayExpr) ts.getMsgPresence(msgRef), msgFieldZ3Str))
+                        .addCase(
+                            isMap,
+                            ctx.mkSelect((ArrayExpr) ts.getMapPresence(mapRef), mapFieldCelVal))
+                        .build(ctx.mkFalse());
+
+                Expr<?> value =
+                    CelZ3TypeSystem.SwitchBuilder.newBuilder(ctx)
+                        .addCase(
+                            isMsg, ctx.mkSelect((ArrayExpr) ts.getMsgValues(msgRef), msgFieldZ3Str))
+                        .addCase(
+                            isMap,
+                            ctx.mkSelect((ArrayExpr) ts.getMapValues(mapRef), mapFieldCelVal))
+                        .build(ts.mkError());
+
+                BoolExpr valNotError = ctx.mkNot(ctx.mkEq(value, ts.mkError()));
+                BoolExpr shouldEvaluate = (BoolExpr) ctx.mkITE(isOpt, hasValue, ctx.mkTrue());
+                sink.accept(
+                    ctx.mkImplies(
+                        CelZ3TypeSystem.mkAndFlattened(
+                            ctx, shouldEvaluate, isValidTarget, (BoolExpr) presence),
+                        valNotError));
+
+                Expr<?> resultOptRef = ctx.mkApp(ts.optionalOfRefFunc(), value);
+                sink.accept(ctx.mkEq(ts.getOptionalValue(resultOptRef), value));
+                sink.accept(ts.optHasValue(resultOptRef));
+
+                Expr<?> optionalResult =
+                    ctx.mkITE(
+                        (BoolExpr) presence, ts.mkOptionalOf(resultOptRef), ts.mkOptionalNone());
+
+                Expr<?> result = ctx.mkITE(isValidTarget, optionalResult, ts.mkError());
+                return Optional.of(
+                    ctx.mkITE(ctx.mkAnd(isOpt, ctx.mkNot(hasValue)), ts.mkOptionalNone(), result));
               }));
 
   private static BoolExpr isZeroValue(Context ctx, CelZ3TypeSystem ts, Expr<?> val) {
@@ -107,32 +167,37 @@ final class OptionalAxioms {
                 ctx.mkConstArray(ctx.getStringSort(), ctx.mkFalse()))));
   }
 
-  private static CelFunctionDecl getDecl(Function funcEnum) {
-    return CelOptionalLibrary.INSTANCE.functions().stream()
-        .filter(d -> d.name().equals(funcEnum.getFunction()))
-        .findFirst()
-        .orElseThrow(() -> new IllegalArgumentException("Unknown function: " + funcEnum));
-  }
-
   private static CelZ3FunctionAxiom createAxiom(
-      Function funcEnum, String overloadId, CelZ3OverloadTranslator translator) {
-    return CelZ3FunctionAxiom.newBuilder(getDecl(funcEnum))
-        .addOverloadTranslator(overloadId, translator)
-        .build();
+      CelFunctionDecl.Declarer declarer, CelZ3OverloadTranslator translator) {
+    CelFunctionDecl functionDecl = declarer.functionDecl();
+    CelZ3FunctionAxiom.Builder builder = CelZ3FunctionAxiom.newBuilder(functionDecl);
+    builder.addOverloadTranslator(getSingleOverloadOrThrow(functionDecl), translator);
+    return builder.build();
   }
 
   private static CelZ3FunctionAxiom createUnaryAxiom(
-      Function funcEnum, String overloadId, CelZ3FunctionAxiom.UnaryTranslator translator) {
-    return CelZ3FunctionAxiom.newBuilder(getDecl(funcEnum))
-        .addUnaryOverloadTranslator(overloadId, translator)
-        .build();
+      CelFunctionDecl.Declarer declarer, CelZ3FunctionAxiom.UnaryTranslator translator) {
+    CelFunctionDecl functionDecl = declarer.functionDecl();
+    CelZ3FunctionAxiom.Builder builder = CelZ3FunctionAxiom.newBuilder(functionDecl);
+    builder.addUnaryOverloadTranslator(getSingleOverloadOrThrow(functionDecl), translator);
+    return builder.build();
   }
 
   private static CelZ3FunctionAxiom createBinaryAxiom(
-      Function funcEnum, String overloadId, CelZ3FunctionAxiom.BinaryTranslator translator) {
-    return CelZ3FunctionAxiom.newBuilder(getDecl(funcEnum))
-        .addBinaryOverloadTranslator(overloadId, translator)
-        .build();
+      CelFunctionDecl.Declarer declarer, CelZ3FunctionAxiom.BinaryTranslator translator) {
+    CelFunctionDecl functionDecl = declarer.functionDecl();
+    CelZ3FunctionAxiom.Builder builder = CelZ3FunctionAxiom.newBuilder(functionDecl);
+    builder.addBinaryOverloadTranslator(getSingleOverloadOrThrow(functionDecl), translator);
+    return builder.build();
+  }
+
+  private static CelOverloadDecl getSingleOverloadOrThrow(CelFunctionDecl functionDecl) {
+    Preconditions.checkArgument(
+        functionDecl.overloads().size() == 1,
+        "Expected 1 overload for function %s, but found %s.",
+        functionDecl.name(),
+        functionDecl.overloads().size());
+    return functionDecl.overloads().iterator().next();
   }
 
   private OptionalAxioms() {}
