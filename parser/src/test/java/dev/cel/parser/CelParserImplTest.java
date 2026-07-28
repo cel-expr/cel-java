@@ -257,6 +257,54 @@ public final class CelParserImplTest {
   }
 
   @Test
+  public void parse_nodeLimitExceeded_throws() {
+    CelParser parser =
+        CelParserImpl.newBuilder()
+            .setOptions(CelOptions.newBuilder().maxParseExpressionNodeCount(2).build())
+            .build();
+    CelValidationResult parseResult = parser.parse("a + b + c");
+
+    CelValidationException exception =
+        assertThrows(CelValidationException.class, parseResult::getAst);
+    assertThat(exception).hasMessageThat().contains("expression node limit (2) exceeded");
+    assertThat(exception.getErrors()).hasSize(1);
+  }
+
+  @Test
+  public void parse_macroExpansionNodeLimitExceeded_throws() {
+    CelParser parser =
+        CelParserImpl.newBuilder()
+            .setStandardMacros(CelStandardMacro.STANDARD_MACROS)
+            .setOptions(CelOptions.newBuilder().maxParseExpressionNodeCount(5).build())
+            .build();
+    CelValidationResult parseResult = parser.parse("[1, 2, 3, 4, 5].map(x, x * 2)");
+
+    CelValidationException exception =
+        assertThrows(CelValidationException.class, parseResult::getAst);
+    assertThat(exception).hasMessageThat().contains("expression node limit (5) exceeded");
+    assertThat(
+            exception.getErrors().stream()
+                .anyMatch(
+                    issue ->
+                        issue
+                            .getMessage()
+                            .contains("could not expand macro: expression node limit exceeded")))
+        .isTrue();
+  }
+
+  @Test
+  public void parse_macroExpansionNodeLimitNotExceeded_success() throws CelValidationException {
+    CelParser parser =
+        CelParserImpl.newBuilder()
+            .setStandardMacros(CelStandardMacro.STANDARD_MACROS)
+            .setOptions(CelOptions.newBuilder().maxParseExpressionNodeCount(100).build())
+            .build();
+    CelValidationResult parseResult = parser.parse("[1, 2, 3, 4, 5].map(x, x * 2)");
+    assertThat(parseResult.hasError()).isFalse();
+    assertThat(parseResult.getAst()).isNotNull();
+  }
+
+  @Test
   @TestParameters("{expression: 'A.map(a?b, c)'}")
   @TestParameters("{expression: 'A.all(a?b, c)'}")
   @TestParameters("{expression: 'A.exists(a?b, c)'}")

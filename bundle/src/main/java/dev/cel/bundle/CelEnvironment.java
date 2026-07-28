@@ -85,7 +85,9 @@ public abstract class CelEnvironment {
           "cel.limit.parse_error_recovery",
           CelOptions.Builder::maxParseErrorRecoveryLimit,
           "cel.limit.parse_recursion_depth",
-          CelOptions.Builder::maxParseRecursionDepth);
+          CelOptions.Builder::maxParseRecursionDepth,
+          "cel.limit.expression_node_count",
+          CelOptions.Builder::maxParseExpressionNodeCount);
 
   private static final ImmutableMap<String, BooleanOptionConsumer> FEATURE_HANDLERS =
       ImmutableMap.of(

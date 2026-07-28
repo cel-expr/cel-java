@@ -134,7 +134,8 @@ public class CelEnvironmentTest {
             .setLimits(
                 CelEnvironment.Limit.create("cel.limit.expression_code_points", 20),
                 CelEnvironment.Limit.create("cel.limit.parse_error_recovery", 10),
-                CelEnvironment.Limit.create("cel.limit.parse_recursion_depth", 10))
+                CelEnvironment.Limit.create("cel.limit.parse_recursion_depth", 10),
+                CelEnvironment.Limit.create("cel.limit.expression_node_count", 500))
             .build();
 
     Cel cel =
@@ -147,6 +148,7 @@ public class CelEnvironmentTest {
     assertThat(checkerOptions.maxExpressionCodePointSize()).isEqualTo(20);
     assertThat(checkerOptions.maxParseErrorRecoveryLimit()).isEqualTo(10);
     assertThat(checkerOptions.maxParseRecursionDepth()).isEqualTo(10);
+    assertThat(checkerOptions.maxParseExpressionNodeCount()).isEqualTo(500);
 
     CelAbstractSyntaxTree ast = cel.compile("1 + 2 + 3 + 4 + 5").getAst();
     Long result = (Long) cel.createProgram(ast).eval();
@@ -156,6 +158,27 @@ public class CelEnvironmentTest {
     assertThat(validationResult.hasError()).isTrue();
     assertThat(validationResult.getErrorString())
         .contains("expression code point size exceeds limit: size: 21, limit 20");
+  }
+
+  @Test
+  public void extend_expressionNodeCountLimit() throws Exception {
+    CelEnvironment environment =
+        CelEnvironment.newBuilder()
+            .setLimits(CelEnvironment.Limit.create("cel.limit.expression_node_count", 2))
+            .build();
+
+    Cel cel =
+        environment.extend(
+            CelFactory.legacyCelBuilder()
+                .setStandardMacros(CelStandardMacro.STANDARD_MACROS)
+                .build(),
+            CelOptions.DEFAULT);
+    CelOptions checkerOptions = cel.toCheckerBuilder().options();
+    assertThat(checkerOptions.maxParseExpressionNodeCount()).isEqualTo(2);
+
+    CelValidationResult validationResult = cel.compile("1 + 2 + 3");
+    assertThat(validationResult.hasError()).isTrue();
+    assertThat(validationResult.getErrorString()).contains("expression node limit (2) exceeded");
   }
 
   @Test

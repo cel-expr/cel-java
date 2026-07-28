@@ -153,7 +153,8 @@ final class Parser extends CELBaseVisitor<CelExpr> {
         new ExprFactory(
             antlrParser,
             sourceInfo,
-            options.enableHiddenAccumulatorVar() ? HIDDEN_ACCUMULATOR_NAME : ACCUMULATOR_NAME);
+            options.enableHiddenAccumulatorVar() ? HIDDEN_ACCUMULATOR_NAME : ACCUMULATOR_NAME,
+            options.maxParseExpressionNodeCount());
     Parser parserImpl = new Parser(parser, options, sourceInfo, exprFactory);
     ErrorListener errorListener = new ErrorListener(exprFactory);
     antlrLexer.removeErrorListeners();
@@ -655,6 +656,12 @@ final class Parser extends CELBaseVisitor<CelExpr> {
       ImmutableList<CelExpr> args,
       Optional<CelExpr> target,
       CelMacro macro) {
+    if (exprFactory.isNodeLimitExceeded()) {
+      return Optional.of(
+          exprFactory.reportError(
+              exprFactory.getPosition(expr.id()),
+              "could not expand macro: expression node limit exceeded"));
+    }
 
     Optional<CelExpr> expandedMacro =
         expandMacro(
@@ -1077,16 +1084,20 @@ final class Parser extends CELBaseVisitor<CelExpr> {
     private final ArrayList<CelIssue> issues;
     private final ArrayDeque<Integer> positions;
     private final String accumulatorVarName;
+    private final int maxExpressionNodeCount;
+    private boolean nodeLimitExceeded;
 
     private ExprFactory(
         org.antlr.v4.runtime.Parser recognizer,
         CelSource.Builder sourceInfo,
-        String accumulatorVarName) {
+        String accumulatorVarName,
+        int maxExpressionNodeCount) {
       this.recognizer = recognizer;
       this.sourceInfo = sourceInfo;
       this.issues = new ArrayList<>();
       this.positions = new ArrayDeque<>(1); // Currently this usually contains at most 1 position.
       this.accumulatorVarName = accumulatorVarName;
+      this.maxExpressionNodeCount = maxExpressionNodeCount;
     }
 
     // Implementation of CelExprFactory.
@@ -1110,12 +1121,6 @@ final class Parser extends CELBaseVisitor<CelExpr> {
       return ERROR;
     }
 
-    @Override
-    public String getAccumulatorVarName() {
-      return accumulatorVarName;
-    }
-
-    // Internal methods used by the parser but not part of the public API.
     @FormatMethod
     @CanIgnoreReturnValue
     private CelExpr reportError(
@@ -1133,7 +1138,17 @@ final class Parser extends CELBaseVisitor<CelExpr> {
       return reportError(CelIssue.formatError(getLocation(token), message));
     }
 
+    @CanIgnoreReturnValue
+    private CelExpr reportError(int position, String message) {
+      return reportError(CelIssue.formatError(getLocation(position), message));
+    }
+
     // Implementation of CelExprFactory.
+
+    @Override
+    public String getAccumulatorVarName() {
+      return accumulatorVarName;
+    }
 
     @Override
     protected CelSourceLocation currentSourceLocationForMacro() {
@@ -1142,6 +1157,10 @@ final class Parser extends CELBaseVisitor<CelExpr> {
     }
 
     // Internal methods used by the parser but not part of the public API.
+
+    private boolean isNodeLimitExceeded() {
+      return nodeLimitExceeded;
+    }
 
     private void pushPosition(int position) {
       positions.addLast(position);
@@ -1159,6 +1178,11 @@ final class Parser extends CELBaseVisitor<CelExpr> {
 
     private long nextExprId(int position) {
       long exprId = super.nextExprId();
+      if (exprId > maxExpressionNodeCount && !nodeLimitExceeded) {
+        nodeLimitExceeded = true;
+        reportError(
+            position, String.format("expression node limit (%d) exceeded", maxExpressionNodeCount));
+      }
       if (position != -1) {
         sourceInfo.addPositions(exprId, position);
       }
@@ -1166,15 +1190,15 @@ final class Parser extends CELBaseVisitor<CelExpr> {
     }
 
     @Override
-    public long copyExprId(long id) {
-      return nextExprId(getPosition(id));
-    }
-
-    @Override
     public long nextExprId() {
       checkState(!positions.isEmpty()); // Should only be called while expanding macros.
       // Do not call this method directly from within the parser, use nextExprId(int).
       return nextExprId(peekPosition());
+    }
+
+    @Override
+    public long copyExprId(long id) {
+      return nextExprId(getPosition(id));
     }
 
     private List<CelIssue> getIssuesList() {

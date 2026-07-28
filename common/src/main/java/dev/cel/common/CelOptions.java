@@ -60,6 +60,8 @@ public abstract class CelOptions {
 
   public abstract int maxParseRecursionDepth();
 
+  public abstract int maxParseExpressionNodeCount();
+
   public abstract boolean populateMacroCalls();
 
   public abstract boolean retainRepeatedUnaryOperators();
@@ -134,6 +136,7 @@ public abstract class CelOptions {
         .maxExpressionCodePointSize(100_000)
         .maxParseErrorRecoveryLimit(30)
         .maxParseRecursionDepth(250)
+        .maxParseExpressionNodeCount(1_000_000)
         .populateMacroCalls(false)
         .retainRepeatedUnaryOperators(false)
         .retainUnbalancedLogicalExpressions(false)
@@ -222,6 +225,14 @@ public abstract class CelOptions {
 
     /** Limit the amount of recursion within parse expressions. */
     public abstract Builder maxParseRecursionDepth(int value);
+
+    /**
+     * Set a limit on the number of expression nodes in the abstract syntax tree for the expression.
+     * This prevents cases where macro expansion results in an AST that is larger than expected from
+     * the source expression. Once exceeded, the parser will record an error and stop expanding
+     * macros but continue parsing to report other errors.
+     */
+    public abstract Builder maxParseExpressionNodeCount(int value);
 
     /** Populate macro_calls map in source_info with macro calls parsed from the expression. */
     public abstract Builder populateMacroCalls(boolean value);

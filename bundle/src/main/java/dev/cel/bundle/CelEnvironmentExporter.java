@@ -237,6 +237,11 @@ public abstract class CelEnvironmentExporter {
           CelEnvironment.Limit.create(
               "cel.limit.parse_recursion_depth", options.maxParseRecursionDepth()));
     }
+    if (options.maxParseExpressionNodeCount() != CelOptions.DEFAULT.maxParseExpressionNodeCount()) {
+      limits.add(
+          CelEnvironment.Limit.create(
+              "cel.limit.expression_node_count", options.maxParseExpressionNodeCount()));
+    }
     envBuilder.setLimits(limits.build());
   }
 

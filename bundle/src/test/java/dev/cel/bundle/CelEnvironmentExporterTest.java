@@ -348,6 +348,7 @@ public class CelEnvironmentExporterTest {
                     .maxExpressionCodePointSize(100)
                     .maxParseErrorRecoveryLimit(10)
                     .maxParseRecursionDepth(10)
+                    .maxParseExpressionNodeCount(500)
                     .enableQuotedIdentifierSyntax(true)
                     .enableHeterogeneousNumericComparisons(true)
                     .populateMacroCalls(true)
@@ -365,6 +366,7 @@ public class CelEnvironmentExporterTest {
         .containsExactly(
             CelEnvironment.Limit.create("cel.limit.expression_code_points", 100),
             CelEnvironment.Limit.create("cel.limit.parse_error_recovery", 10),
-            CelEnvironment.Limit.create("cel.limit.parse_recursion_depth", 10));
+            CelEnvironment.Limit.create("cel.limit.parse_recursion_depth", 10),
+            CelEnvironment.Limit.create("cel.limit.expression_node_count", 500));
   }
 }
