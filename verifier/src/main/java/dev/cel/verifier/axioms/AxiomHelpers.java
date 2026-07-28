@@ -16,7 +16,9 @@ package dev.cel.verifier.axioms;
 
 import com.microsoft.z3.BoolExpr;
 import com.microsoft.z3.Context;
+import com.microsoft.z3.FPExpr;
 import com.microsoft.z3.IntExpr;
+import com.microsoft.z3.RealExpr;
 
 /** Helper methods for Z3 axioms operations. */
 final class AxiomHelpers {
@@ -45,6 +47,52 @@ final class AxiomHelpers {
    */
   static IntExpr mkTruncatedMod(Context ctx, IntExpr a, IntExpr b) {
     return (IntExpr) ctx.mkSub(a, ctx.mkMul(mkTruncatedDiv(ctx, a, b), b));
+  }
+
+  /**
+   * Safe comparison between a Z3 Real (from int/uint) and a Z3 FloatingPoint (double) for {@code
+   * <}.
+   */
+  static BoolExpr mkRealLtFp(Context ctx, RealExpr real, FPExpr fp) {
+    return mkSafeFpComparison(ctx, fp, isPosInf(ctx, fp), ctx.mkLt(real, ctx.mkFPToReal(fp)));
+  }
+
+  /**
+   * Safe comparison between a Z3 FloatingPoint (double) and a Z3 Real (from int/uint) for {@code
+   * <}.
+   */
+  static BoolExpr mkFpLtReal(Context ctx, FPExpr fp, RealExpr real) {
+    return mkSafeFpComparison(ctx, fp, isNegInf(ctx, fp), ctx.mkLt(ctx.mkFPToReal(fp), real));
+  }
+
+  /**
+   * Safe comparison between a Z3 Real (from int/uint) and a Z3 FloatingPoint (double) for {@code
+   * <=}.
+   */
+  static BoolExpr mkRealLeFp(Context ctx, RealExpr real, FPExpr fp) {
+    return mkSafeFpComparison(ctx, fp, isPosInf(ctx, fp), ctx.mkLe(real, ctx.mkFPToReal(fp)));
+  }
+
+  /**
+   * Safe comparison between a Z3 FloatingPoint (double) and a Z3 Real (from int/uint) for {@code
+   * <=}.
+   */
+  static BoolExpr mkFpLeReal(Context ctx, FPExpr fp, RealExpr real) {
+    return mkSafeFpComparison(ctx, fp, isNegInf(ctx, fp), ctx.mkLe(ctx.mkFPToReal(fp), real));
+  }
+
+  private static BoolExpr isPosInf(Context ctx, FPExpr fp) {
+    return ctx.mkAnd(ctx.mkFPIsInfinite(fp), ctx.mkFPIsPositive(fp));
+  }
+
+  private static BoolExpr isNegInf(Context ctx, FPExpr fp) {
+    return ctx.mkAnd(ctx.mkFPIsInfinite(fp), ctx.mkFPIsNegative(fp));
+  }
+
+  private static BoolExpr mkSafeFpComparison(
+      Context ctx, FPExpr fp, BoolExpr infCondition, BoolExpr finiteComparison) {
+    BoolExpr isFinite = ctx.mkNot(ctx.mkOr(ctx.mkFPIsNaN(fp), ctx.mkFPIsInfinite(fp)));
+    return ctx.mkOr(infCondition, ctx.mkAnd(isFinite, finiteComparison));
   }
 
   private AxiomHelpers() {}

@@ -498,6 +498,34 @@ public final class CelVerifierZ3ImplTest {
     IEEE_754_NEG_ZERO_IN_LIST("-0.0 in [0.0]"),
     IEEE_754_POS_ZERO_IN_LIST("0.0 in [-0.0]"),
     IEEE_754_NAN_IN_LIST_FALSE("!((0.0/0.0) in [1.0, (0.0/0.0)])"),
+    CROSS_TYPE_NUMERIC_LESS_NAN_INT_FALSE("!(x < (0.0 / 0.0))"),
+    CROSS_TYPE_NUMERIC_LESS_INT_NAN_FALSE("!((0.0 / 0.0) < x)"),
+    CROSS_TYPE_NUMERIC_LESS_EQUALS_NAN_INT_FALSE("!(x <= (0.0 / 0.0))"),
+    CROSS_TYPE_NUMERIC_GREATER_NAN_INT_FALSE("!(x > (0.0 / 0.0))"),
+    CROSS_TYPE_NUMERIC_GREATER_EQUALS_NAN_INT_FALSE("!(x >= (0.0 / 0.0))"),
+    CROSS_TYPE_NUMERIC_LESS_NAN_UINT_FALSE("!(u < (0.0 / 0.0))"),
+    CROSS_TYPE_NUMERIC_LESS_UINT_NAN_FALSE("!((0.0 / 0.0) < u)"),
+    CROSS_TYPE_NUMERIC_LESS_EQUALS_NAN_UINT_FALSE("!(u <= (0.0 / 0.0))"),
+    CROSS_TYPE_NUMERIC_GREATER_NAN_UINT_FALSE("!(u > (0.0 / 0.0))"),
+    CROSS_TYPE_NUMERIC_GREATER_EQUALS_NAN_UINT_FALSE("!(u >= (0.0 / 0.0))"),
+    CROSS_TYPE_NUMERIC_LESS_POS_INF_INT("x < (1.0 / 0.0)"),
+    CROSS_TYPE_NUMERIC_LESS_EQUALS_POS_INF_INT("x <= (1.0 / 0.0)"),
+    CROSS_TYPE_NUMERIC_GREATER_POS_INF_INT_FALSE("!(x > (1.0 / 0.0))"),
+    CROSS_TYPE_NUMERIC_GREATER_EQUALS_POS_INF_INT_FALSE("!(x >= (1.0 / 0.0))"),
+    CROSS_TYPE_NUMERIC_GREATER_POS_INF_DOUBLE_INT("(1.0 / 0.0) > x"),
+    CROSS_TYPE_NUMERIC_GREATER_EQUALS_POS_INF_DOUBLE_INT("(1.0 / 0.0) >= x"),
+    CROSS_TYPE_NUMERIC_LESS_POS_INF_DOUBLE_INT_FALSE("!((1.0 / 0.0) < x)"),
+    CROSS_TYPE_NUMERIC_LESS_EQUALS_POS_INF_DOUBLE_INT_FALSE("!((1.0 / 0.0) <= x)"),
+    CROSS_TYPE_NUMERIC_GREATER_NEG_INF_INT("x > (-1.0 / 0.0)"),
+    CROSS_TYPE_NUMERIC_GREATER_EQUALS_NEG_INF_INT("x >= (-1.0 / 0.0)"),
+    CROSS_TYPE_NUMERIC_LESS_NEG_INF_INT_FALSE("!(x < (-1.0 / 0.0))"),
+    CROSS_TYPE_NUMERIC_LESS_EQUALS_NEG_INF_INT_FALSE("!(x <= (-1.0 / 0.0))"),
+    CROSS_TYPE_NUMERIC_LESS_NEG_INF_DOUBLE_INT("(-1.0 / 0.0) < x"),
+    CROSS_TYPE_NUMERIC_LESS_EQUALS_NEG_INF_DOUBLE_INT("(-1.0 / 0.0) <= x"),
+    CROSS_TYPE_NUMERIC_LESS_POS_INF_UINT("u < (1.0 / 0.0)"),
+    CROSS_TYPE_NUMERIC_LESS_EQUALS_POS_INF_UINT("u <= (1.0 / 0.0)"),
+    CROSS_TYPE_NUMERIC_GREATER_NEG_INF_UINT("u > (-1.0 / 0.0)"),
+    CROSS_TYPE_NUMERIC_GREATER_EQUALS_NEG_INF_UINT("u >= (-1.0 / 0.0)"),
     STRING_IN_LIST("'b' in ['a', 'b', 'c']"),
     INT_IN_MAP("1 in {1: 2}"),
     MAP_MISSING_KEY("!(3 in {1: 'a', 2: 'b'})"),
@@ -1426,6 +1454,14 @@ public final class CelVerifierZ3ImplTest {
     CROSS_TYPE_NUMERIC_EQUALITY_INT_DOUBLE("request == 1.0", "request == 1"),
     CROSS_TYPE_NUMERIC_EQUALITY_UINT_DOUBLE("request == 1u", "request == 1.0"),
     CROSS_TYPE_NUMERIC_EQUALITY_INT_UINT("request == 1", "request == 1u"),
+    CROSS_TYPE_NUMERIC_NAN_LESS_INT("x < (0.0 / 0.0)", "false"),
+    CROSS_TYPE_NUMERIC_NAN_LESS_UINT("u < (0.0 / 0.0)", "false"),
+    CROSS_TYPE_NUMERIC_NAN_GREATER_INT("x > (0.0 / 0.0)", "false"),
+    CROSS_TYPE_NUMERIC_NAN_GREATER_UINT("u > (0.0 / 0.0)", "false"),
+    CROSS_TYPE_NUMERIC_POS_INF_GREATER_INT("(1.0 / 0.0) > x", "true"),
+    CROSS_TYPE_NUMERIC_POS_INF_LESS_INT("x < (1.0 / 0.0)", "true"),
+    CROSS_TYPE_NUMERIC_NEG_INF_GREATER_INT("x > (-1.0 / 0.0)", "true"),
+    CROSS_TYPE_NUMERIC_NEG_INF_LESS_INT("(-1.0 / 0.0) < x", "true"),
     STATIC_DOUBLE_EQUALITY("d + 1.0 == d + 1.0", "d == d"),
     MAP_FIELD_SELECT("string_int_map.my_field > 0", "string_int_map['my_field'] > 0"),
     HETEROGENEOUS_LIST_SIZES_SAFE_FALSE("!([1, 2] == [1, 2, 3])", "true"),
@@ -2714,5 +2750,19 @@ public final class CelVerifierZ3ImplTest {
     assertThat(result.status()).isEqualTo(VerificationStatus.INCONCLUSIVE);
     assertThat(result.message())
         .contains("implication holds within the current loop unroll limit");
+  }
+
+  @Test
+  public void verifyImplication_symbolicNan_crossNumericComparisonReturnsFalse() throws Exception {
+    // Assumption: d is NaN (d != d)
+    CelAbstractSyntaxTree assumeAst = CEL.compile("d != d").getAst();
+    // Assertion: x < d is false when d is NaN
+    CelAbstractSyntaxTree assertAst = CEL.compile("!(x < d)").getAst();
+
+    CelVerifier verifier = CelVerifierFactory.newVerifier().build();
+    CelVerificationResult result =
+        ((CelVerifierZ3Impl) verifier)
+            .verifyImplication(assumeAst, assertAst, ImmutableMap.of(), "Implication");
+    assertThat(result.status()).isEqualTo(VerificationStatus.VERIFIED);
   }
 }
