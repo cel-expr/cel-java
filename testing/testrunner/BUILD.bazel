@@ -93,7 +93,7 @@ java_library(
 
 java_library(
     name = "proto_descriptor_utils",
-    visibility = ["//:internal"],
+    visibility = ["//visibility:private"],
     exports = ["//testing/src/main/java/dev/cel/testing/utils:proto_descriptor_utils"],
 )
 
