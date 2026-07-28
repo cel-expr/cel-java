@@ -115,17 +115,20 @@ public final class CelVerifierZ3ImplTest {
           .addVar(
               "test_all_types",
               StructTypeReference.create("cel.expr.conformance.proto3.TestAllTypes"))
+          .addVar("json_val", StructTypeReference.create("google.protobuf.Value"))
+          .addVar("json_list", StructTypeReference.create("google.protobuf.ListValue"))
+          .addVar("json_struct", StructTypeReference.create("google.protobuf.Struct"))
+          .build();
+
+  private static final ProtoMessageTypeProvider TYPE_PROVIDER =
+      ProtoMessageTypeProvider.newBuilder()
+          .addDescriptors(
+              ImmutableList.of(
+                  TestAllTypes.getDescriptor(), TestAllTypes.NestedMessage.getDescriptor()))
           .build();
 
   private static final CelVerifier VERIFIER =
-      CelVerifierFactory.newVerifier()
-          .setTypeProvider(
-              ProtoMessageTypeProvider.newBuilder()
-                  .addDescriptors(
-                      ImmutableList.of(
-                          TestAllTypes.getDescriptor(), TestAllTypes.NestedMessage.getDescriptor()))
-                  .build())
-          .build();
+      CelVerifierFactory.newVerifier().setTypeProvider(TYPE_PROVIDER).build();
 
   @Before
   public void setUp() {
@@ -226,9 +229,6 @@ public final class CelVerifierZ3ImplTest {
     MASKED_BY_BMC_MAP(
         "string_int_map == {'a':1, 'b':2, 'c':3, 'd':4, 'e':5, 'f':6} ? string_int_map.exists(k,"
             + " k == 'g') : false"),
-    MASKED_BY_BMC_NESTED(
-        "nested_list == [[1, 2, 3, 4, 5, 6]] ? nested_list.exists(row, row.exists(x, x == 42)) :"
-            + " false"),
     APPROXIMATED_STRING_TO_INT("int('123') == 123"),
     APPROXIMATED_DOUBLE_TO_INT("int(1.5) == 1"),
     APPROXIMATED_INT_TO_STRING("string(123) == '123'"),
@@ -248,6 +248,24 @@ public final class CelVerifierZ3ImplTest {
     CelAbstractSyntaxTree ast = CEL.compile(testCase.expr).getAst();
 
     CelVerificationResult result = VERIFIER.isSatisfiable(ast);
+
+    assertThat(result.status()).isEqualTo(VerificationStatus.INCONCLUSIVE);
+  }
+
+  @Test
+  public void isSatisfiable_maskedByBmcNested_inconclusive() throws Exception {
+    String expr =
+        "nested_list == [[1, 2, 3, 4, 5, 6]] ? nested_list.exists(row, row.exists(x, x == 42)) :"
+            + " false";
+    CelAbstractSyntaxTree ast = CEL.compile(expr).getAst();
+
+    CelVerifier customVerifier =
+        CelVerifierFactory.newVerifier()
+            .setComprehensionUnrollLimit(3)
+            .setTypeProvider(TYPE_PROVIDER)
+            .build();
+
+    CelVerificationResult result = customVerifier.isSatisfiable(ast);
 
     assertThat(result.status()).isEqualTo(VerificationStatus.INCONCLUSIVE);
   }
@@ -1581,6 +1599,9 @@ public final class CelVerifierZ3ImplTest {
         "TestAllTypes{}.?single_int64_wrapper", "optional.none()"),
     OPTIONAL_FIELD_SELECTION_PROTO3_WRAPPER_EXPLICIT_NULL(
         "TestAllTypes{single_int64_wrapper: null}.?single_int64_wrapper", "optional.none()"),
+    OPTIONAL_FIELD_SELECTION_PROTO3_WRAPPER_OPTIONAL_NONE(
+        "TestAllTypes{?single_int64_wrapper: optional.none()}.?single_int64_wrapper",
+        "optional.none()"),
     OPTIONAL_FIELD_SELECTION_PROTO3_WRAPPER_PRESENT(
         "TestAllTypes{single_int64_wrapper: 42}.?single_int64_wrapper", "optional.of(42)"),
     OPTIONAL_FIELD_SELECTION_DYNAMIC_MISS(
@@ -1590,7 +1611,43 @@ public final class CelVerifierZ3ImplTest {
         "true"),
     OPTIONAL_FIELD_SELECTION_MAP_COMPREHENSION(
         "{'a': 1, 'b': 2}.transformMap(k, v, v > 1, v).?b", "optional.of(2)"),
-    OPTIONAL_FIELD_SELECTION_BINDER("cel.bind(m, {'a': 1}, m.?a)", "optional.of(1)");
+    OPTIONAL_FIELD_SELECTION_BINDER("cel.bind(m, {'a': 1}, m.?a)", "optional.of(1)"),
+    JSON_VALUE_BOOL("google.protobuf.Value{bool_value: true}", "true"),
+    JSON_VALUE_NUMBER("google.protobuf.Value{number_value: 1.0}", "1.0"),
+    JSON_VALUE_NULL("google.protobuf.Value{null_value: 0}", "null"),
+    JSON_VALUE_EMPTY("google.protobuf.Value{}", "null"),
+    JSON_LIST_VALUE_EMPTY("google.protobuf.ListValue{}", "[]"),
+    JSON_STRUCT_EMPTY("google.protobuf.Struct{}", "{}"),
+    JSON_LIST_VALUE("google.protobuf.ListValue{values: [1, 2]}", "[1, 2]"),
+    JSON_STRUCT("google.protobuf.Struct{fields: {'a': 1}}", "{'a': 1}"),
+    JSON_STRUCT_MULTIPLE_FIELDS(
+        "google.protobuf.Struct{fields: {'a': 1, 'b': 'hello'}}", "{'a': 1, 'b': 'hello'}"),
+    JSON_STRUCT_EXPLICIT_VALUES(
+        "google.protobuf.Struct{fields: {'a': google.protobuf.Value{number_value: 1.0}, 'b':"
+            + " google.protobuf.Value{string_value: 'hello'}}}",
+        "{'a': 1.0, 'b': 'hello'}"),
+    JSON_STRUCT_OPTIONAL_ENTRIES(
+        "google.protobuf.Struct{fields: {'a': 1, ?'b': optional.of(2), ?'c': optional.none()}}",
+        "{'a': 1, 'b': 2}"),
+    JSON_DEEP_NESTING(
+        "google.protobuf.ListValue{values: [google.protobuf.Struct{fields: {'a':"
+            + " google.protobuf.Value{number_value: 1.0}}}]}",
+        "[{'a': 1.0}]"),
+    JSON_NUMBER_HETEROGENEOUS_EQUALITY("google.protobuf.Value{number_value: 1.0} == 1", "true"),
+    JSON_VALUE_OPTIONAL_NONE("google.protobuf.Value{?string_value: optional.none()}", "null"),
+    JSON_LIST_VALUE_OPTIONAL_NONE("google.protobuf.ListValue{?values: optional.none()}", "[]"),
+    JSON_STRUCT_OPTIONAL_NONE("google.protobuf.Struct{?fields: optional.none()}", "{}"),
+    JSON_VALUE_TYPE_REFLECTION("type(google.protobuf.Value{string_value: 'hi'}) == string", "true"),
+    JSON_STRUCT_TYPE_REFLECTION("type(google.protobuf.Struct{fields: {'a': 1}}) == map", "true"),
+    JSON_VAR_VALUE_EQUALITY("json_val == 'hi' || json_val != 'hi'", "true"),
+    JSON_VAR_LIST_EQUALITY("json_list == [1, 2] || json_list != [1, 2]", "true"),
+    JSON_VAR_MAP_EQUALITY("json_struct == {'a': 1} || json_struct != {'a': 1}", "true"),
+    JSON_VALUE_OPTIONAL_NULL_VALUE_NONE(
+        "google.protobuf.Value{?null_value: optional.none()}", "null"),
+    JSON_VALUE_OPTIONAL_NULL_VALUE_OF("google.protobuf.Value{?null_value: optional.of(0)}", "null"),
+    OPTIONAL_INDEX_LIST_UNWRAPPING("optional.of([1, 2, 3])[?0]", "optional.of(1)"),
+    OPTIONAL_INDEX_MAP_UNWRAPPING("optional.of({'a': 1})[?'a']", "optional.of(1)"),
+    OPTIONAL_INDEX_UNWRAPPING_NONE("optional.none()[?0]", "optional.none()");
 
     private final String exprA;
     private final String exprB;
@@ -1644,7 +1701,12 @@ public final class CelVerifierZ3ImplTest {
         "TestAllTypes{single_int32: 0}.?single_int32", "optional.of(0)"),
     OPTIONAL_PROTO3_WRAPPER_ZERO_VS_UNSET(
         "TestAllTypes{single_int64_wrapper: 0}.?single_int64_wrapper",
-        "TestAllTypes{}.?single_int64_wrapper");
+        "TestAllTypes{}.?single_int64_wrapper"),
+    OPTIONAL_PROTO3_WRAPPER_ZERO_VS_NONE(
+        "TestAllTypes{single_int64_wrapper: 0}.?single_int64_wrapper", "optional.none()"),
+    OPTIONAL_DYNAMIC_TARGET_TYPE_MISMATCH("dyn_var.?a == optional.none()", "false"),
+    OPTIONAL_NESTED_NONE_VS_MISSING(
+        "{'a': optional.none()}.?a.orValue(optional.of(1))", "optional.of(1)");
 
     final String exprA;
     final String exprB;

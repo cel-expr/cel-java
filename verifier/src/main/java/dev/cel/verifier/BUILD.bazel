@@ -129,6 +129,7 @@ java_library(
         "//common/ast",
         "//common/ast:cel_block",
         "//common/types",
+        "//common/types:cel_types",
         "//common/types:type_providers",
         "//verifier/axioms",
         "@maven//:com_google_errorprone_error_prone_annotations",

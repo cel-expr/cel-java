@@ -16,6 +16,7 @@ package dev.cel.verifier;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Iterables;
 import com.microsoft.z3.ArithExpr;
 import com.microsoft.z3.ArrayExpr;
 import com.microsoft.z3.BoolExpr;
@@ -37,6 +38,7 @@ import dev.cel.common.ast.CelExpr.ExprKind;
 import dev.cel.common.types.CelKind;
 import dev.cel.common.types.CelType;
 import dev.cel.common.types.CelTypeProvider;
+import dev.cel.common.types.CelTypes;
 import dev.cel.common.types.ListType;
 import dev.cel.common.types.MapType;
 import dev.cel.common.types.NullableType;
@@ -79,6 +81,7 @@ final class CelAstToZ3Translator {
   private static final String EMPTY_MSG_REF_PREFIX = "!empty_msg_ref_";
   private static final String EMPTY_LIST_PREFIX = "!empty_list";
   private static final String EMPTY_MAP_PREFIX = "!empty_map";
+  private static final String NULL_VALUE_FIELD = "null_value";
   private final Context ctx;
   private final CelZ3TypeSystem typeSystem;
   private final CelZ3OperatorTranslator operatorTranslator;
@@ -370,6 +373,10 @@ final class CelAstToZ3Translator {
 
   private TranslatedValue translateStruct(CelExpr celExpr, CelAbstractSyntaxTree ast) {
     CelExpr.CelStruct createStruct = celExpr.struct();
+    if (isJsonWkt(createStruct.messageName())) {
+      return translateJsonWktStruct(celExpr, createStruct, ast);
+    }
+
     // Bypass SMT when the struct is empty (return the cached SMT default pointer)
     if (createStruct.entries().isEmpty()) {
       return TranslatedValue.create(
@@ -446,6 +453,59 @@ final class CelAstToZ3Translator {
 
     Expr<?> result = typeSystem.wrapMessage(msgRef);
     return TranslatedValue.propagateStrict(ctx, typeSystem, result, celExpr, elementsTv);
+  }
+
+  private static boolean isJsonWkt(String messageName) {
+    return messageName.equals(CelTypes.VALUE_MESSAGE)
+        || messageName.equals(CelTypes.LIST_VALUE_MESSAGE)
+        || messageName.equals(CelTypes.STRUCT_MESSAGE);
+  }
+
+  // Concretize JSON WKT unwrapping directly into native Z3 primitives to avoid
+  // sort incompatibilities (Message == String) and solver performance penalties (quantifiers).
+  private TranslatedValue translateJsonWktStruct(
+      CelExpr celExpr, CelExpr.CelStruct createStruct, CelAbstractSyntaxTree ast) {
+    Expr<?> fallback;
+    if (createStruct.messageName().equals(CelTypes.VALUE_MESSAGE)) {
+      fallback = typeSystem.mkNull();
+    } else if (createStruct.messageName().equals(CelTypes.LIST_VALUE_MESSAGE)) {
+      fallback = getDefaultValueForType(ListType.create(SimpleType.DYN));
+    } else {
+      fallback = getDefaultValueForType(MapType.create(SimpleType.STRING, SimpleType.DYN));
+    }
+
+    if (createStruct.entries().isEmpty()) {
+      return TranslatedValue.create(fallback, celExpr, typeSystem, ctx.mkFalse());
+    }
+
+    // JSON WKT messages (gp.Struct, gp.Value, gp.ListValue) can only have a single top-level
+    // field entry in non-empty creation literals (e.g., 'fields' for Struct, 'values' for
+    // ListValue, or a single 'oneof' field for Value).
+    CelExpr.CelStruct.Entry entry = Iterables.getOnlyElement(createStruct.entries());
+
+    // Translate the value to properly capture approximations and Optionals
+    TranslatedValue entryTv = translateExpr(entry.value(), ast);
+    Expr<?> finalVal = entryTv.z3Expr();
+
+    boolean isNullValueField =
+        createStruct.messageName().equals(CelTypes.VALUE_MESSAGE)
+            && entry.fieldKey().equals(NULL_VALUE_FIELD);
+
+    if (entry.optionalEntry()) {
+      Expr<?> optRef = typeSystem.getOptionalRef(finalVal);
+      BoolExpr hasValue = typeSystem.optHasValue(optRef);
+
+      Expr<?> unpackedVal = typeSystem.getOptionalValue(optRef);
+      if (isNullValueField) {
+        unpackedVal = typeSystem.mkNull();
+      }
+      finalVal = ctx.mkITE(hasValue, unpackedVal, fallback);
+    } else if (isNullValueField) {
+      finalVal = typeSystem.mkNull();
+    }
+
+    return TranslatedValue.propagateStrict(
+        ctx, typeSystem, finalVal, celExpr, ImmutableList.of(entryTv));
   }
 
   private Expr<?> getDefaultValueForType(CelType type) {
