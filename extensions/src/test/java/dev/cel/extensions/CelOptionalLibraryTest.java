@@ -34,6 +34,7 @@ import dev.cel.common.CelOptions;
 import dev.cel.common.CelOverloadDecl;
 import dev.cel.common.CelValidationException;
 import dev.cel.common.CelVarDecl;
+import dev.cel.common.ast.CelExpr;
 import dev.cel.common.types.CelType;
 import dev.cel.common.types.ListType;
 import dev.cel.common.types.MapType;
@@ -1568,6 +1569,68 @@ public class CelOptionalLibraryTest {
     Optional<?> result =
         (Optional<?>) cel.createProgram(ast).eval(ImmutableMap.of("x", Optional.of(42L)));
 
+    assertThat(result).hasValue(43L);
+  }
+
+  @Test
+  public void optionalMapMacro_simpleTarget_notWrappedInComprehension() throws Exception {
+    Cel cel =
+        newCelBuilder()
+            .addVar("x", OptionalType.create(SimpleType.INT))
+            .setResultType(OptionalType.create(SimpleType.INT))
+            .build();
+    CelAbstractSyntaxTree ast = compile(cel, "x.optMap(y, y + 1)");
+
+    assertThat(ast.getExpr().exprKind().getKind()).isEqualTo(CelExpr.ExprKind.Kind.CALL);
+  }
+
+  @Test
+  public void optionalMapMacro_complexTarget_astWrappedInComprehension() throws Exception {
+    Cel cel =
+        newCelBuilder()
+            .setResultType(OptionalType.create(SimpleType.INT))
+            .addVar("msg", StructTypeReference.create(TestAllTypes.getDescriptor().getFullName()))
+            .build();
+    CelAbstractSyntaxTree ast = compile(cel, "msg.?single_int32.optMap(y, y + 1)");
+
+    assertThat(ast.getExpr().exprKind().getKind()).isEqualTo(CelExpr.ExprKind.Kind.COMPREHENSION);
+    assertThat(ast.getExpr().comprehension().accuVar()).isEqualTo("@target");
+
+    Optional<Long> result =
+        (Optional<Long>)
+            cel.createProgram(ast)
+                .eval(ImmutableMap.of("msg", TestAllTypes.newBuilder().setSingleInt32(42).build()));
+    assertThat(result).hasValue(43L);
+  }
+
+  @Test
+  public void optionalFlatMapMacro_simpleTarget_notWrappedInComprehension() throws Exception {
+    Cel cel =
+        newCelBuilder()
+            .addVar("x", OptionalType.create(SimpleType.INT))
+            .setResultType(OptionalType.create(SimpleType.INT))
+            .build();
+    CelAbstractSyntaxTree ast = compile(cel, "x.optFlatMap(y, optional.of(y + 1))");
+
+    assertThat(ast.getExpr().exprKind().getKind()).isEqualTo(CelExpr.ExprKind.Kind.CALL);
+  }
+
+  @Test
+  public void optionalFlatMapMacro_complexTarget_astWrappedInComprehension() throws Exception {
+    Cel cel =
+        newCelBuilder()
+            .setResultType(OptionalType.create(SimpleType.INT))
+            .addVar("msg", StructTypeReference.create(TestAllTypes.getDescriptor().getFullName()))
+            .build();
+    CelAbstractSyntaxTree ast = compile(cel, "msg.?single_int32.optFlatMap(y, optional.of(y + 1))");
+
+    assertThat(ast.getExpr().exprKind().getKind()).isEqualTo(CelExpr.ExprKind.Kind.COMPREHENSION);
+    assertThat(ast.getExpr().comprehension().accuVar()).isEqualTo("@target");
+
+    Optional<Long> result =
+        (Optional<Long>)
+            cel.createProgram(ast)
+                .eval(ImmutableMap.of("msg", TestAllTypes.newBuilder().setSingleInt32(42).build()));
     assertThat(result).hasValue(43L);
   }
 

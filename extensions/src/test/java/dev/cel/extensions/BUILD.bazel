@@ -17,6 +17,7 @@ java_library(
         "//common:compiler_common",
         "//common:container",
         "//common:options",
+        "//common/ast",
         "//common/exceptions:attribute_not_found",
         "//common/exceptions:divide_by_zero",
         "//common/exceptions:index_out_of_bounds",

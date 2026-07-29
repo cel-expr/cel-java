@@ -297,6 +297,7 @@ public final class CelOptionalLibrary
   public static final CelOptionalLibrary INSTANCE = CelOptionalLibrary.library().latest();
 
   private static final String UNUSED_ITER_VAR = "#unused";
+  private static final String OPTIONAL_MAP_VAR = "@target";
 
   private final int version;
   private final ImmutableSet<CelFunctionDecl> functions;
@@ -524,21 +525,51 @@ public final class CelOptionalLibrary
     CelExpr mapExpr = checkNotNull(arguments.get(1));
     String varName = varIdent.ident().name();
 
-    return Optional.of(
+    if (target.exprKind().getKind() == CelExpr.ExprKind.Kind.IDENT) {
+      return Optional.of(
+          exprFactory.newGlobalCall(
+              Operator.CONDITIONAL.getFunction(),
+              exprFactory.newReceiverCall(HAS_VALUE.getFunction(), target),
+              exprFactory.newGlobalCall(
+                  OPTIONAL_OF.getFunction(),
+                  exprFactory.fold(
+                      UNUSED_ITER_VAR,
+                      exprFactory.newList(),
+                      varName,
+                      exprFactory.newReceiverCall(VALUE.getFunction(), exprFactory.copy(target)),
+                      exprFactory.newBoolLiteral(true),
+                      exprFactory.newIdentifier(varName),
+                      mapExpr)),
+              exprFactory.newGlobalCall(OPTIONAL_NONE.getFunction())));
+    }
+
+    CelExpr localVar = exprFactory.newIdentifier(OPTIONAL_MAP_VAR);
+    CelExpr localVarCopy = exprFactory.copy(localVar);
+    CelExpr conditionalExpr =
         exprFactory.newGlobalCall(
             Operator.CONDITIONAL.getFunction(),
-            exprFactory.newReceiverCall(HAS_VALUE.getFunction(), target),
+            exprFactory.newReceiverCall(HAS_VALUE.getFunction(), localVar),
             exprFactory.newGlobalCall(
                 OPTIONAL_OF.getFunction(),
                 exprFactory.fold(
                     UNUSED_ITER_VAR,
                     exprFactory.newList(),
                     varName,
-                    exprFactory.newReceiverCall(VALUE.getFunction(), exprFactory.copy(target)),
+                    exprFactory.newReceiverCall(VALUE.getFunction(), localVarCopy),
                     exprFactory.newBoolLiteral(true),
                     exprFactory.newIdentifier(varName),
                     mapExpr)),
-            exprFactory.newGlobalCall(OPTIONAL_NONE.getFunction())));
+            exprFactory.newGlobalCall(OPTIONAL_NONE.getFunction()));
+
+    return Optional.of(
+        exprFactory.fold(
+            UNUSED_ITER_VAR,
+            exprFactory.newList(),
+            OPTIONAL_MAP_VAR,
+            target,
+            exprFactory.newBoolLiteral(false),
+            exprFactory.newIdentifier(OPTIONAL_MAP_VAR),
+            conditionalExpr));
   }
 
   private static Optional<CelExpr> expandOptFlatMap(
@@ -558,19 +589,47 @@ public final class CelOptionalLibrary
     CelExpr mapExpr = checkNotNull(arguments.get(1));
     String varName = varIdent.ident().name();
 
-    return Optional.of(
+    if (target.exprKind().getKind() == CelExpr.ExprKind.Kind.IDENT) {
+      return Optional.of(
+          exprFactory.newGlobalCall(
+              Operator.CONDITIONAL.getFunction(),
+              exprFactory.newReceiverCall(HAS_VALUE.getFunction(), target),
+              exprFactory.fold(
+                  UNUSED_ITER_VAR,
+                  exprFactory.newList(),
+                  varName,
+                  exprFactory.newReceiverCall(VALUE.getFunction(), exprFactory.copy(target)),
+                  exprFactory.newBoolLiteral(true),
+                  exprFactory.newIdentifier(varName),
+                  mapExpr),
+              exprFactory.newGlobalCall(OPTIONAL_NONE.getFunction())));
+    }
+
+    CelExpr localVar = exprFactory.newIdentifier(OPTIONAL_MAP_VAR);
+    CelExpr localVarCopy = exprFactory.copy(localVar);
+    CelExpr conditionalExpr =
         exprFactory.newGlobalCall(
             Operator.CONDITIONAL.getFunction(),
-            exprFactory.newReceiverCall(HAS_VALUE.getFunction(), target),
+            exprFactory.newReceiverCall(HAS_VALUE.getFunction(), localVar),
             exprFactory.fold(
                 UNUSED_ITER_VAR,
                 exprFactory.newList(),
                 varName,
-                exprFactory.newReceiverCall(VALUE.getFunction(), exprFactory.copy(target)),
+                exprFactory.newReceiverCall(VALUE.getFunction(), localVarCopy),
                 exprFactory.newBoolLiteral(true),
                 exprFactory.newIdentifier(varName),
                 mapExpr),
-            exprFactory.newGlobalCall(OPTIONAL_NONE.getFunction())));
+            exprFactory.newGlobalCall(OPTIONAL_NONE.getFunction()));
+
+    return Optional.of(
+        exprFactory.fold(
+            UNUSED_ITER_VAR,
+            exprFactory.newList(),
+            OPTIONAL_MAP_VAR,
+            target,
+            exprFactory.newBoolLiteral(false),
+            exprFactory.newIdentifier(OPTIONAL_MAP_VAR),
+            conditionalExpr));
   }
 
   private static Object indexOptionalMap(
