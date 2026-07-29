@@ -147,11 +147,9 @@ _TESTS_TO_SKIP_PLANNER = [
     "string_ext/format",
     "string_ext/format_errors",
 
-    # TODO: Check behavior for go/cpp
+    # TODO: This is actually a user experience degradation.
+    # Not worth fixing until we see a concrete need.
     "basic/functions/unbound_is_runtime_error",
-
-    # Skip until fixed.
-    "parse/receiver_function_names",
 
     # Type inference edgecases around null(able) assignability.
     # These type check, but resolve to a different type.

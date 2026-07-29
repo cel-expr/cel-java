@@ -14,6 +14,8 @@
 
 package dev.cel.runtime.planner;
 
+import static com.google.common.base.Preconditions.checkNotNull;
+
 import com.google.auto.value.AutoValue;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
@@ -293,9 +295,13 @@ public final class ProgramPlanner {
     }
 
     if (resolvedOverload == null) {
-      if (!lateBoundFunctionNames.contains(functionName)) {
+      boolean isLateBound = lateBoundFunctionNames.contains(functionName);
+      // For type-checked ASTs, functions that are not explicitly registered as late-bound
+      // must be resolved at plan time.
+      // For parsed-only ASTs or late-bound functions, defer overload resolution to runtime.
+      if (ctx.isChecked() && !isLateBound) {
         CelReference reference = ctx.referenceMap().get(expr.id());
-        if (reference != null) {
+        if (reference != null && !reference.overloadIds().isEmpty()) {
           throw new CelOverloadNotFoundException(functionName, reference.overloadIds());
         } else {
           throw new CelOverloadNotFoundException(functionName);
@@ -303,7 +309,10 @@ public final class ProgramPlanner {
       }
 
       ImmutableList<String> overloadIds = ImmutableList.of();
-      if (resolvedFunction.overloadId().isPresent()) {
+      CelReference reference = ctx.referenceMap().get(expr.id());
+      if (reference != null && !reference.overloadIds().isEmpty()) {
+        overloadIds = reference.overloadIds();
+      } else if (resolvedFunction.overloadId().isPresent()) {
         overloadIds = ImmutableList.of(resolvedFunction.overloadId().get());
       }
 
@@ -628,16 +637,23 @@ public final class ProgramPlanner {
   }
 
   static final class PlannerContext {
-    private final ImmutableMap<Long, CelReference> referenceMap;
-    private final ImmutableMap<Long, CelType> typeMap;
+    private final CelAbstractSyntaxTree ast;
     private final HashMap<String, Integer> localVars = new HashMap<>();
 
+    CelAbstractSyntaxTree ast() {
+      return ast;
+    }
+
     ImmutableMap<Long, CelReference> referenceMap() {
-      return referenceMap;
+      return ast.getReferenceMap();
     }
 
     ImmutableMap<Long, CelType> typeMap() {
-      return typeMap;
+      return ast.getTypeMap();
+    }
+
+    boolean isChecked() {
+      return ast.isChecked();
     }
 
     private void pushLocalVars(String... names) {
@@ -670,14 +686,12 @@ public final class ProgramPlanner {
       return localVars.containsKey(name);
     }
 
-    private PlannerContext(
-        ImmutableMap<Long, CelReference> referenceMap, ImmutableMap<Long, CelType> typeMap) {
-      this.referenceMap = referenceMap;
-      this.typeMap = typeMap;
+    private PlannerContext(CelAbstractSyntaxTree ast) {
+      this.ast = checkNotNull(ast);
     }
 
     static PlannerContext create(CelAbstractSyntaxTree ast) {
-      return new PlannerContext(ast.getReferenceMap(), ast.getTypeMap());
+      return new PlannerContext(ast);
     }
   }
 
