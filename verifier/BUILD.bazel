@@ -54,3 +54,9 @@ java_library(
     visibility = [":verifier_internal"],
     exports = ["//verifier/src/main/java/dev/cel/verifier:z3_impl"],
 )
+
+java_library(
+    name = "tools",
+    exports = ["//verifier/src/main/java/dev/cel/verifier/tools:cel_verifier_tool"],
+)
+

@@ -95,6 +95,9 @@ maven.install(
         "info.picocli:picocli:4.7.7",
         "org.antlr:antlr4-runtime:4.13.2",
         "org.freemarker:freemarker:2.3.34",
+        # CLI tool only dependencies (must never be referenced in core CEL-Java libraries)
+        "org.jline:jline-reader:3.26.1",
+        "org.jline:jline-terminal:3.26.1",
         "org.jspecify:jspecify:1.0.0",
         "org.threeten:threeten-extra:1.8.0",
         "org.yaml:snakeyaml:2.5",

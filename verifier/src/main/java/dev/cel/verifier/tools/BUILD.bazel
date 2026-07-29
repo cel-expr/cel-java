@@ -1,0 +1,55 @@
+load("@rules_java//java:defs.bzl", "java_binary", "java_library")
+
+package(
+    default_applicable_licenses = [
+        "//:license",
+    ],
+    default_visibility = [
+        "//verifier:__subpackages__",
+    ],
+)
+
+java_library(
+    name = "tools_lib",
+    srcs = [
+        "CelVerifierRepl.java",
+        "CelVerifierTool.java",
+        "CelVerifierToolCore.java",
+        "FormatUtils.java",
+        "VerificationOptions.java",
+    ],
+    deps = [
+        "//bundle:cel",
+        "//common:cel_ast",
+        "//common:compiler_common",
+        "//common/types",
+        "//common/types:cel_types",
+        "//common/types:type_providers",
+        "//compiler",
+        "//compiler:compiler_builder",
+        "//extensions",
+        "//parser:macro",
+        "//policy",
+        "//policy:compiler",
+        "//policy:compiler_factory",
+        "//policy:parser",
+        "//policy:parser_factory",
+        "//policy:validation_exception",
+        "//verifier",
+        "//verifier:policy_verifier",
+        "//verifier:policy_verifier_factory",
+        "//verifier:verifier_factory",
+        "@maven//:com_google_guava_guava",
+        "@maven//:info_picocli_picocli",
+        "@maven//:org_jline_jline_reader",
+        "@maven//:org_jline_jline_terminal",
+    ],
+)
+
+java_binary(
+    name = "cel_verifier_tool",
+    main_class = "dev.cel.verifier.tools.CelVerifierTool",
+    runtime_deps = [
+        ":tools_lib",
+    ],
+)

@@ -77,6 +77,33 @@ The following features are planned for future releases:
 
 ---
 
+## CLI & Interactive REPL Tool
+
+The CEL Java Verifier comes with a command-line tool (`cel-verifier`) and an interactive REPL shell for testing satisfiability, validity, equivalence, and policy invariants without writing Java code.
+
+### Running via Bazel
+
+```bash
+# Run CLI verification commands
+bazel run //verifier/src/main/java/dev/cel/verifier/tools:cel_verifier_tool -- check-sat --expr "role == 'editor' && port > 1024" --var "role:string" --var "port:int"
+
+# Run with JSON output format for CI/CD integrations
+bazel run //verifier/src/main/java/dev/cel/verifier/tools:cel_verifier_tool -- check-sat --expr "role == 'editor'" --var "role:string" --output_format=json
+
+# Launch interactive REPL shell
+bazel run //verifier/src/main/java/dev/cel/verifier/tools:cel_verifier_tool -- repl
+```
+
+### CLI Commands
+
+*   `check-sat --expr "..." --var "name:type"`: Verifies satisfiability of an expression and prints witness inputs.
+*   `check-valid --expr "..." --var "name:type"`: Proves validity (`isAlwaysTrue`) and prints counterexample if invalid.
+*   `verify-equiv --expr1 "..." --expr2 "..." --var "name:type"`: Proves logical equivalence between two CEL expressions.
+*   `verify-policy --file policy.yaml`: Verifies custom policy invariants defined in a policy YAML file.
+*   `repl`: Enters interactive verification shell. In the REPL, use `equiv <expr1> <=> <expr2>` to test expression equivalence.
+
+---
+
 ## Usage
 
 ### 1. AST Equivalence Verification
