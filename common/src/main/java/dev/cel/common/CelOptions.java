@@ -120,6 +120,8 @@ public abstract class CelOptions {
 
   public abstract boolean enableComprehension();
 
+  public abstract boolean enableTimestampOverflowCheck();
+
   public abstract int maxRegexProgramSize();
 
   public abstract Builder toBuilder();
@@ -166,6 +168,7 @@ public abstract class CelOptions {
         .unwrapWellKnownTypesOnFunctionDispatch(true)
         .fromProtoUnsetFieldOption(ProtoUnsetFieldOptions.BIND_DEFAULT)
         .enableComprehension(true)
+        .enableTimestampOverflowCheck(true)
         .maxRegexProgramSize(-1);
   }
 
@@ -528,6 +531,15 @@ public abstract class CelOptions {
      * compatibility.
      */
     public abstract Builder enableJsonFieldNames(boolean value);
+
+    /**
+     * Enable or disable validating that duration values resulting from timestamp arithmetic do not
+     * overflow 64-bit nanoseconds. Defaults to enabled.
+     *
+     * <p>Disabling this option is an out-of-conformance behavior that suppresses nanosecond
+     * overflow validation when subtracting timestamps.
+     */
+    public abstract Builder enableTimestampOverflowCheck(boolean value);
 
     public abstract CelOptions build();
   }

@@ -82,7 +82,7 @@ public final class IntFunction extends CelStandardFunction {
                     return RuntimeHelpers.doubleToLongChecked(arg)
                         .orElseThrow(
                             () ->
-                    new CelNumericOverflowException("double is out of range for int"));
+                                new CelNumericOverflowException("double is out of range for int"));
                   }
                   return arg.longValue();
                 })),

@@ -104,16 +104,12 @@ _ALL_TESTS = [
 ]
 
 _TESTS_TO_SKIP_LEGACY = [
+
     # Broken test cases which should be supported.
     # TODO: Support setting / getting enum values out of the defined enum value range.
     "enums/legacy_proto2/select_big,select_neg",
     "enums/legacy_proto2/assign_standalone_int_big,assign_standalone_int_neg",
-    # TODO: Generate errors on enum value assignment overflows for proto3.
-    "enums/legacy_proto3/assign_standalone_int_too_big,assign_standalone_int_too_neg",
-    # TODO: Ensure overflow occurs on conversions of double values which might not work properly on all platforms.
-    "conversions/int/double_int_min_range",
-    # TODO: Duration and timestamp operations should error on overflow.
-    "timestamps/timestamp_range/sub_time_duration_over,sub_time_duration_under",
+
     # TODO: Ensure adding negative duration values is appropriately supported.
     "timestamps/timestamp_arithmetic/add_time_to_duration_nanos_negative",
 
@@ -153,15 +149,6 @@ _TESTS_TO_SKIP_PLANNER = [
 
     # TODO: Check behavior for go/cpp
     "basic/functions/unbound_is_runtime_error",
-
-    # TODO: Ensure overflow occurs on conversions of double values which might not work properly on all platforms.
-    "conversions/int/double_int_min_range",
-    "enums/legacy_proto3/assign_standalone_int_too_big",
-    "enums/legacy_proto3/assign_standalone_int_too_neg",
-
-    # TODO: Duration and timestamp operations should error on overflow.
-    "timestamps/timestamp_range/sub_time_duration_over",
-    "timestamps/timestamp_range/sub_time_duration_under",
 
     # Skip until fixed.
     "parse/receiver_function_names",

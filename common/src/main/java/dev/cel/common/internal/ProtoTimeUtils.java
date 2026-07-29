@@ -402,10 +402,21 @@ public final class ProtoTimeUtils {
 
   /** Calculate the difference between two timestamps. */
   public static Duration between(Timestamp from, Timestamp to) {
+    return between(from, to, /* validateOverflow= */ true);
+  }
+
+  /** Calculate the difference between two timestamps. */
+  public static Duration between(Timestamp from, Timestamp to, boolean validateOverflow) {
     Instant javaFrom = ProtoTimeUtils.toJavaInstant(checkValid(from));
     Instant javaTo = ProtoTimeUtils.toJavaInstant(checkValid(to));
 
     java.time.Duration between = java.time.Duration.between(javaFrom, javaTo);
+    if (validateOverflow) {
+      // Call toNanos() to validate 64-bit nanosecond overflow (throws ArithmeticException).
+      // Suppress unused variable warning as the duration object itself is returned.
+      @SuppressWarnings("unused")
+      long unused = between.toNanos();
+    }
 
     return ProtoTimeUtils.toProtoDuration(between);
   }

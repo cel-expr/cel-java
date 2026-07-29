@@ -325,13 +325,6 @@ public final class ProtoAdapter {
             value -> BidiConverter.IDENTITY.backwardConverter().convert(maybeUnwrap(value)));
       case FLOAT:
         return unwrapAndConvert(DOUBLE_CONVERTER);
-      case DOUBLE:
-      case SFIXED64:
-      case SINT64:
-      case INT64:
-        return BidiConverter.of(
-            BidiConverter.IDENTITY.forwardConverter(),
-            value -> BidiConverter.IDENTITY.backwardConverter().convert(maybeUnwrap(value)));
       case BYTES:
         if (celOptions.evaluateCanonicalTypesToNativeValues()) {
           return BidiConverter.<Object, Object>of(
@@ -342,10 +335,11 @@ public final class ProtoAdapter {
         return BidiConverter.of(
             BidiConverter.IDENTITY.forwardConverter(),
             value -> BidiConverter.IDENTITY.backwardConverter().convert(maybeUnwrap(value)));
+      case DOUBLE:
+      case SFIXED64:
+      case SINT64:
+      case INT64:
       case STRING:
-        return BidiConverter.of(
-            BidiConverter.IDENTITY.forwardConverter(),
-            value -> BidiConverter.IDENTITY.backwardConverter().convert(maybeUnwrap(value)));
       case BOOL:
         return BidiConverter.of(
             BidiConverter.IDENTITY.forwardConverter(),
@@ -353,10 +347,14 @@ public final class ProtoAdapter {
       case ENUM:
         return BidiConverter.<Object, Long>of(
             value -> (long) ((EnumValueDescriptor) value).getNumber(),
-            number ->
-                fieldDescriptor
-                    .getEnumType()
-                    .findValueByNumberCreatingIfUnknown(number.intValue()));
+            number -> {
+              if (number > Integer.MAX_VALUE || number < Integer.MIN_VALUE) {
+                throw new IllegalArgumentException("Enum value out of int32 range: " + number);
+              }
+              return fieldDescriptor
+                  .getEnumType()
+                  .findValueByNumberCreatingIfUnknown(number.intValue());
+            });
       case MESSAGE:
         return BidiConverter.<MessageOrBuilder, Object>of(
             this::adaptProtoToValue,

@@ -391,7 +391,7 @@ public class RuntimeHelpers {
   public static Optional<Long> doubleToLongChecked(double v) {
     // getExponent of NaN or Infinite values will return a Double.MAX_EXPONENT + 1 (or 128)
     int exp = Math.getExponent(v);
-    if (exp >= 63 && v != Math.scalb(-1.0, 63)) {
+    if (exp >= 63) {
       return Optional.empty();
     }
     return Optional.of((long) v);
