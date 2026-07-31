@@ -30,11 +30,14 @@ import dev.cel.common.Operator;
 import dev.cel.common.ast.CelConstant;
 import dev.cel.common.ast.CelExpr.ExprKind.Kind;
 import dev.cel.common.ast.CelMutableExpr;
+import dev.cel.common.ast.CelMutableExpr.CelMutableList;
 import dev.cel.common.formats.ValueString;
 import dev.cel.common.navigation.CelNavigableMutableAst;
 import dev.cel.common.navigation.CelNavigableMutableExpr;
 import dev.cel.common.types.CelType;
 import dev.cel.common.types.CelTypes;
+import dev.cel.common.types.ListType;
+import dev.cel.common.types.OptionalType;
 import dev.cel.extensions.CelOptionalLibrary.Function;
 import dev.cel.optimizer.AstMutator;
 import dev.cel.optimizer.CelAstOptimizer;
@@ -45,6 +48,7 @@ import dev.cel.policy.CelCompiledRule.CelCompiledVariable;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import org.jspecify.annotations.Nullable;
 
 /** Package-private class for composing various rules into a single expression using optimizer. */
 final class RuleComposer implements CelAstOptimizer {
@@ -54,11 +58,11 @@ final class RuleComposer implements CelAstOptimizer {
 
   @Override
   public OptimizationResult optimize(CelAbstractSyntaxTree ast, Cel cel) {
-    Step result = optimizeRule(cel, compiledRule);
+    Step result = optimizeRule(cel, compiledRule, /* asList= */ false);
     return OptimizationResult.create(result.expr.toParsedAst());
   }
 
-  private Step optimizeRule(Cel cel, CelCompiledRule compiledRule) {
+  private Step optimizeRule(Cel cel, CelCompiledRule compiledRule, boolean asList) {
     cel =
         cel.toCelBuilder()
             .addVarDeclarations(
@@ -67,15 +71,10 @@ final class RuleComposer implements CelAstOptimizer {
                     .collect(toImmutableList()))
             .build();
 
-    Step output = null;
-    // If the rule has an optional output, the last result in the ternary should return
-    // `optional.none`. This output is implicit and created here to reflect the desired
-    // last possible output of this type of rule.
-    if (compiledRule.hasOptionalOutput()) {
-      output =
-          Step.newUnconditionalOptionalStep(
-              newTrueLiteral(), astMutator.newGlobalCall(Function.OPTIONAL_NONE.getFunction()));
-    }
+    boolean isAggregate = compiledRule.semantic() == CelPolicy.EvaluationSemantic.AGGREGATE;
+    boolean returnList = isAggregate || asList;
+
+    Step output = createBaseStep(returnList, compiledRule.hasOptionalOutput());
 
     long lastOutputId = 0;
     // The expected output type of the rule, used to verify that all branches agree on the type.
@@ -85,59 +84,55 @@ final class RuleComposer implements CelAstOptimizer {
       boolean isTriviallyTrue = match.isConditionTriviallyTrue();
       CelMutableAst condAst = CelMutableAst.fromCelAst(conditionAst);
 
-      long currentSourceId = lastOutputId;
+      Step currentStep;
+      long currentSourceId;
+      String validationMessage;
 
       switch (match.result().kind()) {
         case OUTPUT:
+          OutputValue matchOutput = match.result().output();
           // If the match has an output, then it is considered a non-optional output since
           // it is explicitly stated. If the rule itself is optional, then the base case value
           // of output being optional.none() will convert the non-optional value to an optional
           // one.
-          OutputValue matchOutput = match.result().output();
-          Step step =
+          CelMutableAst matchOutputAst = CelMutableAst.fromCelAst(matchOutput.ast());
+          currentStep =
               Step.newNonOptionalStep(
-                  !isTriviallyTrue, condAst, CelMutableAst.fromCelAst(matchOutput.ast()));
+                  !isTriviallyTrue, condAst, returnList ? newList(matchOutputAst) : matchOutputAst);
+
           currentSourceId = matchOutput.sourceId();
-
-          output = combine(astMutator, step, output);
-
-          String outputFailureMessage =
-              String.format(
-                  "incompatible output types: block has output type %s, but previous outputs have"
-                      + " type %s",
-                  lastOutputType == null ? "" : CelTypes.format(lastOutputType),
-                  CelTypes.format(matchOutput.ast().getResultType()));
-          lastOutputType =
-              assertComposedAstIsValid(
-                      cel, output.expr, outputFailureMessage, currentSourceId, lastOutputId)
-                  .getResultType();
+          validationMessage =
+              incompatibleOutputTypesMessage(
+                  lastOutputType,
+                  matchOutput.ast().getResultType(),
+                  returnList,
+                  compiledRule.hasOptionalOutput());
 
           break;
         case RULE:
+          CelCompiledRule matchNestedRule = match.result().rule();
           // If the match has a nested rule, then compute the rule and whether it has
           // an optional return value.
-          CelCompiledRule matchNestedRule = match.result().rule();
-          Step nestedRule = optimizeRule(cel, matchNestedRule);
-          Step ruleStep =
-              new Step(
-                  matchNestedRule.hasOptionalOutput(), !isTriviallyTrue, condAst, nestedRule.expr);
+          Step nestedRule = optimizeRule(cel, matchNestedRule, returnList);
+          currentStep = new Step(nestedRule.isOptional, !isTriviallyTrue, condAst, nestedRule.expr);
           currentSourceId = getFirstOutputSourceId(matchNestedRule);
-
-          output = combine(astMutator, ruleStep, output);
-
-          lastOutputType =
-              assertComposedAstIsValid(
-                      cel,
-                      output.expr,
-                      String.format(
-                          "failed composing the subrule '%s' due to incompatible output types.",
-                          matchNestedRule.ruleId().map(ValueString::value).orElse("")),
-                      currentSourceId,
-                      lastOutputId)
-                  .getResultType();
+          validationMessage =
+              String.format(
+                  "failed composing the subrule '%s' due to incompatible output types.",
+                  matchNestedRule.ruleId().map(ValueString::value).orElse(""));
           break;
+        default:
+          throw new IllegalStateException("Unknown match kind");
       }
 
+      output =
+          isAggregate
+              ? combineAggregate(astMutator, currentStep, output)
+              : combine(astMutator, currentStep, output);
+      lastOutputType =
+          assertComposedAstIsValid(
+                  cel, output.expr, validationMessage, currentSourceId, lastOutputId)
+              .getResultType();
       lastOutputId = currentSourceId;
     }
 
@@ -149,6 +144,24 @@ final class RuleComposer implements CelAstOptimizer {
     return output.isOptional
         ? Step.newUnconditionalOptionalStep(newTrueLiteral(), resultExpr)
         : Step.newUnconditionalNonOptionalStep(newTrueLiteral(), resultExpr);
+  }
+
+  private @Nullable Step createBaseStep(boolean returnList, boolean hasOptionalOutput) {
+    if (returnList) {
+      // If the rule is evaluated as a list (AGGREGATE), the base case is an empty list.
+      return Step.newUnconditionalNonOptionalStep(newTrueLiteral(), newList());
+    }
+
+    if (hasOptionalOutput) {
+      // If the rule has an optional output, the last result in the ternary should return
+      // `optional.none`. This output is implicit and created here to reflect the desired
+      // last possible output of this type of rule.
+      return Step.newUnconditionalOptionalStep(
+          newTrueLiteral(), astMutator.newGlobalCall(Function.OPTIONAL_NONE.getFunction()));
+    }
+
+    // Exhaustive non-optional rules start with no base case.
+    return null;
   }
 
   static RuleComposer newInstance(
@@ -248,6 +261,76 @@ final class RuleComposer implements CelAstOptimizer {
               currentStep.expr,
               accumulatedStep.expr));
     }
+  }
+
+  private Step combineAggregate(AstMutator astMutator, Step currentStep, Step accumulatedStep) {
+    CelMutableAst trueCondition = newTrueLiteral();
+    // We assume currentStep.expr evaluates to a list due to contextual list generation.
+    CelMutableAst currentListPart = currentStep.expr;
+    // Stitch: currentStep.cond ? currentListPart : []
+    // If the condition is false, we contribute an empty list to the accumulation,
+    // effectively dropping the result of this branch if it didn't match.
+    CelMutableAst conditionalListPart;
+    if (currentStep.isConditional) {
+      conditionalListPart =
+          astMutator.newGlobalCall(
+              Operator.CONDITIONAL.getFunction(), currentStep.cond, currentListPart, newList());
+
+    } else {
+      conditionalListPart = currentListPart;
+    }
+
+    CelMutableAst concatenated =
+        astMutator.newGlobalCall(
+            Operator.ADD.getFunction(), conditionalListPart, accumulatedStep.expr);
+
+    return Step.newUnconditionalNonOptionalStep(trueCondition, concatenated);
+  }
+
+  /**
+   * Strips the structural type wrapper injected by the RuleComposer (e.g., optionals for
+   * FIRST_MATCH, lists for AGGREGATE) so that type mismatch errors display the raw underlying types
+   * authored by the user.
+   */
+  private static @Nullable CelType unwrapComposerWrapper(
+      @Nullable CelType type, boolean returnList, boolean hasOptionalOutput) {
+    if (type == null) {
+      return null;
+    }
+
+    if (returnList && type instanceof ListType) {
+      return ((ListType) type).elemType();
+    }
+
+    if (!returnList && hasOptionalOutput && type instanceof OptionalType) {
+      return type.parameters().get(0);
+    }
+
+    return type;
+  }
+
+  private static String incompatibleOutputTypesMessage(
+      @Nullable CelType lastOutputType,
+      CelType matchOutputType,
+      boolean returnList,
+      boolean hasOptionalOutput) {
+    CelType unwrappedLastOutputType =
+        unwrapComposerWrapper(lastOutputType, returnList, hasOptionalOutput);
+    return String.format(
+        "incompatible output types: block has output type %s, but previous outputs have"
+            + " type %s",
+        unwrappedLastOutputType == null ? "unknown type" : CelTypes.format(unwrappedLastOutputType),
+        CelTypes.format(matchOutputType));
+  }
+
+  private static CelMutableAst newList(CelMutableAst... elements) {
+    List<CelMutableExpr> exprs = new ArrayList<>();
+    CelMutableSource combinedSource = CelMutableSource.newInstance();
+    for (CelMutableAst element : elements) {
+      exprs.add(element.expr());
+      combinedSource = AstMutator.combine(combinedSource, element.source());
+    }
+    return CelMutableAst.of(CelMutableExpr.ofList(CelMutableList.create(exprs)), combinedSource);
   }
 
   private static boolean isOptionalNone(CelMutableAst ast) {

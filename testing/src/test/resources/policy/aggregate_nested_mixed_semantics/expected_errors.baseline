@@ -1,0 +1,3 @@
+ERROR: aggregate_nested_mixed_semantics/policy.yaml:23:15: nested aggregate rules are not allowed
+ |               aggregate:
+ | ..............^

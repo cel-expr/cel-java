@@ -179,6 +179,7 @@ java_library(
     name = "compiled_rule",
     srcs = ["CelCompiledRule.java"],
     deps = [
+        ":policy",
         "//:auto_value",
         "//bundle:cel",
         "//common:cel_ast",
@@ -246,6 +247,7 @@ java_library(
     srcs = ["RuleComposer.java"],
     deps = [
         ":compiled_rule",
+        ":policy",
         "//bundle:cel",
         "//common:cel_ast",
         "//common:compiler_common",
@@ -256,11 +258,13 @@ java_library(
         "//common/ast:mutable_expr",
         "//common/formats:value_string",
         "//common/navigation:mutable_navigation",
+        "//common/types",
         "//common/types:cel_types",
         "//common/types:type_providers",
         "//extensions:optional_library",
         "//optimizer:ast_optimizer",
         "//optimizer:mutable_ast",
         "@maven//:com_google_guava_guava",
+        "@maven//:org_jspecify_jspecify",
     ],
 )

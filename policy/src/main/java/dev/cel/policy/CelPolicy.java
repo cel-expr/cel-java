@@ -40,6 +40,12 @@ import java.util.Optional;
 @AutoValue
 public abstract class CelPolicy {
 
+  /** Evaluation semantic for a rule. */
+  public enum EvaluationSemantic {
+    FIRST_MATCH,
+    AGGREGATE
+  }
+
   public abstract ValueString name();
 
   public abstract Optional<ValueString> description();
@@ -176,12 +182,15 @@ public abstract class CelPolicy {
 
     public abstract ImmutableSet<Match> matches();
 
+    public abstract EvaluationSemantic semantic();
+
     /** Builder for {@link Rule}. */
     public static Builder newBuilder(long id) {
       return new AutoValue_CelPolicy_Rule.Builder()
           .setId(id)
           .setVariables(ImmutableSet.of())
-          .setMatches(ImmutableSet.of());
+          .setMatches(ImmutableSet.of())
+          .setSemantic(EvaluationSemantic.FIRST_MATCH);
     }
 
     /** Creates a new builder to construct a {@link Rule} instance. */
@@ -227,6 +236,8 @@ public abstract class CelPolicy {
       abstract Rule.Builder setVariables(ImmutableSet<Variable> variables);
 
       abstract Rule.Builder setMatches(ImmutableSet<Match> matches);
+
+      public abstract Rule.Builder setSemantic(EvaluationSemantic semantic);
 
       public abstract Rule build();
     }

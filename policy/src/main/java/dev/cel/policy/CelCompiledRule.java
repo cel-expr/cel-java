@@ -23,6 +23,7 @@ import dev.cel.common.CelVarDecl;
 import dev.cel.common.ast.CelConstant;
 import dev.cel.common.ast.CelExpr;
 import dev.cel.common.formats.ValueString;
+import dev.cel.policy.CelPolicy.EvaluationSemantic;
 import java.util.Optional;
 
 /**
@@ -43,11 +44,20 @@ public abstract class CelCompiledRule {
 
   public abstract Cel cel();
 
+  public abstract EvaluationSemantic semantic();
+
   /**
    * HasOptionalOutput returns whether the rule returns a concrete or optional value. The rule may
    * return an optional value if all match expressions under the rule are conditional.
    */
   public boolean hasOptionalOutput() {
+    // AGGREGATE rules always return a concrete list (falling back to an empty list rather than
+    // optional.none()), meaning they are never optional structurally. This also prevents dead
+    // code evasion inside parent FIRST_MATCH rules.
+    if (semantic() == EvaluationSemantic.AGGREGATE) {
+      return false;
+    }
+
     boolean isOptionalOutput = false;
     for (CelCompiledMatch match : matches()) {
       if (match.result().kind().equals(CelCompiledMatch.Result.Kind.RULE)
@@ -157,7 +167,8 @@ public abstract class CelCompiledRule {
       Optional<ValueString> ruleId,
       ImmutableList<CelCompiledVariable> variables,
       ImmutableList<CelCompiledMatch> matches,
-      Cel cel) {
-    return new AutoValue_CelCompiledRule(sourceId, ruleId, variables, matches, cel);
+      Cel cel,
+      CelPolicy.EvaluationSemantic semantic) {
+    return new AutoValue_CelCompiledRule(sourceId, ruleId, variables, matches, cel, semantic);
   }
 }

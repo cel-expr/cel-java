@@ -328,6 +328,36 @@ public final class CelPolicyYamlParserTest {
             + " [tag:yaml.org,2002:str !txt]\n"
             + " |   illegal: yaml-type\n"
             + " | ..^"),
+    BOTH_MATCH_AND_AGGREGATE_SET(
+        "name: test\n"
+            + "rule:\n"
+            + "  match:\n"
+            + "    - output: 'true'\n"
+            + "  aggregate:\n"
+            + "    - emit: 'true'\n",
+        "ERROR: <input>:5:3: Only one of 'match' or 'aggregate' may be set in a rule\n"
+            + " |   aggregate:\n"
+            + " | ..^"),
+    BOTH_AGGREGATE_AND_MATCH_SET(
+        "name: test\n"
+            + "rule:\n"
+            + "  aggregate:\n"
+            + "    - emit: 'true'\n"
+            + "  match:\n"
+            + "    - output: 'true'\n",
+        "ERROR: <input>:5:3: Only one of 'match' or 'aggregate' may be set in a rule\n"
+            + " |   match:\n"
+            + " | ..^"),
+    AGGREGATE_RULE_USES_OUTPUT(
+        "name: test\n" + "rule:\n" + "  aggregate:\n" + "    - output: 'true'\n",
+        "ERROR: <input>:4:7: Rule aggregate requires 'emit' tag instead of 'output'\n"
+            + " |     - output: 'true'\n"
+            + " | ......^"),
+    MATCH_RULE_USES_EMIT(
+        "name: test\n" + "rule:\n" + "  match:\n" + "    - emit: 'true'\n",
+        "ERROR: <input>:4:7: Rule match requires 'output' tag instead of 'emit'\n"
+            + " |     - emit: 'true'\n"
+            + " | ......^"),
     ILLEGAL_YAML_TYPE_ON_RULE_VALUE(
         "rule: illegal",
         "ERROR: <input>:1:7: Got yaml node type tag:yaml.org,2002:str, wanted type(s)"

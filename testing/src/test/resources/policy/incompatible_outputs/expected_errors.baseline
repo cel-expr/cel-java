@@ -1,6 +1,7 @@
-ERROR: incompatible_outputs/policy.yaml:19:16: incompatible output types: block has output type optional_type(string), but previous outputs have type bool
+ERROR: incompatible_outputs/policy.yaml:19:16: incompatible output types: block has output type string, but previous outputs have type bool
  |       output: "true"
  | ...............^
-ERROR: incompatible_outputs/policy.yaml:21:16: incompatible output types: block has output type optional_type(string), but previous outputs have type bool
+ERROR: incompatible_outputs/policy.yaml:21:16: incompatible output types: block has output type string, but previous outputs have type bool
  |       output: "'false'"
  | ...............^
+

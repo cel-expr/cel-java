@@ -664,8 +664,8 @@ public final class AstMutator {
     return newSource;
   }
 
-  private static CelMutableSource combine(
-      CelMutableSource celSource1, CelMutableSource celSource2) {
+  /** Combines two {@link CelMutableSource} instances into a single new instance. */
+  public static CelMutableSource combine(CelMutableSource celSource1, CelMutableSource celSource2) {
     return CelMutableSource.newInstance()
         .setDescription(
             Strings.isNullOrEmpty(celSource1.getDescription())
@@ -676,6 +676,7 @@ public final class AstMutator {
         .addAllMacroCalls(celSource1.getMacroCalls())
         .addAllMacroCalls(celSource2.getMacroCalls());
   }
+
 
   /**
    * Stabilizes the incoming AST by ensuring that all of expr IDs are consistently renumbered

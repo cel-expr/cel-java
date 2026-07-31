@@ -1,3 +1,6 @@
+ERROR: unreachable/policy.yaml:38:9: Condition is always false
+ |       - condition: "false"
+ | ........^
 ERROR: unreachable/policy.yaml:36:9: Match creates unreachable outputs
  |       - output: |
  | ........^

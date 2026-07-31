@@ -1,0 +1,6 @@
+ERROR: aggregate_errors/policy.yaml:22:22: incompatible output types: block has output type int, but previous outputs have type optional_type(string)
+ |             output: "optional.of('USER_PII')"
+ | .....................^
+ERROR: aggregate_errors/policy.yaml:24:22: incompatible output types: block has output type int, but previous outputs have type optional_type(string)
+ |             output: "403"
+ | .....................^
