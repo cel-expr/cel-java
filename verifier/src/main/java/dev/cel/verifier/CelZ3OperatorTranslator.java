@@ -594,7 +594,8 @@ final class CelZ3OperatorTranslator {
     // because X == X is a tautology (or propagates errors/unknowns exactly).
     if (z3Arg0.equals(z3Arg1)) {
       Expr<?> finalResult = typeSystem.propagateErrorAndUnknown(equalityExpr, z3Arg0);
-      return TranslatedValue.create(finalResult, typeSystem, ctx.mkFalse());
+      return TranslatedValue.create(
+          finalResult, typeSystem, ctx.mkOr(arg0.isApproximate(), arg1.isApproximate()));
     }
 
     return TranslatedValue.propagateStrict(ctx, typeSystem, equalityExpr, arg0, arg1)

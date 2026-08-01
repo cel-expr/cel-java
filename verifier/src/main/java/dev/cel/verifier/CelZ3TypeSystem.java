@@ -26,6 +26,7 @@ import com.microsoft.z3.Context;
 import com.microsoft.z3.DatatypeSort;
 import com.microsoft.z3.Expr;
 import com.microsoft.z3.FPExpr;
+import com.microsoft.z3.FPNum;
 import com.microsoft.z3.FuncDecl;
 import com.microsoft.z3.IntExpr;
 import com.microsoft.z3.SeqExpr;
@@ -278,6 +279,35 @@ public final class CelZ3TypeSystem {
 
   Constructor optionalCons() {
     return optionalCons;
+  }
+
+  /**
+   * Checks if the given CelValue expression represents a statically known primitive constant.
+   *
+   * <p>This is useful for determining whether an uninterpreted function's result should be treated
+   * as an approximation. If the argument is a known constant, any resulting error is an
+   * approximation (e.g., parsing a literal string). If it's a variable, the error is an exact
+   * runtime failure.
+   */
+  public boolean isPrimitiveConstant(Expr<?> expr) {
+    if (!expr.isApp()) {
+      return false;
+    }
+    FuncDecl<?> decl = expr.getFuncDecl();
+    if (decl.equals(stringCons.ConstructorDecl()) || decl.equals(bytesCons.ConstructorDecl())) {
+      return expr.getArgs()[0].isString();
+    } else if (decl.equals(intCons.ConstructorDecl())
+        || decl.equals(uintCons.ConstructorDecl())
+        || decl.equals(timestampCons.ConstructorDecl())
+        || decl.equals(durationCons.ConstructorDecl())) {
+      return expr.getArgs()[0].isNumeral();
+    } else if (decl.equals(doubleCons.ConstructorDecl())) {
+      return expr.getArgs()[0] instanceof FPNum;
+    } else if (decl.equals(boolCons.ConstructorDecl())) {
+      Expr<?> inner = expr.getArgs()[0];
+      return inner.isTrue() || inner.isFalse();
+    }
+    return false;
   }
 
   /** Creates a CelValue containing a boolean. */

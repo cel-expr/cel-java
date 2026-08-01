@@ -154,8 +154,6 @@ public final class CelVerifierZ3ImplTest {
     NULL_SATISFIABLE("unknown_var == null"),
     DYNAMIC_VAR_NUMERIC_EQUALITY("dyn_var == 1 && dyn_var == 1.0"),
     DYNAMIC_VAR_NOT_IN_LIST("dyn_var == 1.5 && !(dyn_var in dyn_list) && size(dyn_list) > 5"),
-    TIMESTAMP_EQUALITY_TAUTOLOGY(
-        "timestamp('2023-01-01T00:00:00Z') == timestamp('2023-01-01T00:00:00Z')"),
     CROSS_NUMERIC_EQUALITY_INT_DYN_EXACT("1 == request"),
     MACRO_LIMIT("dyn_list.all(x, x == 1)"),
     STRUCT_FIELD_MISSING_APPROXIMATE_SATISFIABLE("dyn_var.unknown_field"),
@@ -1353,12 +1351,10 @@ public final class CelVerifierZ3ImplTest {
         "duration(string_var) == duration(string_var)",
         "Condition is not always true\\.",
         "Counterexample input:"),
-    // TODO: Implement RFC 3339 spec in conversion
-    TIMESTAMP_STRING_CONVERSION_VALID(
-        "timestamp('2023-01-01T00:00:00Z') == timestamp('2023-01-01T00:00:00Z')",
-        "Condition is not always true\\."),
-    DURATION_STRING_CONVERSION_VALID(
-        "duration('100s') == duration('100s')", "Condition is not always true\\."),
+    UNINTERPRETED_CONVERSION_CAN_ERROR_BOOL_FROM_STRING(
+        "bool(string_var) == bool(string_var)",
+        "Condition is not always true\\.",
+        "Counterexample input:"),
     ;
 
     final String expr;
@@ -1384,6 +1380,11 @@ public final class CelVerifierZ3ImplTest {
   }
 
   private enum IsInconclusiveTestCase {
+    // TODO: Implement RFC 3339 spec in conversion
+    TIMESTAMP_STRING_CONVERSION_VALID(
+        "timestamp('2023-01-01T00:00:00Z') == timestamp('2023-01-01T00:00:00Z')"),
+    DURATION_STRING_CONVERSION_VALID("duration('100s') == duration('100s')"),
+    BOOL_STRING_UNINTERPRETED("bool('true') == true"),
     TIMESTAMP_ADD_DURATION_OVERFLOW("timestamp(253402300799) + duration('100s') > timestamp(0)"),
     DYNAMIC_EQUALITY_TIMESTAMP_INT_COLLISION(
         "type(dyn_var) == int && dyn_var == 0 ? dyn_var != timestamp('1970-01-01T00:00:00Z') :"
