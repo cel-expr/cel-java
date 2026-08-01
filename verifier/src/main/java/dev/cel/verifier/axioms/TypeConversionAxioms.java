@@ -45,11 +45,11 @@ final class TypeConversionAxioms {
           .addUnaryOverloadTranslator(
               Conversions.DOUBLE_TO_INT64.celOverloadDecl(),
               createUninterpretedConversion(Conversions.DOUBLE_TO_INT64),
-              true)
+              /* isApproximated= */ true)
           .addUnaryOverloadTranslator(
               Conversions.STRING_TO_INT64.celOverloadDecl(),
               createUninterpretedConversion(Conversions.STRING_TO_INT64),
-              true)
+              /* isApproximated= */ true)
           .addUnaryOverloadTranslator(
               Conversions.TIMESTAMP_TO_INT64.celOverloadDecl(),
               (ctx, typeSystem, sink, arg) ->
@@ -72,11 +72,11 @@ final class TypeConversionAxioms {
           .addUnaryOverloadTranslator(
               Conversions.DOUBLE_TO_UINT64.celOverloadDecl(),
               createUninterpretedConversion(Conversions.DOUBLE_TO_UINT64),
-              true)
+              /* isApproximated= */ true)
           .addUnaryOverloadTranslator(
               Conversions.STRING_TO_UINT64.celOverloadDecl(),
               createUninterpretedConversion(Conversions.STRING_TO_UINT64),
-              true)
+              /* isApproximated= */ true)
           .build();
 
   private static final CelZ3FunctionAxiom DOUBLE_AXIOM =
@@ -87,14 +87,15 @@ final class TypeConversionAxioms {
           .addUnaryOverloadTranslator(
               Conversions.INT64_TO_DOUBLE.celOverloadDecl(),
               createUninterpretedConversion(Conversions.INT64_TO_DOUBLE),
-              true)
+              /* isApproximated= */ true)
           .addUnaryOverloadTranslator(
               Conversions.UINT64_TO_DOUBLE.celOverloadDecl(),
               createUninterpretedConversion(Conversions.UINT64_TO_DOUBLE),
-              true)
+              /* isApproximated= */ true)
           .addUnaryOverloadTranslator(
               Conversions.STRING_TO_DOUBLE.celOverloadDecl(),
-              createUninterpretedConversion(Conversions.STRING_TO_DOUBLE))
+              createUninterpretedConversion(Conversions.STRING_TO_DOUBLE),
+              /* isApproximated= */ true)
           .build();
 
   private static final CelZ3FunctionAxiom STRING_AXIOM =
@@ -105,31 +106,31 @@ final class TypeConversionAxioms {
           .addUnaryOverloadTranslator(
               Conversions.INT64_TO_STRING.celOverloadDecl(),
               createUninterpretedConversion(Conversions.INT64_TO_STRING),
-              true)
+              /* isApproximated= */ true)
           .addUnaryOverloadTranslator(
               Conversions.UINT64_TO_STRING.celOverloadDecl(),
               createUninterpretedConversion(Conversions.UINT64_TO_STRING),
-              true)
+              /* isApproximated= */ true)
           .addUnaryOverloadTranslator(
               Conversions.DOUBLE_TO_STRING.celOverloadDecl(),
               createUninterpretedConversion(Conversions.DOUBLE_TO_STRING),
-              true)
+              /* isApproximated= */ true)
           .addUnaryOverloadTranslator(
               Conversions.BOOL_TO_STRING.celOverloadDecl(),
               createUninterpretedConversion(Conversions.BOOL_TO_STRING),
-              true)
+              /* isApproximated= */ true)
           .addUnaryOverloadTranslator(
               Conversions.BYTES_TO_STRING.celOverloadDecl(),
               createUninterpretedConversion(Conversions.BYTES_TO_STRING),
-              true)
+              /* isApproximated= */ true)
           .addUnaryOverloadTranslator(
               Conversions.TIMESTAMP_TO_STRING.celOverloadDecl(),
               createUninterpretedConversion(Conversions.TIMESTAMP_TO_STRING),
-              true)
+              /* isApproximated= */ true)
           .addUnaryOverloadTranslator(
               Conversions.DURATION_TO_STRING.celOverloadDecl(),
               createUninterpretedConversion(Conversions.DURATION_TO_STRING),
-              true)
+              /* isApproximated= */ true)
           .build();
 
   private static final CelZ3FunctionAxiom BYTES_AXIOM =
@@ -140,7 +141,7 @@ final class TypeConversionAxioms {
           .addUnaryOverloadTranslator(
               Conversions.STRING_TO_BYTES.celOverloadDecl(),
               createUninterpretedConversion(Conversions.STRING_TO_BYTES),
-              true)
+              /* isApproximated= */ true)
           .build();
 
   private static final CelZ3FunctionAxiom DYN_AXIOM =
@@ -158,7 +159,7 @@ final class TypeConversionAxioms {
           .addUnaryOverloadTranslator(
               Conversions.STRING_TO_DURATION.celOverloadDecl(),
               createUninterpretedConversion(Conversions.STRING_TO_DURATION),
-              true)
+              /* isApproximated= */ true)
           .build();
 
   private static final CelZ3FunctionAxiom TIMESTAMP_AXIOM =
@@ -169,7 +170,7 @@ final class TypeConversionAxioms {
           .addUnaryOverloadTranslator(
               Conversions.STRING_TO_TIMESTAMP.celOverloadDecl(),
               createUninterpretedConversion(Conversions.STRING_TO_TIMESTAMP),
-              true)
+              /* isApproximated= */ true)
           .addUnaryOverloadTranslator(
               Conversions.INT64_TO_TIMESTAMP.celOverloadDecl(),
               (ctx, typeSystem, sink, arg) -> {
@@ -188,7 +189,7 @@ final class TypeConversionAxioms {
           .addUnaryOverloadTranslator(
               Conversions.STRING_TO_BOOL.celOverloadDecl(),
               createUninterpretedConversion(Conversions.STRING_TO_BOOL),
-              true)
+              /* isApproximated= */ true)
           .build();
 
   static final ImmutableList<CelZ3FunctionAxiom> ALL_AXIOMS =
@@ -213,49 +214,45 @@ final class TypeConversionAxioms {
               typeSystem.celValueSort());
       Expr<?> res = ctx.mkApp(funcDecl, arg);
 
+      BoolExpr isValid;
       switch (conversion.celOverloadDecl().resultType().kind()) {
         case INT:
-          BoolExpr intValid =
+          isValid =
               ctx.mkAnd(
                   typeSystem.isInt(res),
                   ctx.mkNot(typeSystem.checkIntOverflow(typeSystem.getInt(res))));
-          sink.accept(intValid);
           break;
         case TIMESTAMP:
-          BoolExpr timestampValid =
+          isValid =
               ctx.mkAnd(
                   typeSystem.isTimestamp(res),
                   ctx.mkNot(typeSystem.checkTimestampOverflow(typeSystem.getTimestamp(res))));
-          sink.accept(timestampValid);
           break;
         case DURATION:
-          BoolExpr durationValid =
+          isValid =
               ctx.mkAnd(
                   typeSystem.isDuration(res),
                   ctx.mkNot(typeSystem.checkDurationOverflow(typeSystem.getDuration(res))));
-          sink.accept(durationValid);
           break;
         case UINT:
-          BoolExpr uintValid =
+          isValid =
               ctx.mkAnd(
                   typeSystem.isUint(res),
                   ctx.mkNot(typeSystem.checkUintOverflow(typeSystem.getUint(res))));
-          sink.accept(uintValid);
           break;
         case DOUBLE:
-          BoolExpr doubleValid =
+          isValid =
               ctx.mkAnd(
                   typeSystem.isDouble(res), ctx.mkNot(ctx.mkFPIsNaN(typeSystem.getDouble(res))));
-          sink.accept(doubleValid);
           break;
         case STRING:
-          sink.accept(typeSystem.isString(res));
+          isValid = typeSystem.isString(res);
           break;
         case BYTES:
-          sink.accept(typeSystem.isBytes(res));
+          isValid = typeSystem.isBytes(res);
           break;
         case BOOL:
-          sink.accept(typeSystem.isBool(res));
+          isValid = typeSystem.isBool(res);
           break;
         default:
           throw new IllegalArgumentException(
@@ -263,6 +260,7 @@ final class TypeConversionAxioms {
                   + conversion.celOverloadDecl().resultType());
       }
 
+      sink.accept(ctx.mkOr(isValid, typeSystem.isError(res)));
       return Optional.of(res);
     };
   }

@@ -93,6 +93,7 @@ public final class CelVerifierZ3ImplTest {
           .addVar("b", SimpleType.BOOL)
           .addVar("role", SimpleType.STRING)
           .addVar("country", SimpleType.STRING)
+          .addVar("string_var", SimpleType.STRING)
           .addVar("port", SimpleType.INT)
           .addVar("dur", SimpleType.DURATION)
           .addVar("ts", SimpleType.TIMESTAMP)
@@ -325,13 +326,6 @@ public final class CelVerifierZ3ImplTest {
 
   private enum IsAlwaysTrueTestCase {
     LOGICAL_OR_CONSTANTS("true || false"),
-    DYNAMIC_EQUALITY_TIMESTAMP_INT_COLLISION(
-        "type(dyn_var) == int && dyn_var == 0 ? dyn_var != timestamp('1970-01-01T00:00:00Z') :"
-            + " true"),
-    TIMESTAMP_STRING_CONVERSION_VALID(
-        "timestamp('2023-01-01T00:00:00Z') == timestamp('2023-01-01T00:00:00Z')"),
-    DURATION_STRING_CONVERSION_VALID("duration('100s') == duration('100s')"),
-    TIMESTAMP_BOUNDS_VALID("timestamp('2023-01-01T00:00:00Z') <= timestamp(253402300799)"),
     TIMESTAMP_GREATER_EQUALS("timestamp(200) >= timestamp(100)"),
     DURATION_GREATER_EQUALS(
         "(timestamp(200) - timestamp(100)) >= (timestamp(150) - timestamp(100))"),
@@ -675,29 +669,7 @@ public final class CelVerifierZ3ImplTest {
     TYPE_CONVERSION_DYN_IDENTITY("dyn(1) == 1"),
     TYPE_CONVERSION_UINT_TO_INT("int(1u) == 1"),
     TYPE_CONVERSION_INT_TO_UINT("uint(1) == 1u"),
-    TYPE_CONVERSION_INT_FROM_DOUBLE("int(1.0) == int(1.0)"),
-    TYPE_CONVERSION_INT_FROM_STRING("int('1') == int('1')"),
-    TYPE_CONVERSION_INT_FROM_TIMESTAMP(
-        "int(timestamp('1970-01-01T00:00:00Z')) == int(timestamp('1970-01-01T00:00:00Z'))"),
-    TYPE_CONVERSION_UINT_FROM_DOUBLE("uint(1.0) == uint(1.0)"),
-    TYPE_CONVERSION_UINT_FROM_STRING("uint('1') == uint('1')"),
-    TYPE_CONVERSION_DOUBLE_FROM_INT("double(1) == double(1)"),
-    TYPE_CONVERSION_DOUBLE_FROM_UINT("double(1u) == double(1u)"),
-    TYPE_CONVERSION_DOUBLE_FROM_STRING("double('1.0') == double('1.0')"),
-    TYPE_CONVERSION_STRING_FROM_INT("string(1) == string(1)"),
-    TYPE_CONVERSION_STRING_FROM_UINT("string(1u) == string(1u)"),
-    TYPE_CONVERSION_STRING_FROM_DOUBLE("string(1.0) == string(1.0)"),
-    TYPE_CONVERSION_STRING_FROM_BOOL("string(true) == string(true)"),
-    TYPE_CONVERSION_STRING_FROM_BYTES("string(b'foo') == string(b'foo')"),
-    TYPE_CONVERSION_STRING_FROM_TIMESTAMP(
-        "string(timestamp('1970-01-01T00:00:00Z')) == string(timestamp('1970-01-01T00:00:00Z'))"),
-    TYPE_CONVERSION_STRING_FROM_DURATION("string(duration('1s')) == string(duration('1s'))"),
-    TYPE_CONVERSION_BYTES_FROM_STRING("bytes('foo') == bytes('foo')"),
-    TYPE_CONVERSION_DURATION_FROM_STRING("duration('1s') == duration('1s')"),
-    TYPE_CONVERSION_TIMESTAMP_FROM_STRING(
-        "timestamp('1970-01-01T00:00:00Z') == timestamp('1970-01-01T00:00:00Z')"),
     TYPE_CONVERSION_TIMESTAMP_FROM_INT("timestamp(1) == timestamp(1)"),
-    TYPE_CONVERSION_BOOL_FROM_STRING("bool('true') == bool('true')"),
     TYPE_CONVERSION_INT_TO_UINT_ZERO("uint(0) == 0u"),
 
     TYPE_AXIOM_OPTIONAL("type(optional.of(1)) == optional_type"),
@@ -1369,6 +1341,24 @@ public final class CelVerifierZ3ImplTest {
         "Counterexample input:",
         "x = -9223372036854775808",
         "y = -1"),
+    UNINTERPRETED_CONVERSION_CAN_ERROR_INT_FROM_STRING(
+        "int(string_var) == int(string_var)",
+        "Condition is not always true\\.",
+        "Counterexample input:"),
+    UNINTERPRETED_CONVERSION_CAN_ERROR_TIMESTAMP_FROM_STRING(
+        "timestamp(string_var) == timestamp(string_var)",
+        "Condition is not always true\\.",
+        "Counterexample input:"),
+    UNINTERPRETED_CONVERSION_CAN_ERROR_DURATION_FROM_STRING(
+        "duration(string_var) == duration(string_var)",
+        "Condition is not always true\\.",
+        "Counterexample input:"),
+    // TODO: Implement RFC 3339 spec in conversion
+    TIMESTAMP_STRING_CONVERSION_VALID(
+        "timestamp('2023-01-01T00:00:00Z') == timestamp('2023-01-01T00:00:00Z')",
+        "Condition is not always true\\."),
+    DURATION_STRING_CONVERSION_VALID(
+        "duration('100s') == duration('100s')", "Condition is not always true\\."),
     ;
 
     final String expr;
@@ -1395,6 +1385,11 @@ public final class CelVerifierZ3ImplTest {
 
   private enum IsInconclusiveTestCase {
     TIMESTAMP_ADD_DURATION_OVERFLOW("timestamp(253402300799) + duration('100s') > timestamp(0)"),
+    DYNAMIC_EQUALITY_TIMESTAMP_INT_COLLISION(
+        "type(dyn_var) == int && dyn_var == 0 ? dyn_var != timestamp('1970-01-01T00:00:00Z') :"
+            + " true"),
+    // TODO: Implement RFC 3339 spec in conversion
+    TIMESTAMP_BOUNDS_VALID("timestamp('2023-01-01T00:00:00Z') <= timestamp(253402300799)"),
     UNINTERPRETED_FUNCTION("request.matches('^[a-z]+$')"),
     INT_STRING_UNINTERPRETED("int('123') == 123"),
     LIST_WITH_APPROXIMATE_ELEMENT("[request.matches('a')]"),
