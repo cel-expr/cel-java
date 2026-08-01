@@ -32,33 +32,25 @@ final class LessEqualsAxiom {
               (ctx, typeSystem, constraintSink, lhs, rhs) ->
                   Optional.of(
                       typeSystem.wrapBool(
-                          ctx.mkLe(
-                              (ArithExpr) typeSystem.getInt(lhs),
-                              (ArithExpr) typeSystem.getInt(rhs)))))
+                          ctx.mkLe(typeSystem.getInt(lhs), typeSystem.getInt(rhs)))))
           .addBinaryOverloadTranslator(
               Comparison.LESS_EQUALS_TIMESTAMP.celOverloadDecl(),
               (ctx, typeSystem, constraintSink, lhs, rhs) ->
                   Optional.of(
                       typeSystem.wrapBool(
-                          ctx.mkLe(
-                              (ArithExpr) typeSystem.getInt(lhs),
-                              (ArithExpr) typeSystem.getInt(rhs)))))
+                          ctx.mkLe(typeSystem.getTimestamp(lhs), typeSystem.getTimestamp(rhs)))))
           .addBinaryOverloadTranslator(
               Comparison.LESS_EQUALS_DURATION.celOverloadDecl(),
               (ctx, typeSystem, constraintSink, lhs, rhs) ->
                   Optional.of(
                       typeSystem.wrapBool(
-                          ctx.mkLe(
-                              (ArithExpr) typeSystem.getInt(lhs),
-                              (ArithExpr) typeSystem.getInt(rhs)))))
+                          ctx.mkLe(typeSystem.getDuration(lhs), typeSystem.getDuration(rhs)))))
           .addBinaryOverloadTranslator(
               Comparison.LESS_EQUALS_UINT64.celOverloadDecl(),
               (ctx, typeSystem, constraintSink, lhs, rhs) ->
                   Optional.of(
                       typeSystem.wrapBool(
-                          ctx.mkLe(
-                              (ArithExpr) typeSystem.getUint(lhs),
-                              (ArithExpr) typeSystem.getUint(rhs)))))
+                          ctx.mkLe(typeSystem.getUint(lhs), typeSystem.getUint(rhs)))))
           .addBinaryOverloadTranslator(
               Comparison.LESS_EQUALS_DOUBLE.celOverloadDecl(),
               (ctx, typeSystem, constraintSink, lhs, rhs) ->

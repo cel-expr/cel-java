@@ -19,7 +19,6 @@ import static dev.cel.verifier.CelZ3TypeSystem.MAX_INT64;
 import com.google.common.collect.ImmutableList;
 import com.microsoft.z3.BoolExpr;
 import com.microsoft.z3.Expr;
-import com.microsoft.z3.FPExpr;
 import com.microsoft.z3.FuncDecl;
 import com.microsoft.z3.IntExpr;
 import com.microsoft.z3.Sort;
@@ -53,8 +52,8 @@ final class TypeConversionAxioms {
               true)
           .addUnaryOverloadTranslator(
               Conversions.TIMESTAMP_TO_INT64.celOverloadDecl(),
-              createUninterpretedConversion(Conversions.TIMESTAMP_TO_INT64),
-              true)
+              (ctx, typeSystem, sink, arg) ->
+                  Optional.of(typeSystem.wrapInt(typeSystem.getTimestamp(arg))))
           .build();
 
   private static final CelZ3FunctionAxiom UINT_AXIOM =
@@ -173,8 +172,12 @@ final class TypeConversionAxioms {
               true)
           .addUnaryOverloadTranslator(
               Conversions.INT64_TO_TIMESTAMP.celOverloadDecl(),
-              createUninterpretedConversion(Conversions.INT64_TO_TIMESTAMP),
-              true)
+              (ctx, typeSystem, sink, arg) -> {
+                IntExpr intVal = typeSystem.getInt(arg);
+                BoolExpr overflow = typeSystem.checkTimestampOverflow(intVal);
+                return Optional.of(
+                    typeSystem.withRuntimeError(typeSystem.wrapTimestamp(intVal), overflow));
+              })
           .build();
 
   private static final CelZ3FunctionAxiom BOOL_AXIOM =
@@ -212,18 +215,38 @@ final class TypeConversionAxioms {
 
       switch (conversion.celOverloadDecl().resultType().kind()) {
         case INT:
+          BoolExpr intValid =
+              ctx.mkAnd(
+                  typeSystem.isInt(res),
+                  ctx.mkNot(typeSystem.checkIntOverflow(typeSystem.getInt(res))));
+          sink.accept(intValid);
+          break;
         case TIMESTAMP:
+          BoolExpr timestampValid =
+              ctx.mkAnd(
+                  typeSystem.isTimestamp(res),
+                  ctx.mkNot(typeSystem.checkTimestampOverflow(typeSystem.getTimestamp(res))));
+          sink.accept(timestampValid);
+          break;
         case DURATION:
-          sink.accept(typeSystem.isInt(res));
-          sink.accept(ctx.mkNot(typeSystem.checkIntOverflow(typeSystem.getInt(res))));
+          BoolExpr durationValid =
+              ctx.mkAnd(
+                  typeSystem.isDuration(res),
+                  ctx.mkNot(typeSystem.checkDurationOverflow(typeSystem.getDuration(res))));
+          sink.accept(durationValid);
           break;
         case UINT:
-          sink.accept(typeSystem.isUint(res));
-          sink.accept(ctx.mkNot(typeSystem.checkUintOverflow(typeSystem.getUint(res))));
+          BoolExpr uintValid =
+              ctx.mkAnd(
+                  typeSystem.isUint(res),
+                  ctx.mkNot(typeSystem.checkUintOverflow(typeSystem.getUint(res))));
+          sink.accept(uintValid);
           break;
         case DOUBLE:
-          sink.accept(typeSystem.isDouble(res));
-          sink.accept(ctx.mkNot(ctx.mkFPIsNaN((FPExpr) typeSystem.getDouble(res))));
+          BoolExpr doubleValid =
+              ctx.mkAnd(
+                  typeSystem.isDouble(res), ctx.mkNot(ctx.mkFPIsNaN(typeSystem.getDouble(res))));
+          sink.accept(doubleValid);
           break;
         case STRING:
           sink.accept(typeSystem.isString(res));
@@ -235,8 +258,11 @@ final class TypeConversionAxioms {
           sink.accept(typeSystem.isBool(res));
           break;
         default:
-          break;
+          throw new IllegalArgumentException(
+              "Unsupported uninterpreted conversion result type: "
+                  + conversion.celOverloadDecl().resultType());
       }
+
       return Optional.of(res);
     };
   }

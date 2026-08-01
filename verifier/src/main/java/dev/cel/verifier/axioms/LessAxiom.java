@@ -32,33 +32,25 @@ final class LessAxiom {
               (ctx, typeSystem, constraintSink, lhs, rhs) ->
                   Optional.of(
                       typeSystem.wrapBool(
-                          ctx.mkLt(
-                              (ArithExpr) typeSystem.getInt(lhs),
-                              (ArithExpr) typeSystem.getInt(rhs)))))
+                          ctx.mkLt(typeSystem.getInt(lhs), typeSystem.getInt(rhs)))))
           .addBinaryOverloadTranslator(
               Comparison.LESS_TIMESTAMP.celOverloadDecl(),
               (ctx, typeSystem, constraintSink, lhs, rhs) ->
                   Optional.of(
                       typeSystem.wrapBool(
-                          ctx.mkLt(
-                              (ArithExpr) typeSystem.getInt(lhs),
-                              (ArithExpr) typeSystem.getInt(rhs)))))
+                          ctx.mkLt(typeSystem.getTimestamp(lhs), typeSystem.getTimestamp(rhs)))))
           .addBinaryOverloadTranslator(
               Comparison.LESS_DURATION.celOverloadDecl(),
               (ctx, typeSystem, constraintSink, lhs, rhs) ->
                   Optional.of(
                       typeSystem.wrapBool(
-                          ctx.mkLt(
-                              (ArithExpr) typeSystem.getInt(lhs),
-                              (ArithExpr) typeSystem.getInt(rhs)))))
+                          ctx.mkLt(typeSystem.getDuration(lhs), typeSystem.getDuration(rhs)))))
           .addBinaryOverloadTranslator(
               Comparison.LESS_UINT64.celOverloadDecl(),
               (ctx, typeSystem, constraintSink, lhs, rhs) ->
                   Optional.of(
                       typeSystem.wrapBool(
-                          ctx.mkLt(
-                              (ArithExpr) typeSystem.getUint(lhs),
-                              (ArithExpr) typeSystem.getUint(rhs)))))
+                          ctx.mkLt(typeSystem.getUint(lhs), typeSystem.getUint(rhs)))))
           .addBinaryOverloadTranslator(
               Comparison.LESS_DOUBLE.celOverloadDecl(),
               (ctx, typeSystem, constraintSink, lhs, rhs) ->

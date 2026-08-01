@@ -14,30 +14,67 @@
 
 package dev.cel.verifier.axioms;
 
+import com.microsoft.z3.ArithExpr;
 import com.microsoft.z3.BoolExpr;
 import com.microsoft.z3.Expr;
-import com.microsoft.z3.FPExpr;
 import com.microsoft.z3.FuncDecl;
 import com.microsoft.z3.IntExpr;
 import com.microsoft.z3.SeqExpr;
 import com.microsoft.z3.Sort;
 import dev.cel.checker.CelStandardDeclarations.StandardFunction;
+import dev.cel.verifier.CelZ3TypeSystem;
 import java.util.Optional;
+import java.util.function.BiFunction;
 
 /** Axiomatization for CEL's addition operator (+). */
 final class AddAxiom {
+
+  @SuppressWarnings("Immutable") // Actually immutable -- BiFunction just isn't annotated as such.
+  private static CelZ3FunctionAxiom.BinaryTranslator createAddTranslator(
+      BiFunction<CelZ3TypeSystem, Expr<?>, IntExpr> getLeft,
+      BiFunction<CelZ3TypeSystem, Expr<?>, IntExpr> getRight,
+      BiFunction<CelZ3TypeSystem, IntExpr, Expr<?>> wrapResult,
+      BiFunction<CelZ3TypeSystem, ArithExpr<?>, BoolExpr> overflowChecker) {
+    return (ctx, ts, sink, l, r) -> {
+      IntExpr a1 = getLeft.apply(ts, l);
+      IntExpr a2 = getRight.apply(ts, r);
+      ArithExpr<?> addition = ctx.mkAdd(a1, a2);
+      Expr<?> result = wrapResult.apply(ts, (IntExpr) addition);
+      BoolExpr overflow = overflowChecker.apply(ts, addition);
+      return Optional.of(ts.withRuntimeError(result, overflow));
+    };
+  }
 
   static final CelZ3FunctionAxiom INSTANCE =
       CelZ3FunctionAxiom.newBuilder(StandardFunction.ADD.functionDecl())
           .addBinaryOverloadTranslator(
               StandardFunction.Overload.Arithmetic.ADD_INT64.celOverloadDecl(),
-              (ctx, ts, sink, l, r) -> {
-                IntExpr a1 = ts.getInt(l);
-                IntExpr a2 = ts.getInt(r);
-                Expr<?> result = ts.wrapInt((IntExpr) ctx.mkAdd(a1, a2));
-                BoolExpr overflow = ts.checkIntOverflow(ctx.mkAdd(a1, a2));
-                return Optional.of(ts.withRuntimeError(result, overflow));
-              })
+              createAddTranslator(
+                  CelZ3TypeSystem::getInt,
+                  CelZ3TypeSystem::getInt,
+                  CelZ3TypeSystem::wrapInt,
+                  CelZ3TypeSystem::checkIntOverflow))
+          .addBinaryOverloadTranslator(
+              StandardFunction.Overload.Arithmetic.ADD_TIMESTAMP_DURATION.celOverloadDecl(),
+              createAddTranslator(
+                  CelZ3TypeSystem::getTimestamp,
+                  CelZ3TypeSystem::getDuration,
+                  CelZ3TypeSystem::wrapTimestamp,
+                  CelZ3TypeSystem::checkTimestampOverflow))
+          .addBinaryOverloadTranslator(
+              StandardFunction.Overload.Arithmetic.ADD_DURATION_TIMESTAMP.celOverloadDecl(),
+              createAddTranslator(
+                  CelZ3TypeSystem::getDuration,
+                  CelZ3TypeSystem::getTimestamp,
+                  CelZ3TypeSystem::wrapTimestamp,
+                  CelZ3TypeSystem::checkTimestampOverflow))
+          .addBinaryOverloadTranslator(
+              StandardFunction.Overload.Arithmetic.ADD_DURATION_DURATION.celOverloadDecl(),
+              createAddTranslator(
+                  CelZ3TypeSystem::getDuration,
+                  CelZ3TypeSystem::getDuration,
+                  CelZ3TypeSystem::wrapDuration,
+                  CelZ3TypeSystem::checkDurationOverflow))
           .addBinaryOverloadTranslator(
               StandardFunction.Overload.Arithmetic.ADD_UINT64.celOverloadDecl(),
               (ctx, ts, sink, l, r) -> {
@@ -53,9 +90,7 @@ final class AddAxiom {
                   Optional.of(
                       ts.wrapDouble(
                           ctx.mkFPAdd(
-                              ctx.mkFPRoundNearestTiesToEven(),
-                              (FPExpr) ts.getDouble(l),
-                              (FPExpr) ts.getDouble(r)))))
+                              ctx.mkFPRoundNearestTiesToEven(), ts.getDouble(l), ts.getDouble(r)))))
           .addBinaryOverloadTranslator(
               StandardFunction.Overload.Arithmetic.ADD_STRING.celOverloadDecl(),
               (ctx, ts, sink, l, r) ->

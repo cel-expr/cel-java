@@ -148,11 +148,11 @@ final class CelZ3OperatorTranslator {
         // These match everything structurally type-wise, although we might refine this later.
         return ctx.mkTrue();
       case INT:
-      case TIMESTAMP:
-      case DURATION:
-        // Safe to map int, timestamp, and duration to IntSort because CEL's static checker prevents
-        // invalid cross-type usage and their operator axioms translate to identical Z3 ASTs.
         return typeSystem.isInt(arg);
+      case TIMESTAMP:
+        return typeSystem.isTimestamp(arg);
+      case DURATION:
+        return typeSystem.isDuration(arg);
       case UINT:
         return typeSystem.isUint(arg);
       case DOUBLE:
@@ -386,7 +386,7 @@ final class CelZ3OperatorTranslator {
             ? ctx.mkEq(typeSystem.getUint(symVal), ctx.mkInt(uintVal))
             : ctx.mkFalse();
       } else if (symType.kind() == CelKind.DOUBLE) {
-        return ctx.mkFPEq((FPExpr) typeSystem.getDouble(symVal), typeSystem.mkFpDouble(doubleVal));
+        return ctx.mkFPEq(typeSystem.getDouble(symVal), typeSystem.mkFpDouble(doubleVal));
       }
     }
 
@@ -396,8 +396,7 @@ final class CelZ3OperatorTranslator {
         (uintVal != null)
             ? ctx.mkEq(typeSystem.getUint(symVal), ctx.mkInt(uintVal))
             : ctx.mkFalse();
-    BoolExpr doubleEq =
-        ctx.mkFPEq((FPExpr) typeSystem.getDouble(symVal), typeSystem.mkFpDouble(doubleVal));
+    BoolExpr doubleEq = ctx.mkFPEq(typeSystem.getDouble(symVal), typeSystem.mkFpDouble(doubleVal));
 
     return (BoolExpr)
         CelZ3TypeSystem.SwitchBuilder.newBuilder(ctx)
@@ -435,18 +434,17 @@ final class CelZ3OperatorTranslator {
       case UINT:
         return ctx.mkEq(typeSystem.getUint(z3Expr0), typeSystem.getUint(z3Expr1));
       case DOUBLE:
-        return ctx.mkFPEq(
-            (FPExpr) typeSystem.getDouble(z3Expr0), (FPExpr) typeSystem.getDouble(z3Expr1));
+        return ctx.mkFPEq(typeSystem.getDouble(z3Expr0), typeSystem.getDouble(z3Expr1));
       default:
         return ctx.mkFalse();
     }
   }
 
   private BoolExpr mkIsFiniteDouble(Expr<?> z3Expr) {
-    Expr<?> fpVal = typeSystem.getDouble(z3Expr);
+    FPExpr fpVal = typeSystem.getDouble(z3Expr);
     return ctx.mkAnd(
         typeSystem.isDouble(z3Expr),
-        ctx.mkNot(ctx.mkOr(ctx.mkFPIsNaN((FPExpr) fpVal), ctx.mkFPIsInfinite((FPExpr) fpVal))));
+        ctx.mkNot(ctx.mkOr(ctx.mkFPIsNaN(fpVal), ctx.mkFPIsInfinite(fpVal))));
   }
 
   private BoolExpr getDynamicNumericEquality(Expr<?> z3Expr0, Expr<?> z3Expr1) {
@@ -475,25 +473,28 @@ final class CelZ3OperatorTranslator {
     BoolExpr isIntOrUintAndDouble = ctx.mkAnd(isIntOrUint0, typeSystem.isDouble(z3Expr1));
     BoolExpr isDoubleAndIntOrUint = ctx.mkAnd(typeSystem.isDouble(z3Expr0), isIntOrUint1);
 
-    Expr<?> fpVal1 = typeSystem.getDouble(z3Expr1);
+    FPExpr fpVal1 = typeSystem.getDouble(z3Expr1);
+    ArithExpr<?> realVal0 = ctx.mkInt2Real(val0);
     BoolExpr intDoubleEq =
         ctx.mkAnd(
             mkIsFiniteDouble(z3Expr1),
-            ctx.mkEq(ctx.mkInt2Real(val0), ctx.mkFPToReal((FPExpr) fpVal1)));
+            ctx.mkLe(realVal0, ctx.mkFPToReal(fpVal1)),
+            ctx.mkLe(ctx.mkFPToReal(fpVal1), realVal0));
 
-    Expr<?> fpVal0 = typeSystem.getDouble(z3Expr0);
+    FPExpr fpVal0 = typeSystem.getDouble(z3Expr0);
+    ArithExpr<?> realVal1 = ctx.mkInt2Real(val1);
     BoolExpr doubleIntEq =
         ctx.mkAnd(
             mkIsFiniteDouble(z3Expr0),
-            ctx.mkEq(ctx.mkFPToReal((FPExpr) fpVal0), ctx.mkInt2Real(val1)));
+            ctx.mkLe(realVal1, ctx.mkFPToReal(fpVal0)),
+            ctx.mkLe(ctx.mkFPToReal(fpVal0), realVal1));
 
     return (BoolExpr)
         CelZ3TypeSystem.SwitchBuilder.newBuilder(ctx)
             .addCase(bothIntOrUint, ctx.mkEq(val0, val1))
             .addCase(
                 bothDouble,
-                ctx.mkFPEq(
-                    (FPExpr) typeSystem.getDouble(z3Expr0), (FPExpr) typeSystem.getDouble(z3Expr1)))
+                ctx.mkFPEq(typeSystem.getDouble(z3Expr0), typeSystem.getDouble(z3Expr1)))
             .addCase(isIntOrUintAndDouble, intDoubleEq)
             .addCase(isDoubleAndIntOrUint, doubleIntEq)
             .build(ctx.mkFalse());

@@ -400,7 +400,7 @@ public class InvariantsExample {
 
 ### Timeouts
 
-SMT solving is NP-complete and can theoretically stop responding or take an
+SMT solving is NP-hard and can theoretically stop responding or take an
 exponential amount of time for complex formulas.
 The verifier uses a default timeout of 10 seconds. It is recommended to
 configure this to a reasonable duration for your specific use case using

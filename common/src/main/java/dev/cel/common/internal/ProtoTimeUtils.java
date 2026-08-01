@@ -18,7 +18,6 @@ import static com.google.common.math.LongMath.checkedAdd;
 import static com.google.common.math.LongMath.checkedMultiply;
 import static com.google.common.math.LongMath.checkedSubtract;
 
-import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Strings;
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import com.google.protobuf.Duration;
@@ -50,15 +49,11 @@ import java.util.TimeZone;
 public final class ProtoTimeUtils {
 
   // Timestamp for "0001-01-01T00:00:00Z"
-  @VisibleForTesting
-  static final long TIMESTAMP_SECONDS_MIN = -62135596800L;
+  public static final long TIMESTAMP_SECONDS_MIN = -62135596800L;
   // Timestamp for "9999-12-31T23:59:59Z"
-  @VisibleForTesting
-  static final long TIMESTAMP_SECONDS_MAX = 253402300799L;
-  @VisibleForTesting
-  static final long DURATION_SECONDS_MIN = -315576000000L;
-  @VisibleForTesting
-  static final long DURATION_SECONDS_MAX = 315576000000L;
+  public static final long TIMESTAMP_SECONDS_MAX = 253402300799L;
+  public static final long DURATION_SECONDS_MIN = -315576000000L;
+  public static final long DURATION_SECONDS_MAX = 315576000000L;
 
   private static final int MILLIS_PER_SECOND = 1000;
 

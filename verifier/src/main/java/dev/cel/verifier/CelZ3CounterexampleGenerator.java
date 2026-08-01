@@ -82,6 +82,10 @@ final class CelZ3CounterexampleGenerator {
     // Handle CelType constructors wrapper unwrapping
     if (decl.equals(typeSystem.intCons().ConstructorDecl())) {
       return formatExpr(ctx, typeSystem, model, expr.getArgs()[0]);
+    } else if (decl.equals(typeSystem.timestampCons().ConstructorDecl())) {
+      return "timestamp(" + formatExpr(ctx, typeSystem, model, expr.getArgs()[0]) + ")";
+    } else if (decl.equals(typeSystem.durationCons().ConstructorDecl())) {
+      return "duration(" + formatExpr(ctx, typeSystem, model, expr.getArgs()[0]) + ")";
     } else if (decl.equals(typeSystem.uintCons().ConstructorDecl())) {
       return formatExpr(ctx, typeSystem, model, expr.getArgs()[0]) + "u";
     } else if (decl.equals(typeSystem.boolCons().ConstructorDecl())) {

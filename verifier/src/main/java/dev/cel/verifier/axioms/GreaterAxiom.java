@@ -32,33 +32,25 @@ final class GreaterAxiom {
               (ctx, typeSystem, constraintSink, lhs, rhs) ->
                   Optional.of(
                       typeSystem.wrapBool(
-                          ctx.mkGt(
-                              (ArithExpr) typeSystem.getInt(lhs),
-                              (ArithExpr) typeSystem.getInt(rhs)))))
+                          ctx.mkGt(typeSystem.getInt(lhs), typeSystem.getInt(rhs)))))
           .addBinaryOverloadTranslator(
               Comparison.GREATER_TIMESTAMP.celOverloadDecl(),
               (ctx, typeSystem, constraintSink, lhs, rhs) ->
                   Optional.of(
                       typeSystem.wrapBool(
-                          ctx.mkGt(
-                              (ArithExpr) typeSystem.getInt(lhs),
-                              (ArithExpr) typeSystem.getInt(rhs)))))
+                          ctx.mkGt(typeSystem.getTimestamp(lhs), typeSystem.getTimestamp(rhs)))))
           .addBinaryOverloadTranslator(
               Comparison.GREATER_DURATION.celOverloadDecl(),
               (ctx, typeSystem, constraintSink, lhs, rhs) ->
                   Optional.of(
                       typeSystem.wrapBool(
-                          ctx.mkGt(
-                              (ArithExpr) typeSystem.getInt(lhs),
-                              (ArithExpr) typeSystem.getInt(rhs)))))
+                          ctx.mkGt(typeSystem.getDuration(lhs), typeSystem.getDuration(rhs)))))
           .addBinaryOverloadTranslator(
               Comparison.GREATER_UINT64.celOverloadDecl(),
               (ctx, typeSystem, constraintSink, lhs, rhs) ->
                   Optional.of(
                       typeSystem.wrapBool(
-                          ctx.mkGt(
-                              (ArithExpr) typeSystem.getUint(lhs),
-                              (ArithExpr) typeSystem.getUint(rhs)))))
+                          ctx.mkGt(typeSystem.getUint(lhs), typeSystem.getUint(rhs)))))
           .addBinaryOverloadTranslator(
               Comparison.GREATER_DOUBLE.celOverloadDecl(),
               (ctx, typeSystem, constraintSink, lhs, rhs) ->

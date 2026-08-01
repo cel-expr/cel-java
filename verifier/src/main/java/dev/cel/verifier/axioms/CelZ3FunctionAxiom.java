@@ -110,8 +110,7 @@ public abstract class CelZ3FunctionAxiom {
             Expr<?> val = res.get();
             BoolExpr approx = argApproximations.get(0);
             if (isApproximated) {
-              BoolExpr isErrorOrUnknown = ctx.mkOr(ts.isError(val), ts.isUnknown(val));
-              approx = (BoolExpr) ctx.mkITE(isErrorOrUnknown, approx, ctx.mkTrue());
+              approx = (BoolExpr) ctx.mkITE(ts.isUnknown(val), approx, ctx.mkTrue());
             }
             return Optional.of(CelZ3OverloadResult.create(val, approx));
           };

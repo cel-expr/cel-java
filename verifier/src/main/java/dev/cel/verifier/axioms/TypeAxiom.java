@@ -61,6 +61,8 @@ final class TypeAxiom {
             typeSystem.wrapString(typeSystem.getMsgTypeName(typeSystem.getMessageRef(val))))
         .addCase(typeSystem.isOptional(val), typeSystem.mkString(OptionalType.NAME))
         .addCase(typeSystem.isNull(val), typeSystem.mkString(SimpleType.NULL_TYPE.name()))
+        .addCase(typeSystem.isTimestamp(val), typeSystem.mkString(SimpleType.TIMESTAMP.name()))
+        .addCase(typeSystem.isDuration(val), typeSystem.mkString(SimpleType.DURATION.name()))
         .addCase(typeSystem.isMap(val), typeSystem.mkString(TYPE_NAME_MAP))
         .addCase(typeSystem.isList(val), typeSystem.mkString(TYPE_NAME_LIST))
         .addCase(typeSystem.isBytes(val), typeSystem.mkString(SimpleType.BYTES.name()))

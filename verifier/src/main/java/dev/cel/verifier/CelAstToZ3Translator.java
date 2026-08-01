@@ -533,6 +533,12 @@ final class CelAstToZ3Translator {
     if (type.equals(SimpleType.UINT)) {
       return typeSystem.mkUint(0);
     }
+    if (type.equals(SimpleType.TIMESTAMP)) {
+      return typeSystem.wrapTimestamp(ctx.mkInt(0));
+    }
+    if (type.equals(SimpleType.DURATION)) {
+      return typeSystem.wrapDuration(ctx.mkInt(0));
+    }
     if (type instanceof ListType) {
       if (emptyListCache == null) {
         emptyListCache = typeSystem.mkListRefConst(EMPTY_LIST_PREFIX);
@@ -1269,6 +1275,17 @@ final class CelAstToZ3Translator {
     if (type.equals(SimpleType.BYTES)) {
       return (BoolExpr) ctx.mkApp(typeSystem.bytesCons().getTesterDecl(), val);
     }
+    if (type.equals(SimpleType.TIMESTAMP)) {
+      IntExpr seconds = typeSystem.getTimestamp(val);
+      return ctx.mkAnd(
+          typeSystem.isTimestamp(val), ctx.mkNot(typeSystem.checkTimestampOverflow(seconds)));
+    }
+    if (type.equals(SimpleType.DURATION)) {
+      IntExpr seconds = typeSystem.getDuration(val);
+      return ctx.mkAnd(
+          typeSystem.isDuration(val), ctx.mkNot(typeSystem.checkDurationOverflow(seconds)));
+    }
+
     if (type instanceof ListType) {
       // Lists are explicitly bounded (sequence theory). We're safe in using for-all quantifiers
       // here.

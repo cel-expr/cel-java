@@ -31,6 +31,7 @@ import com.microsoft.z3.IntExpr;
 import com.microsoft.z3.SeqExpr;
 import com.microsoft.z3.SeqSort;
 import com.microsoft.z3.Sort;
+import dev.cel.common.internal.ProtoTimeUtils;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -81,6 +82,14 @@ public final class CelZ3TypeSystem {
   private static final String CONS_BYTES = "Bytes";
   private static final String IS_BYTES = "isBytes";
   private static final String GET_BYTES = "getBytes";
+
+  private static final String CONS_TIMESTAMP = "Timestamp";
+  private static final String IS_TIMESTAMP = "isTimestamp";
+  private static final String GET_TIMESTAMP = "getTimestamp";
+
+  private static final String CONS_DURATION = "Duration";
+  private static final String IS_DURATION = "isDuration";
+  private static final String GET_DURATION = "getDuration";
 
   private static final String CONS_ERROR = "CelError";
   private static final String IS_ERROR = "isError";
@@ -170,6 +179,8 @@ public final class CelZ3TypeSystem {
   private final Constructor doubleCons;
   private final Constructor stringCons;
   private final Constructor bytesCons;
+  private final Constructor timestampCons;
+  private final Constructor durationCons;
   private final Constructor errorCons;
   private final Constructor unknownCons;
   private final Constructor nullCons;
@@ -233,28 +244,36 @@ public final class CelZ3TypeSystem {
     return listRefSort;
   }
 
-  Constructor boolCons() {
+  public Constructor boolCons() {
     return boolCons;
   }
 
-  Constructor intCons() {
+  public Constructor intCons() {
     return intCons;
   }
 
-  Constructor uintCons() {
+  public Constructor uintCons() {
     return uintCons;
   }
 
-  Constructor doubleCons() {
+  public Constructor doubleCons() {
     return doubleCons;
   }
 
-  Constructor stringCons() {
+  public Constructor stringCons() {
     return stringCons;
   }
 
-  Constructor bytesCons() {
+  public Constructor bytesCons() {
     return bytesCons;
+  }
+
+  public Constructor timestampCons() {
+    return timestampCons;
+  }
+
+  public Constructor durationCons() {
+    return durationCons;
   }
 
   Constructor optionalCons() {
@@ -296,6 +315,16 @@ public final class CelZ3TypeSystem {
     return ctx.mkApp(bytesCons.ConstructorDecl(), expr);
   }
 
+  /** Wraps a Z3 integer expression into a timestamp CelValue. */
+  public Expr<?> wrapTimestamp(IntExpr expr) {
+    return ctx.mkApp(timestampCons.ConstructorDecl(), expr);
+  }
+
+  /** Wraps a Z3 integer expression into a duration CelValue. */
+  public Expr<?> wrapDuration(IntExpr expr) {
+    return ctx.mkApp(durationCons.ConstructorDecl(), expr);
+  }
+
   /** Creates a CelValue containing an integer. */
   public Expr<?> mkInt(long val) {
     return ctx.mkApp(intCons.ConstructorDecl(), ctx.mkInt(val));
@@ -326,8 +355,8 @@ public final class CelZ3TypeSystem {
   }
 
   /** Extracts the double reference from a double CelValue. */
-  public Expr<?> getDouble(Expr<?> val) {
-    return ctx.mkApp(doubleCons.getAccessorDecls()[0], val);
+  public FPExpr getDouble(Expr<?> val) {
+    return (FPExpr) ctx.mkApp(doubleCons.getAccessorDecls()[0], val);
   }
 
   /**
@@ -372,7 +401,7 @@ public final class CelZ3TypeSystem {
     // Doubles must be compared using native floating-point equality to follow IEEE-754.
     // Z3's structural mkEq evaluates NaN == NaN as true and 0.0 == -0.0 as false.
     BoolExpr isDoubleEq = ctx.mkAnd(isDouble(arg0), isDouble(arg1));
-    BoolExpr doubleEq = ctx.mkFPEq((FPExpr) getDouble(arg0), (FPExpr) getDouble(arg1));
+    BoolExpr doubleEq = ctx.mkFPEq(getDouble(arg0), getDouble(arg1));
 
     // For primitives, generic equality matches the direct Z3 datatype wrapper.
     BoolExpr genericEq = ctx.mkEq(arg0, arg1);
@@ -409,8 +438,12 @@ public final class CelZ3TypeSystem {
     return ctx.mkConst(nullCons.ConstructorDecl());
   }
 
-  Constructor errorCons() {
+  public Constructor errorCons() {
     return errorCons;
+  }
+
+  public Constructor nullCons() {
+    return nullCons;
   }
 
   /** Creates a CelValue representing an unknown value. */
@@ -498,7 +531,7 @@ public final class CelZ3TypeSystem {
     return ctx.mkITE(condition, mkError(), result);
   }
 
-  Constructor unknownCons() {
+  public Constructor unknownCons() {
     return unknownCons;
   }
 
@@ -580,6 +613,26 @@ public final class CelZ3TypeSystem {
   /** Extracts the integer expression from an unsigned integer CelValue. */
   public IntExpr getUint(Expr<?> val) {
     return (IntExpr) ctx.mkApp(uintCons.getAccessorDecls()[0], val);
+  }
+
+  /** Checks if the given CelValue is a timestamp. */
+  public BoolExpr isTimestamp(Expr<?> val) {
+    return (BoolExpr) ctx.mkApp(timestampCons.getTesterDecl(), val);
+  }
+
+  /** Extracts the integer expression from a timestamp CelValue. */
+  public IntExpr getTimestamp(Expr<?> val) {
+    return (IntExpr) ctx.mkApp(timestampCons.getAccessorDecls()[0], val);
+  }
+
+  /** Checks if the given CelValue is a duration. */
+  public BoolExpr isDuration(Expr<?> val) {
+    return (BoolExpr) ctx.mkApp(durationCons.getTesterDecl(), val);
+  }
+
+  /** Extracts the integer expression from a duration CelValue. */
+  public IntExpr getDuration(Expr<?> val) {
+    return (IntExpr) ctx.mkApp(durationCons.getAccessorDecls()[0], val);
   }
 
   /** Checks if the given CelValue is a string. */
@@ -717,6 +770,20 @@ public final class CelZ3TypeSystem {
   /** Checks if the given arithmetic expression overflows a 64-bit integer. */
   public BoolExpr checkIntOverflow(ArithExpr result) {
     return ctx.mkOr(ctx.mkGt(result, ctx.mkInt(MAX_INT64)), ctx.mkLt(result, ctx.mkInt(MIN_INT64)));
+  }
+
+  /** Checks if the given arithmetic expression overflows CEL Timestamp bounds. */
+  public BoolExpr checkTimestampOverflow(ArithExpr result) {
+    return ctx.mkOr(
+        ctx.mkGt(result, ctx.mkInt(ProtoTimeUtils.TIMESTAMP_SECONDS_MAX)),
+        ctx.mkLt(result, ctx.mkInt(ProtoTimeUtils.TIMESTAMP_SECONDS_MIN)));
+  }
+
+  /** Checks if the given arithmetic expression overflows CEL Duration bounds. */
+  public BoolExpr checkDurationOverflow(ArithExpr result) {
+    return ctx.mkOr(
+        ctx.mkGt(result, ctx.mkInt(ProtoTimeUtils.DURATION_SECONDS_MAX)),
+        ctx.mkLt(result, ctx.mkInt(ProtoTimeUtils.DURATION_SECONDS_MIN)));
   }
 
   /** Checks if the given arithmetic expression overflows a 64-bit unsigned integer. */
@@ -890,6 +957,20 @@ public final class CelZ3TypeSystem {
     this.bytesCons =
         ctx.mkConstructor(
             CONS_BYTES, IS_BYTES, new String[] {GET_BYTES}, new Sort[] {ctx.getStringSort()}, null);
+    this.timestampCons =
+        ctx.mkConstructor(
+            CONS_TIMESTAMP,
+            IS_TIMESTAMP,
+            new String[] {GET_TIMESTAMP},
+            new Sort[] {ctx.getIntSort()},
+            null);
+    this.durationCons =
+        ctx.mkConstructor(
+            CONS_DURATION,
+            IS_DURATION,
+            new String[] {GET_DURATION},
+            new Sort[] {ctx.getIntSort()},
+            null);
     this.errorCons = ctx.mkConstructor(CONS_ERROR, IS_ERROR, null, null, null);
 
     this.unknownIdSort = ctx.mkUninterpretedSort("UnknownId");
@@ -936,6 +1017,8 @@ public final class CelZ3TypeSystem {
               this.doubleCons,
               this.stringCons,
               this.bytesCons,
+              this.timestampCons,
+              this.durationCons,
               this.errorCons,
               this.unknownCons,
               this.optionalCons,

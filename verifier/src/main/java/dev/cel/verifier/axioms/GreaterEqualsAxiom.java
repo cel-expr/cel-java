@@ -32,33 +32,25 @@ final class GreaterEqualsAxiom {
               (ctx, typeSystem, constraintSink, lhs, rhs) ->
                   Optional.of(
                       typeSystem.wrapBool(
-                          ctx.mkGe(
-                              (ArithExpr) typeSystem.getInt(lhs),
-                              (ArithExpr) typeSystem.getInt(rhs)))))
+                          ctx.mkGe(typeSystem.getInt(lhs), typeSystem.getInt(rhs)))))
           .addBinaryOverloadTranslator(
               Comparison.GREATER_EQUALS_TIMESTAMP.celOverloadDecl(),
               (ctx, typeSystem, constraintSink, lhs, rhs) ->
                   Optional.of(
                       typeSystem.wrapBool(
-                          ctx.mkGe(
-                              (ArithExpr) typeSystem.getInt(lhs),
-                              (ArithExpr) typeSystem.getInt(rhs)))))
+                          ctx.mkGe(typeSystem.getTimestamp(lhs), typeSystem.getTimestamp(rhs)))))
           .addBinaryOverloadTranslator(
               Comparison.GREATER_EQUALS_DURATION.celOverloadDecl(),
               (ctx, typeSystem, constraintSink, lhs, rhs) ->
                   Optional.of(
                       typeSystem.wrapBool(
-                          ctx.mkGe(
-                              (ArithExpr) typeSystem.getInt(lhs),
-                              (ArithExpr) typeSystem.getInt(rhs)))))
+                          ctx.mkGe(typeSystem.getDuration(lhs), typeSystem.getDuration(rhs)))))
           .addBinaryOverloadTranslator(
               Comparison.GREATER_EQUALS_UINT64.celOverloadDecl(),
               (ctx, typeSystem, constraintSink, lhs, rhs) ->
                   Optional.of(
                       typeSystem.wrapBool(
-                          ctx.mkGe(
-                              (ArithExpr) typeSystem.getUint(lhs),
-                              (ArithExpr) typeSystem.getUint(rhs)))))
+                          ctx.mkGe(typeSystem.getUint(lhs), typeSystem.getUint(rhs)))))
           .addBinaryOverloadTranslator(
               Comparison.GREATER_EQUALS_DOUBLE.celOverloadDecl(),
               (ctx, typeSystem, constraintSink, lhs, rhs) ->
