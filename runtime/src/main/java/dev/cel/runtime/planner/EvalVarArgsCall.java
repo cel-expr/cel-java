@@ -36,18 +36,17 @@ final class EvalVarArgsCall extends PlannedInterpretable {
 
   @Override
   Object evalInternal(GlobalResolver resolver, ExecutionFrame frame) throws CelEvaluationException {
+    boolean isStrict = resolvedOverload.isStrict();
     Object[] argVals = new Object[args.length];
     AccumulatedUnknowns unknowns = null;
     for (int i = 0; i < args.length; i++) {
       PlannedInterpretable arg = args[i];
       argVals[i] =
-          resolvedOverload.isStrict()
-              ? evalStrictly(arg, resolver, frame)
-              : evalNonstrictly(arg, resolver, frame);
-
-      unknowns = AccumulatedUnknowns.maybeMerge(unknowns, argVals[i]);
+          isStrict ? evalStrictly(arg, resolver, frame) : evalNonstrictly(arg, resolver, frame);
+      if (isStrict) {
+        unknowns = AccumulatedUnknowns.maybeMerge(unknowns, argVals[i]);
+      }
     }
-
     if (unknowns != null) {
       return unknowns;
     }

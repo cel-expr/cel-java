@@ -19,6 +19,7 @@ import static dev.cel.runtime.planner.EvalHelpers.evalStrictly;
 
 import dev.cel.common.ast.CelExpr;
 import dev.cel.common.values.CelValueConverter;
+import dev.cel.runtime.AccumulatedUnknowns;
 import dev.cel.runtime.CelEvaluationException;
 import dev.cel.runtime.CelResolvedOverload;
 import dev.cel.runtime.GlobalResolver;
@@ -32,10 +33,12 @@ final class EvalUnary extends PlannedInterpretable {
 
   @Override
   Object evalInternal(GlobalResolver resolver, ExecutionFrame frame) throws CelEvaluationException {
+    boolean isStrict = resolvedOverload.isStrict();
     Object argVal =
-        resolvedOverload.isStrict()
-            ? evalStrictly(arg, resolver, frame)
-            : evalNonstrictly(arg, resolver, frame);
+        isStrict ? evalStrictly(arg, resolver, frame) : evalNonstrictly(arg, resolver, frame);
+    if (isStrict && argVal instanceof AccumulatedUnknowns) {
+      return argVal;
+    }
     return EvalHelpers.dispatch(functionName, resolvedOverload, celValueConverter, argVal);
   }
 

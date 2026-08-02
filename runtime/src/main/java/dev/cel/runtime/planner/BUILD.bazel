@@ -446,6 +446,7 @@ java_library(
         ":planned_interpretable",
         "//common/ast",
         "//common/values",
+        "//runtime:accumulated_unknowns",
         "//runtime:evaluation_exception",
         "//runtime:interpretable",
         "//runtime:resolved_overload",
@@ -957,6 +958,7 @@ cel_android_library(
         "//runtime:evaluation_exception",
         "//runtime:interpretable_android",
         "//runtime:resolved_overload_android",
+        "//runtime/src/main/java/dev/cel/runtime:accumulated_unknowns_android",
     ],
 )
 

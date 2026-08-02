@@ -105,7 +105,15 @@ final class EvalFold extends PlannedInterpretable {
         folder.iterVar2Val = entry.getValue();
       }
 
-      boolean cond = (boolean) condition.eval(folder, frame);
+      Object condResult = condition.eval(folder, frame);
+      if (condResult instanceof AccumulatedUnknowns) {
+        return condResult;
+      }
+      if (!(condResult instanceof Boolean)) {
+        throw new IllegalArgumentException(
+            String.format("Expected boolean value, found :%s", condResult));
+      }
+      boolean cond = (boolean) condResult;
       if (!cond) {
         folder.computeResult = true;
         return result.eval(folder, frame);
@@ -131,7 +139,15 @@ final class EvalFold extends PlannedInterpretable {
         folder.iterVar2Val = item;
       }
 
-      boolean cond = (boolean) condition.eval(folder, frame);
+      Object condResult = condition.eval(folder, frame);
+      if (condResult instanceof AccumulatedUnknowns) {
+        return condResult;
+      }
+      if (!(condResult instanceof Boolean)) {
+        throw new IllegalArgumentException(
+            String.format("Expected boolean value, found :%s", condResult));
+      }
+      boolean cond = (boolean) condResult;
       if (!cond) {
         folder.computeResult = true;
         return maybeUnwrapAccumulator(result.eval(folder, frame));

@@ -35,6 +35,7 @@ import dev.cel.common.CelDescriptorUtil;
 import dev.cel.common.CelErrorCode;
 import dev.cel.common.CelOptions;
 import dev.cel.common.CelSource;
+import dev.cel.common.ast.CelConstant;
 import dev.cel.common.ast.CelExpr;
 import dev.cel.common.exceptions.CelDivideByZeroException;
 import dev.cel.common.internal.CelDescriptorPool;
@@ -209,6 +210,20 @@ public final class ProgramPlannerTest {
             "neg",
             CelFunctionBinding.from("neg_int", Long.class, arg -> -arg),
             CelFunctionBinding.from("neg_double", Double.class, arg -> -arg)));
+
+    addBindingsToDispatcher(
+        builder,
+        CelFunctionBinding.fromOverloads(
+            "add", CelFunctionBinding.from("add_int", Long.class, Long.class, (a, b) -> a + b)));
+
+    addBindingsToDispatcher(
+        builder,
+        CelFunctionBinding.fromOverloads(
+            "func",
+            CelFunctionBinding.from(
+                "func_int",
+                ImmutableList.of(Long.class, Long.class, Long.class),
+                (args) -> (long) args.length)));
 
     addBindingsToDispatcher(
         builder,
@@ -975,6 +990,170 @@ public final class ProgramPlannerTest {
                     CelAttribute.create("unk").qualify(CelAttribute.Qualifier.ofString("a")),
                     CelAttribute.create("unk").qualify(CelAttribute.Qualifier.ofString("b"))),
                 ImmutableSet.of(2L, 5L, 7L)));
+  }
+
+  @Test
+  public void plan_unaryFunction_withUnknownArg() throws Exception {
+    CelCompiler compiler =
+        CelCompilerFactory.standardCelCompilerBuilder()
+            .addVar("unk", SimpleType.INT)
+            .addFunctionDeclarations(
+                newFunctionDeclaration(
+                    "neg", newGlobalOverload("neg_int", SimpleType.INT, SimpleType.INT)))
+            .build();
+    CelAbstractSyntaxTree ast = compile(compiler, "neg(unk)");
+
+    Program program = PLANNER.plan(ast);
+
+    CelUnknownSet result =
+        (CelUnknownSet) program.eval(PartialVars.of(CelAttributePattern.create("unk")));
+    assertThat(result)
+        .isEqualTo(
+            CelUnknownSet.create(ImmutableSet.of(CelAttribute.create("unk")), ImmutableSet.of(2L)));
+  }
+
+  @Test
+  public void plan_fold_withUnknownCondition() throws Exception {
+    CelCompiler compiler =
+        CelCompilerFactory.standardCelCompilerBuilder()
+            .setStandardMacros(CelStandardMacro.STANDARD_MACROS)
+            .addVar("unk", SimpleType.BOOL)
+            .build();
+    CelAbstractSyntaxTree ast = compile(compiler, "[1, 2].all(x, unk)");
+
+    Program program = PLANNER.plan(ast);
+
+    CelUnknownSet result =
+        (CelUnknownSet) program.eval(PartialVars.of(CelAttributePattern.create("unk")));
+    assertThat(result)
+        .isEqualTo(
+            CelUnknownSet.create(ImmutableSet.of(CelAttribute.create("unk")), ImmutableSet.of(6L)));
+  }
+
+  @Test
+  public void plan_foldMap_withUnknownCondition() throws Exception {
+    CelCompiler compiler =
+        CelCompilerFactory.standardCelCompilerBuilder()
+            .setStandardMacros(CelStandardMacro.STANDARD_MACROS)
+            .addVar("unk", SimpleType.BOOL)
+            .build();
+    CelAbstractSyntaxTree ast = compile(compiler, "{\"a\": 1, \"b\": 2}.exists(k, unk)");
+
+    Program program = PLANNER.plan(ast);
+
+    CelUnknownSet result =
+        (CelUnknownSet) program.eval(PartialVars.of(CelAttributePattern.create("unk")));
+    assertThat(result)
+        .isEqualTo(
+            CelUnknownSet.create(
+                ImmutableSet.of(CelAttribute.create("unk")), ImmutableSet.of(10L)));
+  }
+
+  @Test
+  public void plan_foldList_withUnknownLoopCondition_earlyReturn() throws Exception {
+    CelExpr comprehensionExpr =
+        CelExpr.ofComprehension(
+            1L,
+            "x",
+            "",
+            CelExpr.ofList(
+                2L,
+                ImmutableList.of(CelExpr.ofConstant(3L, CelConstant.ofValue(1L))),
+                ImmutableList.of()),
+            "acc",
+            CelExpr.ofConstant(4L, CelConstant.ofValue(true)),
+            CelExpr.ofIdent(5L, "unk"),
+            CelExpr.ofIdent(6L, "acc"),
+            CelExpr.ofIdent(7L, "acc"));
+    CelAbstractSyntaxTree ast =
+        CelAbstractSyntaxTree.newParsedAst(comprehensionExpr, CelSource.newBuilder().build());
+
+    Program program = PLANNER.plan(ast);
+
+    CelUnknownSet result =
+        (CelUnknownSet) program.eval(PartialVars.of(CelAttributePattern.create("unk")));
+    assertThat(result)
+        .isEqualTo(
+            CelUnknownSet.create(ImmutableSet.of(CelAttribute.create("unk")), ImmutableSet.of(5L)));
+  }
+
+  @Test
+  public void plan_foldMap_withUnknownLoopCondition_earlyReturn() throws Exception {
+    CelExpr comprehensionExpr =
+        CelExpr.ofComprehension(
+            1L,
+            "k",
+            "",
+            CelExpr.ofMap(
+                2L,
+                ImmutableList.of(
+                    CelExpr.ofMapEntry(
+                        3L,
+                        CelExpr.ofConstant(4L, CelConstant.ofValue("a")),
+                        CelExpr.ofConstant(5L, CelConstant.ofValue(1L)),
+                        false))),
+            "acc",
+            CelExpr.ofConstant(6L, CelConstant.ofValue(true)),
+            CelExpr.ofIdent(7L, "unk"),
+            CelExpr.ofIdent(8L, "acc"),
+            CelExpr.ofIdent(9L, "acc"));
+    CelAbstractSyntaxTree ast =
+        CelAbstractSyntaxTree.newParsedAst(comprehensionExpr, CelSource.newBuilder().build());
+
+    Program program = PLANNER.plan(ast);
+
+    CelUnknownSet result =
+        (CelUnknownSet) program.eval(PartialVars.of(CelAttributePattern.create("unk")));
+    assertThat(result)
+        .isEqualTo(
+            CelUnknownSet.create(ImmutableSet.of(CelAttribute.create("unk")), ImmutableSet.of(7L)));
+  }
+
+  @Test
+  public void plan_binaryFunction_withUnknownArg() throws Exception {
+    CelCompiler compiler =
+        CelCompilerFactory.standardCelCompilerBuilder()
+            .addVar("unk", SimpleType.INT)
+            .addFunctionDeclarations(
+                newFunctionDeclaration(
+                    "add",
+                    newGlobalOverload("add_int", SimpleType.INT, SimpleType.INT, SimpleType.INT)))
+            .build();
+    CelAbstractSyntaxTree ast = compile(compiler, "add(1, unk)");
+
+    Program program = PLANNER.plan(ast);
+
+    CelUnknownSet result =
+        (CelUnknownSet) program.eval(PartialVars.of(CelAttributePattern.create("unk")));
+    assertThat(result)
+        .isEqualTo(
+            CelUnknownSet.create(ImmutableSet.of(CelAttribute.create("unk")), ImmutableSet.of(3L)));
+  }
+
+  @Test
+  public void plan_varargsFunction_withUnknownArg() throws Exception {
+    CelCompiler compiler =
+        CelCompilerFactory.standardCelCompilerBuilder()
+            .addVar("unk", SimpleType.INT)
+            .addFunctionDeclarations(
+                newFunctionDeclaration(
+                    "func",
+                    newGlobalOverload(
+                        "func_int",
+                        SimpleType.INT,
+                        SimpleType.INT,
+                        SimpleType.INT,
+                        SimpleType.INT)))
+            .build();
+    CelAbstractSyntaxTree ast = compile(compiler, "func(1, 2, unk)");
+
+    Program program = PLANNER.plan(ast);
+
+    CelUnknownSet result =
+        (CelUnknownSet) program.eval(PartialVars.of(CelAttributePattern.create("unk")));
+    assertThat(result)
+        .isEqualTo(
+            CelUnknownSet.create(ImmutableSet.of(CelAttribute.create("unk")), ImmutableSet.of(4L)));
   }
 
   @Test

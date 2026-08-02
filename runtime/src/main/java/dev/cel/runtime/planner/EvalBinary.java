@@ -34,20 +34,17 @@ final class EvalBinary extends PlannedInterpretable {
 
   @Override
   Object evalInternal(GlobalResolver resolver, ExecutionFrame frame) throws CelEvaluationException {
+    boolean isStrict = resolvedOverload.isStrict();
     Object argVal1 =
-        resolvedOverload.isStrict()
-            ? evalStrictly(arg1, resolver, frame)
-            : evalNonstrictly(arg1, resolver, frame);
+        isStrict ? evalStrictly(arg1, resolver, frame) : evalNonstrictly(arg1, resolver, frame);
     Object argVal2 =
-        resolvedOverload.isStrict()
-            ? evalStrictly(arg2, resolver, frame)
-            : evalNonstrictly(arg2, resolver, frame);
-
-    AccumulatedUnknowns unknowns = AccumulatedUnknowns.maybeMerge(null, argVal1);
-    unknowns = AccumulatedUnknowns.maybeMerge(unknowns, argVal2);
-
-    if (unknowns != null) {
-      return unknowns;
+        isStrict ? evalStrictly(arg2, resolver, frame) : evalNonstrictly(arg2, resolver, frame);
+    if (isStrict) {
+      AccumulatedUnknowns unknowns = AccumulatedUnknowns.maybeMerge(null, argVal1);
+      unknowns = AccumulatedUnknowns.maybeMerge(unknowns, argVal2);
+      if (unknowns != null) {
+        return unknowns;
+      }
     }
 
     return EvalHelpers.dispatch(
