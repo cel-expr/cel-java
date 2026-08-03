@@ -32,6 +32,8 @@ import dev.cel.common.CelOptions;
 import dev.cel.common.CelOverloadDecl;
 import dev.cel.common.types.ListType;
 import dev.cel.common.types.MapType;
+import dev.cel.common.types.NullableType;
+import dev.cel.common.types.OptionalType;
 import dev.cel.common.types.SimpleType;
 import dev.cel.common.types.StructTypeReference;
 import dev.cel.expr.conformance.proto2.TestAllTypes.NestedMessage;
@@ -80,6 +82,28 @@ public class ConstantFoldingOptimizerTest {
     return celBuilder
         .addVar("x", SimpleType.DYN)
         .addVar("y", SimpleType.DYN)
+        .addVar("dyn_x", SimpleType.DYN)
+        .addVar("int_x", SimpleType.INT)
+        .addVar("double_x", SimpleType.DOUBLE)
+        .addVar("bool_x", SimpleType.BOOL)
+        .addVar("string_x", SimpleType.STRING)
+        .addVar("int_list_x", ListType.create(SimpleType.INT))
+        .addVar("double_list_x", ListType.create(SimpleType.DOUBLE))
+        .addVar("dyn_list_x", ListType.create(SimpleType.DYN))
+        .addVar("map_string_int_x", MapType.create(SimpleType.STRING, SimpleType.INT))
+        .addVar("map_string_double_x", MapType.create(SimpleType.STRING, SimpleType.DOUBLE))
+        .addVar("optional_int_x", OptionalType.create(SimpleType.INT))
+        .addVar("optional_double_x", OptionalType.create(SimpleType.DOUBLE))
+        .addVar("nested_list_int_x", ListType.create(ListType.create(SimpleType.INT)))
+        .addVar("nested_list_double_x", ListType.create(ListType.create(SimpleType.DOUBLE)))
+        .addVar(
+            "nested_map_list_int_x",
+            MapType.create(SimpleType.STRING, ListType.create(SimpleType.INT)))
+        .addVar(
+            "nested_map_list_double_x",
+            MapType.create(SimpleType.STRING, ListType.create(SimpleType.DOUBLE)))
+        .addVar("nullable_int_x", NullableType.create(SimpleType.INT))
+        .addVar("nullable_double_x", NullableType.create(SimpleType.DOUBLE))
         .addVar("bool_var", SimpleType.BOOL)
         .addVar("list_var", ListType.create(SimpleType.STRING))
         .addVar("map_var", MapType.create(SimpleType.STRING, SimpleType.STRING))
@@ -151,7 +175,48 @@ public class ConstantFoldingOptimizerTest {
   @TestParameters("{source: '5 in [1, 1 + 2, 1 + (2 + 3)]', expected: 'false'}")
   @TestParameters("{source: '5 in [1, x, y, 5]', expected: 'true'}")
   @TestParameters("{source: '!(5 in [1, x, y, 5])', expected: 'false'}")
-  @TestParameters("{source: 'x in [1, x, y, 5]', expected: 'true'}")
+  @TestParameters("{source: 'x in [1, x, y, 5]', expected: 'x in [1, x, y, 5]'}")
+  @TestParameters("{source: 'dyn_x in [1, 2, dyn_x]', expected: 'dyn_x in [1, 2, dyn_x]'}")
+  @TestParameters("{source: 'int_x in [1, 2, int_x]', expected: 'true'}")
+  @TestParameters("{source: 'bool_x in [true, false, bool_x]', expected: 'true'}")
+  @TestParameters("{source: 'string_x in [\"a\", \"b\", string_x]', expected: 'true'}")
+  @TestParameters(
+      "{source: 'double_x in [1.0, 2.0, double_x]', expected: 'double_x in [1.0, 2.0, double_x]'}")
+  @TestParameters("{source: 'int_list_x in [[1], [2], int_list_x]', expected: 'true'}")
+  @TestParameters(
+      "{source: 'double_list_x in [[1.0], double_list_x]', expected: 'double_list_x in [[1.0],"
+          + " double_list_x]'}")
+  @TestParameters(
+      "{source: 'dyn_list_x in [[1], dyn_list_x]', expected: 'dyn_list_x in [[1], dyn_list_x]'}")
+  @TestParameters(
+      "{source: 'map_string_int_x in [{\"a\": 1}, map_string_int_x]', expected: 'true'}")
+  @TestParameters(
+      "{source: 'map_string_double_x in [{\"a\": 1.0}, map_string_double_x]', expected:"
+          + " 'map_string_double_x in [{\"a\": 1.0}, map_string_double_x]'}")
+  @TestParameters(
+      "{source: 'optional_int_x in [optional.of(1), optional_int_x]', expected: 'true'}")
+  @TestParameters(
+      "{source: 'optional_double_x in [optional.of(1.0), optional_double_x]', expected:"
+          + " 'optional_double_x in [optional.of(1.0), optional_double_x]'}")
+  @TestParameters("{source: 'nullable_int_x in [1, 2, nullable_int_x]', expected: 'true'}")
+  @TestParameters(
+      "{source: 'nullable_double_x in [1.0, 2.0, nullable_double_x]', expected:"
+          + " 'nullable_double_x in [1.0, 2.0, nullable_double_x]'}")
+  @TestParameters(
+      "{source: 'double(\"NaN\") in [double(\"NaN\"), double_x]', expected: 'NaN in"
+          + " [NaN, double_x]'}")
+  @TestParameters(
+      "{source: 'nested_list_int_x in [[[1]], [[2]], nested_list_int_x]', expected: 'true'}")
+  @TestParameters(
+      "{source: 'nested_list_double_x in [[[1.0]], [[2.0]], nested_list_double_x]',"
+          + " expected: 'nested_list_double_x in [[[1.0]], [[2.0]], nested_list_double_x]'}")
+  @TestParameters(
+      "{source: 'nested_map_list_int_x in [{\"a\": [1]}, nested_map_list_int_x]', expected:"
+          + " 'true'}")
+  @TestParameters(
+      "{source: 'nested_map_list_double_x in [{\"a\": [1.0]}, nested_map_list_double_x]',"
+          + " expected: 'nested_map_list_double_x in [{\"a\": [1.0]},"
+          + " nested_map_list_double_x]'}")
   @TestParameters("{source: 'x in [1, 1 + 2, 1 + (2 + 3)]', expected: 'x in [1, 3, 6]'}")
   @TestParameters("{source: 'duration(string(7 * 24) + ''h'')', expected: 'duration(\"168h\")'}")
   @TestParameters("{source: '[1, ?optional.of(3)]', expected: '[1, 3]'}")
@@ -395,7 +460,8 @@ public class ConstantFoldingOptimizerTest {
   @TestParameters(
       "{source: 'cel.bind(myMap, {\"foo\": \"bar\"}, myMap[?\"foo\"].optMap(x, x + \"baz\"))', "
           + "expected: 'optional.of(\"barbaz\")'}")
-  @TestParameters("{source: '(1 + 2 + 3 == x) && (x in [1, 2, x])', expected: '6 == x'}")
+  @TestParameters(
+      "{source: '(1 + 2 + 3 == x) && (x in [1, 2, x])', expected: '6 == x && x in [1, 2, x]'}")
   public void constantFold_macros_macroCallMetadataPopulated(String source, String expected)
       throws Exception {
     Cel cel =
@@ -861,5 +927,21 @@ public class ConstantFoldingOptimizerTest {
     CelOptimizationException e =
         assertThrows(CelOptimizationException.class, () -> optimizer.optimize(ast));
     assertThat(e).hasMessageThat().contains("Optimization failure: Max iteration count reached.");
+  }
+
+  @Test
+  public void constantFold_inOperator_withoutMacros_skipsDoubleNan() throws Exception {
+    Cel celWithoutMacros =
+        setupEnv(runtimeFlavor.builder()).toCelBuilder().setStandardMacros().build();
+    CelOptimizer optimizer =
+        CelOptimizerFactory.standardCelOptimizerBuilder(celWithoutMacros)
+            .addAstOptimizers(ConstantFoldingOptimizer.getInstance())
+            .build();
+    CelAbstractSyntaxTree ast =
+        celWithoutMacros.compile("double('NaN') in [double('NaN'), double_x]").getAst();
+
+    CelAbstractSyntaxTree optimizedAst = optimizer.optimize(ast);
+
+    assertThat(CEL_UNPARSER.unparse(optimizedAst)).isEqualTo("NaN in [NaN, double_x]");
   }
 }

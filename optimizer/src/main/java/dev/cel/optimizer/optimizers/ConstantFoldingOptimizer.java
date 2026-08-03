@@ -14,6 +14,7 @@
 package dev.cel.optimizer.optimizers;
 
 import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.MoreCollectors.onlyElement;
 import static dev.cel.checker.CelStandardDeclarations.StandardFunction.DURATION;
@@ -46,6 +47,7 @@ import dev.cel.common.navigation.CelNavigableMutableExpr;
 import dev.cel.common.navigation.TraversalOrder;
 import dev.cel.common.types.CelType;
 import dev.cel.common.types.CelTypeProvider;
+import dev.cel.common.types.OptionalType;
 import dev.cel.common.types.SimpleType;
 import dev.cel.common.types.StructType;
 import dev.cel.common.values.CelValue;
@@ -541,16 +543,37 @@ public final class ConstantFoldingOptimizer implements CelAstOptimizer {
 
       CelMutableExpr needle = call.args().get(0);
       if (needle.getKind().equals(Kind.CONSTANT) || needle.getKind().equals(Kind.IDENT)) {
-        Object needleValue =
-            needle.getKind().equals(Kind.CONSTANT) ? needle.constant() : needle.ident();
         for (CelMutableExpr elem : haystack.elements()) {
-          if ((elem.getKind().equals(Kind.CONSTANT) && elem.constant().equals(needleValue))
-              || (elem.getKind().equals(Kind.IDENT) && elem.ident().equals(needleValue))) {
-            return Optional.of(
-                astMutator.replaceSubtree(
-                    mutableAst.expr(),
-                    CelMutableExpr.ofConstant(CelConstant.ofValue(true)),
-                    expr.id()));
+          if ((elem.getKind().equals(Kind.CONSTANT)
+                  && needle.getKind().equals(Kind.CONSTANT)
+                  && elem.constant().equals(needle.constant()))
+              || (elem.getKind().equals(Kind.IDENT)
+                  && needle.getKind().equals(Kind.IDENT)
+                  && elem.ident().equals(needle.ident()))) {
+            if (needle.getKind().equals(Kind.CONSTANT)) {
+              if (needle.constant().getKind().equals(CelConstant.Kind.DOUBLE_VALUE)
+                  && Double.isNaN(needle.constant().doubleValue())) {
+                continue;
+              }
+              return Optional.of(
+                  astMutator.replaceSubtree(
+                      mutableAst.expr(),
+                      CelMutableExpr.ofConstant(CelConstant.ofValue(true)),
+                      expr.id()));
+            }
+
+            CelType needleType =
+                mutableAst
+                    .getType(needle.id())
+                    .orElseGet(() -> identTypes.get(needle.ident().name()));
+
+            if (needleType != null && isSafeForExactEquality(needleType)) {
+              return Optional.of(
+                  astMutator.replaceSubtree(
+                      mutableAst.expr(),
+                      CelMutableExpr.ofConstant(CelConstant.ofValue(true)),
+                      expr.id()));
+            }
           }
         }
       }
@@ -946,6 +969,43 @@ public final class ConstantFoldingOptimizer implements CelAstOptimizer {
 
   private static boolean isExprConstantOfKind(CelMutableExpr expr, CelConstant.Kind constantKind) {
     return expr.getKind().equals(Kind.CONSTANT) && expr.constant().getKind().equals(constantKind);
+  }
+
+  private static boolean isSafeForExactEquality(CelType celType) {
+    switch (celType.kind()) {
+      case BOOL:
+      case INT:
+      case UINT:
+      case STRING:
+      case BYTES:
+      case DURATION:
+      case TIMESTAMP:
+      case NULL_TYPE:
+      case TYPE:
+        return true;
+
+      case LIST:
+        return !celType.parameters().isEmpty()
+            && isSafeForExactEquality(celType.parameters().get(0));
+
+      case MAP:
+        return celType.parameters().size() >= 2
+            && isSafeForExactEquality(celType.parameters().get(0))
+            && isSafeForExactEquality(celType.parameters().get(1));
+
+      case OPAQUE:
+        if (celType instanceof OptionalType) {
+          checkState(
+              celType.parameters().size() == 1,
+              "Optional type must have exactly 1 parameter. Found %s",
+              celType.parameters().size());
+          return isSafeForExactEquality(celType.parameters().get(0));
+        }
+        return false;
+
+      default:
+        return false;
+    }
   }
 
   private ConstantFoldingOptimizer(ConstantFoldingOptions constantFoldingOptions) {

@@ -1775,7 +1775,8 @@ public final class CelVerifierZ3ImplTest {
     JSON_VALUE_OPTIONAL_NULL_VALUE_OF("google.protobuf.Value{?null_value: optional.of(0)}", "null"),
     OPTIONAL_INDEX_LIST_UNWRAPPING("optional.of([1, 2, 3])[?0]", "optional.of(1)"),
     OPTIONAL_INDEX_MAP_UNWRAPPING("optional.of({'a': 1})[?'a']", "optional.of(1)"),
-    OPTIONAL_INDEX_UNWRAPPING_NONE("optional.none()[?0]", "optional.none()");
+    OPTIONAL_INDEX_UNWRAPPING_NONE("optional.none()[?0]", "optional.none()"),
+    INT_IN_LIST_IDENTITY_EQUIVALENT("x in [1, 2, x]", "true");
 
     private final String exprA;
     private final String exprB;
@@ -1821,6 +1822,7 @@ public final class CelVerifierZ3ImplTest {
     OPTIONAL_VALUE_VIOLATION("optional.of(x).value()", "y"),
     LIST_OPTIONAL_ELEMENTS_COLLISION("[1, ?opt_var]", "[1, opt_var]"),
     CROSS_NUMERIC_EQUALITY_INT_DYN_VIOLATION("1 == request", "false"),
+    DYN_IN_LIST_NOT_EQUIVALENT_TO_TRUE("dyn_var in [1, 2, dyn_var]", "true"),
     OPTIONAL_SELECTION_VS_DIRECT_ERROR(
         "{'a': 1}.?missing_key", "optional.of({'a': 1}.missing_key)"),
     OPTIONAL_NESTED_NONE_VS_FLAT_NONE("{'a': optional.none()}.?a", "optional.none()"),
