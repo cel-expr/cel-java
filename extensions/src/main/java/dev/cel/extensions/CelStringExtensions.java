@@ -17,32 +17,64 @@ package dev.cel.extensions;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static java.lang.Math.max;
 import static java.lang.Math.min;
+import static java.nio.charset.StandardCharsets.UTF_8;
 
 import com.google.common.base.Ascii;
 import com.google.common.base.Joiner;
+import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.io.BaseEncoding;
+import com.google.common.primitives.UnsignedLong;
 import com.google.errorprone.annotations.Immutable;
 import dev.cel.checker.CelCheckerBuilder;
 import dev.cel.common.CelFunctionDecl;
 import dev.cel.common.CelOverloadDecl;
+import dev.cel.common.exceptions.CelBadFormatException;
+import dev.cel.common.exceptions.CelInvalidArgumentException;
 import dev.cel.common.internal.CelCodePointArray;
+import dev.cel.common.internal.DateTimeHelpers;
+import dev.cel.common.types.CelType;
 import dev.cel.common.types.ListType;
 import dev.cel.common.types.SimpleType;
+import dev.cel.common.types.TypeType;
+import dev.cel.common.values.CelByteString;
+import dev.cel.common.values.NullValue;
 import dev.cel.compiler.CelCompilerLibrary;
 import dev.cel.runtime.CelEvaluationException;
 import dev.cel.runtime.CelEvaluationExceptionBuilder;
 import dev.cel.runtime.CelFunctionBinding;
 import dev.cel.runtime.CelRuntimeBuilder;
 import dev.cel.runtime.CelRuntimeLibrary;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 /** Internal implementation of CEL string extensions. */
 @Immutable
 public final class CelStringExtensions
     implements CelCompilerLibrary, CelRuntimeLibrary, CelExtensionLibrary.FeatureSet {
+
+  // ROOT is equivalent to US locale. Formatting should be machine-oriented, not UI-oriented.
+  private static final Locale LOCALE_ROOT = Locale.ROOT;
+
+  // TODO: Make max precision limit configurable via CelStringExtensions options.
+  private static final int MAX_PRECISION = 100;
+
+  // Constants for Long.MIN_VALUE because negating it to find its absolute value overflows in signed
+  // 64-bit arithmetic.
+  private static final String MIN_LONG_BINARY =
+      "-100000000000000000000000000000000000000000000000000000000000000";
+  private static final String MIN_LONG_HEX = "-8000000000000000";
+  private static final String MIN_LONG_OCTAL = "-1000000000000000000000";
+
+  private static final BaseEncoding BASE16_LOWER = BaseEncoding.base16().lowerCase();
 
   /** Denotes the string extension function */
   @SuppressWarnings({"unchecked"}) // Unchecked: Type-checker guarantees casting safety.
@@ -58,6 +90,16 @@ public final class CelStringExtensions
                 ImmutableList.of(SimpleType.STRING, SimpleType.INT))),
         CelFunctionBinding.from(
             "string_char_at_int", String.class, Long.class, CelStringExtensions::charAt)),
+    FORMAT(
+        CelFunctionDecl.newFunctionDeclaration(
+            "format",
+            CelOverloadDecl.newMemberOverload(
+                "string_format",
+                "Formats the string using the provided arguments.",
+                SimpleType.STRING,
+                ImmutableList.of(SimpleType.STRING, ListType.create(SimpleType.DYN)))),
+        CelFunctionBinding.from(
+            "string_format", String.class, List.class, CelStringExtensions::format)),
     INDEX_OF(
         CelFunctionDecl.newFunctionDeclaration(
             "indexOf",
@@ -402,6 +444,493 @@ public final class CelStringExtensions
 
   private static String join(List<String> stringList, String separator) {
     return Joiner.on(separator).join(stringList);
+  }
+
+  private static String format(String formatSpecifier, List<?> args) {
+    StringBuilder builtStr = new StringBuilder(formatSpecifier.length());
+    int i = 0;
+    int argIndex = 0;
+    while (i < formatSpecifier.length()) {
+      if (formatSpecifier.charAt(i) != '%') {
+        builtStr.append(formatSpecifier.charAt(i++));
+        continue;
+      }
+
+      if (i + 1 < formatSpecifier.length() && formatSpecifier.charAt(i + 1) == '%') {
+        builtStr.append('%');
+        i += 2;
+        continue;
+      }
+
+      if (argIndex >= args.size()) {
+        throw new CelBadFormatException("index " + argIndex + " out of range");
+      }
+
+      Object arg = args.get(argIndex++);
+      i = parseAndFormatClause(formatSpecifier, i + 1, arg, builtStr);
+    }
+    return builtStr.toString();
+  }
+
+  /**
+   * Parses and formats a single format clause after '%', starting at index {@code offset}. Returns
+   * the new index in {@code formatSpecifier} after consuming the clause.
+   */
+  private static int parseAndFormatClause(
+      String formatSpecifier, int offset, Object arg, StringBuilder builtStr) {
+    int i = offset;
+    int precision = -1;
+    if (i < formatSpecifier.length() && formatSpecifier.charAt(i) == '.') {
+      i++;
+      int start = i;
+      while (i < formatSpecifier.length() && Character.isDigit(formatSpecifier.charAt(i))) {
+        i++;
+      }
+      if (i >= formatSpecifier.length()) {
+        throw new CelBadFormatException("unexpected end of string");
+      }
+      if (i == start) {
+        throw new CelBadFormatException("empty precision is not allowed");
+      } else {
+        try {
+          precision = Integer.parseInt(formatSpecifier.substring(start, i));
+        } catch (NumberFormatException e) {
+          throw new CelBadFormatException(
+              "invalid precision format: " + formatSpecifier.substring(start, i));
+        }
+        // TODO: Make max precision limit configurable via CelStringExtensions options.
+        if (precision > MAX_PRECISION) {
+          throw new CelInvalidArgumentException(
+              "precision " + precision + " exceeds maximum allowed (" + MAX_PRECISION + ")");
+        }
+      }
+    }
+    if (i >= formatSpecifier.length()) {
+      throw new CelBadFormatException("unexpected end of string");
+    }
+    char verb = formatSpecifier.charAt(i++);
+    switch (verb) {
+      case 's':
+        builtStr.append(formatString(arg));
+        break;
+      case 'd':
+        builtStr.append(formatDecimal(arg));
+        break;
+      case 'f':
+        builtStr.append(formatFixed(arg, precision));
+        break;
+      case 'e':
+        builtStr.append(formatScientific(arg, precision));
+        break;
+      case 'b':
+        builtStr.append(formatBinary(arg));
+        break;
+      case 'x':
+      case 'X':
+        builtStr.append(formatHex(arg, verb == 'X'));
+        break;
+      case 'o':
+        builtStr.append(formatOctal(arg));
+        break;
+      default:
+        throw new CelBadFormatException("unrecognized formatting clause \"" + verb + "\"");
+    }
+    return i;
+  }
+
+  private static String formatString(Object val) {
+    Preconditions.checkNotNull(val);
+    if (val instanceof String) {
+      return (String) val;
+    }
+    if (val instanceof CelByteString) {
+      return formatByteString((CelByteString) val);
+    }
+    if (val instanceof Duration) {
+      return DateTimeHelpers.toString((Duration) val);
+    }
+    if (val instanceof Double) {
+      return formatDouble((Double) val);
+    }
+    if (val instanceof Instant
+        || val instanceof Boolean
+        || val instanceof Long
+        || val instanceof UnsignedLong) {
+      return val.toString();
+    }
+    if (val instanceof List) {
+      return formatList((List<?>) val);
+    }
+    if (val instanceof Map) {
+      return formatMap((Map<?, ?>) val);
+    }
+    if (val instanceof NullValue) {
+      return "null";
+    }
+    if (val instanceof TypeType) {
+      return ((TypeType) val).containingTypeName();
+    }
+    if (val instanceof CelType) {
+      return ((CelType) val).name();
+    }
+    throw new CelInvalidArgumentException(
+        "could not convert argument " + val.getClass().getName() + " to string");
+  }
+
+  private static String formatByteString(CelByteString byteString) {
+    if (byteString.isValidUtf8()) {
+      return byteString.toStringUtf8();
+    }
+    return decodeUtf8Lossy(byteString.toByteArray());
+  }
+
+  private static String decodeUtf8Lossy(byte[] bytes) {
+    if (bytes.length == 0) {
+      return "";
+    }
+    StringBuilder sb = new StringBuilder(bytes.length);
+    boolean inInvalidSequence = false;
+    int i = 0;
+    int len = bytes.length;
+
+    while (i < len) {
+      int b0 = bytes[i] & 0xFF;
+      if (b0 < 0x80) {
+        // 1-byte ASCII (0x00 - 0x7F)
+        if (inInvalidSequence) {
+          sb.append('\uFFFD');
+          inInvalidSequence = false;
+        }
+        sb.append((char) b0);
+        i++;
+      } else if (b0 >= 0xC2 && b0 <= 0xDF) {
+        // 2-byte sequence
+        if (i + 1 < len) {
+          int b1 = bytes[i + 1] & 0xFF;
+          if (b1 >= 0x80 && b1 <= 0xBF) {
+            if (inInvalidSequence) {
+              sb.append('\uFFFD');
+              inInvalidSequence = false;
+            }
+            int codePoint = ((b0 & 0x1F) << 6) | (b1 & 0x3F);
+            sb.append((char) codePoint);
+            i += 2;
+            continue;
+          }
+        }
+        inInvalidSequence = true;
+        i++;
+      } else if (b0 >= 0xE0 && b0 <= 0xEF) {
+        // 3-byte sequence
+        if (i + 2 < len) {
+          int b1 = bytes[i + 1] & 0xFF;
+          int b2 = bytes[i + 2] & 0xFF;
+          boolean valid =
+              (b2 >= 0x80 && b2 <= 0xBF)
+                  && ((b0 == 0xE0 && b1 >= 0xA0 && b1 <= 0xBF)
+                      || (b0 >= 0xE1 && b0 <= 0xEC && b1 >= 0x80 && b1 <= 0xBF)
+                      || (b0 == 0xED && b1 >= 0x80 && b1 <= 0x9F)
+                      || (b0 >= 0xEE && b0 <= 0xEF && b1 >= 0x80 && b1 <= 0xBF));
+          if (valid) {
+            if (inInvalidSequence) {
+              sb.append('\uFFFD');
+              inInvalidSequence = false;
+            }
+            int codePoint = ((b0 & 0x0F) << 12) | ((b1 & 0x3F) << 6) | (b2 & 0x3F);
+            sb.append((char) codePoint);
+            i += 3;
+            continue;
+          }
+        }
+        inInvalidSequence = true;
+        i++;
+      } else if (b0 >= 0xF0 && b0 <= 0xF4) {
+        // 4-byte sequence
+        if (i + 3 < len) {
+          int b1 = bytes[i + 1] & 0xFF;
+          int b2 = bytes[i + 2] & 0xFF;
+          int b3 = bytes[i + 3] & 0xFF;
+          boolean valid =
+              (b2 >= 0x80 && b2 <= 0xBF)
+                  && (b3 >= 0x80 && b3 <= 0xBF)
+                  && ((b0 == 0xF0 && b1 >= 0x90 && b1 <= 0xBF)
+                      || (b0 >= 0xF1 && b0 <= 0xF3 && b1 >= 0x80 && b1 <= 0xBF)
+                      || (b0 == 0xF4 && b1 >= 0x80 && b1 <= 0x8F));
+          if (valid) {
+            if (inInvalidSequence) {
+              sb.append('\uFFFD');
+              inInvalidSequence = false;
+            }
+            int codePoint =
+                ((b0 & 0x07) << 18) | ((b1 & 0x3F) << 12) | ((b2 & 0x3F) << 6) | (b3 & 0x3F);
+            sb.append(Character.toChars(codePoint));
+            i += 4;
+            continue;
+          }
+        }
+        inInvalidSequence = true;
+        i++;
+      } else {
+        // Invalid leading byte (0x80-0xC1, 0xF5-0xFF)
+        inInvalidSequence = true;
+        i++;
+      }
+    }
+    if (inInvalidSequence) {
+      sb.append('\uFFFD');
+    }
+    return sb.toString();
+  }
+
+  private static String formatList(List<?> list) {
+    StringBuilder sb = new StringBuilder("[");
+    for (int i = 0; i < list.size(); i++) {
+      sb.append(formatString(list.get(i)));
+      if (i < list.size() - 1) {
+        sb.append(", ");
+      }
+    }
+    sb.append("]");
+    return sb.toString();
+  }
+
+  private static class MapEntry {
+    final String keyStr;
+    final String valStr;
+
+    MapEntry(String keyStr, String valStr) {
+      this.keyStr = keyStr;
+      this.valStr = valStr;
+    }
+  }
+
+  private static String formatMap(Map<?, ?> map) {
+    List<MapEntry> entries = new ArrayList<>(map.size());
+    for (Map.Entry<?, ?> entry : map.entrySet()) {
+      entries.add(new MapEntry(formatString(entry.getKey()), formatString(entry.getValue())));
+    }
+    entries.sort(Comparator.comparing(e -> e.keyStr));
+
+    StringBuilder sb = new StringBuilder("{");
+    for (int i = 0; i < entries.size(); i++) {
+      MapEntry entry = entries.get(i);
+      sb.append(entry.keyStr).append(": ").append(entry.valStr);
+      if (i < entries.size() - 1) {
+        sb.append(", ");
+      }
+    }
+    sb.append("}");
+    return sb.toString();
+  }
+
+  private static String formatDecimal(Object arg) {
+    if (arg instanceof Double) {
+      return formatDouble((Double) arg);
+    }
+    if (arg instanceof Long || arg instanceof UnsignedLong) {
+      return arg.toString();
+    }
+    throw new CelInvalidArgumentException(
+        "decimal clause can only be used on numbers, was given " + arg.getClass().getName());
+  }
+
+  private static String formatDouble(double val) {
+    if (Double.isNaN(val)) {
+      return "NaN";
+    }
+    if (Double.isInfinite(val)) {
+      return val > 0 ? "Infinity" : "-Infinity";
+    }
+    if (val == 0.0) {
+      return Double.doubleToRawLongBits(val) < 0 ? "-0" : "0";
+    }
+    String str = Double.toString(val);
+    int expIdx = str.indexOf('E');
+    if (expIdx == -1) {
+      if (str.endsWith(".0")) {
+        return str.substring(0, str.length() - 2);
+      }
+      return str;
+    }
+    return expandScientificNotation(str, expIdx);
+  }
+
+  private static String expandScientificNotation(String str, int expIdx) {
+    boolean negative = str.startsWith("-");
+    int mantissaStart = negative ? 1 : 0;
+    String mantissa = str.substring(mantissaStart, expIdx);
+    int exponent = Integer.parseInt(str.substring(expIdx + 1));
+
+    int dotIdx = mantissa.indexOf('.');
+    String digits;
+    int decimalPos;
+    if (dotIdx == -1) {
+      digits = mantissa;
+      decimalPos = digits.length();
+    } else {
+      digits = mantissa.substring(0, dotIdx) + mantissa.substring(dotIdx + 1);
+      decimalPos = dotIdx;
+    }
+
+    int newDecimalPos = decimalPos + exponent;
+    StringBuilder sb = new StringBuilder();
+    boolean hasDot = false;
+    if (negative) {
+      sb.append('-');
+    }
+
+    if (newDecimalPos <= 0) {
+      sb.append("0.");
+      hasDot = true;
+      for (int i = 0; i < -newDecimalPos; i++) {
+        sb.append('0');
+      }
+      sb.append(digits);
+    } else if (newDecimalPos >= digits.length()) {
+      sb.append(digits);
+      for (int i = 0; i < newDecimalPos - digits.length(); i++) {
+        sb.append('0');
+      }
+    } else {
+      sb.append(digits, 0, newDecimalPos);
+      sb.append('.');
+      hasDot = true;
+      sb.append(digits, newDecimalPos, digits.length());
+    }
+
+    if (hasDot) {
+      int end = sb.length() - 1;
+      while (end >= 0 && sb.charAt(end) == '0') {
+        end--;
+      }
+      if (end >= 0 && sb.charAt(end) == '.') {
+        end--;
+      }
+      sb.setLength(end + 1);
+    }
+    return sb.toString();
+  }
+
+  private static double getDoubleValue(Object arg, String clauseName) {
+    if (arg instanceof Double) {
+      return (Double) arg;
+    }
+    if (arg instanceof Long) {
+      return ((Long) arg).doubleValue();
+    }
+    if (arg instanceof UnsignedLong) {
+      return ((UnsignedLong) arg).doubleValue();
+    }
+    throw new CelInvalidArgumentException(
+        clauseName
+            + " clause can only be used on doubles, integers, and unsigned integers, was given "
+            + arg.getClass().getName());
+  }
+
+  private static String formatFixed(Object arg, int precision) {
+    double val = getDoubleValue(arg, "fixed point");
+    if (Double.isNaN(val)) {
+      return "NaN";
+    }
+    if (Double.isInfinite(val)) {
+      return val > 0 ? "Infinity" : "-Infinity";
+    }
+    // Math.rint is strictly required for cross-stack parity.
+    // Go and C++ formatters natively use IEEE 754 HALF_EVEN (Banker's) rounding for %f.
+    // Java's String.format deviates by using HALF_UP rounding so HALF_EVEN pre-rounding is applied
+    // to match Go and C++ outputs on boundary ties.
+    int p = precision >= 0 ? precision : 6;
+    if (p <= 15 && Math.abs(val) < 1e14) {
+      double factor = Math.pow(10, p);
+      val = Math.rint(val * factor) / factor;
+    }
+    String fmtStr = "%." + p + "f";
+    return String.format(LOCALE_ROOT, fmtStr, val);
+  }
+
+  private static String formatScientific(Object arg, int precision) {
+    double val = getDoubleValue(arg, "scientific");
+    if (Double.isNaN(val)) {
+      return "NaN";
+    }
+    if (Double.isInfinite(val)) {
+      return val > 0 ? "Infinity" : "-Infinity";
+    }
+    String fmtStr = precision >= 0 ? "%." + precision + "e" : "%.6e";
+    return String.format(LOCALE_ROOT, fmtStr, val);
+  }
+
+  private static String formatBinary(Object arg) {
+    if (arg instanceof Long) {
+      long val = (Long) arg;
+      if (val < 0) {
+        if (val == Long.MIN_VALUE) {
+          return MIN_LONG_BINARY;
+        }
+        return "-" + Long.toBinaryString(-val);
+      }
+      return Long.toBinaryString(val);
+    }
+    if (arg instanceof UnsignedLong) {
+      UnsignedLong ulong = (UnsignedLong) arg;
+      return ulong.toString(2);
+    }
+    if (arg instanceof Boolean) {
+      Boolean b = (Boolean) arg;
+      return b ? "1" : "0";
+    }
+    throw new CelInvalidArgumentException(
+        "binary clause can only be used on integers and bools, was given "
+            + arg.getClass().getName());
+  }
+
+  private static String formatHex(Object arg, boolean upper) {
+    String result;
+    if (arg instanceof Long) {
+      long val = (Long) arg;
+      if (val < 0) {
+        if (val == Long.MIN_VALUE) {
+          result = MIN_LONG_HEX;
+        } else {
+          result = "-" + Long.toHexString(-val);
+        }
+      } else {
+        result = Long.toHexString(val);
+      }
+    } else if (arg instanceof UnsignedLong) {
+      UnsignedLong unsignedLong = (UnsignedLong) arg;
+      result = unsignedLong.toString(16);
+    } else if (arg instanceof CelByteString) {
+      CelByteString byteString = (CelByteString) arg;
+      result = BASE16_LOWER.encode(byteString.toByteArray());
+    } else if (arg instanceof String) {
+      String str = (String) arg;
+      result = BASE16_LOWER.encode(str.getBytes(UTF_8));
+    } else {
+      throw new CelInvalidArgumentException(
+          "hex clause can only be used on integers, byte buffers, and strings, was given "
+              + arg.getClass().getName());
+    }
+    return upper ? result.toUpperCase(LOCALE_ROOT) : result;
+  }
+
+  private static String formatOctal(Object arg) {
+    if (arg instanceof Long) {
+      long val = (Long) arg;
+      if (val < 0) {
+        if (val == Long.MIN_VALUE) {
+          return MIN_LONG_OCTAL;
+        }
+        return "-" + Long.toOctalString(-val);
+      }
+      return Long.toOctalString(val);
+    }
+    if (arg instanceof UnsignedLong) {
+      UnsignedLong ulong = (UnsignedLong) arg;
+      return ulong.toString(8);
+    }
+    throw new CelInvalidArgumentException(
+        "octal clause can only be used on integers, was given " + arg.getClass().getName());
   }
 
   private static Long lastIndexOf(String str, String substr) throws CelEvaluationException {
