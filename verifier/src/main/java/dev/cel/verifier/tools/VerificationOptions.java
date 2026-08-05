@@ -135,6 +135,10 @@ final class VerificationOptions {
                 + "'. Expected format 'name:type' (e.g., 'x:int').");
       }
       String name = parts[0].trim();
+      if (name.isEmpty()) {
+        throw new IllegalArgumentException(
+            "Invalid variable specification: '" + varSpec + "'. Variable name cannot be empty.");
+      }
       String typeStr = parts[1].trim().toLowerCase(Locale.US);
       CelType type = parseCelType(typeStr);
       vars.put(name, type);

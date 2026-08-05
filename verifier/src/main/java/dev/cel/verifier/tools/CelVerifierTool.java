@@ -43,12 +43,13 @@ import picocli.CommandLine.Spec;
     name = "cel-verifier",
     mixinStandardHelpOptions = true,
     versionProvider = CelVerifierTool.VersionProvider.class,
-    description = "CEL-Java Formal Verification CLI Tool",
+    description = "CEL-Java Formal Verification CLI & REPL Tool",
     subcommands = {
       CelVerifierTool.CheckSatCommand.class,
       CelVerifierTool.CheckValidCommand.class,
       CelVerifierTool.VerifyEquivCommand.class,
-      CelVerifierTool.VerifyPolicyCommand.class
+      CelVerifierTool.VerifyPolicyCommand.class,
+      CelVerifierTool.ReplCommand.class
     })
 public final class CelVerifierTool implements Runnable {
 
@@ -293,6 +294,15 @@ public final class CelVerifierTool implements Runnable {
         return EXIT_CODE_INCONCLUSIVE;
       }
       return EXIT_CODE_VERIFIED;
+    }
+  }
+
+  @Command(name = "repl", description = "Launch interactive CEL Formal Verification REPL shell")
+  static class ReplCommand implements Callable<Integer> {
+
+    @Override
+    public Integer call() {
+      return CelVerifierRepl.runInteractiveRepl();
     }
   }
 

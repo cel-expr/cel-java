@@ -28,6 +28,7 @@ EOF
 java_library(
     name = "tools_lib",
     srcs = [
+        "CelVerifierRepl.java",
         "CelVerifierTool.java",
         "CelVerifierToolCore.java",
         "FormatUtils.java",
@@ -38,11 +39,13 @@ java_library(
         "alt_dep=//verifier/tools",
     ],
     deps = [
+        "//:java_jline",
         "//bundle:cel",
         "//common:cel_ast",
         "//common:compiler_common",
         "//common:options",
         "//common/types",
+        "//common/types:cel_types",
         "//common/types:type_providers",
         "//compiler",
         "//compiler:compiler_builder",

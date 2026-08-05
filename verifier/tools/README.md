@@ -105,3 +105,87 @@ Set CLI output format (`TEXT` or `JSON`, default: `TEXT`):
 *   `1`: Violation or counterexample found.
 *   `2`: Inconclusive result (solver unknown or timeout).
 *   `3`: Error (syntax compilation error, missing file, or execution error).
+
+## Interactive REPL Shell
+
+The REPL shell provides an interactive, stateful environment to execute CEL
+formal verification queries without re-declaring variables or re-running CLI
+parameters for every query.
+
+### Launching the REPL
+
+```bash
+bazel run //verifier/tools:cel_verifier_tool -- repl
+```
+
+### REPL Commands
+
+| Command | Description | Example |
+|---|---|---|
+| `:var <name> <type>` | Declare a variable in session state | `:var role string` |
+| `:unknown <id>` | Mark identifier as Unknown | `:unknown request.headers` |
+| `:timeout <sec>` | Set Z3 solver timeout in seconds (default: 10s) | `:timeout 5` |
+| `:unroll <limit>` | Set comprehension unroll limit (default: 5) | `:unroll 3` |
+| `:vars` | Display declared session variables & config | `:vars` |
+| `:clear` | Reset session state (clears variables & unknowns) | `:clear` |
+| `:help [cmd]` | Display built-in help or command details | `:help var` |
+| `:quit` / `:exit` | Exit the interactive REPL shell | `:quit` |
+
+### Verification Queries in REPL
+
+*   **Satisfiability (`sat <expr>` or `<expr>`):** Checks if the expression
+    can evaluate to `true` for any assignment of session variables. Outputs
+    satisfying witness inputs if satisfiable.
+*   **Validity (`valid <expr>`):** Proves whether the expression evaluates
+    to `true` for ALL possible variable assignments. Outputs a counterexample
+    if invalid.
+*   **Equivalence (`equiv <expr1> <=> <expr2>`):** Proves whether two
+    expressions are logically identical across all inputs. Outputs a
+    counterexample if not equivalent.
+
+### Example REPL Session
+
+```text
+============================================================
+ CEL Verification REPL
+ Type :help for commands, :quit to exit.
+============================================================
+cel-verifier> :var port int
+Variable declared: port : int
+
+cel-verifier> sat role == 'admin' && port > 1024
+
+cel-verifier> :var role string
+Variable declared: role : string
+
+cel-verifier> sat role == 'admin' && port > 1024
+[VERIFIED] Condition is satisfiable. Satisfying input:
+  role = "admin"
+  port = 1025
+
+cel-verifier> valid port > 0 || port <= 0
+[VERIFIED]
+
+cel-verifier> valid port > 1024
+[VIOLATED] Condition is violated. Counterexample input:
+  port = 0
+
+cel-verifier> equiv port > 10 <=> 10 < port
+[VERIFIED]
+
+cel-verifier> :vars
+--- Session State ---
+Timeout: 10s | Unroll limit: 5
+Unknowns: none
+Variables (2):
+  role : string
+  port : int
+
+cel-verifier> :quit
+Goodbye!
+```
+
+> **Note:** Inline help is built into the REPL shell. Type `:help` or
+> `:help <command>` (e.g. `:help var`, `:help equiv`) at any prompt for
+> detailed usage instructions and examples.
+

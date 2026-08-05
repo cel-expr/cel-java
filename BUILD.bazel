@@ -95,6 +95,14 @@ java_library(
     ],
 )
 
+java_library(
+    name = "java_jline",
+    exports = [
+        "@maven//:org_jline_jline_reader",
+        "@maven//:org_jline_jline_terminal",
+    ],
+)
+
 default_java_toolchain(
     name = "repository_default_toolchain",
     configuration = DEFAULT_TOOLCHAIN_CONFIGURATION,
