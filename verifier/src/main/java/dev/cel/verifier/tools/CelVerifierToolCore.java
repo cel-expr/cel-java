@@ -50,7 +50,7 @@ final class CelVerifierToolCore {
       throws Exception {
     CelCompiler compiler = buildCompiler(variables);
     CelAbstractSyntaxTree ast = compiler.compile(expression).getAst();
-    CelVerifier verifier = buildVerifier(options);
+    CelVerifier verifier = buildVerifier(variables, options);
     return verifier.isSatisfiable(ast);
   }
 
@@ -60,7 +60,7 @@ final class CelVerifierToolCore {
       throws Exception {
     CelCompiler compiler = buildCompiler(variables);
     CelAbstractSyntaxTree ast = compiler.compile(expression).getAst();
-    CelVerifier verifier = buildVerifier(options);
+    CelVerifier verifier = buildVerifier(variables, options);
     return verifier.isAlwaysTrue(ast);
   }
 
@@ -74,7 +74,7 @@ final class CelVerifierToolCore {
     CelCompiler compiler = buildCompiler(variables);
     CelAbstractSyntaxTree astA = compiler.compile(expressionA).getAst();
     CelAbstractSyntaxTree astB = compiler.compile(expressionB).getAst();
-    CelVerifier verifier = buildVerifier(options);
+    CelVerifier verifier = buildVerifier(variables, options);
     return verifier.verifyEquivalence(astA, astB);
   }
 
@@ -125,20 +125,7 @@ final class CelVerifierToolCore {
     return builder.build();
   }
 
-  static CelVerifier buildVerifier(VerificationOptions options) {
-    CelVerifierBuilder builder =
-        CelVerifierFactory.newVerifier()
-            .setTimeout(options.getTimeout())
-            .setComprehensionUnrollLimit(options.getComprehensionUnrollLimit());
-
-    for (String unknown : options.getUnknownIdentifiers()) {
-      builder.addUnknownIdentifier(unknown);
-    }
-    return builder.build();
-  }
-
-  private static CelPolicyVerifier buildPolicyVerifier(
-      Map<String, CelType> variables, VerificationOptions options) {
+  static Cel buildCel(Map<String, CelType> variables) {
     CelBuilder celBuilder =
         CelFactory.plannerCelBuilder()
             .setStandardMacros(CelStandardMacro.STANDARD_MACROS)
@@ -151,10 +138,27 @@ final class CelVerifierToolCore {
     for (Map.Entry<String, CelType> entry : variables.entrySet()) {
       celBuilder.addVar(entry.getKey(), entry.getValue());
     }
-    Cel celBundle = celBuilder.build();
+    return celBuilder.build();
+  }
+
+  static CelVerifier buildVerifier(Map<String, CelType> variables, VerificationOptions options) {
+    CelVerifierBuilder builder =
+        CelVerifierFactory.newVerifier(buildCel(variables))
+            .setTimeout(options.getTimeout())
+            .setComprehensionUnrollLimit(options.getComprehensionUnrollLimit());
+
+    for (String unknown : options.getUnknownIdentifiers()) {
+      builder.addUnknownIdentifier(unknown);
+    }
+    return builder.build();
+  }
+
+  private static CelPolicyVerifier buildPolicyVerifier(
+      Map<String, CelType> variables, VerificationOptions options) {
+    Cel celBundle = buildCel(variables);
     CelPolicyCompiler policyCompiler =
         CelPolicyCompilerFactory.newPolicyCompiler(celBundle).build();
-    CelVerifier astVerifier = buildVerifier(options);
+    CelVerifier astVerifier = buildVerifier(variables, options);
 
     return CelPolicyVerifierFactory.newVerifier(policyCompiler, astVerifier).build();
   }

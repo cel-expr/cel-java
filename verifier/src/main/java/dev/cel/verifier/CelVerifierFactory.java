@@ -14,13 +14,42 @@
 
 package dev.cel.verifier;
 
+import dev.cel.bundle.Cel;
+import dev.cel.bundle.CelFactory;
+import dev.cel.checker.CelChecker;
+import dev.cel.compiler.CelCompiler;
+import dev.cel.compiler.CelCompilerFactory;
+import dev.cel.parser.CelParser;
+import dev.cel.runtime.CelRuntime;
 
 /** Factory class for producing AST verifiers using Z3. */
 public final class CelVerifierFactory {
 
-  /** Create a builder for configuring a {@link CelVerifier}. */
+  /**
+   * Create a builder for configuring a {@link CelVerifier}.
+   *
+   * @deprecated Prefer passing a {@link Cel} environment using {@link #newVerifier(Cel)} to enable
+   *     canonicalization and expression re-typechecking during verification.
+   */
+  @Deprecated
   public static CelVerifierBuilder newVerifier() {
     return CelVerifierZ3Impl.newBuilder();
+  }
+
+  /** Create a builder for configuring a {@link CelVerifier} with a CEL environment. */
+  public static CelVerifierBuilder newVerifier(Cel cel) {
+    return CelVerifierZ3Impl.newBuilder(cel);
+  }
+
+  /** Create a builder for configuring a {@link CelVerifier} with a CEL environment. */
+  public static CelVerifierBuilder newVerifier(CelCompiler celCompiler, CelRuntime celRuntime) {
+    return newVerifier(CelFactory.combine(celCompiler, celRuntime));
+  }
+
+  /** Create a builder for configuring a {@link CelVerifier} with a CEL environment. */
+  public static CelVerifierBuilder newVerifier(
+      CelParser celParser, CelChecker celChecker, CelRuntime celRuntime) {
+    return newVerifier(CelCompilerFactory.combine(celParser, celChecker), celRuntime);
   }
 
   private CelVerifierFactory() {}

@@ -27,9 +27,14 @@ import com.microsoft.z3.Model;
 import com.microsoft.z3.Params;
 import com.microsoft.z3.Solver;
 import com.microsoft.z3.Status;
+import dev.cel.bundle.Cel;
+import dev.cel.bundle.CelFactory;
 import dev.cel.common.CelAbstractSyntaxTree;
 import dev.cel.common.types.CelType;
 import dev.cel.common.types.CelTypeProvider;
+import dev.cel.optimizer.CelOptimizationException;
+import dev.cel.optimizer.CelOptimizer;
+import dev.cel.optimizer.CelOptimizerFactory;
 import dev.cel.verifier.axioms.CelZ3FunctionAxiom;
 import dev.cel.verifier.axioms.CelZ3StandardAxioms;
 import java.time.Duration;
@@ -65,8 +70,15 @@ final class CelVerifierZ3Impl implements CelVerifier {
   private final CelZ3FunctionRegistry functionRegistry;
   private final CelTypeProvider typeProvider;
 
+  @SuppressWarnings("Immutable") // Cel environment is immutable, just not marked as such
+  private final Cel cel;
+
   static Builder newBuilder() {
-    return new Builder();
+    return new Builder(CelFactory.plannerCelBuilder().build());
+  }
+
+  static Builder newBuilder(Cel cel) {
+    return new Builder(Preconditions.checkNotNull(cel));
   }
 
   static final class Builder implements CelVerifierBuilder {
@@ -74,14 +86,16 @@ final class CelVerifierZ3Impl implements CelVerifier {
     private int comprehensionUnrollLimit;
     private final ImmutableSet.Builder<String> unknownIdentifiers;
     private final ImmutableList.Builder<CelZ3FunctionAxiom> functionAxioms;
+    private final Cel cel;
     private CelTypeProvider typeProvider;
 
-    private Builder() {
+    private Builder(Cel cel) {
       this.timeout = Duration.ofSeconds(10);
       this.comprehensionUnrollLimit = 5;
       this.unknownIdentifiers = ImmutableSet.builder();
       this.functionAxioms = ImmutableList.builder();
       this.typeProvider = EMPTY_TYPE_PROVIDER;
+      this.cel = cel;
     }
 
     @Override
@@ -137,7 +151,12 @@ final class CelVerifierZ3Impl implements CelVerifier {
 
       CelZ3FunctionRegistry registry = CelZ3FunctionRegistry.create(allFunctionAxioms);
       return new CelVerifierZ3Impl(
-          timeout, comprehensionUnrollLimit, unknownIdentifiers.build(), registry, typeProvider);
+          timeout,
+          comprehensionUnrollLimit,
+          unknownIdentifiers.build(),
+          registry,
+          typeProvider,
+          cel);
     }
   }
 
@@ -160,6 +179,18 @@ final class CelVerifierZ3Impl implements CelVerifier {
       CelAbstractSyntaxTree astA, CelAbstractSyntaxTree astB) throws CelVerificationException {
     Preconditions.checkArgument(astA.isChecked(), "astA must be type-checked.");
     Preconditions.checkArgument(astB.isChecked(), "astB must be type-checked.");
+    CelOptimizer optimizer =
+        CelOptimizerFactory.standardCelOptimizerBuilder(cel)
+            .addAstOptimizers(
+                CanonicalizationOptimizer.newInstance(
+                    CanonicalizationOptimizer.CanonicalizationOptions.newBuilder().build()))
+            .build();
+    try {
+      astA = optimizer.optimize(astA);
+      astB = optimizer.optimize(astB);
+    } catch (CelOptimizationException e) {
+      // Fall back to original ASTs if canonicalization or re-typechecking fails
+    }
     try (Context ctx = new Context(ImmutableMap.of("model", "true"))) {
       CelAstToZ3Translator translator =
           new CelAstToZ3Translator(
@@ -487,12 +518,14 @@ final class CelVerifierZ3Impl implements CelVerifier {
       int comprehensionUnrollLimit,
       ImmutableSet<String> unknownIdentifiers,
       CelZ3FunctionRegistry functionRegistry,
-      CelTypeProvider typeProvider) {
+      CelTypeProvider typeProvider,
+      Cel cel) {
     this.timeout = timeout;
     this.comprehensionUnrollLimit = comprehensionUnrollLimit;
     this.unknownIdentifiers = unknownIdentifiers;
     this.functionRegistry = functionRegistry;
     this.typeProvider = typeProvider;
+    this.cel = cel;
   }
 
   private enum SolverOutcome {

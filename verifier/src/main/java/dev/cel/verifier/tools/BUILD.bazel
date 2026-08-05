@@ -6,6 +6,7 @@ package(
         "//:license",
     ],
     default_visibility = [
+        "//publish:__pkg__",
         "//verifier:__subpackages__",
     ],
 )

@@ -20,6 +20,7 @@ MAVEN_RUNTIME_JAR_DEPS = [
 java_test(
     name = "compiler_artifact_test",
     srcs = ["CompilerArtifactTest.java"],
+    tags = ["conformance_maven"],
     test_class = "dev.cel.maven.CompilerArtifactTest",
     deps =
         MAVEN_COMPILER_JAR_DEPS + [
@@ -33,6 +34,7 @@ java_test(
 java_test(
     name = "runtime_artifact_test",
     srcs = ["RuntimeArtifactTest.java"],
+    tags = ["conformance_maven"],
     test_class = "dev.cel.maven.RuntimeArtifactTest",
     deps =
         MAVEN_RUNTIME_JAR_DEPS + [

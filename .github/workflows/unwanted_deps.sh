@@ -46,4 +46,8 @@ checkUnwantedDeps '//publish:cel' '@maven_android//:com_google_protobuf_protobuf
 # cel_runtime_android shouldn't depend on the full protobuf runtime or antlr
 checkUnwantedDeps '//publish:cel_runtime_android' '@maven//:com_google_protobuf_protobuf_java'
 checkUnwantedDeps '//publish:cel_runtime_android' '@maven//:org_antlr_antlr4_runtime'
+
+# cel shouldn't depend on the verifier
+checkUnwantedDeps '//publish:cel' '//verifier/'
+
 exit 0

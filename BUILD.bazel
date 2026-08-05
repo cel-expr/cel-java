@@ -81,6 +81,7 @@ java_library(
     neverlink = 1,
     exports = [
         "@maven//:com_google_auto_value_auto_value_annotations",
+        "@maven//:org_jspecify_jspecify",
     ],
 )
 
