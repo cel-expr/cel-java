@@ -9,7 +9,7 @@ java_library(
     name = "tests",
     testonly = True,
     srcs = glob(
-        ["**/*.java"],
+        ["*.java"],
     ),
     compatible_with = [],
     data = [
@@ -53,6 +53,7 @@ java_library(
         "//verifier:verifier_factory",
         "//verifier:z3_impl",
         "//verifier/axioms",
+        "//verifier/tools",
         "@cel_spec//proto/cel/expr/conformance/proto3:test_all_types_java_proto",
         "@maven//:com_google_guava_guava",
     ],

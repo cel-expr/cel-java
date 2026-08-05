@@ -1,0 +1,77 @@
+load("@rules_java//java:defs.bzl", "java_binary", "java_library")
+load("//publish:cel_version.bzl", "CEL_VERSION")
+
+package(
+    default_applicable_licenses = [
+        "//:license",
+    ],
+    default_visibility = [
+        "//verifier:__subpackages__",
+    ],
+)
+
+genrule(
+    name = "generate_version",
+    outs = ["CelVersion.java"],
+    cmd = """cat << 'EOF' > $@
+package dev.cel.verifier.tools;
+
+final class CelVersion {
+  static final String VERSION = "%s";
+
+  private CelVersion() {}
+}
+EOF
+""" % CEL_VERSION,
+)
+
+java_library(
+    name = "tools_lib",
+    srcs = [
+        "CelVerifierTool.java",
+        "CelVerifierToolCore.java",
+        "FormatUtils.java",
+        "VerificationOptions.java",
+        ":generate_version",
+    ],
+    tags = [
+        "alt_dep=//verifier/tools",
+    ],
+    deps = [
+        "//bundle:cel",
+        "//common:cel_ast",
+        "//common:compiler_common",
+        "//common:options",
+        "//common/types",
+        "//common/types:type_providers",
+        "//compiler",
+        "//compiler:compiler_builder",
+        "//extensions",
+        "//parser:macro",
+        "//policy",
+        "//policy:compiler",
+        "//policy:compiler_factory",
+        "//policy:parser",
+        "//policy:parser_factory",
+        "//policy:validation_exception",
+        "//verifier",
+        "//verifier:policy_verifier",
+        "//verifier:policy_verifier_factory",
+        "//verifier:verifier_factory",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:com_google_guava_guava",
+        "@maven//:info_picocli_picocli",
+    ],
+)
+
+java_binary(
+    name = "cel_verifier_tool",
+    jvm_flags = ["-Dz3.skipLibraryLoad=true"],
+    main_class = "dev.cel.verifier.tools.CelVerifierTool",
+    tags = [
+        "alt_dep=//verifier/tools:cel_verifier_tool",
+    ],
+    runtime_deps = [
+        ":tools_lib",
+    ],
+)

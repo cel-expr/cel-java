@@ -433,3 +433,7 @@ What this means for verification:
     default unless you have a specific need and bounded inputs.
 
 ---
+
+## Tools & CLI
+
+For command-line verification and interactive execution, see the [CLI Tool documentation](tools/README.md).

@@ -1,0 +1,19 @@
+package(
+    default_applicable_licenses = ["//:license"],
+    default_visibility = ["//verifier:verifier_internal"],
+)
+
+alias(
+    name = "tools",
+    actual = "//verifier/src/main/java/dev/cel/verifier/tools:tools_lib",
+)
+
+alias(
+    name = "tools_lib",
+    actual = "//verifier/src/main/java/dev/cel/verifier/tools:tools_lib",
+)
+
+alias(
+    name = "cel_verifier_tool",
+    actual = "//verifier/src/main/java/dev/cel/verifier/tools:cel_verifier_tool",
+)

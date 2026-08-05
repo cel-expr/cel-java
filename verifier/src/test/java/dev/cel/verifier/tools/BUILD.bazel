@@ -1,0 +1,31 @@
+load("@rules_java//java:defs.bzl", "java_library")
+load("//:testing.bzl", "junit4_test_suites")
+
+package(
+    default_applicable_licenses = ["//:license"],
+)
+
+java_library(
+    name = "tests",
+    testonly = True,
+    srcs = glob(["*.java"]),
+    deps = [
+        "//:java_truth",
+        "//common/types",
+        "//common/types:type_providers",
+        "//verifier",
+        "//verifier/tools",
+        "@maven//:com_google_guava_guava",
+        "@maven//:info_picocli_picocli",
+        "@maven//:junit_junit",
+    ],
+)
+
+junit4_test_suites(
+    name = "test_suites",
+    sizes = [
+        "small",
+    ],
+    src_dir = "src/test/java",
+    deps = [":tests"],
+)
