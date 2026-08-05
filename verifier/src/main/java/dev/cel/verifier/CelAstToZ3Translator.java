@@ -1228,7 +1228,7 @@ final class CelAstToZ3Translator {
             .orElseThrow(
                 () -> new IllegalArgumentException("Type not found for expr ID: " + exprId));
     BoolExpr typeConstraint = createTypeConstraintForType(val, type);
-    return ctx.mkOr(typeSystem.isError(val), typeSystem.isUnknown(val), typeConstraint);
+    return ctx.mkOr(typeSystem.isErrorOrUnknown(val), typeConstraint);
   }
 
   private BoolExpr createTypeConstraintForType(Expr<?> val, CelType type) {
@@ -1257,15 +1257,15 @@ final class CelAstToZ3Translator {
       Expr<?> unwrapped = ctx.mkApp(typeSystem.intCons().getAccessorDecls()[0], val);
       return ctx.mkAnd(
           ctx.mkApp(typeSystem.intCons().getTesterDecl(), val),
-          ctx.mkGe((ArithExpr) unwrapped, ctx.mkInt(CelZ3TypeSystem.MIN_INT64)),
-          ctx.mkLe((ArithExpr) unwrapped, ctx.mkInt(CelZ3TypeSystem.MAX_INT64)));
+          ctx.mkGe((ArithExpr) unwrapped, ctx.mkInt(CelNumericBounds.MIN_INT64)),
+          ctx.mkLe((ArithExpr) unwrapped, ctx.mkInt(CelNumericBounds.MAX_INT64)));
     }
     if (type.equals(SimpleType.UINT)) {
       Expr<?> unwrapped = ctx.mkApp(typeSystem.uintCons().getAccessorDecls()[0], val);
       return ctx.mkAnd(
           ctx.mkApp(typeSystem.uintCons().getTesterDecl(), val),
           ctx.mkGe((ArithExpr) unwrapped, ctx.mkInt(0)),
-          ctx.mkLe((ArithExpr) unwrapped, ctx.mkInt(CelZ3TypeSystem.MAX_UINT64)));
+          ctx.mkLe((ArithExpr) unwrapped, ctx.mkInt(CelNumericBounds.MAX_UINT64)));
     }
     if (type.equals(SimpleType.DOUBLE)) {
       return (BoolExpr) ctx.mkApp(typeSystem.doubleCons().getTesterDecl(), val);
@@ -1351,7 +1351,10 @@ final class CelAstToZ3Translator {
         BoolExpr validEntry = ctx.mkAnd(validIndex, presence);
 
         Expr mapVal = ctx.mkSelect(mapValues, key);
-        BoolExpr valNotError = ctx.mkNot(typeSystem.isError(mapVal));
+        BoolExpr valNotError =
+            unknownIdentifiers.isEmpty()
+                ? ctx.mkNot(typeSystem.isErrorOrUnknown(mapVal))
+                : ctx.mkNot(typeSystem.isError(mapVal));
         boundsAndTypes.add(ctx.mkImplies(validEntry, valNotError));
         boundsAndTypes.add(ctx.mkImplies(validEntry, createTypeConstraintForType(mapVal, valType)));
       }
@@ -1409,6 +1412,12 @@ final class CelAstToZ3Translator {
       case CONSTANT:
         return Optional.of(expr.constant());
       case LIST:
+        if (!expr.list().optionalIndices().isEmpty()) {
+          // Do not cache lists with optional elements. Optional elements conditionally alter
+          // sequence length and presence via ITE branches at runtime; caching would collide
+          // [1, 2] with [?1, 2] and freeze conditional evaluations to a static reference.
+          return Optional.empty();
+        }
         ImmutableList.Builder<Object> builder = ImmutableList.builder();
         for (CelExpr elem : expr.list().elements()) {
           Optional<Object> elemKey = toCacheKey(elem);

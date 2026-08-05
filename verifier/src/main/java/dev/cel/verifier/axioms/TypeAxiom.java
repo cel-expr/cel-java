@@ -47,7 +47,7 @@ final class TypeAxiom {
 
                 // Custom approximation logic for type(): it is only approximate if the argument
                 // is approximate AND the argument is an Error or Unknown.
-                BoolExpr isErrOrUnk = ctx.mkOr(typeSystem.isError(val), typeSystem.isUnknown(val));
+                BoolExpr isErrOrUnk = typeSystem.isErrorOrUnknown(val);
                 BoolExpr typeApprox = ctx.mkAnd(argApprox, isErrOrUnk);
 
                 return Optional.of(CelZ3OverloadResult.create(result, typeApprox));

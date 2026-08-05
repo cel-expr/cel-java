@@ -169,6 +169,12 @@ public final class CelVerifierReplTest {
   }
 
   @Test
+  public void repl_equivDoubleNegation() throws Exception {
+    String[] output = runReplWithCommands(":var x int", "equiv !!(x == 10) <=> (x == 10)", ":quit");
+    assertThat(output[0]).contains("[VERIFIED]");
+  }
+
+  @Test
   public void repl_unknownCommandsAndErrors() throws Exception {
     String[] output =
         runReplWithCommands(

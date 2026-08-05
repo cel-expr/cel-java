@@ -24,14 +24,17 @@ import com.microsoft.z3.IntNum;
 import com.microsoft.z3.Model;
 import com.microsoft.z3.RatNum;
 import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 import org.jspecify.annotations.Nullable;
 
 /** Generates human-readable counterexample strings from Z3 models. */
 @SuppressWarnings({"unchecked", "rawtypes"}) // Z3 Java API uses raw types.
 final class CelZ3CounterexampleGenerator {
 
-  private static final int MAX_LIST_ELEMENTS_TO_PRINT = 15;
+  private static final int MAX_ELEMENTS_TO_PRINT = 15;
 
   private CelZ3CounterexampleGenerator() {}
 
@@ -158,8 +161,10 @@ final class CelZ3CounterexampleGenerator {
             model,
             ctx.mkLength(typeSystem.getSeq(listRef)),
             String.format("Z3 failed to evaluate length for list %s", listRef));
-    int length = ((IntNum) lenExpr).getInt();
-    int printLimit = Math.min(length, MAX_LIST_ELEMENTS_TO_PRINT);
+    Preconditions.checkState(
+        lenExpr instanceof IntNum, "Expected IntNum length for list %s, got %s", listRef, lenExpr);
+    long length = ((IntNum) lenExpr).getInt64();
+    int printLimit = (int) Math.min(length, (long) MAX_ELEMENTS_TO_PRINT);
     List<String> elements = new ArrayList<>();
     for (int i = 0; i < printLimit; i++) {
       Expr<?> elem =
@@ -179,36 +184,33 @@ final class CelZ3CounterexampleGenerator {
 
   private static String reconstructMap(
       Context ctx, CelZ3TypeSystem typeSystem, Model model, Expr<?> mapRef) {
-    List<Expr<?>> keys = new ArrayList<>();
     Expr<?> lenExpr =
         evaluateStrict(
             model,
             ctx.mkLength(typeSystem.getMapKeys(mapRef)),
             String.format("Z3 failed to evaluate length for map %s", mapRef));
-    if (lenExpr instanceof IntNum) {
-      int length = ((IntNum) lenExpr).getInt();
-      int printLimit = Math.min(length, 100);
-      for (int i = 0; i < printLimit; i++) {
-        Expr<?> elem =
-            evaluateStrict(
-                model,
-                ctx.mkNth(typeSystem.getMapKeys(mapRef), ctx.mkInt(i)),
-                String.format("Z3 failed to evaluate map key at index %d for map %s", i, mapRef));
-        if (!keys.contains(elem)) {
-          keys.add(elem);
-        }
-      }
-    }
+    Preconditions.checkState(
+        lenExpr instanceof IntNum, "Expected IntNum length for map %s, got %s", mapRef, lenExpr);
 
+    long length = ((IntNum) lenExpr).getInt64();
+    int printLimit = (int) Math.min(length, (long) MAX_ELEMENTS_TO_PRINT);
     List<String> entries = new ArrayList<>();
-    for (Expr<?> key : keys) {
+    Set<Expr<?>> seenKeys = new HashSet<>();
+    for (int i = 0; i < printLimit; i++) {
+      Expr<?> key =
+          evaluateStrict(
+              model,
+              ctx.mkNth(typeSystem.getMapKeys(mapRef), ctx.mkInt(i)),
+              String.format("Z3 failed to evaluate map key at index %d for map %s", i, mapRef));
+      if (!seenKeys.add(key)) {
+        continue;
+      }
       Expr<?> presence =
           evaluateStrict(
               model,
               ctx.mkSelect((ArrayExpr) typeSystem.getMapPresence(mapRef), key),
               String.format(
                   "Z3 failed to evaluate map presence for key %s in map %s", key, mapRef));
-
       if (presence.isTrue()) {
         Expr<?> value =
             evaluateStrict(
@@ -220,6 +222,9 @@ final class CelZ3CounterexampleGenerator {
                 + ": "
                 + formatExpr(ctx, typeSystem, model, value));
       }
+    }
+    if (length > printLimit) {
+      entries.add("... (" + (length - printLimit) + " more entries)");
     }
 
     return "{" + String.join(", ", entries) + "}";
@@ -241,7 +246,7 @@ final class CelZ3CounterexampleGenerator {
 
     String typeName = formatExpr(ctx, typeSystem, model, typeNameExpr).replace("\"", "");
 
-    List<Expr<?>> keys = new ArrayList<>();
+    Set<Expr<?>> keys = new LinkedHashSet<>();
     extractKeys(presenceArray, keys);
 
     List<String> entries = new ArrayList<>();
@@ -268,7 +273,7 @@ final class CelZ3CounterexampleGenerator {
     return typeName + "{" + String.join(", ", entries) + "}";
   }
 
-  private static void extractKeys(Expr<?> arrayExpr, List<Expr<?>> keys) {
+  private static void extractKeys(Expr<?> arrayExpr, Set<Expr<?>> keys) {
     int iterations = 0;
     while (true) {
       if (++iterations > 100_000) {
@@ -284,9 +289,7 @@ final class CelZ3CounterexampleGenerator {
         Expr<?>[] args = arrayExpr.getArgs();
         Preconditions.checkState(
             args.length == 3, "Z3 store array operation must have exactly 3 arguments");
-        if (!keys.contains(args[1])) {
-          keys.add(args[1]);
-        }
+        keys.add(args[1]);
         arrayExpr = args[0];
         continue;
       }

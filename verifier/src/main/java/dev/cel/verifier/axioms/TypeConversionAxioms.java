@@ -14,7 +14,7 @@
 
 package dev.cel.verifier.axioms;
 
-import static dev.cel.verifier.CelZ3TypeSystem.MAX_INT64;
+import static dev.cel.verifier.CelNumericBounds.MAX_INT64;
 
 import com.google.common.collect.ImmutableList;
 import com.microsoft.z3.BoolExpr;

@@ -144,7 +144,6 @@ abstract class TranslatedValue {
       Collection<TranslatedValue> args) {
     List<BoolExpr> exactErrors = new ArrayList<>();
     List<BoolExpr> exactUnknowns = new ArrayList<>();
-    List<BoolExpr> errors = new ArrayList<>();
     List<BoolExpr> unknowns = new ArrayList<>();
     List<BoolExpr> taints = new ArrayList<>();
     taints.add(baseTaint);
@@ -164,7 +163,6 @@ abstract class TranslatedValue {
       BoolExpr isError = ts.isError(z3Expr);
       BoolExpr isUnknown = ts.isUnknown(z3Expr);
 
-      errors.add(isError);
       unknowns.add(isUnknown);
 
       exactErrors.add(
@@ -180,16 +178,17 @@ abstract class TranslatedValue {
       return create(baseResult, celExpr, ts, anyTaint);
     }
 
+    List<Expr<?>> z3Args = new ArrayList<>();
+    for (TranslatedValue arg : argsList) {
+      if (!arg.isLiteral(ExprKind.Kind.CONSTANT)) {
+        z3Args.add(arg.z3Expr());
+      }
+    }
+    Expr<?> finalResult = ts.propagateErrorAndUnknown(baseResult, z3Args);
+
     BoolExpr hasExactError = CelZ3TypeSystem.mkOrFlattened(ctx, exactErrors);
     BoolExpr hasExactUnknown = CelZ3TypeSystem.mkOrFlattened(ctx, exactUnknowns);
-    BoolExpr hasError = CelZ3TypeSystem.mkOrFlattened(ctx, errors);
     BoolExpr hasUnknown = CelZ3TypeSystem.mkOrFlattened(ctx, unknowns);
-
-    Expr<?> finalResult =
-        CelZ3TypeSystem.SwitchBuilder.newBuilder(ctx)
-            .addCase(hasUnknown, ts.mkUnknown())
-            .addCase(hasError, ts.mkError())
-            .build(baseResult);
 
     BoolExpr isSafe =
         CelZ3TypeSystem.mkOrFlattened(

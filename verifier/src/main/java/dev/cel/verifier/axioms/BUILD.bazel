@@ -22,6 +22,7 @@ java_library(
         "//common/types",
         "//extensions:comprehensions",
         "//extensions:optional_library",
+        "//verifier:numeric_bounds",
         "//verifier:type_system",
         "@maven//:com_google_errorprone_error_prone_annotations",
         "@maven//:com_google_guava_guava",

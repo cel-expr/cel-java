@@ -42,6 +42,13 @@ java_library(
 )
 
 java_library(
+    name = "numeric_bounds",
+    compatible_with = [],
+    visibility = [":verifier_internal"],
+    exports = ["//verifier/src/main/java/dev/cel/verifier:numeric_bounds"],
+)
+
+java_library(
     name = "type_system",
     compatible_with = [],
     visibility = [":verifier_internal"],

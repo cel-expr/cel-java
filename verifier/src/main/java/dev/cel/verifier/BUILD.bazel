@@ -92,12 +92,26 @@ java_library(
 )
 
 java_library(
+    name = "numeric_bounds",
+    srcs = ["CelNumericBounds.java"],
+    compatible_with = [],
+    tags = [
+    ],
+    deps = [
+        "//:auto_value",
+        "//common/annotations",
+        "@maven//:com_google_guava_guava",
+    ],
+)
+
+java_library(
     name = "type_system",
     srcs = ["CelZ3TypeSystem.java"],
     compatible_with = [],
     tags = [
     ],
     deps = [
+        ":numeric_bounds",
         "//common/internal:proto_time_utils",
         "@maven//:com_google_errorprone_error_prone_annotations",
         "@maven//:com_google_guava_guava",
@@ -121,6 +135,7 @@ java_library(
     tags = [
     ],
     deps = [
+        ":numeric_bounds",
         ":type_system",
         ":verifier",
         "//:auto_value",

@@ -50,7 +50,11 @@ final class CelVerifierRepl {
     BufferedReader fallbackReader = null;
     try {
       Terminal terminal = TerminalBuilder.builder().system(true).build();
-      lineReader = LineReaderBuilder.builder().terminal(terminal).build();
+      lineReader =
+          LineReaderBuilder.builder()
+              .terminal(terminal)
+              .option(LineReader.Option.DISABLE_EVENT_EXPANSION, true)
+              .build();
     } catch (Exception e) {
       fallbackReader = new BufferedReader(new InputStreamReader(System.in, UTF_8));
     }

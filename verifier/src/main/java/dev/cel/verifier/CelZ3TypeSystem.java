@@ -55,10 +55,6 @@ import java.util.Map;
 @SuppressWarnings({"unchecked", "rawtypes", "AvoidObjectArrays"}) // Z3 Java API uses raw types.
 public final class CelZ3TypeSystem {
 
-  public static final String MIN_INT64 = "-9223372036854775808";
-  public static final String MAX_INT64 = "9223372036854775807";
-  public static final String MAX_UINT64 = "18446744073709551615";
-
   private static final String TYPE_CEL_VALUE = "CelValue";
   private static final String CONS_BOOL = "Bool";
   private static final String IS_BOOL = "isBool";
@@ -357,7 +353,7 @@ public final class CelZ3TypeSystem {
 
   /** Creates a CelValue containing an integer. */
   public Expr<?> mkInt(long val) {
-    return ctx.mkApp(intCons.ConstructorDecl(), ctx.mkInt(val));
+    return ctx.mkApp(intCons.ConstructorDecl(), ctx.mkInt(Long.toString(val)));
   }
 
   /** Creates a CelValue containing an unsigned integer from a string representation. */
@@ -573,6 +569,11 @@ public final class CelZ3TypeSystem {
   /** Checks if the given CelValue is an unknown value. */
   public BoolExpr isUnknown(Expr<?> val) {
     return (BoolExpr) ctx.mkApp(unknownCons.getTesterDecl(), val);
+  }
+
+  /** Checks if the given CelValue is either an error or an unknown value. */
+  public BoolExpr isErrorOrUnknown(Expr<?> val) {
+    return ctx.mkOr(isError(val), isUnknown(val));
   }
 
   /** Checks if the given CelValue is a boolean. */
@@ -804,7 +805,9 @@ public final class CelZ3TypeSystem {
 
   /** Checks if the given arithmetic expression overflows a 64-bit integer. */
   public BoolExpr checkIntOverflow(ArithExpr result) {
-    return ctx.mkOr(ctx.mkGt(result, ctx.mkInt(MAX_INT64)), ctx.mkLt(result, ctx.mkInt(MIN_INT64)));
+    return ctx.mkOr(
+        ctx.mkGt(result, ctx.mkInt(CelNumericBounds.MAX_INT64)),
+        ctx.mkLt(result, ctx.mkInt(CelNumericBounds.MIN_INT64)));
   }
 
   /** Checks if the given arithmetic expression overflows CEL Timestamp bounds. */
@@ -823,7 +826,8 @@ public final class CelZ3TypeSystem {
 
   /** Checks if the given arithmetic expression overflows a 64-bit unsigned integer. */
   public BoolExpr checkUintOverflow(ArithExpr result) {
-    return ctx.mkOr(ctx.mkGt(result, ctx.mkInt(MAX_UINT64)), ctx.mkLt(result, ctx.mkInt(0)));
+    return ctx.mkOr(
+        ctx.mkGt(result, ctx.mkInt(CelNumericBounds.MAX_UINT64)), ctx.mkLt(result, ctx.mkInt(0)));
   }
 
   /** Safely concatenates two Z3 sequences. */

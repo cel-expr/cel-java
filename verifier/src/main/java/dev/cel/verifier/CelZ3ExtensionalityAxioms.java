@@ -79,7 +79,8 @@ final class CelZ3ExtensionalityAxioms {
 
     Sort listRefSort = typeSystem.listRefSort();
     Sort seqSort = ctx.mkSeqSort(typeSystem.celValueSort());
-    FuncDecl<?> mkListRef = ctx.mkFuncDecl(FUNC_MK_LIST_REF, new Sort[] {seqSort}, listRefSort);
+    FuncDecl<?> mkListRef =
+        typeSystem.internFuncDecl(FUNC_MK_LIST_REF, new Sort[] {seqSort}, listRefSort);
 
     for (Expr<?> ref : refs) {
       if (isAppOf(ref, FUNC_MK_LIST_REF)) {
@@ -109,7 +110,8 @@ final class CelZ3ExtensionalityAxioms {
     Sort presenceSort = ctx.mkArraySort(typeSystem.celValueSort(), ctx.getBoolSort());
 
     FuncDecl<?> mkMapRef =
-        ctx.mkFuncDecl(FUNC_MK_MAP_REF, new Sort[] {valuesSort, presenceSort}, mapRefSort);
+        typeSystem.internFuncDecl(
+            FUNC_MK_MAP_REF, new Sort[] {valuesSort, presenceSort}, mapRefSort);
 
     for (Expr<?> ref : refs) {
       if (isAppOf(ref, FUNC_MK_MAP_REF)) {
@@ -141,7 +143,7 @@ final class CelZ3ExtensionalityAxioms {
     Sort presenceSort = ctx.mkArraySort(ctx.getStringSort(), ctx.getBoolSort());
 
     FuncDecl<?> mkMsgRef =
-        ctx.mkFuncDecl(
+        typeSystem.internFuncDecl(
             FUNC_MK_MSG_REF, new Sort[] {typeNameSort, valuesSort, presenceSort}, msgRefSort);
 
     for (Expr<?> ref : refs) {

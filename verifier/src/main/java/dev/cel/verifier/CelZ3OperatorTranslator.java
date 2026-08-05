@@ -43,7 +43,6 @@ import dev.cel.common.types.OptionalType;
 import dev.cel.common.types.SimpleType;
 import dev.cel.verifier.axioms.CelZ3OverloadResult;
 import dev.cel.verifier.axioms.CelZ3OverloadTranslator;
-import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -224,6 +223,8 @@ final class CelZ3OperatorTranslator {
         return translateLogicalAndOr(args, false);
       case LOGICAL_NOT:
         return translateLogicalNot(args, ast);
+      case NEGATE:
+        return translateNegate(args.get(0), ast);
       case EQUALS:
         return translateEquality(args.get(0), args.get(1), ast, /* isEquals= */ true);
       case NOT_EQUALS:
@@ -237,7 +238,6 @@ final class CelZ3OperatorTranslator {
       case MULTIPLY:
       case DIVIDE:
       case MODULO:
-      case NEGATE:
       case IN:
         // Indicates a type-mismatch in an operator that's not handled
         // by our axioms
@@ -330,72 +330,84 @@ final class CelZ3OperatorTranslator {
     return TranslatedValue.propagateStrict(ctx, typeSystem, baseResult, args);
   }
 
+  private TranslatedValue translateNegate(TranslatedValue arg, CelAbstractSyntaxTree ast) {
+    CelType type = extractAstTypeOrDefault(arg, ast);
+    Expr<?> z3Expr = arg.z3Expr();
+
+    Expr<?> result;
+    if (type.equals(SimpleType.INT)) {
+      ArithExpr intNeg = ctx.mkUnaryMinus(typeSystem.getInt(z3Expr));
+      result =
+          typeSystem.withRuntimeError(
+              typeSystem.wrapInt((IntExpr) intNeg), typeSystem.checkIntOverflow(intNeg));
+    } else if (type.equals(SimpleType.DOUBLE)) {
+      result = typeSystem.wrapDouble(ctx.mkFPNeg(typeSystem.getDouble(z3Expr)));
+    } else {
+      ArithExpr intNeg = ctx.mkUnaryMinus(typeSystem.getInt(z3Expr));
+      Expr<?> intResult =
+          typeSystem.withRuntimeError(
+              typeSystem.wrapInt((IntExpr) intNeg), typeSystem.checkIntOverflow(intNeg));
+      Expr<?> doubleResult = typeSystem.wrapDouble(ctx.mkFPNeg(typeSystem.getDouble(z3Expr)));
+      result =
+          CelZ3TypeSystem.SwitchBuilder.newBuilder(ctx)
+              .addCase(typeSystem.isInt(z3Expr), intResult)
+              .addCase(typeSystem.isDouble(z3Expr), doubleResult)
+              .build(typeSystem.mkError());
+    }
+    return TranslatedValue.propagateStrict(ctx, typeSystem, result, arg);
+  }
+
   private BoolExpr isNumeric(Expr<?> arg) {
     return ctx.mkOr(typeSystem.isInt(arg), typeSystem.isUint(arg), typeSystem.isDouble(arg));
   }
 
   private BoolExpr getNumericEqualityWithConstant(
       Expr<?> symVal, CelConstant constant, CelType symType) {
-    Long intVal = null;
-    String uintVal = null;
+    Optional<CelNumericBounds.IntRange> intRange = Optional.empty();
+    Optional<CelNumericBounds.UintRange> uintRange = Optional.empty();
     double doubleVal;
 
     switch (constant.getKind()) {
       case INT64_VALUE:
         long vInt = constant.int64Value();
-        intVal = vInt;
-        // Z3's infinite precision automatically evaluates `uint == -1` to false,
-        // but pruning it here keeps the formula smaller.
+        intRange = Optional.of(CelNumericBounds.IntRange.of(vInt, vInt));
         if (vInt >= 0) {
-          uintVal = Long.toString(vInt);
+          uintRange =
+              Optional.of(CelNumericBounds.UintRange.of(Long.toString(vInt), Long.toString(vInt)));
         }
         doubleVal = (double) vInt;
         break;
       case UINT64_VALUE:
         long vUint = constant.uint64Value().longValue();
         if (vUint >= 0) {
-          intVal = vUint;
+          intRange = Optional.of(CelNumericBounds.IntRange.of(vUint, vUint));
         }
-        uintVal = constant.uint64Value().toString();
+        String uStr = constant.uint64Value().toString();
+        uintRange = Optional.of(CelNumericBounds.UintRange.of(uStr, uStr));
         doubleVal = constant.uint64Value().doubleValue();
         break;
       case DOUBLE_VALUE:
         double vDouble = constant.doubleValue();
         doubleVal = vDouble;
-        if (vDouble == Math.floor(vDouble) && !Double.isInfinite(vDouble)) {
-          if (vDouble >= Long.MIN_VALUE && vDouble <= Long.MAX_VALUE) {
-            intVal = (long) vDouble;
-          }
-          if (vDouble >= 0 && vDouble <= Double.parseDouble(CelZ3TypeSystem.MAX_UINT64)) {
-            uintVal = BigDecimal.valueOf(vDouble).toBigInteger().toString();
-          }
-        }
+        intRange = CelNumericBounds.getMatchingIntRange(vDouble);
+        uintRange = CelNumericBounds.getMatchingUintRange(vDouble);
         break;
       default:
         throw new IllegalArgumentException(
             "Unexpected numeric constant kind: " + constant.getKind());
     }
-
     if (isStaticallyKnown(symType)) {
       if (symType.kind() == CelKind.INT) {
-        return (intVal != null)
-            ? ctx.mkEq(typeSystem.getInt(symVal), ctx.mkInt(intVal))
-            : ctx.mkFalse();
+        return buildIntRangeExpr(intRange, typeSystem.getInt(symVal));
       } else if (symType.kind() == CelKind.UINT) {
-        return (uintVal != null)
-            ? ctx.mkEq(typeSystem.getUint(symVal), ctx.mkInt(uintVal))
-            : ctx.mkFalse();
+        return buildUintRangeExpr(uintRange, typeSystem.getUint(symVal));
       } else if (symType.kind() == CelKind.DOUBLE) {
         return ctx.mkFPEq(typeSystem.getDouble(symVal), typeSystem.mkFpDouble(doubleVal));
       }
     }
 
-    BoolExpr intEq =
-        (intVal != null) ? ctx.mkEq(typeSystem.getInt(symVal), ctx.mkInt(intVal)) : ctx.mkFalse();
-    BoolExpr uintEq =
-        (uintVal != null)
-            ? ctx.mkEq(typeSystem.getUint(symVal), ctx.mkInt(uintVal))
-            : ctx.mkFalse();
+    BoolExpr intEq = buildIntRangeExpr(intRange, typeSystem.getInt(symVal));
+    BoolExpr uintEq = buildUintRangeExpr(uintRange, typeSystem.getUint(symVal));
     BoolExpr doubleEq = ctx.mkFPEq(typeSystem.getDouble(symVal), typeSystem.mkFpDouble(doubleVal));
 
     return (BoolExpr)
@@ -404,6 +416,27 @@ final class CelZ3OperatorTranslator {
             .addCase(typeSystem.isUint(symVal), uintEq)
             .addCase(typeSystem.isDouble(symVal), doubleEq)
             .build(ctx.mkFalse());
+  }
+
+  private BoolExpr buildIntRangeExpr(Optional<CelNumericBounds.IntRange> rangeOpt, IntExpr symInt) {
+    return rangeOpt
+        .map(range -> buildIntRangeExpr(range.min(), range.max(), symInt))
+        .orElseGet(ctx::mkFalse);
+  }
+
+  private BoolExpr buildIntRangeExpr(long min, long max, IntExpr symInt) {
+    return ctx.mkAnd(ctx.mkGe(symInt, ctx.mkInt(min)), ctx.mkLe(symInt, ctx.mkInt(max)));
+  }
+
+  private BoolExpr buildUintRangeExpr(
+      Optional<CelNumericBounds.UintRange> rangeOpt, IntExpr symUint) {
+    return rangeOpt
+        .map(range -> buildUintRangeExpr(range.min(), range.max(), symUint))
+        .orElseGet(ctx::mkFalse);
+  }
+
+  private BoolExpr buildUintRangeExpr(String min, String max, IntExpr symUint) {
+    return ctx.mkAnd(ctx.mkGe(symUint, ctx.mkInt(min)), ctx.mkLe(symUint, ctx.mkInt(max)));
   }
 
   private BoolExpr getNumericEquality(
@@ -418,7 +451,7 @@ final class CelZ3OperatorTranslator {
 
     CelType type0 = extractAstTypeOrDefault(arg0, ast);
     CelType type1 = extractAstTypeOrDefault(arg1, ast);
-    if (isStaticallyKnown(type0) && isStaticallyKnown(type1)) {
+    if (isStaticallyKnown(type0) && isStaticallyKnown(type1) && type0.kind() == type1.kind()) {
       return getStaticallyKnownNumericEquality(arg0.z3Expr(), type0, arg1.z3Expr());
     }
 
@@ -733,7 +766,7 @@ final class CelZ3OperatorTranslator {
 
     // Uint probes
     IntExpr rawUint = (IntExpr) ctx.mkITE(isUint, typeSystem.getUint(rhsTrans), ctx.mkInt(0));
-    BoolExpr uintHasInt = ctx.mkLe(rawUint, ctx.mkInt(CelZ3TypeSystem.MAX_INT64));
+    BoolExpr uintHasInt = ctx.mkLe(rawUint, ctx.mkInt(CelNumericBounds.MAX_INT64));
     Expr<?> uintIntKey = typeSystem.wrapInt(rawUint);
 
     BoolExpr uintHasDouble = hasExactDouble ? isUint : ctx.mkFalse();
