@@ -15,7 +15,6 @@
 package dev.cel.verifier.axioms;
 
 import com.microsoft.z3.ArithExpr;
-import com.microsoft.z3.FPExpr;
 import com.microsoft.z3.SeqExpr;
 import dev.cel.checker.CelStandardDeclarations.StandardFunction;
 import dev.cel.checker.CelStandardDeclarations.StandardFunction.Overload.Comparison;
@@ -56,9 +55,7 @@ final class LessEqualsAxiom {
               (ctx, typeSystem, constraintSink, lhs, rhs) ->
                   Optional.of(
                       typeSystem.wrapBool(
-                          ctx.mkFPLEq(
-                              (FPExpr) typeSystem.getDouble(lhs),
-                              (FPExpr) typeSystem.getDouble(rhs)))))
+                          ctx.mkFPLEq(typeSystem.getDouble(lhs), typeSystem.getDouble(rhs)))))
           .addBinaryOverloadTranslator(
               Comparison.LESS_EQUALS_STRING.celOverloadDecl(),
               (ctx, typeSystem, constraintSink, lhs, rhs) ->
@@ -83,7 +80,7 @@ final class LessEqualsAxiom {
                           AxiomHelpers.mkRealLeFp(
                               ctx,
                               ctx.mkInt2Real(typeSystem.getInt(lhs)),
-                              (FPExpr) typeSystem.getDouble(rhs)))))
+                              typeSystem.getDouble(rhs)))))
           .addBinaryOverloadTranslator(
               Comparison.LESS_EQUALS_UINT64_DOUBLE.celOverloadDecl(),
               (ctx, typeSystem, constraintSink, lhs, rhs) ->
@@ -92,7 +89,7 @@ final class LessEqualsAxiom {
                           AxiomHelpers.mkRealLeFp(
                               ctx,
                               ctx.mkInt2Real(typeSystem.getUint(lhs)),
-                              (FPExpr) typeSystem.getDouble(rhs)))))
+                              typeSystem.getDouble(rhs)))))
           .addBinaryOverloadTranslator(
               Comparison.LESS_EQUALS_DOUBLE_INT64.celOverloadDecl(),
               (ctx, typeSystem, constraintSink, lhs, rhs) ->
@@ -100,7 +97,7 @@ final class LessEqualsAxiom {
                       typeSystem.wrapBool(
                           AxiomHelpers.mkFpLeReal(
                               ctx,
-                              (FPExpr) typeSystem.getDouble(lhs),
+                              typeSystem.getDouble(lhs),
                               ctx.mkInt2Real(typeSystem.getInt(rhs))))))
           .addBinaryOverloadTranslator(
               Comparison.LESS_EQUALS_DOUBLE_UINT64.celOverloadDecl(),
@@ -109,7 +106,7 @@ final class LessEqualsAxiom {
                       typeSystem.wrapBool(
                           AxiomHelpers.mkFpLeReal(
                               ctx,
-                              (FPExpr) typeSystem.getDouble(lhs),
+                              typeSystem.getDouble(lhs),
                               ctx.mkInt2Real(typeSystem.getUint(rhs))))))
           .addBinaryOverloadTranslator(
               Comparison.LESS_EQUALS_INT64_UINT64.celOverloadDecl(),

@@ -303,8 +303,10 @@ final class CelVerifierZ3Impl implements CelVerifier {
                   /* isCounterexample= */ true));
         case TRUNCATED:
           return CelVerificationResult.inconclusive(
-              String.format("Inconclusive: %s holds within the current loop unroll limit, but"
-                  + " may be violated for larger collections.", subjectName.toLowerCase(Locale.US)));
+              String.format(
+                  "Inconclusive: %s holds within the current loop unroll limit, but"
+                      + " may be violated for larger collections.",
+                  subjectName.toLowerCase(Locale.US)));
         case NO_MATCH:
           return CelVerificationResult.verified();
         case SOLVER_UNKNOWN:

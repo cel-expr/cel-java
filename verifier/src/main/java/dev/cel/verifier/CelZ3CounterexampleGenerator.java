@@ -179,14 +179,26 @@ final class CelZ3CounterexampleGenerator {
 
   private static String reconstructMap(
       Context ctx, CelZ3TypeSystem typeSystem, Model model, Expr<?> mapRef) {
-    Expr<?> presenceArray =
+    List<Expr<?>> keys = new ArrayList<>();
+    Expr<?> lenExpr =
         evaluateStrict(
             model,
-            typeSystem.getMapPresence(mapRef),
-            String.format("Z3 failed to evaluate presence array natively for map %s", mapRef));
-
-    List<Expr<?>> keys = new ArrayList<>();
-    extractKeys(presenceArray, keys);
+            ctx.mkLength(typeSystem.getMapKeys(mapRef)),
+            String.format("Z3 failed to evaluate length for map %s", mapRef));
+    if (lenExpr instanceof IntNum) {
+      int length = ((IntNum) lenExpr).getInt();
+      int printLimit = Math.min(length, 100);
+      for (int i = 0; i < printLimit; i++) {
+        Expr<?> elem =
+            evaluateStrict(
+                model,
+                ctx.mkNth(typeSystem.getMapKeys(mapRef), ctx.mkInt(i)),
+                String.format("Z3 failed to evaluate map key at index %d for map %s", i, mapRef));
+        if (!keys.contains(elem)) {
+          keys.add(elem);
+        }
+      }
+    }
 
     List<String> entries = new ArrayList<>();
     for (Expr<?> key : keys) {
@@ -215,11 +227,11 @@ final class CelZ3CounterexampleGenerator {
 
   private static String reconstructMessage(
       Context ctx, CelZ3TypeSystem typeSystem, Model model, Expr<?> msgRef) {
-    Expr<?> valuesArray =
+    Expr<?> presenceArray =
         evaluateStrict(
             model,
-            typeSystem.getMsgValues(msgRef),
-            String.format("Z3 failed to evaluate values array natively for msg %s", msgRef));
+            typeSystem.getMsgPresence(msgRef),
+            String.format("Z3 failed to evaluate presence array natively for msg %s", msgRef));
 
     Expr<?> typeNameExpr =
         evaluateStrict(
@@ -230,7 +242,7 @@ final class CelZ3CounterexampleGenerator {
     String typeName = formatExpr(ctx, typeSystem, model, typeNameExpr).replace("\"", "");
 
     List<Expr<?>> keys = new ArrayList<>();
-    extractKeys(valuesArray, keys);
+    extractKeys(presenceArray, keys);
 
     List<String> entries = new ArrayList<>();
     for (Expr<?> key : keys) {
@@ -268,16 +280,17 @@ final class CelZ3CounterexampleGenerator {
       FuncDecl<?> decl = arrayExpr.getFuncDecl();
       String declName = decl.getName().toString();
 
-      if (!declName.equals("store")) {
-        break;
+      if (declName.equals("store")) {
+        Expr<?>[] args = arrayExpr.getArgs();
+        Preconditions.checkState(
+            args.length == 3, "Z3 store array operation must have exactly 3 arguments");
+        if (!keys.contains(args[1])) {
+          keys.add(args[1]);
+        }
+        arrayExpr = args[0];
+        continue;
       }
-
-      Expr<?>[] args = arrayExpr.getArgs();
-      Preconditions.checkState(
-          args.length == 3, "Z3 store array operation must have exactly 3 arguments");
-      keys.add(args[1]);
-
-      arrayExpr = args[0];
+      break;
     }
   }
 

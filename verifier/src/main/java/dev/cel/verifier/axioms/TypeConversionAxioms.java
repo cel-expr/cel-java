@@ -19,7 +19,6 @@ import static dev.cel.verifier.CelZ3TypeSystem.MAX_INT64;
 import com.google.common.collect.ImmutableList;
 import com.microsoft.z3.BoolExpr;
 import com.microsoft.z3.Expr;
-import com.microsoft.z3.FPExpr;
 import com.microsoft.z3.FuncDecl;
 import com.microsoft.z3.IntExpr;
 import com.microsoft.z3.Sort;
@@ -233,8 +232,7 @@ final class TypeConversionAxioms {
           sink.accept(ctx.mkOr(typeSystem.isDouble(res), typeSystem.isError(res)));
           sink.accept(
               ctx.mkImplies(
-                  typeSystem.isDouble(res),
-                  ctx.mkNot(ctx.mkFPIsNaN((FPExpr) typeSystem.getDouble(res)))));
+                  typeSystem.isDouble(res), ctx.mkNot(ctx.mkFPIsNaN(typeSystem.getDouble(res)))));
           break;
         case STRING:
           sink.accept(ctx.mkOr(typeSystem.isString(res), typeSystem.isError(res)));

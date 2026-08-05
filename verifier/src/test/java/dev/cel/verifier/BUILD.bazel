@@ -61,7 +61,7 @@ java_library(
 
 junit4_test_suites(
     name = "test_suites",
-    shard_count = 4,
+    shard_count = 8,
     sizes = [
         "small",
         "medium",

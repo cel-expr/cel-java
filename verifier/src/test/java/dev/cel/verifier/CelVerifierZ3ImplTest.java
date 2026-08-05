@@ -157,12 +157,22 @@ public final class CelVerifierZ3ImplTest {
     CROSS_NUMERIC_EQUALITY_INT_DYN_EXACT("1 == request"),
     MACRO_LIMIT("dyn_list.all(x, x == 1)"),
     STRUCT_FIELD_MISSING_APPROXIMATE_SATISFIABLE("dyn_var.unknown_field"),
-    NULLABLE_INT_SATISFIABLE("nullable_int == 123");
+    NULLABLE_INT_SATISFIABLE("nullable_int == 123"),
+    MAP_INDEX_SATISFIABLE("string_int_map['alice'] > 0", "\"alice\": [1-9]\\d*"),
+    MAP_SIZE_GREATER_THAN_ONE_WITH_KEY(
+        "string_int_map.size() > 1 && string_int_map['foo'] == 42",
+        "string_int_map = \\{[^}]*,[^}]*\\}"),
+    MAP_SIZE_GREATER_THAN_ONE_WITH_LIST_ELEMENT(
+        "string_int_map.size() > 1 && string_int_map['a'] == int_list[0] && int_list.size() == 1",
+        "string_int_map = \\{[^}]*,[^}]*\\}"),
+    ;
 
     final String expr;
+    final ImmutableList<String> expectedFragments;
 
-    IsSatisfiableTestCase(String expr) {
+    IsSatisfiableTestCase(String expr, String... expectedFragments) {
       this.expr = expr;
+      this.expectedFragments = ImmutableList.copyOf(expectedFragments);
     }
   }
 
@@ -183,6 +193,9 @@ public final class CelVerifierZ3ImplTest {
     CelVerificationResult result = VERIFIER.isSatisfiable(ast);
 
     assertThat(result.status()).isEqualTo(VerificationStatus.VERIFIED);
+    for (String fragment : testCase.expectedFragments) {
+      assertThat(result.message()).containsMatch(fragment);
+    }
   }
 
   @Test
@@ -251,6 +264,7 @@ public final class CelVerifierZ3ImplTest {
     DYN_MAP_REFLEXIVITY("dyn_map.size() == 1 ? dyn_map[1] == dyn_map[1] : true"),
     DYN_LIST_ELEMENT("size(dyn_list) == 1 && dyn_list[0] == 'impossible_value'"),
     DYN_MAP_VALUE("size(dyn_map) == 1 && dyn_map['a'] == 'impossible_value'"),
+    STRUCT_FIELD_VALUE("test_all_types.single_int64 == 12345 && false"),
     ;
 
     final String expr;
@@ -365,7 +379,28 @@ public final class CelVerifierZ3ImplTest {
     TIMESTAMP_INEQUALITY_CONTRADICTION(
         "timestamp('2023-01-01T00:00:00Z') != timestamp('2023-01-01T00:00:00Z')"),
     TYPE_TIMESTAMP_NOT_INT("type(timestamp('1970-01-01T00:00:00Z')) == int"),
-    DYN_INT_NOT_DURATION("dyn(1) == dyn(duration('1s'))");
+    DYN_INT_NOT_DURATION("dyn(1) == dyn(duration('1s'))"),
+    DYNAMIC_MAP_DUPLICATE_KEYS_CONTRADICTION(
+        "size(string_int_map) == 2 && string_int_map.all(k, k == 'a')"),
+    EMPTY_MAP_WITH_KEY_IN("string_int_map.size() == 0 && 'foo' in string_int_map"),
+    KEY_IN_EMPTY_MAP("('x' in string_int_map) && string_int_map.size() == 0"),
+    EMPTY_MAP_AND_LIST_WITH_KEY_IN(
+        "int_list.size() == string_int_map.size() && int_list.size() == 0 && 'a' in"
+            + " string_int_map"),
+    MAP_SIZE_ONE_TWO_KEYS(
+        "string_int_map.size() == 1 && string_int_map['a'] == 1 && string_int_map['b'] == 2"),
+    MAP_SIZE_LESS_THAN_TWO_TWO_KEYS(
+        "string_int_map['foo'] == 10 && string_int_map['bar'] == 20 && string_int_map.size() < 2"),
+    MAP_SIZE_ONE_SUM_TWO_KEYS(
+        "string_int_map['a'] + string_int_map['b'] == 10 && string_int_map.size() == 1"),
+    MAP_SIZE_ONE_TWO_EQUAL_KEYS(
+        "string_int_map.size() == 1 && string_int_map['foo'] == 10 && string_int_map['bar'] == 10"),
+    MAP_SIZE_TWO_THREE_KEYS(
+        "string_int_map['k1'] == 1 && string_int_map['k2'] == 2 && string_int_map['k3'] == 3 &&"
+            + " string_int_map.size() == 2"),
+    EMPTY_MAP_KEY_LOOKUP("string_int_map['a'] > 100 && string_int_map.size() == 0"),
+    EMPTY_MAP_DYNAMIC_KEY_LOOKUP("string_int_map[string_var] == 100 && string_int_map.size() == 0"),
+    ;
 
     final String expr;
 
@@ -1343,7 +1378,7 @@ public final class CelVerifierZ3ImplTest {
             + "? dyn_map[1 + 1] == [] : true",
         "Condition is not always true\\.",
         "Counterexample input:",
-        "dyn_map = \\{\\}"),
+        "dyn_map = \\{.*\\}"),
     DYNAMIC_MAP_COMPREHENSION_NESTED_EQUALITY_VIOLATION(
         "cel.bind(r, request, r.l == [[1], [2], [3], [4], [5]] && r.m == {1: [1], 2: [2],"
             + " 3: [3]} ? r.l.all(x, r.m.exists(k, r.m[k] == x)) : true)",
@@ -1601,6 +1636,9 @@ public final class CelVerifierZ3ImplTest {
     MACRO_EXISTS_ONE_EQUIVALENT(
         "[1, 2, 3].exists_one(x, x == 2)",
         "(1 == 2 ? 1 : 0) + (2 == 2 ? 1 : 0) + (3 == 2 ? 1 : 0) == 1"),
+    TIMESTAMP_CONVERSION_OVERFLOW_EQUIVALENCE(
+        "timestamp(string_var) <= timestamp(253402300799)",
+        "timestamp(string_var) == timestamp(string_var)"),
     TIMESTAMP_MATH_SUBTRACT_TS(
         "timestamp(900000) - timestamp(100)", "timestamp(899900) - timestamp(0)"),
     TIMESTAMP_MATH_COMMUTATIVITY(
@@ -2937,3 +2975,4 @@ public final class CelVerifierZ3ImplTest {
     assertThat(result.status()).isEqualTo(VerificationStatus.VERIFIED);
   }
 }
+

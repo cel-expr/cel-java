@@ -741,7 +741,7 @@ final class CelAstToZ3Translator {
               typeConstraints.add(ctx.mkNot(typeSystem.isUnknown(callRes)));
               typeConstraints.add(ctx.mkNot(typeSystem.isError(callRes)));
 
-              boolean isDynamic = ast.getType(exprId).map(SimpleType.DYN::equals).orElse(true);
+              boolean isDynamic = ast.getTypeOrThrow(exprId).equals(SimpleType.DYN);
               BoolExpr isApprox = ctx.mkBool(!isDynamic);
               return TranslatedValue.propagateStrict(
                   ctx, typeSystem, callRes, Optional.of(expr), isApprox, args);
@@ -877,10 +877,6 @@ final class CelAstToZ3Translator {
     ArrayExpr mapPresence =
         isMap ? (ArrayExpr) typeSystem.getMapPresence(typeSystem.getMapRef(iterRange)) : null;
 
-    if (isMap) {
-      applyBoundedMapBijection(mapPresence, seq, lengthExpr);
-    }
-
     BoolExpr isTruncated = ctx.mkGt(lengthExpr, ctx.mkInt(comprehensionUnrollLimit));
     truncationConditions.add(isTruncated);
 
@@ -893,14 +889,15 @@ final class CelAstToZ3Translator {
     }
   }
 
-  private void applyBoundedMapBijection(
+  private BoolExpr getBoundedMapBijection(
       ArrayExpr mapPresence, SeqExpr<?> seq, ArithExpr lengthExpr) {
+    List<BoolExpr> constraints = new ArrayList<>();
     for (int i = 0; i < comprehensionUnrollLimit; i++) {
       for (int j = i + 1; j < comprehensionUnrollLimit; j++) {
         BoolExpr validPair = ctx.mkLt(ctx.mkInt(j), lengthExpr);
         BoolExpr notEqual =
             ctx.mkNot(ctx.mkEq(ctx.mkNth(seq, ctx.mkInt(i)), ctx.mkNth(seq, ctx.mkInt(j))));
-        typeConstraints.add(ctx.mkImplies(validPair, notEqual));
+        constraints.add(ctx.mkImplies(validPair, notEqual));
       }
     }
 
@@ -915,7 +912,8 @@ final class CelAstToZ3Translator {
                   ctx.mkStore(seqMap, ctx.mkNth(seq, ctx.mkInt(i)), ctx.mkTrue()),
                   seqMap);
     }
-    typeConstraints.add(ctx.mkImplies(isNotTruncated, ctx.mkEq(mapPresence, seqMap)));
+    constraints.add(ctx.mkImplies(isNotTruncated, ctx.mkEq(mapPresence, seqMap)));
+    return CelZ3TypeSystem.mkAndFlattened(ctx, constraints);
   }
 
   private TranslatedValue[] evaluateLoopCondAndStep(
@@ -1335,6 +1333,7 @@ final class CelAstToZ3Translator {
 
       List<BoolExpr> boundsAndTypes = new ArrayList<>();
       boundsAndTypes.add(isMap);
+      boundsAndTypes.add(getBoundedMapBijection(mapPresence, seq, (ArithExpr) length));
 
       for (int i = 0; i < comprehensionUnrollLimit; i++) {
         IntExpr idx = ctx.mkInt(i);

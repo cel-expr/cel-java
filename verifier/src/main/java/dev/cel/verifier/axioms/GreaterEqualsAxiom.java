@@ -15,7 +15,6 @@
 package dev.cel.verifier.axioms;
 
 import com.microsoft.z3.ArithExpr;
-import com.microsoft.z3.FPExpr;
 import com.microsoft.z3.SeqExpr;
 import dev.cel.checker.CelStandardDeclarations.StandardFunction;
 import dev.cel.checker.CelStandardDeclarations.StandardFunction.Overload.Comparison;
@@ -56,9 +55,7 @@ final class GreaterEqualsAxiom {
               (ctx, typeSystem, constraintSink, lhs, rhs) ->
                   Optional.of(
                       typeSystem.wrapBool(
-                          ctx.mkFPGEq(
-                              (FPExpr) typeSystem.getDouble(lhs),
-                              (FPExpr) typeSystem.getDouble(rhs)))))
+                          ctx.mkFPGEq(typeSystem.getDouble(lhs), typeSystem.getDouble(rhs)))))
           .addBinaryOverloadTranslator(
               Comparison.GREATER_EQUALS_STRING.celOverloadDecl(),
               (ctx, typeSystem, constraintSink, lhs, rhs) ->
@@ -82,7 +79,7 @@ final class GreaterEqualsAxiom {
                       typeSystem.wrapBool(
                           AxiomHelpers.mkFpLeReal(
                               ctx,
-                              (FPExpr) typeSystem.getDouble(rhs),
+                              typeSystem.getDouble(rhs),
                               ctx.mkInt2Real(typeSystem.getInt(lhs))))))
           .addBinaryOverloadTranslator(
               Comparison.GREATER_EQUALS_UINT64_DOUBLE.celOverloadDecl(),
@@ -91,7 +88,7 @@ final class GreaterEqualsAxiom {
                       typeSystem.wrapBool(
                           AxiomHelpers.mkFpLeReal(
                               ctx,
-                              (FPExpr) typeSystem.getDouble(rhs),
+                              typeSystem.getDouble(rhs),
                               ctx.mkInt2Real(typeSystem.getUint(lhs))))))
           .addBinaryOverloadTranslator(
               Comparison.GREATER_EQUALS_DOUBLE_INT64.celOverloadDecl(),
@@ -101,7 +98,7 @@ final class GreaterEqualsAxiom {
                           AxiomHelpers.mkRealLeFp(
                               ctx,
                               ctx.mkInt2Real(typeSystem.getInt(rhs)),
-                              (FPExpr) typeSystem.getDouble(lhs)))))
+                              typeSystem.getDouble(lhs)))))
           .addBinaryOverloadTranslator(
               Comparison.GREATER_EQUALS_DOUBLE_UINT64.celOverloadDecl(),
               (ctx, typeSystem, constraintSink, lhs, rhs) ->
@@ -110,7 +107,7 @@ final class GreaterEqualsAxiom {
                           AxiomHelpers.mkRealLeFp(
                               ctx,
                               ctx.mkInt2Real(typeSystem.getUint(rhs)),
-                              (FPExpr) typeSystem.getDouble(lhs)))))
+                              typeSystem.getDouble(lhs)))))
           .addBinaryOverloadTranslator(
               Comparison.GREATER_EQUALS_INT64_UINT64.celOverloadDecl(),
               (ctx, typeSystem, constraintSink, lhs, rhs) ->
