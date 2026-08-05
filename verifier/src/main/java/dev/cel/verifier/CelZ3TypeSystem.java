@@ -685,6 +685,11 @@ public final class CelZ3TypeSystem {
     return ctx.mkApp(bytesCons.getAccessorDecls()[0], val);
   }
 
+  /** Checks if the given CelValue is a valid primitive map key type. */
+  public BoolExpr isPrimitiveKey(Expr<?> val) {
+    return ctx.mkOr(isBool(val), isInt(val), isUint(val), isString(val), isBytes(val));
+  }
+
   /** Checks if the given CelValue is a struct (message). */
   public BoolExpr isStruct(Expr<?> val) {
     return isMessage(val);

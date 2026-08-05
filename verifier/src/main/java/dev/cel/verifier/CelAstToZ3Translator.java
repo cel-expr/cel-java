@@ -1247,9 +1247,10 @@ final class CelAstToZ3Translator {
       }
       Expr<?> optRef = typeSystem.getOptionalRef(val);
       BoolExpr hasValue = typeSystem.optHasValue(optRef);
-      BoolExpr valConstraint =
-          createTypeConstraintForType(typeSystem.getOptionalValue(optRef), paramType);
-      return ctx.mkAnd(isOpt, ctx.mkImplies(hasValue, valConstraint));
+      Expr<?> optVal = typeSystem.getOptionalValue(optRef);
+      BoolExpr optValNotError = ctx.mkNot(typeSystem.isError(optVal));
+      BoolExpr valConstraint = createTypeConstraintForType(optVal, paramType);
+      return ctx.mkAnd(isOpt, ctx.mkImplies(hasValue, ctx.mkAnd(optValNotError, valConstraint)));
     }
     if (type.equals(SimpleType.BOOL)) {
       return (BoolExpr) ctx.mkApp(typeSystem.boolCons().getTesterDecl(), val);
@@ -1289,15 +1290,13 @@ final class CelAstToZ3Translator {
     }
 
     if (type instanceof ListType) {
-      // Lists are explicitly bounded (sequence theory). We're safe in using for-all quantifiers
-      // here.
+      // Constrain list elements using bounded unrolling up to comprehensionUnrollLimit rather
+      // than Z3 forall quantifiers to prevent MBQI quantifier instantiation loops.
+      // Assert: isList(val) ∧ for all unrolled 0 <= i < length: ¬isError(seq[i]) ∧
+      // typeConstraint(seq[i])
       BoolExpr isList = typeSystem.isList(val);
       CelType elemType = ((ListType) type).elemType();
-      if (elemType.equals(SimpleType.DYN)) {
-        return isList;
-      }
 
-      // isList(val) ∧ ∀i. (0 <= i < length) ⇒ elemType(seq[i])
       Expr<?> listRef = typeSystem.getListRef(val);
       SeqExpr seq = typeSystem.getSeq(listRef);
       Expr length = ctx.mkLength(seq);
@@ -1307,20 +1306,58 @@ final class CelAstToZ3Translator {
       for (int i = 0; i < comprehensionUnrollLimit; i++) {
         IntExpr idx = ctx.mkInt(i);
         Expr elem = ctx.mkNth(seq, idx);
-        BoolExpr elemConstraint = createTypeConstraintForType(elem, elemType);
         BoolExpr validIndex = ctx.mkLt(idx, length);
+        // Assert ¬isError(elem) as a domain invariant so Z3 never synthesizes an Error element in
+        // list(dyn). For concrete types, this is already implied by createTypeConstraintForType.
+        boundsAndTypes.add(ctx.mkImplies(validIndex, ctx.mkNot(typeSystem.isError(elem))));
+        BoolExpr elemConstraint = createTypeConstraintForType(elem, elemType);
         boundsAndTypes.add(ctx.mkImplies(validIndex, elemConstraint));
-        BoolExpr outOfBounds = ctx.mkGe(idx, length);
-        boundsAndTypes.add(ctx.mkImplies(outOfBounds, ctx.mkEq(elem, typeSystem.mkUnknown())));
       }
 
       return CelZ3TypeSystem.mkAndFlattened(ctx, boundsAndTypes);
     }
     if (type instanceof MapType) {
-      // Do NOT emit a for-all quantifier over map keys here.
-      // Doing so forces MBQI into an infinite loop. Structural equivalence of dynamic keys is
-      // naturally constrained by the primitive key assertions in getStructuralEquality().
-      return typeSystem.isMap(val);
+      // Do NOT emit a for-all quantifier over map keys or values here.
+      // Doing so forces MBQI into an infinite loop. Instead, constrain keys and values using
+      // bounded unrolling over the key sequence up to comprehensionUnrollLimit.
+      // Assert: isMap(val) ∧ for all unrolled 0 <= i < length: isPrimitiveKey(key) ∧ ¬isError(key)
+      //         ∧ (presence(key) ⇒ ¬isError(val) ∧ typeConstraint(val))
+      BoolExpr isMap = typeSystem.isMap(val);
+      MapType mapType = (MapType) type;
+      CelType keyType = mapType.keyType();
+      CelType valType = mapType.valueType();
+
+      Expr<?> mapRef = typeSystem.getMapRef(val);
+      SeqExpr seq = typeSystem.getMapKeys(mapRef);
+      Expr length = ctx.mkLength(seq);
+      ArrayExpr mapValues = (ArrayExpr) typeSystem.getMapValues(mapRef);
+      ArrayExpr mapPresence = (ArrayExpr) typeSystem.getMapPresence(mapRef);
+
+      List<BoolExpr> boundsAndTypes = new ArrayList<>();
+      boundsAndTypes.add(isMap);
+
+      for (int i = 0; i < comprehensionUnrollLimit; i++) {
+        IntExpr idx = ctx.mkInt(i);
+        Expr key = ctx.mkNth(seq, idx);
+        BoolExpr validIndex = ctx.mkLt(idx, length);
+
+        BoolExpr isKeyPrim = typeSystem.isPrimitiveKey(key);
+        BoolExpr keyNotError = ctx.mkNot(typeSystem.isError(key));
+        // Assert isKeyPrim ∧ ¬isError(key) so Z3 never synthesizes a non-primitive or Error key in
+        // map(dyn, ...). For concrete map types, this is already implied by keyType constraints.
+        boundsAndTypes.add(ctx.mkImplies(validIndex, ctx.mkAnd(isKeyPrim, keyNotError)));
+        boundsAndTypes.add(ctx.mkImplies(validIndex, createTypeConstraintForType(key, keyType)));
+
+        BoolExpr presence = (BoolExpr) ctx.mkSelect(mapPresence, key);
+        BoolExpr validEntry = ctx.mkAnd(validIndex, presence);
+
+        Expr mapVal = ctx.mkSelect(mapValues, key);
+        BoolExpr valNotError = ctx.mkNot(typeSystem.isError(mapVal));
+        boundsAndTypes.add(ctx.mkImplies(validEntry, valNotError));
+        boundsAndTypes.add(ctx.mkImplies(validEntry, createTypeConstraintForType(mapVal, valType)));
+      }
+
+      return CelZ3TypeSystem.mkAndFlattened(ctx, boundsAndTypes);
     }
     if (type.kind() == CelKind.STRUCT) {
       return ctx.mkAnd(

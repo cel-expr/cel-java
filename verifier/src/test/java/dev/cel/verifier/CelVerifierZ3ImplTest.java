@@ -198,6 +198,80 @@ public final class CelVerifierZ3ImplTest {
   }
 
   @Test
+  public void isSatisfiable_mapNoContainerError_returnsSatisfyingModel() throws Exception {
+    CelAbstractSyntaxTree ast = CEL.compile("string_int_map.size() == 1").getAst();
+
+    CelVerificationResult result = VERIFIER.isSatisfiable(ast);
+
+    assertThat(result.status()).isEqualTo(VerificationStatus.VERIFIED);
+    assertThat(result.message()).contains("Condition is satisfiable.");
+    assertThat(result.message()).contains("Satisfying input:");
+    assertThat(result.message()).contains("string_int_map = {");
+    assertThat(result.message()).doesNotContain("Error");
+  }
+
+  @Test
+  public void isSatisfiable_listNoContainerError_returnsSatisfyingModel() throws Exception {
+    CelAbstractSyntaxTree ast = CEL.compile("dyn_list.size() == 1").getAst();
+
+    CelVerificationResult result = VERIFIER.isSatisfiable(ast);
+
+    assertThat(result.status()).isEqualTo(VerificationStatus.VERIFIED);
+    assertThat(result.message()).contains("Condition is satisfiable.");
+    assertThat(result.message()).contains("Satisfying input:");
+    assertThat(result.message()).contains("dyn_list = [");
+    assertThat(result.message()).doesNotContain("Error");
+  }
+
+  @Test
+  public void isSatisfiable_dynMapNoContainerError_returnsSatisfyingModel() throws Exception {
+    CelAbstractSyntaxTree ast = CEL.compile("dyn_map.size() == 1").getAst();
+
+    CelVerificationResult result = VERIFIER.isSatisfiable(ast);
+
+    assertThat(result.status()).isEqualTo(VerificationStatus.VERIFIED);
+    assertThat(result.message()).contains("Condition is satisfiable.");
+    assertThat(result.message()).contains("Satisfying input:");
+    assertThat(result.message()).contains("dyn_map = {");
+    assertThat(result.message()).doesNotContain("Error");
+  }
+
+  @Test
+  public void counterexample_nullValueFormattedAsNull() throws Exception {
+    CelAbstractSyntaxTree ast = CEL.compile("unknown_var == 3u && request == null").getAst();
+
+    CelVerificationResult result = VERIFIER.isSatisfiable(ast);
+
+    assertThat(result.status()).isEqualTo(VerificationStatus.VERIFIED);
+    assertThat(result.message()).contains("request = null");
+  }
+
+  private enum CounterexampleNeverErrorTestCase {
+    DYN_LIST_REFLEXIVITY("dyn_list.size() == 1 ? dyn_list[0] == dyn_list[0] : true"),
+    DYN_MAP_REFLEXIVITY("dyn_map.size() == 1 ? dyn_map[1] == dyn_map[1] : true"),
+    DYN_LIST_ELEMENT("size(dyn_list) == 1 && dyn_list[0] == 'impossible_value'"),
+    DYN_MAP_VALUE("size(dyn_map) == 1 && dyn_map['a'] == 'impossible_value'"),
+    ;
+
+    final String expr;
+
+    CounterexampleNeverErrorTestCase(String expr) {
+      this.expr = expr;
+    }
+  }
+
+  @Test
+  public void isAlwaysTrue_counterexampleNeverContainsError(
+      @TestParameter CounterexampleNeverErrorTestCase testCase) throws Exception {
+    CelAbstractSyntaxTree ast = CEL.compile(testCase.expr).getAst();
+
+    CelVerificationResult result = VERIFIER.isAlwaysTrue(ast);
+
+    assertThat(result.status()).isEqualTo(VerificationStatus.VIOLATED);
+    assertThat(result.message()).doesNotContain("Error");
+  }
+
+  @Test
   public void isSatisfiable_unconditional_returnsUnconditionalMessage() throws Exception {
     CelAbstractSyntaxTree ast = CEL.compile("1 + 1 == 2").getAst();
 
@@ -747,6 +821,9 @@ public final class CelVerifierZ3ImplTest {
     UINT64_BOUNDS_ALWAYS_TRUE("u <= 18446744073709551615u && u >= 0u"),
     MODULO_INT64_MIN_INT_BY_NEG_ONE_ALWAYS_ZERO(
         "x == -9223372036854775808 && y == -1 ? x % y == 0 : true"),
+    DYNAMIC_VAR_TYPE_IDENTITY("type(dyn_var) == type(dyn_var)"),
+    DYNAMIC_MAP_KEY_COMPREHENSION_TYPE_IDENTITY(
+        "size(dyn_map) > 0 && size(dyn_map) <= 5 ? dyn_map.all(k, type(k) == type(k)) : true"),
     ;
 
     final String expr;

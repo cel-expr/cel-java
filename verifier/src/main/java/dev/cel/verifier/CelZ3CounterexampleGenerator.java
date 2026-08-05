@@ -127,6 +127,8 @@ final class CelZ3CounterexampleGenerator {
       return "Error";
     } else if (decl.equals(typeSystem.unknownCons().ConstructorDecl())) {
       return "Unknown";
+    } else if (decl.equals(typeSystem.nullCons().ConstructorDecl())) {
+      return "null";
     } else if (decl.equals(typeSystem.optionalCons().ConstructorDecl())) {
       Expr<?> optRef = expr.getArgs()[0];
       Expr<?> hasValueExpr =
