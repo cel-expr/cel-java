@@ -61,3 +61,10 @@ java_library(
     visibility = [":verifier_internal"],
     exports = ["//verifier/src/main/java/dev/cel/verifier:z3_impl"],
 )
+
+java_library(
+    name = "canonicalization_optimizer",
+    compatible_with = [],
+    visibility = [":verifier_internal"],
+    exports = ["//verifier/src/main/java/dev/cel/verifier:canonicalization_optimizer"],
+)

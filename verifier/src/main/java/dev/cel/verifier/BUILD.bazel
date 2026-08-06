@@ -35,6 +35,12 @@ java_library(
     deps = [
         ":verifier",
         ":z3_impl",
+        "//bundle:cel",
+        "//checker:checker_builder",
+        "//compiler",
+        "//compiler:compiler_builder",
+        "//parser:parser_builder",
+        "//runtime",
     ],
 )
 
@@ -120,6 +126,29 @@ java_library(
 )
 
 java_library(
+    name = "canonicalization_optimizer",
+    srcs = ["CanonicalizationOptimizer.java"],
+    tags = [
+    ],
+    deps = [
+        "//:auto_value",
+        "//bundle:cel",
+        "//common:cel_ast",
+        "//common:mutable_ast",
+        "//common:mutable_source",
+        "//common:operator",
+        "//common/ast",
+        "//common/ast:mutable_expr",
+        "//common/navigation:common",
+        "//common/navigation:mutable_navigation",
+        "//common/values:cel_byte_string",
+        "//optimizer:ast_optimizer",
+        "//optimizer:mutable_ast",
+        "@maven//:com_google_guava_guava",
+    ],
+)
+
+java_library(
     name = "z3_impl",
     srcs = [
         "CelAstAlphaHasher.java",
@@ -135,10 +164,12 @@ java_library(
     tags = [
     ],
     deps = [
+        ":canonicalization_optimizer",
         ":numeric_bounds",
         ":type_system",
         ":verifier",
         "//:auto_value",
+        "//bundle:cel",
         "//common:cel_ast",
         "//common:compiler_common",
         "//common:operator",
@@ -147,6 +178,9 @@ java_library(
         "//common/types",
         "//common/types:cel_types",
         "//common/types:type_providers",
+        "//optimizer",
+        "//optimizer:optimization_exception",
+        "//optimizer:optimizer_builder",
         "//verifier/axioms",
         "@maven//:com_google_errorprone_error_prone_annotations",
         "@maven//:com_google_guava_guava",

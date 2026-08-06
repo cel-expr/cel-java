@@ -21,6 +21,7 @@ import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import dev.cel.common.types.CelType;
 import dev.cel.common.types.ListType;
 import dev.cel.common.types.MapType;
+import dev.cel.common.types.OptionalType;
 import dev.cel.common.types.SimpleType;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -150,13 +151,15 @@ final class VerificationOptions {
     Preconditions.checkNotNull(typeStr, "Type string cannot be null.");
     String str = typeStr.trim().toLowerCase(Locale.US);
 
-    if (str.startsWith("list<") && str.endsWith(">")) {
+    if ((str.startsWith("list<") && str.endsWith(">"))
+        || (str.startsWith("list(") && str.endsWith(")"))) {
       String inner = str.substring(5, str.length() - 1).trim();
       CelType elemType = parseCelType(inner);
       return ListType.create(elemType);
     }
 
-    if (str.startsWith("map<") && str.endsWith(">")) {
+    if ((str.startsWith("map<") && str.endsWith(">"))
+        || (str.startsWith("map(") && str.endsWith(")"))) {
       String inner = str.substring(4, str.length() - 1).trim();
       List<String> parts = splitGenericArgs(inner);
       if (parts.size() != 2) {
@@ -168,6 +171,20 @@ final class VerificationOptions {
       CelType keyType = parseCelType(parts.get(0));
       CelType valueType = parseCelType(parts.get(1));
       return MapType.create(keyType, valueType);
+    }
+
+    if ((str.startsWith("optional<") && str.endsWith(">"))
+        || (str.startsWith("optional(") && str.endsWith(")"))) {
+      String inner = str.substring(9, str.length() - 1).trim();
+      CelType elemType = parseCelType(inner);
+      return OptionalType.create(elemType);
+    }
+
+    if ((str.startsWith("optional_type<") && str.endsWith(">"))
+        || (str.startsWith("optional_type(") && str.endsWith(")"))) {
+      String inner = str.substring(14, str.length() - 1).trim();
+      CelType elemType = parseCelType(inner);
+      return OptionalType.create(elemType);
     }
 
     switch (str) {
@@ -187,12 +204,19 @@ final class VerificationOptions {
         return SimpleType.BYTES;
       case "dyn":
         return SimpleType.DYN;
+      case "timestamp":
+      case "google.protobuf.timestamp":
+        return SimpleType.TIMESTAMP;
+      case "duration":
+      case "google.protobuf.duration":
+        return SimpleType.DURATION;
       default:
+        // TODO: Support protobuf message types (coming soon).
         throw new IllegalArgumentException(
             "Unsupported type for CLI variable declaration: '"
                 + typeStr
-                + "'. Supported types: int, uint, string, bool, double, bytes, dyn, list<T>, map<K,"
-                + " V>.");
+                + "'. Supported types: int, uint, string, bool, double, bytes, dyn, timestamp,"
+                + " duration, list<T>, map<K, V>, optional<T>.");
     }
   }
 
@@ -202,10 +226,10 @@ final class VerificationOptions {
     StringBuilder current = new StringBuilder();
     for (int i = 0; i < inner.length(); i++) {
       char c = inner.charAt(i);
-      if (c == '<') {
+      if (c == '<' || c == '(') {
         depth++;
         current.append(c);
-      } else if (c == '>') {
+      } else if (c == '>' || c == ')') {
         depth--;
         current.append(c);
       } else if (c == ',' && depth == 0) {

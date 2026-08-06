@@ -16,23 +16,23 @@ module(
     name = "cel_java",
 )
 
-bazel_dep(name = "bazel_skylib", version = "1.9.0")
-bazel_dep(name = "rules_jvm_external", version = "6.10")
-bazel_dep(name = "protobuf", version = "33.4", repo_name = "com_google_protobuf")  # see https://github.com/bazelbuild/rules_android/issues/373
-bazel_dep(name = "googleapis", version = "0.0.0-20260223-edfe7983", repo_name = "com_google_googleapis")
+bazel_dep(name = "bazel_skylib", version = "1.9.2")
+bazel_dep(name = "rules_jvm_external", version = "7.1")
+bazel_dep(name = "protobuf", version = "35.1", repo_name = "com_google_protobuf")  # see https://github.com/bazelbuild/rules_android/issues/373
+bazel_dep(name = "googleapis", version = "0.0.0-20260728-b8486a2f", repo_name = "com_google_googleapis")
 bazel_dep(name = "rules_pkg", version = "1.2.0")
 bazel_dep(name = "rules_license", version = "1.0.0")
 bazel_dep(name = "rules_proto", version = "7.1.0")
-bazel_dep(name = "rules_java", version = "9.3.0")
-bazel_dep(name = "rules_android", version = "0.7.1")
-bazel_dep(name = "rules_shell", version = "0.6.1")
-bazel_dep(name = "googleapis-java", version = "1.0.0")
-bazel_dep(name = "cel-spec", version = "0.25.1", repo_name = "cel_spec")
-bazel_dep(name = "rules_go", version = "0.50.1")
+bazel_dep(name = "rules_java", version = "9.7.0")
+bazel_dep(name = "rules_android", version = "0.7.3")
+bazel_dep(name = "rules_shell", version = "0.8.0")
+bazel_dep(name = "googleapis-java", version = "1.1.5")
+bazel_dep(name = "cel-spec", version = "0.25.2", repo_name = "cel_spec")
+bazel_dep(name = "rules_go", version = "0.62.0")
 
 # Required by cel-spec to satisfy gazelle transitive dependency
 go_sdk = use_extension("@rules_go//go:extensions.bzl", "go_sdk")
-go_sdk.download(version = "1.23.0")
+go_sdk.download(version = "1.26.5")
 
 switched_rules = use_extension("@com_google_googleapis//:extensions.bzl", "switched_rules")
 switched_rules.use_languages(java = True)
@@ -40,13 +40,17 @@ use_repo(switched_rules, "com_google_googleapis_imports")
 
 maven = use_extension("@rules_jvm_external//:extensions.bzl", "maven")
 
-GUAVA_VERSION = "33.5.0"
+AUTO_VALUE_VERSION = "1.11.1"
 
-TRUTH_VERSION = "1.4.4"
+GUAVA_VERSION = "33.6.0"
 
-PROTOBUF_JAVA_VERSION = "4.33.5"
+JLINE_VERSION = "3.30.16"
 
-CEL_VERSION = "0.13.1"
+TRUTH_VERSION = "1.4.5"
+
+PROTOBUF_JAVA_VERSION = "4.35.1"
+
+CEL_VERSION = "0.14.0-SNAPSHOT"
 
 # Compile only artifacts
 [
@@ -58,7 +62,7 @@ CEL_VERSION = "0.13.1"
     )
     for group, artifact, version in [coord.split(":") for coord in [
         "com.google.code.findbugs:annotations:3.0.1",
-        "com.google.errorprone:error_prone_annotations:2.42.0",
+        "com.google.errorprone:error_prone_annotations:2.50.0",
     ]]
 ]
 
@@ -72,8 +76,8 @@ CEL_VERSION = "0.13.1"
     )
     for group, artifact, version in [coord.split(":") for coord in [
         "org.mockito:mockito-core:4.11.0",
-        "io.github.classgraph:classgraph:4.8.179",
-        "com.google.testparameterinjector:test-parameter-injector:1.18",
+        "io.github.classgraph:classgraph:4.8.186",
+        "com.google.testparameterinjector:test-parameter-injector:1.22",
         "com.google.guava:guava-testlib:" + GUAVA_VERSION + "-jre",
         "com.google.truth.extensions:truth-java8-extension:" + TRUTH_VERSION,
         "com.google.truth.extensions:truth-proto-extension:" + TRUTH_VERSION,
@@ -86,8 +90,8 @@ maven.install(
     name = "maven",
     # keep sorted
     artifacts = [
-        "com.google.auto.value:auto-value:1.11.0",
-        "com.google.auto.value:auto-value-annotations:1.11.0",
+        "com.google.auto.value:auto-value:" + AUTO_VALUE_VERSION,
+        "com.google.auto.value:auto-value-annotations:" + AUTO_VALUE_VERSION,
         "com.google.guava:guava:" + GUAVA_VERSION + "-jre",
         "com.google.protobuf:protobuf-java:" + PROTOBUF_JAVA_VERSION,
         "com.google.protobuf:protobuf-java-util:" + PROTOBUF_JAVA_VERSION,
@@ -95,13 +99,14 @@ maven.install(
         "info.picocli:picocli:4.7.7",
         "org.antlr:antlr4-runtime:4.13.2",
         "org.freemarker:freemarker:2.3.34",
-        "org.jline:jline-reader:3.26.1",
-        "org.jline:jline-terminal:3.26.1",
+        "org.jline:jline-reader:" + JLINE_VERSION,
+        "org.jline:jline-terminal:" + JLINE_VERSION,
         "org.jspecify:jspecify:1.0.0",
-        "org.threeten:threeten-extra:1.8.0",
-        "org.yaml:snakeyaml:2.5",
+        "org.threeten:threeten-extra:1.10.0",
+        "org.yaml:snakeyaml:2.6",
         "tools.aqua:z3-turnkey:4.14.1",
     ],
+    known_contributing_modules = ["protobuf"],
     repositories = [
         "https://maven.google.com",
         "https://repo1.maven.org/maven2",
@@ -129,10 +134,12 @@ maven.install(
         "dev.cel:compiler:" + CEL_VERSION,
         "dev.cel:runtime:" + CEL_VERSION,
     ],
+    fail_on_missing_checksum = not CEL_VERSION.endswith("-SNAPSHOT"),
     repositories = [
         "https://maven.google.com",
         "https://repo1.maven.org/maven2",
         "https://central.sonatype.com/repository/maven-snapshots/",
+        "m2local",
     ],
 )
 use_repo(maven, "maven", "maven_android", "maven_conformance")
