@@ -16,6 +16,7 @@ package dev.cel.common.navigation;
 
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import com.google.errorprone.annotations.CheckReturnValue;
+import com.google.errorprone.annotations.DoNotMock;
 import dev.cel.common.ast.CelExpr;
 import dev.cel.common.ast.CelExpr.ExprKind;
 import dev.cel.common.ast.Expression;
@@ -25,9 +26,15 @@ import java.util.stream.Stream;
 /**
  * BaseNavigableExpr represents the base navigable expression value with methods to inspect the
  * parent and child expressions.
+ *
+ * <p>This class is intentionally non-extensible outside of the {@code dev.cel.common.navigation}
+ * package.
  */
+@DoNotMock("Use CelNavigableExpr or CelNavigableMutableExpr")
 @SuppressWarnings("unchecked") // Generic types are properly bound to Expression
-abstract class BaseNavigableExpr<E extends Expression> {
+public abstract class BaseNavigableExpr<E extends Expression> {
+
+  BaseNavigableExpr() {}
 
   public abstract E expr();
 

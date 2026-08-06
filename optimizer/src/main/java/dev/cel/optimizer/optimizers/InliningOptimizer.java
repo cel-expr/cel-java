@@ -27,8 +27,8 @@ import dev.cel.common.ast.CelConstant;
 import dev.cel.common.ast.CelExpr.ExprKind.Kind;
 import dev.cel.common.ast.CelMutableExpr;
 import dev.cel.common.ast.CelMutableExpr.CelMutableCall;
-import dev.cel.common.ast.CelMutableExpr.CelMutableComprehension;
 import dev.cel.common.ast.CelMutableExpr.CelMutableStruct;
+import dev.cel.common.navigation.CelNavigableExprUtil;
 import dev.cel.common.navigation.CelNavigableMutableAst;
 import dev.cel.common.navigation.CelNavigableMutableExpr;
 import dev.cel.common.types.CelKind;
@@ -41,7 +41,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Optional;
-import java.util.stream.Stream;
 
 /**
  * Performs optimization for inlining variables within function calls and select statements with
@@ -222,23 +221,7 @@ public final class InliningOptimizer implements CelAstOptimizer {
       return false;
     }
 
-    for (CelNavigableMutableExpr p = node.parent().orElse(null);
-        p != null;
-        p = p.parent().orElse(null)) {
-      if (p.getKind() != Kind.COMPREHENSION) {
-        continue;
-      }
-
-      CelMutableComprehension comp = p.expr().comprehension();
-      boolean shadows =
-          Stream.of(comp.iterVar(), comp.iterVar2(), comp.accuVar()).anyMatch(identifier::equals);
-
-      if (shadows) {
-        return false;
-      }
-    }
-
-    return true;
+    return !CelNavigableExprUtil.isVariableShadowed(node, identifier);
   }
 
   private static Optional<String> maybeToQualifiedName(CelNavigableMutableExpr node) {
