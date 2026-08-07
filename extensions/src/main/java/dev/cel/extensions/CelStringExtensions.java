@@ -17,26 +17,44 @@ package dev.cel.extensions;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static java.lang.Math.max;
 import static java.lang.Math.min;
+import static java.nio.charset.StandardCharsets.UTF_8;
 
 import com.google.common.base.Ascii;
 import com.google.common.base.Joiner;
 import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.primitives.UnsignedLong;
 import com.google.errorprone.annotations.Immutable;
 import dev.cel.checker.CelCheckerBuilder;
 import dev.cel.common.CelFunctionDecl;
 import dev.cel.common.CelOverloadDecl;
 import dev.cel.common.internal.CelCodePointArray;
+import dev.cel.common.internal.ComparisonFunctions;
+import dev.cel.common.internal.DateTimeHelpers;
+import dev.cel.common.types.CelType;
 import dev.cel.common.types.ListType;
 import dev.cel.common.types.SimpleType;
+import dev.cel.common.types.TypeType;
+import dev.cel.common.values.CelByteString;
+import dev.cel.common.values.NullValue;
 import dev.cel.compiler.CelCompilerLibrary;
 import dev.cel.runtime.CelEvaluationException;
 import dev.cel.runtime.CelEvaluationExceptionBuilder;
 import dev.cel.runtime.CelFunctionBinding;
 import dev.cel.runtime.CelRuntimeBuilder;
 import dev.cel.runtime.CelRuntimeLibrary;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HexFormat;
+import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 /** Internal implementation of CEL string extensions. */
@@ -58,6 +76,16 @@ public final class CelStringExtensions
                 ImmutableList.of(SimpleType.STRING, SimpleType.INT))),
         CelFunctionBinding.from(
             "string_char_at_int", String.class, Long.class, CelStringExtensions::charAt)),
+    FORMAT(
+        CelFunctionDecl.newFunctionDeclaration(
+            "format",
+            CelOverloadDecl.newMemberOverload(
+                "string_format",
+                "Formats the string using the provided arguments.",
+                SimpleType.STRING,
+                ImmutableList.of(SimpleType.STRING, ListType.create(SimpleType.DYN)))),
+        CelFunctionBinding.from(
+            "string_format", String.class, List.class, CelStringExtensions::format)),
     INDEX_OF(
         CelFunctionDecl.newFunctionDeclaration(
             "indexOf",
@@ -402,6 +430,361 @@ public final class CelStringExtensions
 
   private static String join(List<String> stringList, String separator) {
     return Joiner.on(separator).join(stringList);
+  }
+
+  private static String format(String formatSpecifier, List<Object> args)
+      throws CelEvaluationException {
+    StringBuilder builtStr = new StringBuilder(formatSpecifier.length());
+    int i = 0;
+    int argIndex = 0;
+    IdentityHashMap<Object, Boolean> visited = new IdentityHashMap<>();
+    while (i < formatSpecifier.length()) {
+      if (formatSpecifier.charAt(i) == '%') {
+        if (i + 1 < formatSpecifier.length() && formatSpecifier.charAt(i + 1) == '%') {
+          builtStr.append('%');
+          i += 2;
+        } else {
+          if (argIndex >= args.size()) {
+            throw new CelEvaluationException("index " + argIndex + " out of range");
+          }
+          Object arg = args.get(argIndex++);
+          i++; // Skip '%'
+
+          // Safely ignore width specifiers
+          while (i < formatSpecifier.length() && Character.isDigit(formatSpecifier.charAt(i))) {
+            i++;
+          }
+
+          int precision = -1;
+          if (i < formatSpecifier.length() && formatSpecifier.charAt(i) == '.') {
+            i++;
+            int start = i;
+            while (i < formatSpecifier.length() && Character.isDigit(formatSpecifier.charAt(i))) {
+              i++;
+            }
+            if (i == start) {
+              precision = 0; // Default to 0 for empty precision
+            } else {
+              try {
+                precision = Integer.parseInt(formatSpecifier.substring(start, i));
+              } catch (NumberFormatException e) {
+                throw new CelEvaluationException("error while converting precision to integer", e);
+              }
+            }
+          }
+
+          if (i >= formatSpecifier.length()) {
+            throw new CelEvaluationException("unexpected end of string");
+          }
+          char verb = formatSpecifier.charAt(i++);
+
+          switch (verb) {
+            case 's' -> builtStr.append(formatString(arg, precision, visited));
+            case 'd' -> builtStr.append(formatDecimal(arg));
+            case 'f' -> builtStr.append(formatFixed(arg, precision));
+            case 'e' -> builtStr.append(formatScientific(arg, precision));
+            case 'b' -> builtStr.append(formatBinary(arg));
+            case 'x', 'X' -> builtStr.append(formatHex(arg, verb == 'X'));
+            case 'o' -> builtStr.append(formatOctal(arg));
+            default ->
+                throw new CelEvaluationException("unrecognized formatting clause \"" + verb + "\"");
+          }
+        }
+      } else {
+        builtStr.append(formatSpecifier.charAt(i++));
+      }
+    }
+    return builtStr.toString();
+  }
+
+  private static String formatString(
+      Object val, int precision, IdentityHashMap<Object, Boolean> visited)
+      throws CelEvaluationException {
+    String res = formatStringInternal(val, visited);
+    if (precision >= 0 && res.length() > precision) {
+      return res.substring(0, precision);
+    }
+    return res;
+  }
+
+  private static String formatStringInternal(Object val, IdentityHashMap<Object, Boolean> visited)
+      throws CelEvaluationException {
+    if (val == null) {
+      return "null";
+    }
+    if (val instanceof String s) {
+      return s;
+    }
+    if (val instanceof CelByteString byteString) {
+      return byteString.toStringUtf8();
+    }
+    if (val instanceof Duration duration) {
+      return DateTimeHelpers.toString(duration);
+    }
+    if (val instanceof Instant) {
+      return val.toString();
+    }
+    if (val instanceof Boolean) {
+      return val.toString();
+    }
+    if (val instanceof Long) {
+      return val.toString();
+    }
+    if (val instanceof UnsignedLong) {
+      return val.toString();
+    }
+    if (val instanceof Double d) {
+      if (d.isNaN()) {
+        return "NaN";
+      }
+      if (d.isInfinite()) {
+        return d > 0 ? "Infinity" : "-Infinity";
+      }
+      return d.toString();
+    }
+    if (val instanceof List<?> list) {
+      return formatList(list, visited);
+    }
+    if (val instanceof Map<?, ?> map) {
+      return formatMap(map, visited);
+    }
+    if (val instanceof NullValue) {
+      return "null";
+    }
+    if (val instanceof TypeType typeType) {
+      return typeType.containingTypeName();
+    }
+    if (val instanceof CelType celType) {
+      return celType.name();
+    }
+    throw new CelEvaluationException(
+        "could not convert argument " + val.getClass().getName() + " to string");
+  }
+
+  private static String formatList(List<?> list, IdentityHashMap<Object, Boolean> visited)
+      throws CelEvaluationException {
+    if (visited.containsKey(list)) {
+      return "[...]";
+    }
+    visited.put(list, true);
+    try {
+      StringBuilder sb = new StringBuilder("[");
+      for (int i = 0; i < list.size(); i++) {
+        sb.append(formatString(list.get(i), -1, visited));
+        if (i < list.size() - 1) {
+          sb.append(", ");
+        }
+      }
+      sb.append("]");
+      return sb.toString();
+    } finally {
+      visited.remove(list);
+    }
+  }
+
+  private static class MapEntry {
+    final Object key;
+    final String keyStr;
+    final Object value;
+
+    MapEntry(Object key, String keyStr, Object value) {
+      this.key = key;
+      this.keyStr = keyStr;
+      this.value = value;
+    }
+  }
+
+  private static String formatMap(Map<?, ?> map, IdentityHashMap<Object, Boolean> visited)
+      throws CelEvaluationException {
+    if (visited.containsKey(map)) {
+      return "{...}";
+    }
+    visited.put(map, true);
+    try {
+      List<MapEntry> entries = new ArrayList<>();
+      for (Map.Entry<?, ?> entry : map.entrySet()) {
+        entries.add(
+            new MapEntry(
+                entry.getKey(), formatString(entry.getKey(), -1, visited), entry.getValue()));
+      }
+
+      Collections.sort(
+          entries,
+          (a, b) -> {
+            int cmp = a.keyStr.compareTo(b.keyStr);
+            if (cmp != 0) {
+              return cmp;
+            }
+            // Tie breaker for different types that format to same string
+            if (a.key == null && b.key == null) {
+              return 0;
+            }
+            if (a.key == null) {
+              return -1;
+            }
+            if (b.key == null) {
+              return 1;
+            }
+            if (a.key.getClass() != b.key.getClass()) {
+              return a.key.getClass().getName().compareTo(b.key.getClass().getName());
+            }
+            // Same type, but didn't compare equal? Should be rare if keyStr is same, but just in
+            // case.
+            if (a.key instanceof Comparable) {
+              try {
+                // a.key and b.key same class and ClassCastException is caught.
+                @SuppressWarnings("unchecked")
+                Comparable<Object> comparable = (Comparable<Object>) a.key;
+                return comparable.compareTo(b.key);
+              } catch (ClassCastException e) {
+                // Ignore, fall back
+              }
+            }
+            if (a.key instanceof Number aNum && b.key instanceof Number bNum) {
+              return ComparisonFunctions.numericCompare(aNum, bNum);
+            }
+            return 0;
+          });
+
+      StringBuilder sb = new StringBuilder("{");
+      for (int i = 0; i < entries.size(); i++) {
+        MapEntry entry = entries.get(i);
+        sb.append(entry.keyStr).append(": ").append(formatString(entry.value, -1, visited));
+        if (i < entries.size() - 1) {
+          sb.append(", ");
+        }
+      }
+      sb.append("}");
+      return sb.toString();
+    } finally {
+      visited.remove(map);
+    }
+  }
+
+  private static String formatDecimal(Object arg) throws CelEvaluationException {
+    if (arg instanceof Long || arg instanceof UnsignedLong) {
+      return arg.toString();
+    }
+    if (arg instanceof Double) {
+      return formatFixed(arg, -1);
+    }
+    throw new CelEvaluationException(
+        "decimal clause can only be used on numbers, was given " + arg.getClass().getName());
+  }
+
+  private static String formatFixed(Object arg, int precision) throws CelEvaluationException {
+    if (arg instanceof Double d) {
+      double val = d;
+      if (Double.isNaN(val)) {
+        return "NaN";
+      }
+      if (Double.isInfinite(val)) {
+        return val > 0 ? "Infinity" : "-Infinity";
+      }
+      int p = precision >= 0 ? precision : 6;
+      BigDecimal bd = BigDecimal.valueOf(val);
+      bd = bd.setScale(p, RoundingMode.HALF_EVEN);
+      return bd.toPlainString();
+    }
+    if (arg instanceof Long l) {
+      return formatFixed((double) l, precision);
+    }
+    if (arg instanceof UnsignedLong ulong) {
+      return formatFixed(ulong.doubleValue(), precision);
+    }
+    throw new CelEvaluationException(
+        "fixed point clause can only be used on doubles, integers, and unsigned integers, was given"
+            + " "
+            + arg.getClass().getName());
+  }
+
+  private static String formatScientific(Object arg, int precision) throws CelEvaluationException {
+    if (arg instanceof Double d) {
+      double val = d;
+      if (Double.isNaN(val)) {
+        return "NaN";
+      }
+      if (Double.isInfinite(val)) {
+        return val > 0 ? "Infinity" : "-Infinity";
+      }
+      String fmtStr = precision >= 0 ? "%." + precision + "e" : "%.6e";
+      return String.format(Locale.ROOT, fmtStr, val);
+    }
+    if (arg instanceof Long l) {
+      return formatScientific((double) l, precision);
+    }
+    if (arg instanceof UnsignedLong ulong) {
+      return formatScientific(ulong.doubleValue(), precision);
+    }
+    throw new CelEvaluationException(
+        "scientific clause can only be used on doubles, integers, and unsigned integers, was given "
+            + arg.getClass().getName());
+  }
+
+  private static String formatBinary(Object arg) throws CelEvaluationException {
+    if (arg instanceof Long val) {
+      if (val < 0) {
+        // Note: We handle negative numbers by forcing a leading '-' and taking the binary of the
+        // absolute value (e.g., -5 -> -101) for consistency with Go's %b behavior
+        if (val == Long.MIN_VALUE) {
+          return "-1" + "0".repeat(63);
+        }
+        return "-" + Long.toBinaryString(-val);
+      }
+      return Long.toBinaryString(val);
+    }
+    if (arg instanceof UnsignedLong ulong) {
+      return ulong.toString(2);
+    }
+    if (arg instanceof Boolean b) {
+      return b ? "1" : "0";
+    }
+    throw new CelEvaluationException(
+        "binary clause can only be used on integers and bools, was given "
+            + arg.getClass().getName());
+  }
+
+  private static String formatHex(Object arg, boolean upper) throws CelEvaluationException {
+    String result;
+    if (arg instanceof Long val) {
+      if (val < 0) {
+        if (val == Long.MIN_VALUE) {
+          result = "-8000000000000000";
+        } else {
+          result = "-" + String.format("%x", -val);
+        }
+      } else {
+        result = String.format("%x", val);
+      }
+    } else if (arg instanceof UnsignedLong unsignedLong) {
+      result = unsignedLong.toString(16);
+    } else if (arg instanceof CelByteString byteString) {
+      result = HexFormat.of().formatHex(byteString.toByteArray());
+    } else if (arg instanceof String str) {
+      result = HexFormat.of().formatHex(str.getBytes(UTF_8));
+    } else {
+      throw new CelEvaluationException(
+          "hex clause can only be used on integers, byte buffers, and strings, was given "
+              + arg.getClass().getName());
+    }
+    return upper ? result.toUpperCase(Locale.ROOT) : result;
+  }
+
+  private static String formatOctal(Object arg) throws CelEvaluationException {
+    if (arg instanceof Long val) {
+      if (val < 0) {
+        if (val == Long.MIN_VALUE) {
+          return "-1000000000000000000000";
+        }
+        return "-" + String.format("%o", -val);
+      }
+      return String.format("%o", val);
+    }
+    if (arg instanceof UnsignedLong ulong) {
+      return ulong.toString(8);
+    }
+    throw new CelEvaluationException(
+        "octal clause can only be used on integers, was given " + arg.getClass().getName());
   }
 
   private static Long lastIndexOf(String str, String substr) throws CelEvaluationException {
