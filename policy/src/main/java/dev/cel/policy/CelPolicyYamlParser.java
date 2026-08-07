@@ -298,7 +298,7 @@ final class CelPolicyYamlParser implements CelPolicyParser {
             }
             hasMatch = true;
             ruleBuilder
-                .addMatches(parseMatches(ctx, policyBuilder, value, false))
+                .addMatches(parseMatches(ctx, policyBuilder, value))
                 .setSemantic(EvaluationSemantic.FIRST_MATCH);
             break;
           case "aggregate":
@@ -307,7 +307,7 @@ final class CelPolicyYamlParser implements CelPolicyParser {
             }
             hasAggregate = true;
             ruleBuilder
-                .addMatches(parseMatches(ctx, policyBuilder, value, true))
+                .addMatches(parseMatches(ctx, policyBuilder, value))
                 .setSemantic(EvaluationSemantic.AGGREGATE);
             break;
 
@@ -320,10 +320,7 @@ final class CelPolicyYamlParser implements CelPolicyParser {
     }
 
     private ImmutableSet<CelPolicy.Match> parseMatches(
-        PolicyParserContext<Node> ctx,
-        CelPolicy.Builder policyBuilder,
-        Node node,
-        boolean isAggregate) {
+        PolicyParserContext<Node> ctx, CelPolicy.Builder policyBuilder, Node node) {
       long valueId = ctx.collectMetadata(node);
       ImmutableSet.Builder<CelPolicy.Match> matchesBuilder = ImmutableSet.builder();
       if (!assertYamlType(ctx, valueId, node, YamlNodeType.LIST)) {
@@ -332,7 +329,7 @@ final class CelPolicyYamlParser implements CelPolicyParser {
 
       SequenceNode matchListNode = (SequenceNode) node;
       for (Node elementNode : matchListNode.getValue()) {
-        matchesBuilder.add(parseMatchInternal(ctx, policyBuilder, elementNode, isAggregate));
+        matchesBuilder.add(parseMatch(ctx, policyBuilder, elementNode));
       }
 
       return matchesBuilder.build();
@@ -341,14 +338,6 @@ final class CelPolicyYamlParser implements CelPolicyParser {
     @Override
     public CelPolicy.Match parseMatch(
         PolicyParserContext<Node> ctx, CelPolicy.Builder policyBuilder, Node node) {
-      return parseMatchInternal(ctx, policyBuilder, node, false);
-    }
-
-    private CelPolicy.Match parseMatchInternal(
-        PolicyParserContext<Node> ctx,
-        CelPolicy.Builder policyBuilder,
-        Node node,
-        boolean isAggregate) {
       long nodeId = ctx.collectMetadata(node);
       if (!assertYamlType(ctx, nodeId, node, YamlNodeType.MAP)) {
         return ERROR_MATCH;
@@ -369,20 +358,6 @@ final class CelPolicyYamlParser implements CelPolicyParser {
             matchBuilder.setCondition(ctx.newSourceString(value));
             break;
           case "output":
-            if (isAggregate) {
-              ctx.reportError(tagId, "Rule aggregate requires 'emit' tag instead of 'output'");
-            }
-            matchBuilder
-                .result()
-                .filter(result -> result.kind().equals(Match.Result.Kind.RULE))
-                .ifPresent(
-                    result -> ctx.reportError(tagId, "Only the rule or the output may be set"));
-            matchBuilder.setResult(Match.Result.ofOutput(ctx.newSourceString(value)));
-            break;
-          case "emit":
-            if (!isAggregate) {
-              ctx.reportError(tagId, "Rule match requires 'output' tag instead of 'emit'");
-            }
             matchBuilder
                 .result()
                 .filter(result -> result.kind().equals(Match.Result.Kind.RULE))
