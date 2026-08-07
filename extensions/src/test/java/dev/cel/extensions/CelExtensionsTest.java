@@ -164,6 +164,7 @@ public class CelExtensionsTest {
             "math.bitShiftRight",
             "math.sqrt",
             "charAt",
+            "format",
             "indexOf",
             "join",
             "lastIndexOf",
