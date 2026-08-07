@@ -53,9 +53,11 @@ public final class CelVerifierReplTest {
   @Test
   public void repl_quitAndExit() throws Exception {
     String[] output1 = runReplWithCommands(":quit");
+
     assertThat(output1[0]).contains("Goodbye!");
 
     String[] output2 = runReplWithCommands(":exit");
+
     assertThat(output2[0]).contains("Goodbye!");
   }
 
@@ -73,6 +75,7 @@ public final class CelVerifierReplTest {
             ":help equiv",
             ":help non_existent_topic",
             ":quit");
+
     assertThat(output[0]).contains("REPL Commands:");
     assertThat(output[0]).contains("Command: :var <name> <type>");
     assertThat(output[0]).contains("Command: :unknown <identifier>");
@@ -81,6 +84,9 @@ public final class CelVerifierReplTest {
     assertThat(output[0]).contains("Query: sat <expression>");
     assertThat(output[0]).contains("Query: valid <expression>");
     assertThat(output[0]).contains("Query: equiv <expression1> <=> <expression2>");
+    assertThat(output[0]).contains("Well-known types: timestamp, duration");
+    assertThat(output[0]).contains("Optional types:   optional<T>");
+    assertThat(output[0]).contains("Protobuf types:   coming soon");
   }
 
   @Test
@@ -91,19 +97,27 @@ public final class CelVerifierReplTest {
             ":var port int",
             ":var scores map<string,int>",
             ":var tags list<string>",
+            ":var created_at timestamp",
+            ":var timeout duration",
+            ":var opt_user optional<string>",
             ":vars",
             ":quit");
+
     assertThat(output[0]).contains("Variable declared: role : string");
     assertThat(output[0]).contains("Variable declared: port : int");
     assertThat(output[0]).contains("Variable declared: scores : map(string, int)");
     assertThat(output[0]).contains("Variable declared: tags : list(string)");
-    assertThat(output[0]).contains("Variables (4):");
+    assertThat(output[0]).contains("Variable declared: created_at : google.protobuf.Timestamp");
+    assertThat(output[0]).contains("Variable declared: timeout : google.protobuf.Duration");
+    assertThat(output[0]).contains("Variable declared: opt_user : optional_type(string)");
+    assertThat(output[0]).contains("Variables (7):");
   }
 
   @Test
   public void repl_unknownIdentifiers() throws Exception {
     String[] output =
         runReplWithCommands(":unknown request.headers", ":unknown request.auth", ":vars", ":quit");
+
     assertThat(output[0]).contains("Added unknown identifier: 'request.headers'");
     assertThat(output[0]).contains("Added unknown identifier: 'request.auth'");
     assertThat(output[0]).contains("Unknowns: [request.headers, request.auth]");
@@ -114,6 +128,7 @@ public final class CelVerifierReplTest {
     String[] output =
         runReplWithCommands(
             ":timeout 15", ":vars", ":timeout -5", ":timeout abc", ":timeout", ":quit");
+
     assertThat(output[0]).contains("Timeout set to 15s.");
     assertThat(output[0]).contains("Timeout: 15s");
     assertThat(output[1]).contains("Timeout must be a positive integer.");
@@ -125,6 +140,7 @@ public final class CelVerifierReplTest {
   public void repl_unrollConfiguration() throws Exception {
     String[] output =
         runReplWithCommands(":unroll 10", ":vars", ":unroll -1", ":unroll xyz", ":unroll", ":quit");
+
     assertThat(output[0]).contains("Comprehension unroll limit set to 10.");
     assertThat(output[0]).contains("Unroll limit: 10");
     assertThat(output[1]).contains("Unroll limit must be non-negative.");
@@ -137,6 +153,7 @@ public final class CelVerifierReplTest {
     String[] output =
         runReplWithCommands(
             ":var role string", ":unknown req.headers", ":vars", ":clear", ":vars", ":quit");
+
     assertThat(output[0]).contains("Variables (1):");
     assertThat(output[0]).contains("Session state reset.");
     assertThat(output[0]).contains("Variables (0):");
@@ -147,6 +164,7 @@ public final class CelVerifierReplTest {
   public void repl_satQueries() throws Exception {
     String[] output =
         runReplWithCommands(":var port int", "sat port > 1024", "port > 1024", "sat", ":quit");
+
     assertThat(output[0]).contains("[VERIFIED]");
     assertThat(output[1]).contains("Usage: sat <expression>");
   }
@@ -155,6 +173,7 @@ public final class CelVerifierReplTest {
   public void repl_validQueries() throws Exception {
     String[] output =
         runReplWithCommands(":var x int", "valid x > 0 || x <= 0", "valid x > 0", "valid", ":quit");
+
     assertThat(output[0]).contains("[VERIFIED]");
     assertThat(output[0]).contains("[VIOLATED]");
     assertThat(output[1]).contains("Usage: valid <expression>");
@@ -164,6 +183,7 @@ public final class CelVerifierReplTest {
   public void repl_equivQueries() throws Exception {
     String[] output =
         runReplWithCommands(":var x int", "equiv x > 10 <=> 10 < x", "equiv x > 10", ":quit");
+
     assertThat(output[0]).contains("[VERIFIED]");
     assertThat(output[1]).contains("Equivalence query format: equiv <expr1> <=> <expr2>");
   }
@@ -171,6 +191,7 @@ public final class CelVerifierReplTest {
   @Test
   public void repl_equivDoubleNegation() throws Exception {
     String[] output = runReplWithCommands(":var x int", "equiv !!(x == 10) <=> (x == 10)", ":quit");
+
     assertThat(output[0]).contains("[VERIFIED]");
   }
 
@@ -184,6 +205,45 @@ public final class CelVerifierReplTest {
                 + " v, v == 1 && k == 'foo')",
             "equiv int_list.all(e, e > 0) <=> int_list.all(elem, elem > 0)",
             ":quit");
+
+    assertThat(output[0]).contains("[VERIFIED]");
+    assertThat(output[1]).isEmpty();
+  }
+
+  @Test
+  public void repl_timestampAndDurationQueries() throws Exception {
+    String[] output =
+        runReplWithCommands(
+            ":var t timestamp",
+            ":var d duration",
+            "sat t > timestamp(1000)",
+            "sat d > duration('60s')",
+            "sat t + d > timestamp(2000)",
+            ":quit");
+
+    assertThat(output[0]).contains("[VERIFIED]");
+    assertThat(output[1]).isEmpty();
+  }
+
+  @Test
+  public void repl_durationSatisfyingInputFormat() throws Exception {
+    String[] output =
+        runReplWithCommands(":var dur duration", "timestamp(100) - timestamp(50) == dur", ":quit");
+
+    assertThat(output[0]).contains("[VERIFIED]");
+    assertThat(output[0]).contains("dur = duration('50s')");
+    assertThat(output[1]).isEmpty();
+  }
+
+  @Test
+  public void repl_optionalQueries() throws Exception {
+    String[] output =
+        runReplWithCommands(
+            ":var opt_val optional<int>",
+            "sat opt_val.hasValue() && opt_val.value() > 100",
+            "sat !opt_val.hasValue()",
+            ":quit");
+
     assertThat(output[0]).contains("[VERIFIED]");
     assertThat(output[1]).isEmpty();
   }
@@ -199,6 +259,7 @@ public final class CelVerifierReplTest {
             ":unknown",
             "invalid + + syntax",
             ":quit");
+
     assertThat(output[1]).contains("Unknown command: :unknowncommand");
     assertThat(output[1]).contains("Usage: :var <name> <type>");
     assertThat(output[1]).contains("Unsupported type");

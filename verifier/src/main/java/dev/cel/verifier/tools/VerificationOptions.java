@@ -21,6 +21,7 @@ import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import dev.cel.common.types.CelType;
 import dev.cel.common.types.ListType;
 import dev.cel.common.types.MapType;
+import dev.cel.common.types.OptionalType;
 import dev.cel.common.types.SimpleType;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -147,17 +148,20 @@ final class VerificationOptions {
   }
 
   static CelType parseCelType(String typeStr) {
+    // TODO: Replace with shorthand type parser once it is available.
     Preconditions.checkNotNull(typeStr, "Type string cannot be null.");
     String str = typeStr.trim().toLowerCase(Locale.US);
 
     if (str.startsWith("list<") && str.endsWith(">")) {
-      String inner = str.substring(5, str.length() - 1).trim();
+      // Strip "list<" prefix and trailing ">" to extract the element type "T".
+      String inner = str.substring("list<".length(), str.length() - 1).trim();
       CelType elemType = parseCelType(inner);
       return ListType.create(elemType);
     }
 
     if (str.startsWith("map<") && str.endsWith(">")) {
-      String inner = str.substring(4, str.length() - 1).trim();
+      // Strip "map<" prefix and trailing ">" to extract the key and value types "K, V".
+      String inner = str.substring("map<".length(), str.length() - 1).trim();
       List<String> parts = splitGenericArgs(inner);
       if (parts.size() != 2) {
         throw new IllegalArgumentException(
@@ -168,6 +172,20 @@ final class VerificationOptions {
       CelType keyType = parseCelType(parts.get(0));
       CelType valueType = parseCelType(parts.get(1));
       return MapType.create(keyType, valueType);
+    }
+
+    if (str.startsWith("optional<") && str.endsWith(">")) {
+      // Strip "optional<" prefix and trailing ">" to extract the wrapped type "T".
+      String inner = str.substring("optional<".length(), str.length() - 1).trim();
+      CelType elemType = parseCelType(inner);
+      return OptionalType.create(elemType);
+    }
+
+    if (str.startsWith("optional_type<") && str.endsWith(">")) {
+      // Strip "optional_type<" prefix and trailing ">" to extract the wrapped type "T".
+      String inner = str.substring("optional_type<".length(), str.length() - 1).trim();
+      CelType elemType = parseCelType(inner);
+      return OptionalType.create(elemType);
     }
 
     switch (str) {
@@ -187,12 +205,19 @@ final class VerificationOptions {
         return SimpleType.BYTES;
       case "dyn":
         return SimpleType.DYN;
+      case "timestamp":
+      case "google.protobuf.timestamp":
+        return SimpleType.TIMESTAMP;
+      case "duration":
+      case "google.protobuf.duration":
+        return SimpleType.DURATION;
       default:
+        // TODO: Support protobuf message types (coming soon).
         throw new IllegalArgumentException(
             "Unsupported type for CLI variable declaration: '"
                 + typeStr
-                + "'. Supported types: int, uint, string, bool, double, bytes, dyn, list<T>, map<K,"
-                + " V>.");
+                + "'. Supported types: int, uint, string, bool, double, bytes, dyn, timestamp,"
+                + " duration, list<T>, map<K, V>, optional<T>.");
     }
   }
 

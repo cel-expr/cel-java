@@ -22,6 +22,7 @@ import com.google.common.collect.ImmutableMap;
 import dev.cel.common.types.CelType;
 import dev.cel.common.types.ListType;
 import dev.cel.common.types.MapType;
+import dev.cel.common.types.OptionalType;
 import dev.cel.common.types.SimpleType;
 import dev.cel.verifier.CelVerificationResult;
 import dev.cel.verifier.CelVerificationResult.VerificationStatus;
@@ -65,6 +66,7 @@ public final class CelVerifierToolTest {
     String output =
         executeToolWithOutput(
             "check-sat", "--expr", "x > 0", "--var", "x:int", "--output_format", "json");
+
     assertThat(output).startsWith("{\n");
     assertThat(output).contains("\"status\": \"VERIFIED\"");
     assertThat(output).contains("satisfiable");
@@ -75,6 +77,7 @@ public final class CelVerifierToolTest {
   public void celVerifierTool_checkSat_textOutputFormat() {
     String output =
         executeToolWithOutput("check-sat", "--expr", "x > 0", "--var", "x:int", "-fmt", "text");
+
     assertThat(output).contains("[VERIFIED]");
     assertThat(output).contains("satisfiable");
   }
@@ -84,6 +87,7 @@ public final class CelVerifierToolTest {
     String output =
         executeToolWithOutput(
             "check-sat", "--expr", "x == 'hello'", "--var", "x:dyn", "-fmt", "json");
+
     assertThat(output).contains("\"status\": \"VERIFIED\"");
   }
 
@@ -100,6 +104,7 @@ public final class CelVerifierToolTest {
             "request.headers",
             "-fmt",
             "json");
+
     assertThat(output).contains("\"status\": \"VERIFIED\"");
   }
 
@@ -116,12 +121,33 @@ public final class CelVerifierToolTest {
             "5",
             "-fmt",
             "json");
+
+    assertThat(output).contains("\"status\": \"VERIFIED\"");
+  }
+
+  @Test
+  public void celVerifierTool_checkSat_withTimestampDurationAndOptional() {
+    String output =
+        executeToolWithOutput(
+            "check-sat",
+            "--expr",
+            "t + d > timestamp(1000) && opt.hasValue()",
+            "--var",
+            "t:timestamp",
+            "--var",
+            "d:duration",
+            "--var",
+            "opt:optional<int>",
+            "-fmt",
+            "json");
+
     assertThat(output).contains("\"status\": \"VERIFIED\"");
   }
 
   @Test
   public void celVerifierTool_verifyPolicy_fileNotFound() {
     String output = executeToolWithOutput("verify-policy", "--file", "non_existent_policy.yaml");
+
     assertThat(output).contains("File not found: non_existent_policy.yaml");
   }
 
@@ -134,12 +160,19 @@ public final class CelVerifierToolTest {
                 "role:string",
                 "is_admin:bool",
                 "tags:list<string>",
-                "scores:map<string, int>"));
+                "scores:map<string, int>",
+                "created_at:timestamp",
+                "timeout:duration",
+                "opt_user:optional<string>"));
+
     assertThat(vars).containsEntry("x", SimpleType.INT);
     assertThat(vars).containsEntry("role", SimpleType.STRING);
     assertThat(vars).containsEntry("is_admin", SimpleType.BOOL);
     assertThat(vars).containsEntry("tags", ListType.create(SimpleType.STRING));
     assertThat(vars).containsEntry("scores", MapType.create(SimpleType.STRING, SimpleType.INT));
+    assertThat(vars).containsEntry("created_at", SimpleType.TIMESTAMP);
+    assertThat(vars).containsEntry("timeout", SimpleType.DURATION);
+    assertThat(vars).containsEntry("opt_user", OptionalType.create(SimpleType.STRING));
   }
 
   @Test
@@ -153,14 +186,21 @@ public final class CelVerifierToolTest {
                 "b:bytes",
                 "dyn_val:dyn",
                 "flag:boolean",
+                "t:google.protobuf.timestamp",
+                "dur:google.protobuf.duration",
+                "opt:optional<int>",
                 "nested_list:list<dyn>",
                 "nested_map:map<string, dyn>"));
+
     assertThat(vars).containsEntry("u", SimpleType.UINT);
     assertThat(vars).containsEntry("d", SimpleType.DOUBLE);
     assertThat(vars).containsEntry("fl", SimpleType.DOUBLE);
     assertThat(vars).containsEntry("b", SimpleType.BYTES);
     assertThat(vars).containsEntry("dyn_val", SimpleType.DYN);
     assertThat(vars).containsEntry("flag", SimpleType.BOOL);
+    assertThat(vars).containsEntry("t", SimpleType.TIMESTAMP);
+    assertThat(vars).containsEntry("dur", SimpleType.DURATION);
+    assertThat(vars).containsEntry("opt", OptionalType.create(SimpleType.INT));
     assertThat(vars).containsEntry("nested_list", ListType.create(SimpleType.DYN));
     assertThat(vars).containsEntry("nested_map", MapType.create(SimpleType.STRING, SimpleType.DYN));
   }
@@ -178,9 +218,12 @@ public final class CelVerifierToolTest {
         assertThrows(
             IllegalArgumentException.class,
             () -> VerificationOptions.parseVariables(Arrays.asList("x:foo_bar")));
+
     assertThat(ex)
         .hasMessageThat()
-        .contains("Supported types: int, uint, string, bool, double, bytes, dyn");
+        .contains(
+            "Supported types: int, uint, string, bool, double, bytes, dyn, timestamp,"
+                + " duration, list<T>, map<K, V>, optional<T>.");
   }
 
   @Test
@@ -203,6 +246,7 @@ public final class CelVerifierToolTest {
             Arrays.asList(
                 "nested_map:map<string, map<string, int>>",
                 "nested_list_map:map<string, list<int>>"));
+
     assertThat(vars)
         .containsEntry(
             "nested_map",
@@ -298,7 +342,6 @@ public final class CelVerifierToolTest {
             + "    - id: port_check\n"
             + "      assert:\n"
             + "        - port == 80 || port != 80\n";
-
     VerificationOptions options =
         VerificationOptions.builder().setTimeout(Duration.ofSeconds(5)).build();
     ImmutableMap<String, CelType> vars = ImmutableMap.of("port", SimpleType.INT);
@@ -319,7 +362,6 @@ public final class CelVerifierToolTest {
             + "    - condition: port == 80\n"
             + "      output: 'true'\n"
             + "    - output: 'false'\n";
-
     String policyB =
         "name: policy_b\n"
             + "rule:\n"
@@ -327,7 +369,6 @@ public final class CelVerifierToolTest {
             + "    - condition: 80 == port\n"
             + "      output: 'true'\n"
             + "    - output: 'false'\n";
-
     VerificationOptions options =
         VerificationOptions.builder().setTimeout(Duration.ofSeconds(5)).build();
     ImmutableMap<String, CelType> vars = ImmutableMap.of("port", SimpleType.INT);
@@ -346,11 +387,11 @@ public final class CelVerifierToolTest {
         CelVerifierToolCore.checkSatisfiable("true", ImmutableMap.of(), options);
     CelVerificationResult violatedRes =
         CelVerifierToolCore.checkValid("x > 0", ImmutableMap.of("x", SimpleType.INT), options);
-
     ImmutableMap<String, CelVerificationResult> results =
         ImmutableMap.of("inv_1", verifiedRes, "inv_2", violatedRes);
 
     String text = FormatUtils.formatTextPolicyResults("test_policy", results);
+
     assertThat(text).contains("Policy Invariant Verification for 'test_policy':");
     assertThat(text).contains("✓ Invariant 'inv_1': VERIFIED");
     assertThat(text).contains("✗ Invariant 'inv_2': VIOLATED");
@@ -362,10 +403,10 @@ public final class CelVerifierToolTest {
         VerificationOptions.builder().setTimeout(Duration.ofSeconds(5)).build();
     CelVerificationResult result =
         CelVerifierToolCore.checkSatisfiable("true", ImmutableMap.of(), options);
-
     ImmutableMap<String, CelVerificationResult> results = ImmutableMap.of("inv_1", result);
 
     String json = FormatUtils.formatJsonPolicyResults("my_policy", results);
+
     assertThat(json).startsWith("{\n");
     assertThat(json).contains("\"policyName\": \"my_policy\"");
     assertThat(json).contains("\"id\": \"inv_1\"");
@@ -488,7 +529,9 @@ public final class CelVerifierToolTest {
         VerificationOptions.builder().setTimeout(Duration.ofSeconds(5)).build();
     CelVerificationResult result =
         CelVerifierToolCore.checkSatisfiable("true", ImmutableMap.of(), options);
+
     String json = FormatUtils.formatJsonResult(result);
+
     assertThat(json).contains("\"status\": \"VERIFIED\"");
     assertThat(json).contains("satisfiable");
   }
@@ -498,6 +541,7 @@ public final class CelVerifierToolTest {
     int exitCode =
         new CommandLine(new CelVerifierTool())
             .execute("check-sat", "--expr", "x > 0", "--var", "x:int");
+
     assertThat(exitCode).isEqualTo(CelVerifierTool.EXIT_CODE_VERIFIED);
   }
 
@@ -506,6 +550,7 @@ public final class CelVerifierToolTest {
     int exitCode =
         new CommandLine(new CelVerifierTool())
             .execute("check-valid", "--expr", "x > 0", "--var", "x:int");
+
     assertThat(exitCode).isEqualTo(CelVerifierTool.EXIT_CODE_VIOLATED);
   }
 
@@ -514,6 +559,7 @@ public final class CelVerifierToolTest {
     int exitCode =
         new CommandLine(new CelVerifierTool())
             .execute("verify-equiv", "--expr1", "x > 10", "--expr2", "10 < x", "--var", "x:int");
+
     assertThat(exitCode).isEqualTo(CelVerifierTool.EXIT_CODE_VERIFIED);
   }
 
@@ -521,6 +567,7 @@ public final class CelVerifierToolTest {
   public void celVerifierTool_checkSat_compilationError() {
     String output =
         executeToolWithOutput("check-sat", "--expr", "invalid + + syntax", "--var", "x:int");
+
     assertThat(output).contains("Compilation error");
   }
 
@@ -529,6 +576,7 @@ public final class CelVerifierToolTest {
     int exitCode =
         new CommandLine(new CelVerifierTool())
             .execute("check-valid", "--expr", "x == x", "--var", "x:int", "-u", "x");
+
     assertThat(exitCode).isEqualTo(CelVerifierTool.EXIT_CODE_VIOLATED);
   }
 
@@ -537,6 +585,7 @@ public final class CelVerifierToolTest {
     int exitCode =
         new CommandLine(new CelVerifierTool())
             .execute("check-valid", "--expr", "int('123') == 123");
+
     assertThat(exitCode).isEqualTo(CelVerifierTool.EXIT_CODE_INCONCLUSIVE);
   }
 
@@ -569,6 +618,7 @@ public final class CelVerifierToolTest {
     String output =
         executeToolWithOutput(
             "check-sat", "--expr", "x > 0", "--var", "x:int", "-fmt", "invalid_fmt");
+
     assertThat(output).contains("[VERIFIED]");
   }
 
@@ -580,6 +630,7 @@ public final class CelVerifierToolTest {
         CelVerifierToolCore.checkValid("int('123') == 123", ImmutableMap.of(), options);
 
     String text = FormatUtils.formatTextPolicyResults("test_policy", ImmutableMap.of("inv_1", res));
+
     assertThat(text).contains("Invariant 'inv_1': INCONCLUSIVE");
   }
 
@@ -589,9 +640,11 @@ public final class CelVerifierToolTest {
         VerificationOptions.builder().setTimeout(Duration.ofSeconds(5)).build();
     CelVerificationResult res =
         CelVerifierToolCore.checkValid("int('123') == 123", ImmutableMap.of(), options);
+
     String json =
         FormatUtils.formatJsonPolicyResults(
             "policy_with_\"quote\"\nand_newline", ImmutableMap.of("inv\ttab", res));
+
     assertThat(json).contains("policy_with_\\\"quote\\\"\\nand_newline");
     assertThat(json).contains("inv\\ttab");
   }
@@ -599,6 +652,7 @@ public final class CelVerifierToolTest {
   @Test
   public void celVerifierTool_version() {
     int exitCode = new CommandLine(new CelVerifierTool()).execute("--version");
+
     assertThat(exitCode).isEqualTo(0);
   }
 }

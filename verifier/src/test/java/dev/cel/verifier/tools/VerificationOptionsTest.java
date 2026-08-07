@@ -20,6 +20,9 @@ import static org.junit.Assert.assertThrows;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import dev.cel.common.types.CelType;
+import dev.cel.common.types.ListType;
+import dev.cel.common.types.MapType;
+import dev.cel.common.types.OptionalType;
 import dev.cel.common.types.SimpleType;
 import dev.cel.verifier.tools.VerificationOptions.OutputFormat;
 import java.time.Duration;
@@ -62,31 +65,89 @@ public final class VerificationOptionsTest {
   @Test
   public void setTimeout_null_throwsException() {
     VerificationOptions.Builder builder = VerificationOptions.builder();
+
     assertThrows(NullPointerException.class, () -> builder.setTimeout(null));
   }
 
   @Test
   public void setComprehensionUnrollLimit_negative_throwsException() {
     VerificationOptions.Builder builder = VerificationOptions.builder();
+
     assertThrows(IllegalArgumentException.class, () -> builder.setComprehensionUnrollLimit(-1));
   }
 
   @Test
   public void setOutputFormat_null_throwsException() {
     VerificationOptions.Builder builder = VerificationOptions.builder();
+
     assertThrows(NullPointerException.class, () -> builder.setOutputFormat(null));
   }
 
   @Test
   public void parseVariables_validSpecs() {
     ImmutableMap<String, CelType> vars =
-        VerificationOptions.parseVariables(ImmutableList.of("x:int", "name:string", "flag:bool"));
+        VerificationOptions.parseVariables(
+            ImmutableList.of(
+                "x:int",
+                "name:string",
+                "flag:bool",
+                "created_at:timestamp",
+                "timeout:duration",
+                "opt_user:optional<string>",
+                "opt_list:optional<list<int>>",
+                "opt_map:optional<map<string, int>>"));
 
     assertThat(vars)
         .containsExactly(
             "x", SimpleType.INT,
             "name", SimpleType.STRING,
-            "flag", SimpleType.BOOL);
+            "flag", SimpleType.BOOL,
+            "created_at", SimpleType.TIMESTAMP,
+            "timeout", SimpleType.DURATION,
+            "opt_user", OptionalType.create(SimpleType.STRING),
+            "opt_list", OptionalType.create(ListType.create(SimpleType.INT)),
+            "opt_map", OptionalType.create(MapType.create(SimpleType.STRING, SimpleType.INT)));
+  }
+
+  @Test
+  public void parseCelType_timestampAndDuration() {
+    assertThat(VerificationOptions.parseCelType("timestamp")).isEqualTo(SimpleType.TIMESTAMP);
+    assertThat(VerificationOptions.parseCelType("google.protobuf.timestamp"))
+        .isEqualTo(SimpleType.TIMESTAMP);
+    assertThat(VerificationOptions.parseCelType("google.protobuf.Timestamp"))
+        .isEqualTo(SimpleType.TIMESTAMP);
+    assertThat(VerificationOptions.parseCelType("duration")).isEqualTo(SimpleType.DURATION);
+    assertThat(VerificationOptions.parseCelType("google.protobuf.duration"))
+        .isEqualTo(SimpleType.DURATION);
+    assertThat(VerificationOptions.parseCelType("google.protobuf.Duration"))
+        .isEqualTo(SimpleType.DURATION);
+  }
+
+  @Test
+  public void parseCelType_optionalTypes() {
+    assertThat(VerificationOptions.parseCelType("optional<int>"))
+        .isEqualTo(OptionalType.create(SimpleType.INT));
+    assertThat(VerificationOptions.parseCelType("optional<string>"))
+        .isEqualTo(OptionalType.create(SimpleType.STRING));
+    assertThat(VerificationOptions.parseCelType("optional_type<bool>"))
+        .isEqualTo(OptionalType.create(SimpleType.BOOL));
+    assertThat(VerificationOptions.parseCelType("optional<optional<int>>"))
+        .isEqualTo(OptionalType.create(OptionalType.create(SimpleType.INT)));
+    assertThat(VerificationOptions.parseCelType("map<string, optional<int>>"))
+        .isEqualTo(MapType.create(SimpleType.STRING, OptionalType.create(SimpleType.INT)));
+  }
+
+  @Test
+  public void parseCelType_parenthesesSyntax_throwsException() {
+    assertThrows(
+        IllegalArgumentException.class, () -> VerificationOptions.parseCelType("optional(int)"));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> VerificationOptions.parseCelType("optional_type(bool)"));
+    assertThrows(
+        IllegalArgumentException.class, () -> VerificationOptions.parseCelType("list(string)"));
+    assertThrows(
+        IllegalArgumentException.class, () -> VerificationOptions.parseCelType("map(string, int)"));
   }
 
   @Test
@@ -98,6 +159,21 @@ public final class VerificationOptionsTest {
   @Test
   public void parseVariables_invalidSpec_throwsException() {
     ImmutableList<String> specs = ImmutableList.of("invalid_spec_without_colon");
+
     assertThrows(IllegalArgumentException.class, () -> VerificationOptions.parseVariables(specs));
+  }
+
+  @Test
+  public void parseVariables_unsupportedType_throwsException() {
+    ImmutableList<String> specs = ImmutableList.of("x:unknown_type");
+
+    IllegalArgumentException ex =
+        assertThrows(
+            IllegalArgumentException.class, () -> VerificationOptions.parseVariables(specs));
+    assertThat(ex)
+        .hasMessageThat()
+        .contains(
+            "Supported types: int, uint, string, bool, double, bytes, dyn, timestamp,"
+                + " duration, list<T>, map<K, V>, optional<T>.");
   }
 }

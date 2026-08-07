@@ -1312,7 +1312,7 @@ public final class CelVerifierZ3ImplTest {
         "dur != dur",
         "Condition is not always true\\.",
         "Counterexample input:",
-        "dur = duration\\(-?\\d+\\)"),
+        "dur = duration\\('-?\\d+s'\\)"),
     TIMESTAMP_VARIABLE_COUNTEREXAMPLE(
         "ts != ts",
         "Condition is not always true\\.",
