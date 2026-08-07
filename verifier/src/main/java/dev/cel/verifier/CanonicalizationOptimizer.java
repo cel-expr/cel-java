@@ -14,11 +14,14 @@
 
 package dev.cel.verifier;
 
+import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.collect.ImmutableList.toImmutableList;
+import static com.google.common.collect.ImmutableMap.toImmutableMap;
 
 import com.google.auto.value.AutoValue;
 import com.google.common.collect.ComparisonChain;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Iterables;
 import dev.cel.bundle.Cel;
 import dev.cel.common.CelAbstractSyntaxTree;
@@ -33,6 +36,7 @@ import dev.cel.common.ast.CelMutableExpr.CelMutableComprehension;
 import dev.cel.common.ast.CelMutableExpr.CelMutableMap;
 import dev.cel.common.ast.CelMutableExpr.CelMutableSelect;
 import dev.cel.common.ast.CelMutableExpr.CelMutableStruct;
+import dev.cel.common.navigation.CelNavigableExprUtil;
 import dev.cel.common.navigation.CelNavigableMutableAst;
 import dev.cel.common.navigation.CelNavigableMutableExpr;
 import dev.cel.common.navigation.TraversalOrder;
@@ -46,6 +50,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Standalone AST canonicalization pass that normalizes commutative operator ordering and De Morgan
@@ -81,12 +86,8 @@ final class CanonicalizationOptimizer implements CelAstOptimizer {
   @Override
   public OptimizationResult optimize(CelAbstractSyntaxTree ast, Cel cel) {
     CelMutableAst mutableAst = CelMutableAst.fromCelAst(ast);
-    mutableAst = runCanonicalizationLoop(mutableAst);
-    for (Map.Entry<Long, CelMutableExpr> entry :
-        new HashMap<>(mutableAst.source().getMacroCalls()).entrySet()) {
-      CelMutableExpr canonicalMacro = canonicalize(entry.getValue());
-      mutableAst.source().addMacroCalls(entry.getKey(), canonicalMacro);
-    }
+    mutableAst = runCanonicalizationLoop(mutableAst, CanonicalizationScope.EMPTY);
+    canonicalizeMacroCalls(mutableAst);
     CelAbstractSyntaxTree optimizedAst =
         AstMutator.newInstance(canonicalizationOptions.maxIterationLimit())
             .renumberIdsConsecutively(mutableAst)
@@ -94,14 +95,42 @@ final class CanonicalizationOptimizer implements CelAstOptimizer {
     return OptimizationResult.create(optimizedAst);
   }
 
+  private void canonicalizeMacroCalls(CelMutableAst mutableAst) {
+    if (mutableAst.source().getMacroCalls().isEmpty()) {
+      return;
+    }
+    CelNavigableMutableAst navigableAst = CelNavigableMutableAst.fromAst(mutableAst);
+    ImmutableMap<Long, CelNavigableMutableExpr> comprehensionNodesById =
+        navigableAst
+            .getRoot()
+            .allNodes()
+            .filter(n -> n.getKind() == Kind.COMPREHENSION)
+            .collect(toImmutableMap(CelNavigableMutableExpr::id, n -> n));
+
+    for (Map.Entry<Long, CelMutableExpr> entry :
+        new HashMap<>(mutableAst.source().getMacroCalls()).entrySet()) {
+      long compId = entry.getKey();
+      CelNavigableMutableExpr compNode = comprehensionNodesById.get(compId);
+      CanonicalizationScope compScope = CanonicalizationScope.EMPTY;
+      if (compNode != null) {
+        compScope =
+            CanonicalizationScope.fromNavigableExpr(compNode, CanonicalizationScope.EMPTY)
+                .forComprehensionLoop(compNode.expr().comprehension());
+      }
+      CelMutableExpr canonicalMacro = canonicalize(entry.getValue(), compScope);
+      mutableAst.source().addMacroCalls(entry.getKey(), canonicalMacro);
+    }
+  }
+
   /** Canonicalizes a single CelMutableExpr subtree. */
-  private CelMutableExpr canonicalize(CelMutableExpr root) {
+  private CelMutableExpr canonicalize(CelMutableExpr root, CanonicalizationScope baseScope) {
     CelMutableAst mutableAst = CelMutableAst.of(root, CelMutableSource.newInstance());
-    mutableAst = runCanonicalizationLoop(mutableAst);
+    mutableAst = runCanonicalizationLoop(mutableAst, baseScope);
     return mutableAst.expr();
   }
 
-  private CelMutableAst runCanonicalizationLoop(CelMutableAst mutableAst) {
+  private CelMutableAst runCanonicalizationLoop(
+      CelMutableAst mutableAst, CanonicalizationScope baseScope) {
     AstMutator astMutator = AstMutator.newInstance(canonicalizationOptions.maxIterationLimit());
     int iterCount = 0;
     boolean continueCanonicalizing = true;
@@ -120,7 +149,7 @@ final class CanonicalizationOptimizer implements CelAstOptimizer {
               .collect(toImmutableList());
       for (CelNavigableMutableExpr candidate : candidateExprs) {
         iterCount++;
-        Optional<CelMutableExpr> newExpr = maybeCanonicalize(mutableAst, candidate);
+        Optional<CelMutableExpr> newExpr = maybeCanonicalize(mutableAst, candidate, baseScope);
         if (newExpr.isPresent()) {
           continueCanonicalizing = true;
           mutableAst = astMutator.replaceSubtree(mutableAst, newExpr.get(), candidate.id());
@@ -141,7 +170,9 @@ final class CanonicalizationOptimizer implements CelAstOptimizer {
   }
 
   private static Optional<CelMutableExpr> maybeCanonicalize(
-      CelMutableAst mutableAst, CelNavigableMutableExpr navigableExpr) {
+      CelMutableAst mutableAst,
+      CelNavigableMutableExpr navigableExpr,
+      CanonicalizationScope baseScope) {
     CelMutableExpr expr = navigableExpr.expr();
     if (expr.getKind() != Kind.CALL) {
       return Optional.empty();
@@ -153,24 +184,24 @@ final class CanonicalizationOptimizer implements CelAstOptimizer {
     if ((functionName.equals(Operator.LOGICAL_AND.getFunction())
             || functionName.equals(Operator.LOGICAL_OR.getFunction()))
         && args.size() == 2) {
-      return maybeCanonicalizeCommutativeCall(navigableExpr, functionName);
+      return maybeCanonicalizeCommutativeCall(navigableExpr, functionName, baseScope);
     }
 
     if ((functionName.equals(Operator.EQUALS.getFunction())
             || functionName.equals(Operator.NOT_EQUALS.getFunction()))
         && args.size() == 2) {
-      return maybeCanonicalizeSymmetricCall(navigableExpr, functionName, args);
+      return maybeCanonicalizeSymmetricCall(navigableExpr, functionName, args, baseScope);
     }
 
     if (functionName.equals(Operator.LOGICAL_NOT.getFunction()) && args.size() == 1) {
-      return maybeCanonicalizeLogicalNot(mutableAst, expr.id(), args.get(0));
+      return maybeCanonicalizeLogicalNot(mutableAst, args.get(0));
     }
 
     return Optional.empty();
   }
 
   private static Optional<CelMutableExpr> maybeCanonicalizeCommutativeCall(
-      CelNavigableMutableExpr navigableExpr, String functionName) {
+      CelNavigableMutableExpr navigableExpr, String functionName, CanonicalizationScope baseScope) {
     // TODO: Consider supporting associative/commutative reassociation for arithmetic
     // operators (+, *)
     List<CelNavigableMutableExpr> navigableOperands =
@@ -183,11 +214,13 @@ final class CanonicalizationOptimizer implements CelAstOptimizer {
     for (CelNavigableMutableExpr navOp : navigableOperands) {
       operands.add(navOp.expr());
     }
-    operands.sort(AstComparator.INSTANCE);
+    CanonicalizationScope scope = CanonicalizationScope.fromNavigableExpr(navigableExpr, baseScope);
+    AstComparator scopedComparator = AstComparator.of(scope);
+    operands.sort(scopedComparator);
     List<CelMutableExpr> uniqueSorted = new ArrayList<>();
     for (CelMutableExpr op : operands) {
       if (uniqueSorted.isEmpty()
-          || AstComparator.INSTANCE.compare(op, Iterables.getLast(uniqueSorted)) != 0) {
+          || scopedComparator.compare(op, Iterables.getLast(uniqueSorted)) != 0) {
         uniqueSorted.add(op);
       }
     }
@@ -195,29 +228,30 @@ final class CanonicalizationOptimizer implements CelAstOptimizer {
     for (int i = 1; i < uniqueSorted.size(); i++) {
       rebuilt =
           CelMutableExpr.ofCall(
-              navigableExpr.id(),
-              CelMutableCall.create(functionName, rebuilt, uniqueSorted.get(i)));
+              0, CelMutableCall.create(functionName, rebuilt, uniqueSorted.get(i)));
     }
-    if (AstComparator.INSTANCE.compare(rebuilt, navigableExpr.expr()) == 0) {
+    if (scopedComparator.compare(rebuilt, navigableExpr.expr()) == 0) {
       return Optional.empty();
     }
     return Optional.of(rebuilt);
   }
 
   private static Optional<CelMutableExpr> maybeCanonicalizeSymmetricCall(
-      CelNavigableMutableExpr navigableExpr, String functionName, List<CelMutableExpr> args) {
+      CelNavigableMutableExpr navigableExpr,
+      String functionName,
+      List<CelMutableExpr> args,
+      CanonicalizationScope baseScope) {
     CelMutableExpr arg0 = args.get(0);
     CelMutableExpr arg1 = args.get(1);
-    if (AstComparator.INSTANCE.compare(arg0, arg1) > 0) {
-      return Optional.of(
-          CelMutableExpr.ofCall(
-              navigableExpr.id(), CelMutableCall.create(functionName, arg1, arg0)));
+    CanonicalizationScope scope = CanonicalizationScope.fromNavigableExpr(navigableExpr, baseScope);
+    if (AstComparator.of(scope).compare(arg0, arg1) > 0) {
+      return Optional.of(CelMutableExpr.ofCall(0, CelMutableCall.create(functionName, arg1, arg0)));
     }
     return Optional.empty();
   }
 
   private static Optional<CelMutableExpr> maybeCanonicalizeLogicalNot(
-      CelMutableAst mutableAst, long exprId, CelMutableExpr target) {
+      CelMutableAst mutableAst, CelMutableExpr target) {
     if (isCallWithArgCount(target, Operator.LOGICAL_NOT.getFunction(), 1)) {
       return Optional.of(target.call().args().get(0));
     }
@@ -225,7 +259,7 @@ final class CanonicalizationOptimizer implements CelAstOptimizer {
       List<CelMutableExpr> subArgs = target.call().args();
       return Optional.of(
           CelMutableExpr.ofCall(
-              exprId,
+              0,
               CelMutableCall.create(
                   Operator.LOGICAL_OR.getFunction(),
                   negate(subArgs.get(0)),
@@ -235,7 +269,7 @@ final class CanonicalizationOptimizer implements CelAstOptimizer {
       List<CelMutableExpr> subArgs = target.call().args();
       return Optional.of(
           CelMutableExpr.ofCall(
-              exprId,
+              0,
               CelMutableCall.create(
                   Operator.LOGICAL_AND.getFunction(),
                   negate(subArgs.get(0)),
@@ -245,7 +279,7 @@ final class CanonicalizationOptimizer implements CelAstOptimizer {
       List<CelMutableExpr> subArgs = target.call().args();
       return Optional.of(
           CelMutableExpr.ofCall(
-              exprId,
+              0,
               CelMutableCall.create(
                   Operator.NOT_EQUALS.getFunction(), subArgs.get(0), subArgs.get(1))));
     }
@@ -253,7 +287,7 @@ final class CanonicalizationOptimizer implements CelAstOptimizer {
       List<CelMutableExpr> subArgs = target.call().args();
       return Optional.of(
           CelMutableExpr.ofCall(
-              exprId,
+              0,
               CelMutableCall.create(
                   Operator.EQUALS.getFunction(), subArgs.get(0), subArgs.get(1))));
     }
@@ -262,7 +296,7 @@ final class CanonicalizationOptimizer implements CelAstOptimizer {
 
   private static CelMutableExpr negate(CelMutableExpr expr) {
     return CelMutableExpr.ofCall(
-        expr.id(), CelMutableCall.create(Operator.LOGICAL_NOT.getFunction(), expr));
+        0, CelMutableCall.create(Operator.LOGICAL_NOT.getFunction(), expr));
   }
 
   private static List<CelNavigableMutableExpr> flattenNavigableOperands(
@@ -294,9 +328,85 @@ final class CanonicalizationOptimizer implements CelAstOptimizer {
         && expr.call().args().size() == argCount;
   }
 
+  /**
+   * Immutable lexical scope chain for tracking comprehension binder depths during canonical AST
+   * ordering.
+   */
+  private static final class CanonicalizationScope {
+    private static final CanonicalizationScope EMPTY = new CanonicalizationScope("", null);
+
+    private final String varName;
+    private final @Nullable CanonicalizationScope parent;
+
+    private CanonicalizationScope(String varName, @Nullable CanonicalizationScope parent) {
+      this.varName = checkNotNull(varName);
+      this.parent = parent;
+    }
+
+    CanonicalizationScope push(String varName) {
+      checkNotNull(varName);
+      if (varName.isEmpty()) {
+        return this;
+      }
+      return new CanonicalizationScope(varName, this);
+    }
+
+    CanonicalizationScope forComprehensionLoop(CelMutableComprehension comp) {
+      return push(comp.iterVar()).push(comp.iterVar2()).push(comp.accuVar());
+    }
+
+    CanonicalizationScope forComprehensionResult(CelMutableComprehension comp) {
+      return push(comp.accuVar());
+    }
+
+    int indexOf(String name) {
+      checkNotNull(name);
+      int idx = 0;
+      CanonicalizationScope curr = this;
+      while (curr != null && curr != EMPTY) {
+        if (curr.varName.equals(name)) {
+          return idx;
+        }
+        idx++;
+        curr = curr.parent;
+      }
+      return -1;
+    }
+
+    @SuppressWarnings("ReferenceEquality") // Disambiguates mutable child branches
+    static CanonicalizationScope fromNavigableExpr(
+        CelNavigableMutableExpr node, CanonicalizationScope baseScope) {
+      checkNotNull(node);
+      checkNotNull(baseScope);
+      if (!node.parent().isPresent()) {
+        return baseScope;
+      }
+      CelNavigableMutableExpr parent = node.parent().get();
+      CanonicalizationScope scope = fromNavigableExpr(parent, baseScope);
+      if (parent.getKind() == Kind.COMPREHENSION) {
+        CelMutableComprehension comp = parent.expr().comprehension();
+        CelMutableExpr nodeExpr = node.expr();
+        if (nodeExpr == comp.loopCondition() || nodeExpr == comp.loopStep()) {
+          return scope.forComprehensionLoop(comp);
+        } else if (nodeExpr == comp.result()) {
+          return scope.forComprehensionResult(comp);
+        }
+      }
+      return scope;
+    }
+  }
+
   /** Total ordering comparator for CEL mutable AST expressions. */
   private static final class AstComparator implements Comparator<CelMutableExpr> {
-    private static final AstComparator INSTANCE = new AstComparator();
+    private final CanonicalizationScope scope;
+
+    private AstComparator(CanonicalizationScope scope) {
+      this.scope = checkNotNull(scope);
+    }
+
+    static AstComparator of(CanonicalizationScope scope) {
+      return new AstComparator(scope);
+    }
 
     @Override
     public int compare(CelMutableExpr e1, CelMutableExpr e2) {
@@ -308,7 +418,7 @@ final class CanonicalizationOptimizer implements CelAstOptimizer {
         case CONSTANT:
           return compareConstants(e1.constant(), e2.constant());
         case IDENT:
-          return e1.ident().name().compareTo(e2.ident().name());
+          return compareIdent(e1.ident().name(), e2.ident().name(), scope);
         case SELECT:
           return compareSelect(e1.select(), e2.select());
         case CALL:
@@ -352,6 +462,21 @@ final class CanonicalizationOptimizer implements CelAstOptimizer {
         default:
           throw new UnsupportedOperationException("Unsupported constant kind: " + c1.getKind());
       }
+    }
+
+    private static int compareIdent(String name1, String name2, CanonicalizationScope scope) {
+      int bIdx1 = scope.indexOf(name1);
+      int bIdx2 = scope.indexOf(name2);
+      if (bIdx1 >= 0 && bIdx2 >= 0) {
+        return Integer.compare(bIdx2, bIdx1); // Outer/earlier binder first
+      }
+      if (bIdx1 >= 0) {
+        return -1; // Bound variable comes before free variable
+      }
+      if (bIdx2 >= 0) {
+        return 1; // Free variable comes after bound variable
+      }
+      return name1.compareTo(name2);
     }
 
     private int compareSelect(CelMutableSelect s1, CelMutableSelect s2) {
@@ -426,16 +551,30 @@ final class CanonicalizationOptimizer implements CelAstOptimizer {
     }
 
     private int compareComprehension(CelMutableComprehension c1, CelMutableComprehension c2) {
-      return ComparisonChain.start()
-          .compare(c1.iterVar(), c2.iterVar())
-          .compare(c1.iterVar2(), c2.iterVar2())
-          .compare(c1.accuVar(), c2.accuVar())
-          .compare(c1.iterRange(), c2.iterRange(), this)
-          .compare(c1.accuInit(), c2.accuInit(), this)
-          .compare(c1.loopCondition(), c2.loopCondition(), this)
-          .compare(c1.loopStep(), c2.loopStep(), this)
-          .compare(c1.result(), c2.result(), this)
-          .result();
+      int cmp =
+          ComparisonChain.start()
+              .compare(c1.iterRange(), c2.iterRange(), this)
+              .compare(c1.accuInit(), c2.accuInit(), this)
+              .compareTrueFirst(!c1.accuVar().isEmpty(), !c2.accuVar().isEmpty())
+              .compareTrueFirst(!c1.iterVar().isEmpty(), !c2.iterVar().isEmpty())
+              .compareFalseFirst(!c1.iterVar2().isEmpty(), !c2.iterVar2().isEmpty())
+              .result();
+      if (cmp != 0) {
+        return cmp;
+      }
+
+      AstComparator loopComparator = AstComparator.of(scope.forComprehensionLoop(c1));
+      cmp = loopComparator.compare(c1.loopCondition(), c2.loopCondition());
+      if (cmp != 0) {
+        return cmp;
+      }
+      cmp = loopComparator.compare(c1.loopStep(), c2.loopStep());
+      if (cmp != 0) {
+        return cmp;
+      }
+
+      AstComparator resultComparator = AstComparator.of(scope.forComprehensionResult(c1));
+      return resultComparator.compare(c1.result(), c2.result());
     }
 
     private int compareList(List<CelMutableExpr> l1, List<CelMutableExpr> l2) {
@@ -485,69 +624,45 @@ final class CanonicalizationOptimizer implements CelAstOptimizer {
 
     static boolean containsEnclosingAccuVar(
         CelNavigableMutableExpr operand, CelNavigableMutableExpr contextExpr) {
-      List<String> enclosingAccuVars = collectEnclosingAccuVars(contextExpr);
-      if (enclosingAccuVars.isEmpty()) {
+      List<CelNavigableMutableExpr> enclosingComprehensions =
+          collectEnclosingComprehensions(contextExpr);
+      if (enclosingComprehensions.isEmpty()) {
         return false;
       }
       return operand
           .allNodes()
           .filter(node -> node.getKind() == Kind.IDENT)
-          .anyMatch(identNode -> referencesEnclosingAccuVar(identNode, operand, enclosingAccuVars));
+          .anyMatch(
+              identNode -> {
+                String varName = identNode.expr().ident().name();
+                Optional<CelNavigableMutableExpr> declaringComp =
+                    CelNavigableExprUtil.findDeclaringComprehension(identNode, varName);
+                return declaringComp.isPresent()
+                    && declaringComp.get().expr().comprehension().accuVar().equals(varName)
+                    && enclosingComprehensions.contains(declaringComp.get());
+              });
     }
 
-    private static List<String> collectEnclosingAccuVars(CelNavigableMutableExpr contextExpr) {
-      List<String> accuVars = new ArrayList<>();
+    @SuppressWarnings("ReferenceEquality") // Disambiguates mutable child branches
+    private static List<CelNavigableMutableExpr> collectEnclosingComprehensions(
+        CelNavigableMutableExpr contextExpr) {
+      List<CelNavigableMutableExpr> comps = new ArrayList<>();
       CelNavigableMutableExpr curr = contextExpr;
       Optional<CelNavigableMutableExpr> maybeParent = curr.parent();
       while (maybeParent.isPresent()) {
         CelNavigableMutableExpr parent = maybeParent.get();
         if (parent.getKind() == Kind.COMPREHENSION) {
           CelMutableComprehension comp = parent.expr().comprehension();
-          long currId = curr.id();
-          if ((currId == comp.loopCondition().id() || currId == comp.loopStep().id())
+          CelMutableExpr currExpr = curr.expr();
+          if ((currExpr == comp.loopCondition() || currExpr == comp.loopStep())
               && !comp.accuVar().isEmpty()) {
-            accuVars.add(comp.accuVar());
+            comps.add(parent);
           }
         }
         curr = parent;
         maybeParent = parent.parent();
       }
-      return accuVars;
-    }
-
-    private static boolean referencesEnclosingAccuVar(
-        CelNavigableMutableExpr identNode,
-        CelNavigableMutableExpr operandRoot,
-        List<String> enclosingAccuVars) {
-      String name = identNode.expr().ident().name();
-      if (!enclosingAccuVars.contains(name)) {
-        return false;
-      }
-      return !isAccuVarShadowed(identNode, operandRoot, name);
-    }
-
-    private static boolean isAccuVarShadowed(
-        CelNavigableMutableExpr identNode,
-        CelNavigableMutableExpr operandRoot,
-        String accuVarName) {
-      CelNavigableMutableExpr curr = identNode;
-      while (curr.id() != operandRoot.id()) {
-        Optional<CelNavigableMutableExpr> nextParent = curr.parent();
-        if (!nextParent.isPresent()) {
-          break;
-        }
-        CelNavigableMutableExpr parent = nextParent.get();
-        if (parent.getKind() == Kind.COMPREHENSION) {
-          CelMutableComprehension comp = parent.expr().comprehension();
-          if (comp.accuVar().equals(accuVarName)
-              && curr.id() != comp.iterRange().id()
-              && curr.id() != comp.accuInit().id()) {
-            return true;
-          }
-        }
-        curr = parent;
-      }
-      return false;
+      return comps;
     }
   }
 

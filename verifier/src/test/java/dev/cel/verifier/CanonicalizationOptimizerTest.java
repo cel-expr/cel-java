@@ -264,9 +264,15 @@ public class CanonicalizationOptimizerTest {
     TWO_VAR_EXISTS_COMMUTATIVE_AND(
         "string_int_map.exists(k, v, v == 1 && k == 'foo')",
         "string_int_map.exists(k, v, k == \"foo\" && v == 1)"),
+    TWO_VAR_EXISTS_COMMUTATIVE_AND_REVERSE_ALPHABETICAL_VARS(
+        "string_int_map.exists(z_key, a_val, a_val == 1 && z_key == 'foo')",
+        "string_int_map.exists(z_key, a_val, z_key == \"foo\" && a_val == 1)"),
     TWO_VAR_ALL_COMMUTATIVE_OR(
         "string_int_map.all(k, v, v == 1 || k == 'foo')",
         "string_int_map.all(k, v, k == \"foo\" || v == 1)"),
+    TWO_VAR_ALL_COMMUTATIVE_OR_REVERSE_ALPHABETICAL_VARS(
+        "string_int_map.all(z_key, a_val, a_val == 1 || z_key == 'foo')",
+        "string_int_map.all(z_key, a_val, z_key == \"foo\" || a_val == 1)"),
     TWO_VAR_EXISTS_SYMMETRIC_EQUALITY(
         "string_int_map.exists(k, v, v == 1)", "string_int_map.exists(k, v, v == 1)"),
     TWO_VAR_ALL_SYMMETRIC_INEQUALITY(
@@ -274,6 +280,9 @@ public class CanonicalizationOptimizerTest {
     TWO_VAR_EXISTS_INT_STRING_MAP(
         "int_string_map.exists(k, v, v == 'bar' && k == 1)",
         "int_string_map.exists(k, v, k == 1 && v == \"bar\")"),
+    TWO_VAR_EXISTS_INT_STRING_MAP_REVERSE_ALPHABETICAL_VARS(
+        "int_string_map.exists(z_key, a_val, a_val == 'bar' && z_key == 1)",
+        "int_string_map.exists(z_key, a_val, z_key == 1 && a_val == \"bar\")"),
     TWO_VAR_ALL_INT_STRING_MAP(
         "!int_string_map.all(k, v, k == 1 || v == 'bar')", "k != 1 && v != \"bar\""),
     TWO_VAR_EXISTS_LIST_INDEX_VALUE(
@@ -286,10 +295,10 @@ public class CanonicalizationOptimizerTest {
         "int_list.all(i, v, v == 100 || i == 0)", "int_list.all(i, v, i == 0 || v == 100)"),
     TWO_VAR_NESTED_COMPREHENSIONS(
         "string_int_map.exists(k, v, k == 'foo' && int_list.all(i, e, e == v && i == 0))",
-        "string_int_map.exists(k, v, k == \"foo\" && int_list.all(i, e, e == v && i == 0))"),
+        "string_int_map.exists(k, v, k == \"foo\" && int_list.all(i, e, v == e && i == 0))"),
     DE_MORGAN_2VAR_NESTED_COMPREHENSIONS(
         "string_int_map.exists(k, v, k == 'foo' && !int_list.exists(i, e, e == v))",
-        "string_int_map.exists(k, v, k == \"foo\" && e != v)"),
+        "string_int_map.exists(k, v, k == \"foo\" && v != e)"),
     TWO_VAR_COMPREHENSION_WITH_OPTIONALS(
         "!string_int_map.exists(k, v, optional.of(v).hasValue() && k == 'foo')",
         "!optional.of(v).hasValue() || k != \"foo\""),
@@ -305,10 +314,10 @@ public class CanonicalizationOptimizerTest {
     // Extension Coverage - cel.bind Macro
     CEL_BIND_COMMUTATIVE_AND(
         "cel.bind(x, int_var + 10, 1 == x && 2 == int_var2)",
-        "cel.bind(x, int_var + 10, int_var2 == 2 && x == 1)"),
+        "cel.bind(x, int_var + 10, x == 1 && int_var2 == 2)"),
     CEL_BIND_COMMUTATIVE_OR(
         "cel.bind(x, int_var + 10, 1 == x || 2 == int_var2)",
-        "cel.bind(x, int_var + 10, int_var2 == 2 || x == 1)"),
+        "cel.bind(x, int_var + 10, x == 1 || int_var2 == 2)"),
     CEL_BIND_SYMMETRIC_EQUALITY(
         "cel.bind(x, int_var + 10, 20 == x)", "cel.bind(x, int_var + 10, x == 20)"),
     CEL_BIND_NESTED(
@@ -316,7 +325,7 @@ public class CanonicalizationOptimizerTest {
         "cel.bind(x, int_var + 10, cel.bind(y, int_var2 + 20, x == 1 && y == 2))"),
     CEL_BIND_DE_MORGAN(
         "cel.bind(x, int_var == 1, !(2 == int_var2 && x == true))",
-        "cel.bind(x, int_var == 1, int_var2 != 2 || x != true)"),
+        "cel.bind(x, int_var == 1, x != true || int_var2 != 2)"),
 
     // Nested Lists, Maps, and Structs
     NESTED_LIST_EQUALITY_SYMMETRY(
@@ -492,6 +501,14 @@ public class CanonicalizationOptimizerTest {
     COMPREHENSIONS_ONE_VAR_VS_TWO_VAR_AND(
         "string_int_map.all(k, v, v > 0) && string_int_map.all(k, k == 'a')",
         "string_int_map.all(k, k == \"a\") && string_int_map.all(k, v, v > 0)"),
+    COMPREHENSION_BOUND_VS_FREE_VAR_EQUALITY(
+        "int_list.all(x, int_var == x)", "int_list.all(x, x == int_var)"),
+    COMPREHENSION_NESTED_OUTER_VS_INNER_BOUND_VAR_EQUALITY(
+        "[1, 2].all(x, [1, 2].all(y, y == x))", "[1, 2].all(x, [1, 2].all(y, x == y))"),
+    COMPREHENSION_2VAR_KEY_VS_VAL_BOUND_VAR_EQUALITY(
+        "{'a': 'b'}.all(k, v, v == k)", "{\"a\": \"b\"}.all(k, v, k == v)"),
+    COMPREHENSION_2VAR_INDEX_VS_VAL_BOUND_VAR_EQUALITY(
+        "[1, 2].all(i, v, v == i)", "[1, 2].all(i, v, i == v)"),
 
     // Macro Scope Coverage (filter, map, exists_one, optMap, optFlatMap)
     FILTER_MACRO_PREDICATE_ORDER(

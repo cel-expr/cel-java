@@ -1996,11 +1996,28 @@ public final class CelVerifierZ3ImplTest {
     CANONICALIZE_MAP_TWO_VAR_ALPHA_RENAME(
         "string_int_map.exists(k, v, k == 'foo' && v == 1)",
         "string_int_map.exists(key, val, key == 'foo' && val == 1)"),
+    CANONICALIZE_MAP_TWO_VAR_ALPHA_RENAME_INVERTED_ORDER(
+        "string_int_map.exists(k, v, k == 'foo' && v == 1)",
+        "string_int_map.exists(z_key, a_val, a_val == 1 && z_key == 'foo')"),
+    CANONICALIZE_MAP_TWO_VAR_ALL_ALPHA_RENAME_PREDICATE_ORDER(
+        "string_int_map.all(k, v, k == 'foo' || v == 1)",
+        "string_int_map.all(z_key, a_val, a_val == 1 || z_key == 'foo')"),
     CANONICALIZE_MAP_TWO_VAR_DE_MORGAN(
         "!string_int_map.exists(k, v, !(v > 0))", "string_int_map.all(k, v, v > 0)"),
     CANONICALIZE_LIST_PREDICATE_ORDER(
         "int_list.all(e, e > 0 && e < 100)", "int_list.all(e, e < 100 && e > 0)"),
-    CANONICALIZE_LIST_ALPHA_RENAME("int_list.all(e, e > 0)", "int_list.all(elem, elem > 0)");
+    CANONICALIZE_LIST_ALPHA_RENAME("int_list.all(e, e > 0)", "int_list.all(elem, elem > 0)"),
+    CANONICALIZE_LIST_TWO_VAR_PREDICATE_ORDER(
+        "int_list.exists(i, v, i == 0 && v == 100)", "int_list.exists(i, v, v == 100 && i == 0)"),
+    CANONICALIZE_LIST_TWO_VAR_ALPHA_RENAME_INVERTED_ORDER(
+        "int_list.all(i, v, i == 0 || v == 100)", "int_list.all(row, col, col == 100 || row == 0)"),
+    CANONICALIZE_NESTED_TWO_VAR_COMPREHENSIONS(
+        "string_int_map.exists(k, v, k == 'foo' && [1, 2].all(i, e, e == v && i == 0))",
+        "string_int_map.exists(z_key, a_val, [1, 2].all(idx, elem, idx == 0 && elem == a_val)"
+            + " && z_key == 'foo')"),
+    CANONICALIZE_CEL_BIND_ALPHA_RENAME_PREDICATE_ORDER(
+        "cel.bind(a, x + 10, cel.bind(b, x + 20, 2 == b && 1 == a))",
+        "cel.bind(c, x + 10, cel.bind(d, x + 20, c == 1 && d == 2))");
 
     private final String exprA;
     private final String exprB;
@@ -2977,6 +2994,47 @@ public final class CelVerifierZ3ImplTest {
     CelVerificationResult result = verifier.verifyEquivalence(astA, astB);
 
     assertThat(result.status()).isEqualTo(VerificationStatus.INCONCLUSIVE);
+  }
+
+  private enum EquivalenceZeroUnrollLimitVerifiedTestCase {
+    MAP_TWO_VAR_EXISTS_BRANCH_ORDER(
+        "string_int_map.exists(k, v, k == 'foo' && v == 1)",
+        "string_int_map.exists(k, v, v == 1 && k == 'foo')"),
+    MAP_TWO_VAR_EXISTS_RENAME_INVERTED(
+        "string_int_map.exists(k, v, k == 'foo' && v == 1)",
+        "string_int_map.exists(z_key, a_val, a_val == 1 && z_key == 'foo')"),
+    MAP_TWO_VAR_ALL_RENAME_INVERTED(
+        "string_int_map.all(k, v, k == 'foo' || v == 1)",
+        "string_int_map.all(z_key, a_val, a_val == 1 || z_key == 'foo')"),
+    LIST_TWO_VAR_ALL_RENAME_INVERTED(
+        "int_list.all(i, v, i == 0 || v == 100)", "int_list.all(row, col, col == 100 || row == 0)"),
+    NESTED_TWO_VAR_DYNAMIC(
+        "string_int_map.exists(k, v, k == 'foo' && int_list.all(i, e, e == v && i == 0))",
+        "string_int_map.exists(z_key, a_val, int_list.all(idx, elem, idx == 0 && elem == a_val)"
+            + " && z_key == 'foo')");
+
+    final String exprA;
+    final String exprB;
+
+    EquivalenceZeroUnrollLimitVerifiedTestCase(String exprA, String exprB) {
+      this.exprA = exprA;
+      this.exprB = exprB;
+    }
+  }
+
+  @Test
+  public void verifyEquivalence_zeroUnrollLimit_twoVarComprehensions_returnsVerified(
+      @TestParameter EquivalenceZeroUnrollLimitVerifiedTestCase testCase) throws Exception {
+    CelAbstractSyntaxTree astA = CEL.compile(testCase.exprA).getAst();
+    CelAbstractSyntaxTree astB = CEL.compile(testCase.exprB).getAst();
+
+    CelVerifier verifier =
+        CelVerifierFactory.newVerifier(CEL).setComprehensionUnrollLimit(0).build();
+    CelVerificationResult result = verifier.verifyEquivalence(astA, astB);
+
+    assertWithMessage(result.message())
+        .that(result.status())
+        .isEqualTo(VerificationStatus.VERIFIED);
   }
 
   @Test

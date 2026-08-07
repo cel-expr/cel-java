@@ -215,9 +215,9 @@ final class CelAstAlphaHasher {
 
   private static final class Scope {
     final String varName;
-    final Scope parent;
+    final @Nullable Scope parent;
 
-    Scope(String varName, Scope parent) {
+    Scope(String varName, @Nullable Scope parent) {
       this.varName = varName;
       this.parent = parent;
     }

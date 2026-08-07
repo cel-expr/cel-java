@@ -1202,11 +1202,13 @@ final class CelAstToZ3Translator {
   }
 
   private static boolean isAllMacro(CelComprehension comp) {
-    return isBooleanAccuInit(comp, true) && isNotStrictlyFalseLoopCondition(comp);
+    return isBooleanAccuInit(comp, true)
+        && isNotStrictlyFalseLoopCondition(comp, /* expectNot= */ false);
   }
 
   private static boolean isExistsMacro(CelComprehension comp) {
-    return isBooleanAccuInit(comp, false) && isNotStrictlyFalseLoopCondition(comp);
+    return isBooleanAccuInit(comp, false)
+        && isNotStrictlyFalseLoopCondition(comp, /* expectNot= */ true);
   }
 
   private static boolean isBooleanAccuInit(CelComprehension comp, boolean expectedValue) {
@@ -1214,12 +1216,21 @@ final class CelAstToZ3Translator {
         && comp.accuInit().constant().booleanValue() == expectedValue;
   }
 
-  private static boolean isNotStrictlyFalseLoopCondition(CelComprehension comp) {
+  private static boolean isNotStrictlyFalseLoopCondition(CelComprehension comp, boolean expectNot) {
     CelExpr.CelCall call = comp.loopCondition().callOrDefault();
-    return (call.function().equals(Operator.NOT_STRICTLY_FALSE.getFunction())
-            || call.function().equals(Operator.OLD_NOT_STRICTLY_FALSE.getFunction()))
-        && call.args().size() == 1
-        && call.args().get(0).identOrDefault().name().equals(comp.accuVar());
+    if (!call.function().equals(Operator.NOT_STRICTLY_FALSE.getFunction())
+        && !call.function().equals(Operator.OLD_NOT_STRICTLY_FALSE.getFunction())) {
+      return false;
+    }
+    CelExpr arg = call.args().get(0);
+    if (expectNot) {
+      CelExpr.CelCall notCall = arg.callOrDefault();
+      if (!notCall.function().equals(Operator.LOGICAL_NOT.getFunction())) {
+        return false;
+      }
+      arg = notCall.args().get(0);
+    }
+    return arg.identOrDefault().name().equals(comp.accuVar());
   }
 
   private BoolExpr createTypeConstraint(Expr<?> val, long exprId, CelAbstractSyntaxTree ast) {

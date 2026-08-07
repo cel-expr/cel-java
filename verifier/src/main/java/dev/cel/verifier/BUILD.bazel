@@ -140,6 +140,7 @@ java_library(
         "//common/ast",
         "//common/ast:mutable_expr",
         "//common/navigation:common",
+        "//common/navigation:expr_util",
         "//common/navigation:mutable_navigation",
         "//common/values:cel_byte_string",
         "//optimizer:ast_optimizer",
