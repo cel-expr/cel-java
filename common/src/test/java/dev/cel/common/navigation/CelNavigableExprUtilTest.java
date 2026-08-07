@@ -196,6 +196,76 @@ public final class CelNavigableExprUtilTest {
   }
 
   @Test
+  public void isVariableShadowed_twoVarComprehension_resultBranch() throws Exception {
+    CelAbstractSyntaxTree ast =
+        COMPILER.compile("{'k1': 1, 'k2': 2}.all(k, v, k != '' && v > 0)").getAst();
+    CelNavigableMutableAst navigableAst =
+        CelNavigableMutableAst.fromAst(CelMutableAst.fromCelAst(ast));
+
+    CelNavigableMutableExpr comprehensionNode =
+        navigableAst
+            .getRoot()
+            .allNodes()
+            .filter(node -> node.getKind() == Kind.COMPREHENSION)
+            .findFirst()
+            .get();
+
+    CelMutableComprehension comprehension = comprehensionNode.expr().comprehension();
+    long resultId = comprehension.result().id();
+
+    CelNavigableMutableExpr resultNode =
+        comprehensionNode.allNodes().filter(node -> node.id() == resultId).findFirst().get();
+
+    // In result branch of two-var comprehension: accuVar is in scope, but iterVar and iterVar2 are
+    // not
+    assertThat(CelNavigableExprUtil.isVariableShadowed(resultNode, comprehension.accuVar()))
+        .isTrue();
+    assertThat(CelNavigableExprUtil.isVariableShadowed(resultNode, comprehension.iterVar()))
+        .isFalse();
+    assertThat(CelNavigableExprUtil.isVariableShadowed(resultNode, comprehension.iterVar2()))
+        .isFalse();
+  }
+
+  @Test
+  public void isVariableShadowed_accuInit_notShadowed() {
+    CelMutableExpr iterRange = CelMutableExpr.ofList(0, CelMutableList.create());
+    CelMutableExpr accuInitIdent = CelMutableExpr.ofIdent(1, "x");
+    CelMutableExpr loopCond = CelMutableExpr.ofConstant(2, CelConstant.ofValue(true));
+    CelMutableExpr loopStep = CelMutableExpr.ofConstant(3, CelConstant.ofValue(true));
+    CelMutableExpr result = CelMutableExpr.ofIdent(4, "accu");
+
+    CelMutableExpr comp =
+        CelMutableExpr.ofComprehension(
+            5,
+            CelMutableComprehension.create(
+                "x", iterRange, "accu", accuInitIdent, loopCond, loopStep, result));
+
+    CelNavigableMutableExpr root = CelNavigableMutableExpr.fromExpr(comp);
+    CelNavigableMutableExpr navAccuInit =
+        root.allNodes().filter(node -> node.id() == 1).findFirst().get();
+
+    assertThat(CelNavigableExprUtil.isVariableShadowed(navAccuInit, "x")).isFalse();
+    assertThat(CelNavigableExprUtil.isVariableShadowed(navAccuInit, "accu")).isFalse();
+  }
+
+  @Test
+  public void findDeclaringComprehension_emptyVariableName_returnsEmpty() throws Exception {
+    CelAbstractSyntaxTree ast = COMPILER.compile("[1, 2].all(x, x > 0)").getAst();
+    CelNavigableAst navigableAst = CelNavigableAst.fromAst(ast);
+
+    CelNavigableExpr identX =
+        navigableAst
+            .getRoot()
+            .allNodes()
+            .filter(node -> node.expr().identOrDefault().name().equals("x"))
+            .findFirst()
+            .get();
+
+    assertThat(CelNavigableExprUtil.findDeclaringComprehension(identX, "")).isEmpty();
+    assertThat(CelNavigableExprUtil.isVariableShadowed(identX, "")).isFalse();
+  }
+
+  @Test
   public void areVariablesShadowed_multipleVariables() throws Exception {
     CelAbstractSyntaxTree ast = COMPILER.compile("[1, 2].all(x, x > 0)").getAst();
     CelNavigableAst navigableAst = CelNavigableAst.fromAst(ast);
@@ -344,5 +414,65 @@ public final class CelNavigableExprUtilTest {
     assertThat(CelNavigableExprUtil.isVariableShadowed(navIterRange, "x")).isFalse();
     assertThat(CelNavigableExprUtil.isVariableShadowed(navResult, "x")).isFalse();
     assertThat(CelNavigableExprUtil.isVariableShadowed(navResult, "accu")).isTrue();
+  }
+
+  @Test
+  public void
+      findDeclaringComprehension_nestedComprehensions_resolvesToInnermostDeclaringComprehension()
+          throws Exception {
+    CelAbstractSyntaxTree ast =
+        COMPILER
+            .compile("[1, 2].all(x, {'k': 1}.exists(k, v, x > 0 && k != '' && v > 0))")
+            .getAst();
+    CelNavigableAst navigableAst = CelNavigableAst.fromAst(ast);
+
+    CelNavigableExpr outerComp =
+        navigableAst
+            .getRoot()
+            .allNodes()
+            .filter(
+                node ->
+                    node.getKind() == Kind.COMPREHENSION
+                        && node.expr().comprehension().iterVar().equals("x"))
+            .findFirst()
+            .get();
+
+    CelNavigableExpr innerComp =
+        navigableAst
+            .getRoot()
+            .allNodes()
+            .filter(
+                node ->
+                    node.getKind() == Kind.COMPREHENSION
+                        && node.expr().comprehension().iterVar().equals("k"))
+            .findFirst()
+            .get();
+
+    CelNavigableExpr identX =
+        navigableAst
+            .getRoot()
+            .allNodes()
+            .filter(node -> node.expr().identOrDefault().name().equals("x"))
+            .findFirst()
+            .get();
+    CelNavigableExpr identK =
+        navigableAst
+            .getRoot()
+            .allNodes()
+            .filter(node -> node.expr().identOrDefault().name().equals("k"))
+            .findFirst()
+            .get();
+    CelNavigableExpr identV =
+        navigableAst
+            .getRoot()
+            .allNodes()
+            .filter(node -> node.expr().identOrDefault().name().equals("v"))
+            .findFirst()
+            .get();
+
+    assertThat(CelNavigableExprUtil.findDeclaringComprehension(identX, "x")).hasValue(outerComp);
+    assertThat(CelNavigableExprUtil.findDeclaringComprehension(identK, "k")).hasValue(innerComp);
+    assertThat(CelNavigableExprUtil.findDeclaringComprehension(identV, "v")).hasValue(innerComp);
+    assertThat(CelNavigableExprUtil.findDeclaringComprehension(identX, "unknown")).isEmpty();
   }
 }

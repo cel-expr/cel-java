@@ -28,6 +28,58 @@ import java.util.Optional;
 public final class CelNavigableExprUtil {
 
   /**
+   * Returns the nearest enclosing comprehension that declares {@code variableName} in scope for
+   * {@code expr}, or {@code Optional.empty()} if none exists.
+   *
+   * <p>A comprehension declares {@code variableName} in scope for {@code expr} if {@code
+   * variableName} matches {@code iterVar}, {@code iterVar2}, or {@code accuVar}, and {@code expr}
+   * resides within the branch where that variable is active:
+   *
+   * <ul>
+   *   <li>In {@code loopCondition} and {@code loopStep}: {@code iterVar}, {@code iterVar2}, and
+   *       {@code accuVar} are in scope.
+   *   <li>In {@code result}: only {@code accuVar} is in scope.
+   *   <li>In {@code iterRange} and {@code accuInit}: none of the comprehension variables are in
+   *       scope.
+   * </ul>
+   */
+  @SuppressWarnings("ReferenceEquality") // Disambiguates mutable child branches
+  public static <E extends Expression, T extends BaseNavigableExpr<E>>
+      Optional<T> findDeclaringComprehension(T expr, String variableName) {
+    checkNotNull(expr);
+    checkNotNull(variableName);
+    if (variableName.isEmpty()) {
+      return Optional.empty();
+    }
+    T curr = expr;
+    Optional<T> maybeParent = curr.parent();
+    while (maybeParent.isPresent()) {
+      T parent = maybeParent.get();
+      if (parent.getKind() == Kind.COMPREHENSION) {
+        Expression.Comprehension<?> comp = parent.expr().comprehension();
+        Expression currExpr = curr.expr();
+
+        if (currExpr != comp.iterRange() && currExpr != comp.accuInit()) {
+          if (currExpr == comp.result()) {
+            if (comp.accuVar().equals(variableName)) {
+              return Optional.of(parent);
+            }
+          } else {
+            if (comp.iterVar().equals(variableName)
+                || comp.iterVar2().equals(variableName)
+                || comp.accuVar().equals(variableName)) {
+              return Optional.of(parent);
+            }
+          }
+        }
+      }
+      curr = parent;
+      maybeParent = parent.parent();
+    }
+    return Optional.empty();
+  }
+
+  /**
    * Returns true if {@code variableName} is in scope and shadowed by an enclosing comprehension
    * above {@code expr}.
    *
@@ -56,7 +108,7 @@ public final class CelNavigableExprUtil {
    * </ul>
    */
   public static boolean isVariableShadowed(BaseNavigableExpr<?> expr, String variableName) {
-    return areVariablesShadowed(expr, Collections.singleton(variableName));
+    return findDeclaringComprehension(expr, variableName).isPresent();
   }
 
   /**
@@ -72,38 +124,14 @@ public final class CelNavigableExprUtil {
    * At {@code y > 0}, {@code areVariablesShadowed(node, ImmutableSet.of("x", "z"))} is {@code true}
    * because {@code x} is in scope from the outer comprehension.
    */
-  @SuppressWarnings("ReferenceEquality") // Required to disambiguate child branches
   public static boolean areVariablesShadowed(
       BaseNavigableExpr<?> expr, Collection<String> variableNames) {
     checkNotNull(expr);
     checkNotNull(variableNames);
-    if (variableNames.isEmpty()) {
-      return false;
-    }
-    BaseNavigableExpr<?> curr = expr;
-    Optional<? extends BaseNavigableExpr<?>> maybeParent = curr.parent();
-    while (maybeParent.isPresent()) {
-      BaseNavigableExpr<?> parent = maybeParent.get();
-      if (parent.getKind() == Kind.COMPREHENSION) {
-        Expression.Comprehension<?> comp = parent.expr().comprehension();
-        Expression currExpr = curr.expr();
-
-        if (currExpr != comp.iterRange() && currExpr != comp.accuInit()) {
-          if (currExpr == comp.result()) {
-            if (variableNames.contains(comp.accuVar())) {
-              return true;
-            }
-          } else {
-            if (variableNames.contains(comp.iterVar())
-                || variableNames.contains(comp.iterVar2())
-                || variableNames.contains(comp.accuVar())) {
-              return true;
-            }
-          }
-        }
+    for (String varName : variableNames) {
+      if (findDeclaringComprehension(expr, varName).isPresent()) {
+        return true;
       }
-      curr = parent;
-      maybeParent = parent.parent();
     }
     return false;
   }
