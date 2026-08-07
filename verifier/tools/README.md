@@ -6,6 +6,20 @@ and policy invariants without writing Java code.
 
 ## Running the CLI Tool
 
+### Standalone Executable (Prebuilt JAR)
+
+You can download the standalone executable fat-JAR (`dev.cel:verifier-cli`)
+directly from Maven Central and invoke it with `java -jar`:
+
+<!-- disableFinding(LINE_OVER_80) -->
+```bash
+# Download the latest CLI JAR
+curl -LO https://repo1.maven.org/maven2/dev/cel/verifier-cli/0.13.1/verifier-cli-0.13.1.jar
+
+# Run the verifier CLI / REPL
+java -jar verifier-cli-0.13.1.jar --help
+```
+
 ### Running via Bazel
 
 ```bash
@@ -26,11 +40,6 @@ bazel run //verifier/tools:cel_verifier_tool -- \
 # Launch interactive REPL shell
 bazel run //verifier/tools:cel_verifier_tool -- repl
 ```
-
-### Running via Maven Central
-
-> **Note:** Executable binaries and Maven packages (`dev.cel:cel-verifier`)
-> will be published to Maven Central in an upcoming release.
 
 ## CLI Commands
 

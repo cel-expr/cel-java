@@ -26,7 +26,7 @@
 
 # Note, to run script: Bazel and jq are required
 
-ALL_TARGETS=("//publish:cel_common.publish" "//publish:cel.publish" "//publish:cel_compiler.publish" "//publish:cel_runtime.publish" "//publish:cel_v1alpha1.publish" "//publish:cel_protobuf.publish" "//publish:cel_runtime_android.publish")
+ALL_TARGETS=("//publish:cel_common.publish" "//publish:cel.publish" "//publish:cel_compiler.publish" "//publish:cel_runtime.publish" "//publish:cel_v1alpha1.publish" "//publish:cel_protobuf.publish" "//publish:cel_runtime_android.publish" "//publish:cel_verifier.publish" "//publish:cel_verifier_cli.publish")
 JDK8_FLAGS="--java_language_version=8 --java_runtime_version=8"
 
 function publish_maven_remote() {

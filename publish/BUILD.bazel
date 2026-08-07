@@ -1,5 +1,5 @@
 load("@bazel_common//tools/maven:pom_file.bzl", "pom_file")
-load("@rules_jvm_external//:defs.bzl", "java_export")
+load("@rules_jvm_external//:defs.bzl", "java_export", "maven_export")
 load("//publish:cel_version.bzl", "CEL_VERSION")
 
 # Note: These targets must reference the build targets in `src` directly in
@@ -348,4 +348,23 @@ java_export(
     maven_coordinates = "dev.cel:verifier:%s" % CEL_VERSION,
     pom_template = ":cel_verifier_pom",
     exports = VERIFIER_TARGETS + [":cel"],
+)
+
+pom_file(
+    name = "cel_verifier_cli_pom",
+    substitutions = {
+        "CEL_VERSION": CEL_VERSION,
+        "CEL_ARTIFACT_ID": "verifier-cli",
+        "PACKAGE_NAME": "CEL Java Verifier CLI",
+        "PACKAGE_DESC": "Formal verification CLI and REPL tool for Common Expression Language for Java.",
+    },
+    targets = [],
+    template_file = "pom_template.xml",
+)
+
+maven_export(
+    name = "cel_verifier_cli",
+    maven_coordinates = "dev.cel:verifier-cli:%s" % CEL_VERSION,
+    pom_template = ":cel_verifier_cli_pom",
+    target = "//verifier/src/main/java/dev/cel/verifier/tools:cel_verifier_tool_deploy.jar",
 )
