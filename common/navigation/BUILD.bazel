@@ -25,3 +25,13 @@ java_library(
     name = "mutable_navigation",
     exports = ["//common/src/main/java/dev/cel/common/navigation:mutable_navigation"],
 )
+
+java_library(
+    name = "expr_util",
+    exports = ["//common/src/main/java/dev/cel/common/navigation:expr_util"],
+)
+
+cel_android_library(
+    name = "expr_util_android",
+    exports = ["//common/src/main/java/dev/cel/common/navigation:expr_util_android"],
+)

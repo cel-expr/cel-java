@@ -36,12 +36,12 @@ import dev.cel.common.ast.CelConstant;
 import dev.cel.common.ast.CelExpr.ExprKind.Kind;
 import dev.cel.common.ast.CelMutableExpr;
 import dev.cel.common.ast.CelMutableExpr.CelMutableCall;
-import dev.cel.common.ast.CelMutableExpr.CelMutableComprehension;
 import dev.cel.common.ast.CelMutableExpr.CelMutableList;
 import dev.cel.common.ast.CelMutableExpr.CelMutableMap;
 import dev.cel.common.ast.CelMutableExpr.CelMutableStruct;
 import dev.cel.common.ast.CelMutableExprConverter;
 import dev.cel.common.internal.DateTimeHelpers;
+import dev.cel.common.navigation.CelNavigableExprUtil;
 import dev.cel.common.navigation.CelNavigableMutableAst;
 import dev.cel.common.navigation.CelNavigableMutableExpr;
 import dev.cel.common.navigation.TraversalOrder;
@@ -247,7 +247,7 @@ public final class ConstantFoldingOptimizer implements CelAstOptimizer {
 
         if (functionName.equals(Operator.EQUALS.getFunction())
             || functionName.equals(Operator.NOT_EQUALS.getFunction())) {
-          if (hasComprehensionVar(navigableExpr)) {
+          if (CelNavigableExprUtil.hasComprehensionVariable(navigableExpr)) {
             return false;
           }
           if (mutableCall.args().stream()
@@ -259,7 +259,7 @@ public final class ConstantFoldingOptimizer implements CelAstOptimizer {
         }
 
         if (functionName.equals(Operator.IN.getFunction())) {
-          return !hasComprehensionVar(navigableExpr);
+          return !CelNavigableExprUtil.hasComprehensionVariable(navigableExpr);
         }
 
         // Default case: all call arguments must be constants. If the argument is a container (ex:
@@ -286,33 +286,6 @@ public final class ConstantFoldingOptimizer implements CelAstOptimizer {
   private static boolean isCallTimestampOrDuration(CelMutableCall call) {
     return call.function().equals(TIMESTAMP.functionName())
         || call.function().equals(DURATION.functionName());
-  }
-
-  private static boolean hasComprehensionVar(CelNavigableMutableExpr expr) {
-    return expr.allNodes()
-        .filter(node -> node.getKind().equals(Kind.IDENT))
-        .anyMatch(
-            identNode -> {
-              String identName = identNode.expr().ident().name();
-              CelNavigableMutableExpr curr = identNode;
-              Optional<CelNavigableMutableExpr> maybeParent = curr.parent();
-              while (maybeParent.isPresent()) {
-                CelNavigableMutableExpr parent = maybeParent.get();
-                if (parent.getKind().equals(Kind.COMPREHENSION)) {
-                  CelMutableComprehension compre = parent.expr().comprehension();
-                  if ((compre.accuVar().equals(identName)
-                          || compre.iterVar().equals(identName)
-                          || compre.iterVar2().equals(identName))
-                      && curr.id() != compre.iterRange().id()
-                      && curr.id() != compre.accuInit().id()) {
-                    return true;
-                  }
-                }
-                curr = parent;
-                maybeParent = parent.parent();
-              }
-              return false;
-            });
   }
 
   private static boolean areChildrenArgConstant(CelNavigableMutableExpr expr) {
@@ -350,7 +323,8 @@ public final class ConstantFoldingOptimizer implements CelAstOptimizer {
       CelMutableAst mutableAst,
       CelNavigableMutableExpr node)
       throws CelOptimizationException, CelEvaluationException {
-    if (!node.getKind().equals(Kind.COMPREHENSION) && hasComprehensionVar(node)) {
+    if (!node.getKind().equals(Kind.COMPREHENSION)
+        && CelNavigableExprUtil.hasComprehensionVariable(node)) {
       return Optional.empty();
     }
     Object result;

@@ -49,6 +49,36 @@ cel_android_library(
 )
 
 java_library(
+    name = "expr_util",
+    srcs = [
+        "CelNavigableExprUtil.java",
+    ],
+    tags = [
+    ],
+    deps = [
+        ":common",
+        "//common/ast",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:com_google_guava_guava",
+    ],
+)
+
+cel_android_library(
+    name = "expr_util_android",
+    srcs = [
+        "CelNavigableExprUtil.java",
+    ],
+    tags = [
+    ],
+    deps = [
+        ":common_android",
+        "//common/ast:ast_android",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven_android//:com_google_guava_guava",
+    ],
+)
+
+java_library(
     name = "navigation",
     srcs = [
         "CelNavigableAst.java",
