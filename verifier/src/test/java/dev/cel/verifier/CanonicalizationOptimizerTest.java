@@ -27,6 +27,7 @@ import dev.cel.common.CelAbstractSyntaxTree;
 import dev.cel.common.CelContainer;
 import dev.cel.common.CelMutableAst;
 import dev.cel.common.CelOptions;
+import dev.cel.common.ast.CelExpr.ExprKind.Kind;
 import dev.cel.common.ast.CelMutableExpr;
 import dev.cel.common.ast.CelMutableExpr.CelMutableCall;
 import dev.cel.common.types.ListType;
@@ -464,7 +465,58 @@ public class CanonicalizationOptimizerTest {
     IDENT_INEQUALITY_SYMMETRY(
         "dyn_b != dyn_a || dyn_d != dyn_c", "dyn_a != dyn_b || dyn_c != dyn_d"),
     IDENT_SAME_NAME_DIFFERENT_OPERATORS(
-        "dyn_a != dyn_b && dyn_a == dyn_b", "dyn_a != dyn_b && dyn_a == dyn_b");
+        "dyn_a != dyn_b && dyn_a == dyn_b", "dyn_a != dyn_b && dyn_a == dyn_b"),
+
+    // Comprehension Sorting & Structure Comparison (iterRange, accuInit, loopStep, iterVar2)
+    COMPREHENSIONS_DIFFERENT_ITER_RANGE_EQUALITY(
+        "[2, 3].all(x, x > 0) == [1, 2].all(x, x > 0)",
+        "[1, 2].all(x, x > 0) == [2, 3].all(x, x > 0)"),
+    COMPREHENSIONS_DIFFERENT_ITER_RANGE_AND(
+        "[2, 3].all(x, x > 0) && [1, 2].all(x, x > 0)",
+        "[1, 2].all(x, x > 0) && [2, 3].all(x, x > 0)"),
+    COMPREHENSIONS_REVERSED_LIST_ITER_RANGE_AND(
+        "[2, 1].all(x, x > 0) && [1, 2].all(x, x > 0)",
+        "[1, 2].all(x, x > 0) && [2, 1].all(x, x > 0)"),
+    COMPREHENSIONS_DIFFERENT_PREDICATES_AND(
+        "[1, 2].all(x, x > 10) && [1, 2].all(x, x > 0)",
+        "[1, 2].all(x, x > 0) && [1, 2].all(x, x > 10)"),
+    COMPREHENSIONS_REVERSED_LIST_DIFFERENT_PREDICATES_AND(
+        "[2, 1].all(x, x > 10) && [2, 1].all(x, x > 0)",
+        "[2, 1].all(x, x > 0) && [2, 1].all(x, x > 10)"),
+    COMPREHENSIONS_EXISTS_VS_ALL_AND(
+        "[1, 2].all(x, x == 1) && [1, 2].exists(x, x == 1)",
+        "[1, 2].exists(x, x == 1) && [1, 2].all(x, x == 1)"),
+    COMPREHENSIONS_REVERSED_LIST_EXISTS_VS_ALL_AND(
+        "[2, 1].all(x, x == 1) && [2, 1].exists(x, x == 1)",
+        "[2, 1].exists(x, x == 1) && [2, 1].all(x, x == 1)"),
+    COMPREHENSIONS_ONE_VAR_VS_TWO_VAR_AND(
+        "string_int_map.all(k, v, v > 0) && string_int_map.all(k, k == 'a')",
+        "string_int_map.all(k, k == \"a\") && string_int_map.all(k, v, v > 0)"),
+
+    // Macro Scope Coverage (filter, map, exists_one, optMap, optFlatMap)
+    FILTER_MACRO_PREDICATE_ORDER(
+        "int_list.filter(x, x > 10 && x > 0)", "int_list.filter(x, x > 0 && x > 10)"),
+    MAP_MACRO_PREDICATE_ORDER(
+        "int_list.map(x, x == 2 && x == 1)", "int_list.map(x, x == 1 && x == 2)"),
+    EXISTS_ONE_MACRO_PREDICATE_ORDER(
+        "int_list.exists_one(x, x > 10 && x > 0)", "int_list.exists_one(x, x > 0 && x > 10)"),
+    OPT_MAP_MACRO_PREDICATE_ORDER(
+        "optional.of(int_var).optMap(x, x == 2 && x == 1)",
+        "optional.of(int_var).optMap(x, x == 1 && x == 2)"),
+    OPT_FLAT_MAP_MACRO_PREDICATE_ORDER(
+        "optional.of(int_var).optFlatMap(x, optional.of(x == 2 && x == 1))",
+        "optional.of(int_var).optFlatMap(x, optional.of(x == 1 && x == 2))"),
+
+    // Literal & Constant Comparator Branches
+    CONST_UINT_SYMMETRIC_EQUALITY("20u == 10u", "10u == 20u"),
+    CONST_DOUBLE_SYMMETRIC_EQUALITY("2.5 == 1.5", "1.5 == 2.5"),
+    CONST_BYTES_SYMMETRIC_EQUALITY(
+        "b'xyz' == b'abc'", "b\"\\141\\142\\143\" == b\"\\170\\171\\172\""),
+    MAP_DIFFERENT_KEYS_EQUALITY("{'b': 1} == {'a': 1}", "{\"a\": 1} == {\"b\": 1}"),
+    MAP_DIFFERENT_VALUES_EQUALITY("{'a': 2} == {'a': 1}", "{\"a\": 1} == {\"a\": 2}"),
+    LIST_DIFFERENT_ELEMENTS_EQUALITY("[2, 1] == [1, 2]", "[1, 2] == [2, 1]"),
+    SELECT_DIFFERENT_FIELDS_EQUALITY(
+        "msg2.single_int64 == msg.single_int64", "msg.single_int64 == msg2.single_int64");
 
     private final String input;
     private final String expected;
@@ -562,5 +614,35 @@ public class CanonicalizationOptimizerTest {
             .optimize(mutableAst.toParsedAst(), CEL)
             .optimizedAst();
     assertThat(UNPARSER.unparse(optimizedAst)).isEqualTo("!int_list.my_custom_exists(e, e == 1)");
+  }
+
+  @Test
+  public void optimize_comprehensionWithoutMacroCalls_deMorganSucceeds() throws Exception {
+    CelAbstractSyntaxTree ast = CEL.compile("!int_list.exists(e, e == 1)").getAst();
+    CelMutableAst mutableAst = CelMutableAst.fromCelAst(ast);
+    mutableAst.source().getMacroCalls().clear();
+
+    CelAbstractSyntaxTree optimizedAst =
+        CanonicalizationOptimizer.newInstance(CanonicalizationOptions.newBuilder().build())
+            .optimize(mutableAst.toParsedAst(), CEL)
+            .optimizedAst();
+    assertThat(optimizedAst.getExpr().getKind()).isEqualTo(Kind.COMPREHENSION);
+    assertThat(optimizedAst.getExpr().comprehension().accuInit().constant().booleanValue())
+        .isTrue();
+  }
+
+  @Test
+  public void optimize_comprehensionAllWithoutMacroCalls_deMorganSucceeds() throws Exception {
+    CelAbstractSyntaxTree ast = CEL.compile("!int_list.all(e, e == 1)").getAst();
+    CelMutableAst mutableAst = CelMutableAst.fromCelAst(ast);
+    mutableAst.source().getMacroCalls().clear();
+
+    CelAbstractSyntaxTree optimizedAst =
+        CanonicalizationOptimizer.newInstance(CanonicalizationOptions.newBuilder().build())
+            .optimize(mutableAst.toParsedAst(), CEL)
+            .optimizedAst();
+    assertThat(optimizedAst.getExpr().getKind()).isEqualTo(Kind.COMPREHENSION);
+    assertThat(optimizedAst.getExpr().comprehension().accuInit().constant().booleanValue())
+        .isFalse();
   }
 }

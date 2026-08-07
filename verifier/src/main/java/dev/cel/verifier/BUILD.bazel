@@ -145,6 +145,7 @@ java_library(
         "//optimizer:ast_optimizer",
         "//optimizer:mutable_ast",
         "@maven//:com_google_guava_guava",
+        "@maven//:org_jspecify_jspecify",
     ],
 )
 

@@ -70,188 +70,6 @@ final class CanonicalizationOptimizer implements CelAstOptimizer {
 
   private final CanonicalizationOptions canonicalizationOptions;
 
-  private static final Comparator<CelMutableExpr> EXPR_COMPARATOR =
-      new Comparator<CelMutableExpr>() {
-        @Override
-        public int compare(CelMutableExpr e1, CelMutableExpr e2) {
-          int kindCmp =
-              Integer.compare(getKindPriority(e1.getKind()), getKindPriority(e2.getKind()));
-          if (kindCmp != 0) {
-            return kindCmp;
-          }
-          switch (e1.getKind()) {
-            case CONSTANT:
-              return compareConstants(e1.constant(), e2.constant());
-            case IDENT:
-              return e1.ident().name().compareTo(e2.ident().name());
-            case SELECT:
-              return compareSelect(e1.select(), e2.select());
-            case CALL:
-              return compareCall(e1.call(), e2.call());
-            case LIST:
-              return compareList(e1.list().elements(), e2.list().elements());
-            case MAP:
-              return compareMap(e1.map(), e2.map());
-            case STRUCT:
-              return compareStruct(e1.struct(), e2.struct());
-            case COMPREHENSION:
-              return compareComprehension(e1.comprehension(), e2.comprehension());
-            case NOT_SET:
-              return 0;
-          }
-          throw new UnsupportedOperationException("Unsupported expression kind: " + e1.getKind());
-        }
-
-        private int compareConstants(CelConstant c1, CelConstant c2) {
-          int constKindCmp = c1.getKind().name().compareTo(c2.getKind().name());
-          if (constKindCmp != 0) {
-            return constKindCmp;
-          }
-          switch (c1.getKind()) {
-            case NULL_VALUE:
-            case NOT_SET:
-              return 0;
-            case BOOLEAN_VALUE:
-              return Boolean.compare(c1.booleanValue(), c2.booleanValue());
-            case INT64_VALUE:
-              return Long.compare(c1.int64Value(), c2.int64Value());
-            case UINT64_VALUE:
-              return c1.uint64Value().compareTo(c2.uint64Value());
-            case DOUBLE_VALUE:
-              return Double.compare(c1.doubleValue(), c2.doubleValue());
-            case STRING_VALUE:
-              return c1.stringValue().compareTo(c2.stringValue());
-            case BYTES_VALUE:
-              return CelByteString.unsignedLexicographicalComparator()
-                  .compare(c1.bytesValue(), c2.bytesValue());
-            default:
-              throw new UnsupportedOperationException("Unsupported constant kind: " + c1.getKind());
-          }
-        }
-
-        private int compareSelect(CelMutableSelect s1, CelMutableSelect s2) {
-          return ComparisonChain.start()
-              .compare(s1.operand(), s2.operand(), this)
-              .compare(s1.field(), s2.field())
-              .compareFalseFirst(s1.testOnly(), s2.testOnly())
-              .result();
-        }
-
-        private int compareCall(CelMutableCall c1, CelMutableCall c2) {
-          int fnCmp = c1.function().compareTo(c2.function());
-          if (fnCmp != 0) {
-            return fnCmp;
-          }
-          boolean hasT1 = c1.target().isPresent();
-          boolean hasT2 = c2.target().isPresent();
-          if (hasT1 != hasT2) {
-            return Boolean.compare(hasT1, hasT2);
-          }
-          if (hasT1) {
-            int tCmp = compare(c1.target().get(), c2.target().get());
-            if (tCmp != 0) {
-              return tCmp;
-            }
-          }
-          return compareList(c1.args(), c2.args());
-        }
-
-        private int compareMap(CelMutableMap m1, CelMutableMap m2) {
-          int mapSizeCmp = Integer.compare(m1.entries().size(), m2.entries().size());
-          if (mapSizeCmp != 0) {
-            return mapSizeCmp;
-          }
-          Iterator<CelMutableMap.Entry> it2 = m2.entries().iterator();
-          for (CelMutableMap.Entry entry1 : m1.entries()) {
-            CelMutableMap.Entry entry2 = it2.next();
-            int cmp =
-                ComparisonChain.start()
-                    .compare(entry1.key(), entry2.key(), this)
-                    .compare(entry1.value(), entry2.value(), this)
-                    .result();
-            if (cmp != 0) {
-              return cmp;
-            }
-          }
-          return 0;
-        }
-
-        private int compareStruct(CelMutableStruct s1, CelMutableStruct s2) {
-          int msgCmp = s1.messageName().compareTo(s2.messageName());
-          if (msgCmp != 0) {
-            return msgCmp;
-          }
-          int structSizeCmp = Integer.compare(s1.entries().size(), s2.entries().size());
-          if (structSizeCmp != 0) {
-            return structSizeCmp;
-          }
-          Iterator<CelMutableStruct.Entry> it2 = s2.entries().iterator();
-          for (CelMutableStruct.Entry entry1 : s1.entries()) {
-            CelMutableStruct.Entry entry2 = it2.next();
-            int cmp =
-                ComparisonChain.start()
-                    .compare(entry1.fieldKey(), entry2.fieldKey())
-                    .compare(entry1.value(), entry2.value(), this)
-                    .result();
-            if (cmp != 0) {
-              return cmp;
-            }
-          }
-          return 0;
-        }
-
-        private int compareComprehension(CelMutableComprehension c1, CelMutableComprehension c2) {
-          return ComparisonChain.start()
-              .compare(c1.iterVar(), c2.iterVar())
-              .compare(c1.iterVar2(), c2.iterVar2())
-              .compare(c1.accuVar(), c2.accuVar())
-              .compare(c1.iterRange(), c2.iterRange(), this)
-              .compare(c1.accuInit(), c2.accuInit(), this)
-              .compare(c1.loopCondition(), c2.loopCondition(), this)
-              .compare(c1.loopStep(), c2.loopStep(), this)
-              .compare(c1.result(), c2.result(), this)
-              .result();
-        }
-
-        private int compareList(List<CelMutableExpr> l1, List<CelMutableExpr> l2) {
-          int sizeCmp = Integer.compare(l1.size(), l2.size());
-          if (sizeCmp != 0) {
-            return sizeCmp;
-          }
-          Iterator<CelMutableExpr> it2 = l2.iterator();
-          for (CelMutableExpr elem1 : l1) {
-            int cmp = compare(elem1, it2.next());
-            if (cmp != 0) {
-              return cmp;
-            }
-          }
-          return 0;
-        }
-
-        private int getKindPriority(Kind kind) {
-          switch (kind) {
-            case IDENT:
-              return 1;
-            case SELECT:
-              return 2;
-            case CALL:
-              return 3;
-            case LIST:
-              return 4;
-            case MAP:
-              return 5;
-            case STRUCT:
-              return 6;
-            case COMPREHENSION:
-              return 7;
-            case CONSTANT:
-              return 8;
-            default:
-              return 99;
-          }
-        }
-      };
-
   /**
    * Returns a new instance of canonicalization optimizer configured with the provided {@link
    * CanonicalizationOptions}.
@@ -322,31 +140,6 @@ final class CanonicalizationOptimizer implements CelAstOptimizer {
         || isCallWithArgCount(expr, Operator.LOGICAL_NOT.getFunction(), 1);
   }
 
-  private static boolean isComprehensionAccuVar(CelNavigableMutableExpr expr) {
-    return expr.allNodes()
-        .filter(node -> node.getKind().equals(Kind.IDENT))
-        .anyMatch(
-            identNode -> {
-              String identName = identNode.expr().ident().name();
-              CelNavigableMutableExpr curr = identNode;
-              Optional<CelNavigableMutableExpr> maybeParent = curr.parent();
-              while (maybeParent.isPresent()) {
-                CelNavigableMutableExpr parent = maybeParent.get();
-                if (parent.getKind().equals(Kind.COMPREHENSION)) {
-                  CelMutableComprehension compre = parent.expr().comprehension();
-                  if (compre.accuVar().equals(identName)
-                      && curr.id() != compre.iterRange().id()
-                      && curr.id() != compre.accuInit().id()) {
-                    return true;
-                  }
-                }
-                curr = parent;
-                maybeParent = parent.parent();
-              }
-              return false;
-            });
-  }
-
   private static Optional<CelMutableExpr> maybeCanonicalize(
       CelMutableAst mutableAst, CelNavigableMutableExpr navigableExpr) {
     CelMutableExpr expr = navigableExpr.expr();
@@ -360,172 +153,116 @@ final class CanonicalizationOptimizer implements CelAstOptimizer {
     if ((functionName.equals(Operator.LOGICAL_AND.getFunction())
             || functionName.equals(Operator.LOGICAL_OR.getFunction()))
         && args.size() == 2) {
-      List<CelNavigableMutableExpr> navigableOperands =
-          flattenNavigableOperands(navigableExpr, functionName);
-      if (navigableOperands.stream().anyMatch(CanonicalizationOptimizer::isComprehensionAccuVar)) {
-        return Optional.empty();
-      }
-      List<CelMutableExpr> operands = new ArrayList<>();
-      for (CelNavigableMutableExpr navOp : navigableOperands) {
-        operands.add(navOp.expr());
-      }
-      operands.sort(EXPR_COMPARATOR);
-      List<CelMutableExpr> uniqueSorted = new ArrayList<>();
-      for (CelMutableExpr op : operands) {
-        if (uniqueSorted.isEmpty()
-            || EXPR_COMPARATOR.compare(op, Iterables.getLast(uniqueSorted)) != 0) {
-          uniqueSorted.add(op);
-        }
-      }
-      CelMutableExpr rebuilt = uniqueSorted.get(0);
-      for (int i = 1; i < uniqueSorted.size(); i++) {
-        rebuilt =
-            CelMutableExpr.ofCall(
-                expr.id(), CelMutableCall.create(functionName, rebuilt, uniqueSorted.get(i)));
-      }
-      if (EXPR_COMPARATOR.compare(rebuilt, expr) == 0) {
-        return Optional.empty();
-      }
-      return Optional.of(rebuilt);
+      return maybeCanonicalizeCommutativeCall(navigableExpr, functionName);
     }
 
     if ((functionName.equals(Operator.EQUALS.getFunction())
             || functionName.equals(Operator.NOT_EQUALS.getFunction()))
         && args.size() == 2) {
-      CelMutableExpr arg0 = args.get(0);
-      CelMutableExpr arg1 = args.get(1);
-      if (EXPR_COMPARATOR.compare(arg0, arg1) > 0) {
-        return Optional.of(
-            CelMutableExpr.ofCall(expr.id(), CelMutableCall.create(functionName, arg1, arg0)));
-      }
-      return Optional.empty();
+      return maybeCanonicalizeSymmetricCall(navigableExpr, functionName, args);
     }
 
     if (functionName.equals(Operator.LOGICAL_NOT.getFunction()) && args.size() == 1) {
-      CelMutableExpr target = args.get(0);
-      if (isCallWithArgCount(target, Operator.LOGICAL_NOT.getFunction(), 1)) {
-        return Optional.of(target.call().args().get(0));
-      }
-      if (isCallWithArgCount(target, Operator.LOGICAL_AND.getFunction(), 2)) {
-        List<CelMutableExpr> subArgs = target.call().args();
-        return Optional.of(
-            CelMutableExpr.ofCall(
-                expr.id(),
-                CelMutableCall.create(
-                    Operator.LOGICAL_OR.getFunction(),
-                    negate(subArgs.get(0)),
-                    negate(subArgs.get(1)))));
-      }
-      if (isCallWithArgCount(target, Operator.LOGICAL_OR.getFunction(), 2)) {
-        List<CelMutableExpr> subArgs = target.call().args();
-        return Optional.of(
-            CelMutableExpr.ofCall(
-                expr.id(),
-                CelMutableCall.create(
-                    Operator.LOGICAL_AND.getFunction(),
-                    negate(subArgs.get(0)),
-                    negate(subArgs.get(1)))));
-      }
-      if (isCallWithArgCount(target, Operator.EQUALS.getFunction(), 2)) {
-        List<CelMutableExpr> subArgs = target.call().args();
-        return Optional.of(
-            CelMutableExpr.ofCall(
-                expr.id(),
-                CelMutableCall.create(
-                    Operator.NOT_EQUALS.getFunction(), subArgs.get(0), subArgs.get(1))));
-      }
-      if (isCallWithArgCount(target, Operator.NOT_EQUALS.getFunction(), 2)) {
-        List<CelMutableExpr> subArgs = target.call().args();
-        return Optional.of(
-            CelMutableExpr.ofCall(
-                expr.id(),
-                CelMutableCall.create(
-                    Operator.EQUALS.getFunction(), subArgs.get(0), subArgs.get(1))));
-      }
-      if (target.getKind() == Kind.COMPREHENSION) {
-        CelMutableComprehension comp = target.comprehension();
-        if (isExistsMacro(mutableAst, target.id(), comp)) {
-          return negateComprehension(mutableAst, target.id(), comp, true);
-        } else if (isAllMacro(mutableAst, target.id(), comp)) {
-          return negateComprehension(mutableAst, target.id(), comp, false);
-        }
-      }
+      return maybeCanonicalizeLogicalNot(mutableAst, expr.id(), args.get(0));
     }
 
     return Optional.empty();
   }
 
-  private static Optional<CelMutableExpr> negateComprehension(
-      CelMutableAst mutableAst, long compId, CelMutableComprehension comp, boolean isExists) {
-    CelMutableCall stepCall = comp.loopStep().call();
-    CelMutableExpr predicate = getPredicateFromLoopStep(stepCall);
-    CelMutableExpr newLoopStep =
-        CelMutableExpr.ofCall(
-            comp.loopStep().id(),
-            CelMutableCall.create(
-                (isExists ? Operator.LOGICAL_AND : Operator.LOGICAL_OR).getFunction(),
-                CelMutableExpr.ofIdent(comp.accuVar()),
-                negate(predicate)));
-    CelMutableExpr newAccuInit = CelMutableExpr.ofConstant(CelConstant.ofValue(isExists));
-    CelMutableExpr newLoopCondition =
-        CelMutableExpr.ofCall(
-            comp.loopCondition().id(),
-            CelMutableCall.create(
-                Operator.NOT_STRICTLY_FALSE.getFunction(),
-                isExists
-                    ? CelMutableExpr.ofIdent(comp.accuVar())
-                    : negate(CelMutableExpr.ofIdent(comp.accuVar()))));
-    CelMutableComprehension newComp =
-        CelMutableComprehension.create(
-            comp.iterVar(),
-            comp.iterVar2(),
-            comp.iterRange(),
-            comp.accuVar(),
-            newAccuInit,
-            newLoopCondition,
-            newLoopStep,
-            comp.result());
-    updateMacroCallForQuantifier(
-        mutableAst, compId, (isExists ? Operator.ALL : Operator.EXISTS).getFunction());
-    return Optional.of(CelMutableExpr.ofComprehension(compId, newComp));
+  private static Optional<CelMutableExpr> maybeCanonicalizeCommutativeCall(
+      CelNavigableMutableExpr navigableExpr, String functionName) {
+    // TODO: Consider supporting associative/commutative reassociation for arithmetic
+    // operators (+, *)
+    List<CelNavigableMutableExpr> navigableOperands =
+        flattenNavigableOperands(navigableExpr, functionName);
+    if (navigableOperands.stream()
+        .anyMatch(op -> AccuVarSafetyChecker.containsEnclosingAccuVar(op, navigableExpr))) {
+      return Optional.empty();
+    }
+    List<CelMutableExpr> operands = new ArrayList<>();
+    for (CelNavigableMutableExpr navOp : navigableOperands) {
+      operands.add(navOp.expr());
+    }
+    operands.sort(AstComparator.INSTANCE);
+    List<CelMutableExpr> uniqueSorted = new ArrayList<>();
+    for (CelMutableExpr op : operands) {
+      if (uniqueSorted.isEmpty()
+          || AstComparator.INSTANCE.compare(op, Iterables.getLast(uniqueSorted)) != 0) {
+        uniqueSorted.add(op);
+      }
+    }
+    CelMutableExpr rebuilt = uniqueSorted.get(0);
+    for (int i = 1; i < uniqueSorted.size(); i++) {
+      rebuilt =
+          CelMutableExpr.ofCall(
+              navigableExpr.id(),
+              CelMutableCall.create(functionName, rebuilt, uniqueSorted.get(i)));
+    }
+    if (AstComparator.INSTANCE.compare(rebuilt, navigableExpr.expr()) == 0) {
+      return Optional.empty();
+    }
+    return Optional.of(rebuilt);
+  }
+
+  private static Optional<CelMutableExpr> maybeCanonicalizeSymmetricCall(
+      CelNavigableMutableExpr navigableExpr, String functionName, List<CelMutableExpr> args) {
+    CelMutableExpr arg0 = args.get(0);
+    CelMutableExpr arg1 = args.get(1);
+    if (AstComparator.INSTANCE.compare(arg0, arg1) > 0) {
+      return Optional.of(
+          CelMutableExpr.ofCall(
+              navigableExpr.id(), CelMutableCall.create(functionName, arg1, arg0)));
+    }
+    return Optional.empty();
+  }
+
+  private static Optional<CelMutableExpr> maybeCanonicalizeLogicalNot(
+      CelMutableAst mutableAst, long exprId, CelMutableExpr target) {
+    if (isCallWithArgCount(target, Operator.LOGICAL_NOT.getFunction(), 1)) {
+      return Optional.of(target.call().args().get(0));
+    }
+    if (isCallWithArgCount(target, Operator.LOGICAL_AND.getFunction(), 2)) {
+      List<CelMutableExpr> subArgs = target.call().args();
+      return Optional.of(
+          CelMutableExpr.ofCall(
+              exprId,
+              CelMutableCall.create(
+                  Operator.LOGICAL_OR.getFunction(),
+                  negate(subArgs.get(0)),
+                  negate(subArgs.get(1)))));
+    }
+    if (isCallWithArgCount(target, Operator.LOGICAL_OR.getFunction(), 2)) {
+      List<CelMutableExpr> subArgs = target.call().args();
+      return Optional.of(
+          CelMutableExpr.ofCall(
+              exprId,
+              CelMutableCall.create(
+                  Operator.LOGICAL_AND.getFunction(),
+                  negate(subArgs.get(0)),
+                  negate(subArgs.get(1)))));
+    }
+    if (isCallWithArgCount(target, Operator.EQUALS.getFunction(), 2)) {
+      List<CelMutableExpr> subArgs = target.call().args();
+      return Optional.of(
+          CelMutableExpr.ofCall(
+              exprId,
+              CelMutableCall.create(
+                  Operator.NOT_EQUALS.getFunction(), subArgs.get(0), subArgs.get(1))));
+    }
+    if (isCallWithArgCount(target, Operator.NOT_EQUALS.getFunction(), 2)) {
+      List<CelMutableExpr> subArgs = target.call().args();
+      return Optional.of(
+          CelMutableExpr.ofCall(
+              exprId,
+              CelMutableCall.create(
+                  Operator.EQUALS.getFunction(), subArgs.get(0), subArgs.get(1))));
+    }
+    return QuantifierDeMorganRewriter.maybeRewrite(mutableAst, target);
   }
 
   private static CelMutableExpr negate(CelMutableExpr expr) {
     return CelMutableExpr.ofCall(
         expr.id(), CelMutableCall.create(Operator.LOGICAL_NOT.getFunction(), expr));
-  }
-
-  private static void updateMacroCallForQuantifier(
-      CelMutableAst mutableAst, long compId, String newFunctionName) {
-    if (!mutableAst.source().getMacroCalls().containsKey(compId)) {
-      return;
-    }
-    CelMutableExpr macroCall = mutableAst.source().getMacroCalls().get(compId);
-    if (macroCall.getKind() != Kind.CALL) {
-      throw new IllegalStateException(
-          "Expected macro call to be of kind CALL, but got: " + macroCall.getKind());
-    }
-    CelMutableCall call = macroCall.call();
-    if (call.args().size() < 2) {
-      throw new IllegalStateException(
-          "Expected macro call to have at least 2 arguments, but got: " + call.args().size());
-    }
-    CelMutableExpr predicateArg = Iterables.getLast(call.args());
-    CelMutableExpr notPredicate;
-    if (isCallWithArgCount(predicateArg, Operator.LOGICAL_NOT.getFunction(), 1)) {
-      notPredicate = predicateArg.call().args().get(0);
-    } else {
-      notPredicate =
-          CelMutableExpr.ofCall(
-              0, CelMutableCall.create(Operator.LOGICAL_NOT.getFunction(), predicateArg));
-    }
-    List<CelMutableExpr> newArgs = new ArrayList<>(call.args());
-    newArgs.set(newArgs.size() - 1, notPredicate);
-    CelMutableCall newCall =
-        call.target().isPresent()
-            ? CelMutableCall.create(call.target().get(), newFunctionName, newArgs)
-            : CelMutableCall.create(newFunctionName, newArgs);
-    mutableAst.source().addMacroCalls(compId, CelMutableExpr.ofCall(macroCall.id(), newCall));
   }
 
   private static List<CelNavigableMutableExpr> flattenNavigableOperands(
@@ -550,89 +287,436 @@ final class CanonicalizationOptimizer implements CelAstOptimizer {
     result.add(expr);
   }
 
-  private static CelMutableExpr getPredicateFromLoopStep(CelMutableCall stepCall) {
-    return stepCall.args().get(1);
-  }
-
-  private static boolean isExistsMacro(
-      CelMutableAst mutableAst, long compId, CelMutableComprehension comp) {
-    return isStandardMacroCall(mutableAst, compId, Operator.EXISTS.getFunction())
-        && isBooleanAccuInit(comp, false)
-        && isNotStrictlyFalseLoopCondition(comp, true)
-        && isLoopStepWithAccuVar(comp, Operator.LOGICAL_OR.getFunction());
-  }
-
-  private static boolean isAllMacro(
-      CelMutableAst mutableAst, long compId, CelMutableComprehension comp) {
-    return isStandardMacroCall(mutableAst, compId, Operator.ALL.getFunction())
-        && isBooleanAccuInit(comp, true)
-        && isNotStrictlyFalseLoopCondition(comp, false)
-        && isLoopStepWithAccuVar(comp, Operator.LOGICAL_AND.getFunction());
-  }
-
-  private static boolean isStandardMacroCall(
-      CelMutableAst mutableAst, long compId, String expectedMacroFunction) {
-    if (!mutableAst.source().getMacroCalls().containsKey(compId)) {
-      return true;
-    }
-    CelMutableExpr macroCall = mutableAst.source().getMacroCalls().get(compId);
-    return macroCall.getKind() == Kind.CALL
-        && macroCall.call().function().equals(expectedMacroFunction);
-  }
-
-  private static boolean isBooleanAccuInit(CelMutableComprehension comp, boolean expectedValue) {
-    return comp.accuInit().getKind() == Kind.CONSTANT
-        && comp.accuInit().constant().getKind() == CelConstant.Kind.BOOLEAN_VALUE
-        && comp.accuInit().constant().booleanValue() == expectedValue;
-  }
-
-  private static boolean isNotStrictlyFalseLoopCondition(
-      CelMutableComprehension comp, boolean expectNot) {
-    if (comp.loopCondition().getKind() != Kind.CALL) {
-      throw new IllegalStateException(
-          "Expected comprehension loopCondition to be a CALL, but got: "
-              + comp.loopCondition().getKind());
-    }
-    CelMutableCall call = comp.loopCondition().call();
-    if (!call.function().equals(Operator.NOT_STRICTLY_FALSE.getFunction())
-        && !call.function().equals(Operator.OLD_NOT_STRICTLY_FALSE.getFunction())) {
-      throw new IllegalStateException(
-          "Expected comprehension loopCondition to be @not_strictly_false, but got: "
-              + call.function());
-    }
-    if (call.args().size() != 1) {
-      throw new IllegalStateException(
-          "Expected @not_strictly_false to have exactly 1 argument, but got: "
-              + call.args().size());
-    }
-    CelMutableExpr arg = call.args().get(0);
-    if (expectNot) {
-      if (!isCallWithArgCount(arg, Operator.LOGICAL_NOT.getFunction(), 1)) {
-        return false;
-      }
-      arg = arg.call().args().get(0);
-    }
-    return isIdent(arg, comp.accuVar());
-  }
-
-  private static boolean isLoopStepWithAccuVar(
-      CelMutableComprehension comp, String expectedFunction) {
-    if (!isCallWithArgCount(comp.loopStep(), expectedFunction, 2)) {
-      return false;
-    }
-    List<CelMutableExpr> args = comp.loopStep().call().args();
-    return isIdent(args.get(0), comp.accuVar()) || isIdent(args.get(1), comp.accuVar());
-  }
-
-  private static boolean isIdent(CelMutableExpr expr, String name) {
-    return expr.getKind() == Kind.IDENT && expr.ident().name().equals(name);
-  }
-
   private static boolean isCallWithArgCount(
       CelMutableExpr expr, String functionName, int argCount) {
     return expr.getKind() == Kind.CALL
         && expr.call().function().equals(functionName)
         && expr.call().args().size() == argCount;
+  }
+
+  /** Total ordering comparator for CEL mutable AST expressions. */
+  private static final class AstComparator implements Comparator<CelMutableExpr> {
+    private static final AstComparator INSTANCE = new AstComparator();
+
+    @Override
+    public int compare(CelMutableExpr e1, CelMutableExpr e2) {
+      int kindCmp = Integer.compare(getKindPriority(e1.getKind()), getKindPriority(e2.getKind()));
+      if (kindCmp != 0) {
+        return kindCmp;
+      }
+      switch (e1.getKind()) {
+        case CONSTANT:
+          return compareConstants(e1.constant(), e2.constant());
+        case IDENT:
+          return e1.ident().name().compareTo(e2.ident().name());
+        case SELECT:
+          return compareSelect(e1.select(), e2.select());
+        case CALL:
+          return compareCall(e1.call(), e2.call());
+        case LIST:
+          return compareList(e1.list().elements(), e2.list().elements());
+        case MAP:
+          return compareMap(e1.map(), e2.map());
+        case STRUCT:
+          return compareStruct(e1.struct(), e2.struct());
+        case COMPREHENSION:
+          return compareComprehension(e1.comprehension(), e2.comprehension());
+        case NOT_SET:
+          return 0;
+      }
+      throw new UnsupportedOperationException("Unsupported expression kind: " + e1.getKind());
+    }
+
+    private static int compareConstants(CelConstant c1, CelConstant c2) {
+      int constKindCmp = c1.getKind().name().compareTo(c2.getKind().name());
+      if (constKindCmp != 0) {
+        return constKindCmp;
+      }
+      switch (c1.getKind()) {
+        case NULL_VALUE:
+        case NOT_SET:
+          return 0;
+        case BOOLEAN_VALUE:
+          return Boolean.compare(c1.booleanValue(), c2.booleanValue());
+        case INT64_VALUE:
+          return Long.compare(c1.int64Value(), c2.int64Value());
+        case UINT64_VALUE:
+          return c1.uint64Value().compareTo(c2.uint64Value());
+        case DOUBLE_VALUE:
+          return Double.compare(c1.doubleValue(), c2.doubleValue());
+        case STRING_VALUE:
+          return c1.stringValue().compareTo(c2.stringValue());
+        case BYTES_VALUE:
+          return CelByteString.unsignedLexicographicalComparator()
+              .compare(c1.bytesValue(), c2.bytesValue());
+        default:
+          throw new UnsupportedOperationException("Unsupported constant kind: " + c1.getKind());
+      }
+    }
+
+    private int compareSelect(CelMutableSelect s1, CelMutableSelect s2) {
+      return ComparisonChain.start()
+          .compare(s1.operand(), s2.operand(), this)
+          .compare(s1.field(), s2.field())
+          .compareFalseFirst(s1.testOnly(), s2.testOnly())
+          .result();
+    }
+
+    private int compareCall(CelMutableCall c1, CelMutableCall c2) {
+      int fnCmp = c1.function().compareTo(c2.function());
+      if (fnCmp != 0) {
+        return fnCmp;
+      }
+      boolean hasT1 = c1.target().isPresent();
+      boolean hasT2 = c2.target().isPresent();
+      if (hasT1 != hasT2) {
+        return Boolean.compare(hasT1, hasT2);
+      }
+      if (hasT1) {
+        int tCmp = compare(c1.target().get(), c2.target().get());
+        if (tCmp != 0) {
+          return tCmp;
+        }
+      }
+      return compareList(c1.args(), c2.args());
+    }
+
+    private int compareMap(CelMutableMap m1, CelMutableMap m2) {
+      int mapSizeCmp = Integer.compare(m1.entries().size(), m2.entries().size());
+      if (mapSizeCmp != 0) {
+        return mapSizeCmp;
+      }
+      Iterator<CelMutableMap.Entry> it2 = m2.entries().iterator();
+      for (CelMutableMap.Entry entry1 : m1.entries()) {
+        CelMutableMap.Entry entry2 = it2.next();
+        int cmp =
+            ComparisonChain.start()
+                .compare(entry1.key(), entry2.key(), this)
+                .compare(entry1.value(), entry2.value(), this)
+                .result();
+        if (cmp != 0) {
+          return cmp;
+        }
+      }
+      return 0;
+    }
+
+    private int compareStruct(CelMutableStruct s1, CelMutableStruct s2) {
+      int msgCmp = s1.messageName().compareTo(s2.messageName());
+      if (msgCmp != 0) {
+        return msgCmp;
+      }
+      int structSizeCmp = Integer.compare(s1.entries().size(), s2.entries().size());
+      if (structSizeCmp != 0) {
+        return structSizeCmp;
+      }
+      Iterator<CelMutableStruct.Entry> it2 = s2.entries().iterator();
+      for (CelMutableStruct.Entry entry1 : s1.entries()) {
+        CelMutableStruct.Entry entry2 = it2.next();
+        int cmp =
+            ComparisonChain.start()
+                .compare(entry1.fieldKey(), entry2.fieldKey())
+                .compare(entry1.value(), entry2.value(), this)
+                .result();
+        if (cmp != 0) {
+          return cmp;
+        }
+      }
+      return 0;
+    }
+
+    private int compareComprehension(CelMutableComprehension c1, CelMutableComprehension c2) {
+      return ComparisonChain.start()
+          .compare(c1.iterVar(), c2.iterVar())
+          .compare(c1.iterVar2(), c2.iterVar2())
+          .compare(c1.accuVar(), c2.accuVar())
+          .compare(c1.iterRange(), c2.iterRange(), this)
+          .compare(c1.accuInit(), c2.accuInit(), this)
+          .compare(c1.loopCondition(), c2.loopCondition(), this)
+          .compare(c1.loopStep(), c2.loopStep(), this)
+          .compare(c1.result(), c2.result(), this)
+          .result();
+    }
+
+    private int compareList(List<CelMutableExpr> l1, List<CelMutableExpr> l2) {
+      int sizeCmp = Integer.compare(l1.size(), l2.size());
+      if (sizeCmp != 0) {
+        return sizeCmp;
+      }
+      Iterator<CelMutableExpr> it2 = l2.iterator();
+      for (CelMutableExpr elem1 : l1) {
+        int cmp = compare(elem1, it2.next());
+        if (cmp != 0) {
+          return cmp;
+        }
+      }
+      return 0;
+    }
+
+    private static int getKindPriority(Kind kind) {
+      switch (kind) {
+        case IDENT:
+          return 1;
+        case SELECT:
+          return 2;
+        case CALL:
+          return 3;
+        case LIST:
+          return 4;
+        case MAP:
+          return 5;
+        case STRUCT:
+          return 6;
+        case COMPREHENSION:
+          return 7;
+        case CONSTANT:
+          return 8;
+        default:
+          return 99;
+      }
+    }
+  }
+
+  /**
+   * Safety analyzer for verifying whether an operand contains references to enclosing comprehension
+   * accumulator variables.
+   */
+  private static final class AccuVarSafetyChecker {
+
+    static boolean containsEnclosingAccuVar(
+        CelNavigableMutableExpr operand, CelNavigableMutableExpr contextExpr) {
+      List<String> enclosingAccuVars = collectEnclosingAccuVars(contextExpr);
+      if (enclosingAccuVars.isEmpty()) {
+        return false;
+      }
+      return operand
+          .allNodes()
+          .filter(node -> node.getKind() == Kind.IDENT)
+          .anyMatch(identNode -> referencesEnclosingAccuVar(identNode, operand, enclosingAccuVars));
+    }
+
+    private static List<String> collectEnclosingAccuVars(CelNavigableMutableExpr contextExpr) {
+      List<String> accuVars = new ArrayList<>();
+      CelNavigableMutableExpr curr = contextExpr;
+      Optional<CelNavigableMutableExpr> maybeParent = curr.parent();
+      while (maybeParent.isPresent()) {
+        CelNavigableMutableExpr parent = maybeParent.get();
+        if (parent.getKind() == Kind.COMPREHENSION) {
+          CelMutableComprehension comp = parent.expr().comprehension();
+          long currId = curr.id();
+          if ((currId == comp.loopCondition().id() || currId == comp.loopStep().id())
+              && !comp.accuVar().isEmpty()) {
+            accuVars.add(comp.accuVar());
+          }
+        }
+        curr = parent;
+        maybeParent = parent.parent();
+      }
+      return accuVars;
+    }
+
+    private static boolean referencesEnclosingAccuVar(
+        CelNavigableMutableExpr identNode,
+        CelNavigableMutableExpr operandRoot,
+        List<String> enclosingAccuVars) {
+      String name = identNode.expr().ident().name();
+      if (!enclosingAccuVars.contains(name)) {
+        return false;
+      }
+      return !isAccuVarShadowed(identNode, operandRoot, name);
+    }
+
+    private static boolean isAccuVarShadowed(
+        CelNavigableMutableExpr identNode,
+        CelNavigableMutableExpr operandRoot,
+        String accuVarName) {
+      CelNavigableMutableExpr curr = identNode;
+      while (curr.id() != operandRoot.id()) {
+        Optional<CelNavigableMutableExpr> nextParent = curr.parent();
+        if (!nextParent.isPresent()) {
+          break;
+        }
+        CelNavigableMutableExpr parent = nextParent.get();
+        if (parent.getKind() == Kind.COMPREHENSION) {
+          CelMutableComprehension comp = parent.expr().comprehension();
+          if (comp.accuVar().equals(accuVarName)
+              && curr.id() != comp.iterRange().id()
+              && curr.id() != comp.accuInit().id()) {
+            return true;
+          }
+        }
+        curr = parent;
+      }
+      return false;
+    }
+  }
+
+  /**
+   * Rewriter for De Morgan quantifier dualities over single-variable and two-variable
+   * comprehensions.
+   */
+  private static final class QuantifierDeMorganRewriter {
+
+    static Optional<CelMutableExpr> maybeRewrite(
+        CelMutableAst mutableAst, CelMutableExpr notTargetExpr) {
+      if (notTargetExpr.getKind() != Kind.COMPREHENSION) {
+        return Optional.empty();
+      }
+      CelMutableComprehension comp = notTargetExpr.comprehension();
+      long compId = notTargetExpr.id();
+      if (isExistsMacro(mutableAst, compId, comp)) {
+        return Optional.of(negateComprehension(mutableAst, compId, comp, /* isExists= */ true));
+      } else if (isAllMacro(mutableAst, compId, comp)) {
+        return Optional.of(negateComprehension(mutableAst, compId, comp, /* isExists= */ false));
+      }
+      return Optional.empty();
+    }
+
+    private static CelMutableExpr negateComprehension(
+        CelMutableAst mutableAst, long compId, CelMutableComprehension comp, boolean isExists) {
+      CelMutableCall stepCall = comp.loopStep().call();
+      CelMutableExpr predicate = getPredicateFromLoopStep(stepCall);
+      CelMutableExpr newLoopStep =
+          CelMutableExpr.ofCall(
+              comp.loopStep().id(),
+              CelMutableCall.create(
+                  (isExists ? Operator.LOGICAL_AND : Operator.LOGICAL_OR).getFunction(),
+                  CelMutableExpr.ofIdent(comp.accuVar()),
+                  negate(predicate)));
+      CelMutableExpr newAccuInit = CelMutableExpr.ofConstant(CelConstant.ofValue(isExists));
+      CelMutableExpr newLoopCondition =
+          CelMutableExpr.ofCall(
+              comp.loopCondition().id(),
+              CelMutableCall.create(
+                  Operator.NOT_STRICTLY_FALSE.getFunction(),
+                  isExists
+                      ? CelMutableExpr.ofIdent(comp.accuVar())
+                      : negate(CelMutableExpr.ofIdent(comp.accuVar()))));
+      CelMutableComprehension newComp =
+          CelMutableComprehension.create(
+              comp.iterVar(),
+              comp.iterVar2(),
+              comp.iterRange(),
+              comp.accuVar(),
+              newAccuInit,
+              newLoopCondition,
+              newLoopStep,
+              comp.result());
+      updateMacroCallForQuantifier(
+          mutableAst, compId, (isExists ? Operator.ALL : Operator.EXISTS).getFunction());
+      return CelMutableExpr.ofComprehension(compId, newComp);
+    }
+
+    private static void updateMacroCallForQuantifier(
+        CelMutableAst mutableAst, long compId, String newFunctionName) {
+      if (!mutableAst.source().getMacroCalls().containsKey(compId)) {
+        return;
+      }
+      CelMutableExpr macroCall = mutableAst.source().getMacroCalls().get(compId);
+      if (macroCall.getKind() != Kind.CALL) {
+        throw new IllegalStateException(
+            "Expected macro call to be of kind CALL, but got: " + macroCall.getKind());
+      }
+      CelMutableCall call = macroCall.call();
+      if (call.args().size() < 2) {
+        throw new IllegalStateException(
+            "Expected macro call to have at least 2 arguments, but got: " + call.args().size());
+      }
+      CelMutableExpr predicateArg = Iterables.getLast(call.args());
+      CelMutableExpr notPredicate;
+      if (isCallWithArgCount(predicateArg, Operator.LOGICAL_NOT.getFunction(), 1)) {
+        notPredicate = predicateArg.call().args().get(0);
+      } else {
+        notPredicate =
+            CelMutableExpr.ofCall(
+                0, CelMutableCall.create(Operator.LOGICAL_NOT.getFunction(), predicateArg));
+      }
+      List<CelMutableExpr> newArgs = new ArrayList<>(call.args());
+      newArgs.set(newArgs.size() - 1, notPredicate);
+      CelMutableCall newCall =
+          call.target().isPresent()
+              ? CelMutableCall.create(call.target().get(), newFunctionName, newArgs)
+              : CelMutableCall.create(newFunctionName, newArgs);
+      mutableAst.source().addMacroCalls(compId, CelMutableExpr.ofCall(macroCall.id(), newCall));
+    }
+
+    private static CelMutableExpr getPredicateFromLoopStep(CelMutableCall stepCall) {
+      return stepCall.args().get(1);
+    }
+
+    private static boolean isExistsMacro(
+        CelMutableAst mutableAst, long compId, CelMutableComprehension comp) {
+      return isStandardMacroCall(mutableAst, compId, Operator.EXISTS.getFunction())
+          && isBooleanAccuInit(comp, false)
+          && isNotStrictlyFalseLoopCondition(comp, true)
+          && isLoopStepWithAccuVar(comp, Operator.LOGICAL_OR.getFunction());
+    }
+
+    private static boolean isAllMacro(
+        CelMutableAst mutableAst, long compId, CelMutableComprehension comp) {
+      return isStandardMacroCall(mutableAst, compId, Operator.ALL.getFunction())
+          && isBooleanAccuInit(comp, true)
+          && isNotStrictlyFalseLoopCondition(comp, false)
+          && isLoopStepWithAccuVar(comp, Operator.LOGICAL_AND.getFunction());
+    }
+
+    private static boolean isStandardMacroCall(
+        CelMutableAst mutableAst, long compId, String expectedMacroFunction) {
+      if (!mutableAst.source().getMacroCalls().containsKey(compId)) {
+        return true;
+      }
+      CelMutableExpr macroCall = mutableAst.source().getMacroCalls().get(compId);
+      return macroCall.getKind() == Kind.CALL
+          && macroCall.call().function().equals(expectedMacroFunction);
+    }
+
+    private static boolean isBooleanAccuInit(CelMutableComprehension comp, boolean expectedValue) {
+      return comp.accuInit().getKind() == Kind.CONSTANT
+          && comp.accuInit().constant().getKind() == CelConstant.Kind.BOOLEAN_VALUE
+          && comp.accuInit().constant().booleanValue() == expectedValue;
+    }
+
+    private static boolean isNotStrictlyFalseLoopCondition(
+        CelMutableComprehension comp, boolean expectNot) {
+      if (comp.loopCondition().getKind() != Kind.CALL) {
+        throw new IllegalStateException(
+            "Expected comprehension loopCondition to be a CALL, but got: "
+                + comp.loopCondition().getKind());
+      }
+      CelMutableCall call = comp.loopCondition().call();
+      if (!call.function().equals(Operator.NOT_STRICTLY_FALSE.getFunction())
+          && !call.function().equals(Operator.OLD_NOT_STRICTLY_FALSE.getFunction())) {
+        throw new IllegalStateException(
+            "Expected comprehension loopCondition to be @not_strictly_false, but got: "
+                + call.function());
+      }
+      if (call.args().size() != 1) {
+        throw new IllegalStateException(
+            "Expected @not_strictly_false to have exactly 1 argument, but got: "
+                + call.args().size());
+      }
+      CelMutableExpr arg = call.args().get(0);
+      if (expectNot) {
+        if (!isCallWithArgCount(arg, Operator.LOGICAL_NOT.getFunction(), 1)) {
+          return false;
+        }
+        arg = arg.call().args().get(0);
+      }
+      return isIdent(arg, comp.accuVar());
+    }
+
+    private static boolean isLoopStepWithAccuVar(
+        CelMutableComprehension comp, String expectedFunction) {
+      if (!isCallWithArgCount(comp.loopStep(), expectedFunction, 2)) {
+        return false;
+      }
+      List<CelMutableExpr> args = comp.loopStep().call().args();
+      return isIdent(args.get(0), comp.accuVar()) || isIdent(args.get(1), comp.accuVar());
+    }
+
+    private static boolean isIdent(CelMutableExpr expr, String name) {
+      return expr.getKind() == Kind.IDENT && expr.ident().name().equals(name);
+    }
   }
 
   /** Options to configure how Canonicalization behaves. */
