@@ -131,7 +131,7 @@ public final class CelVerifierZ3ImplTest {
           .build();
 
   private static final CelVerifier VERIFIER =
-      CelVerifierFactory.newVerifier().setTypeProvider(TYPE_PROVIDER).build();
+      CelVerifierFactory.newVerifier(CEL).setTypeProvider(TYPE_PROVIDER).build();
 
   @Before
   public void setUp() {
@@ -380,7 +380,7 @@ public final class CelVerifierZ3ImplTest {
     CelAbstractSyntaxTree ast = CEL.compile(expr).getAst();
 
     CelVerifier customVerifier =
-        CelVerifierFactory.newVerifier()
+        CelVerifierFactory.newVerifier(CEL)
             .setComprehensionUnrollLimit(3)
             .setTypeProvider(TYPE_PROVIDER)
             .build();
@@ -395,7 +395,8 @@ public final class CelVerifierZ3ImplTest {
     String expr = "int_list == [1] ? int_list.exists(x, x == 1) : false";
     CelAbstractSyntaxTree ast = CEL.compile(expr).getAst();
 
-    CelVerifier verifier = CelVerifierFactory.newVerifier().setComprehensionUnrollLimit(0).build();
+    CelVerifier verifier =
+        CelVerifierFactory.newVerifier(CEL).setComprehensionUnrollLimit(0).build();
     CelVerificationResult result = verifier.isSatisfiable(ast);
 
     assertThat(result.status()).isEqualTo(VerificationStatus.INCONCLUSIVE);
@@ -956,7 +957,7 @@ public final class CelVerifierZ3ImplTest {
     CelAbstractSyntaxTree ast = CEL.compile(expression).getAst();
 
     CelVerifier verifierWithUnknown =
-        CelVerifierFactory.newVerifier().addUnknownIdentifier("x").build();
+        CelVerifierFactory.newVerifier(CEL).addUnknownIdentifier("x").build();
 
     // 'x == x' is not a tautology if it can be unknown
     // i.e: CelUnknown == CelUnknown is unknown.
@@ -978,7 +979,10 @@ public final class CelVerifierZ3ImplTest {
             + " dyn_list.all(x, x.not_a_bool) == false) : true";
     CelAbstractSyntaxTree ast = CEL.compile(expr).getAst();
     CelVerificationResult result =
-        CelVerifierFactory.newVerifier().setComprehensionUnrollLimit(1).build().isAlwaysTrue(ast);
+        CelVerifierFactory.newVerifier(CEL)
+            .setComprehensionUnrollLimit(1)
+            .build()
+            .isAlwaysTrue(ast);
 
     assertThat(result.status()).isEqualTo(VerificationStatus.VIOLATED);
     assertThat(result.message())
@@ -992,7 +996,8 @@ public final class CelVerifierZ3ImplTest {
     String expr = "int_list == [1, 2, 3] ? int_list.all(x, x > 0) : true";
     CelAbstractSyntaxTree ast = CEL.compile(expr).getAst();
 
-    CelVerifier verifier = CelVerifierFactory.newVerifier().setComprehensionUnrollLimit(2).build();
+    CelVerifier verifier =
+        CelVerifierFactory.newVerifier(CEL).setComprehensionUnrollLimit(2).build();
     CelVerificationResult verifiedValue = verifier.isAlwaysTrue(ast);
 
     // Truncated loops return Unknown, which negates to Unknown.
@@ -1009,7 +1014,8 @@ public final class CelVerifierZ3ImplTest {
     String expr = "int_list == [] ? int_list.all(x, x > 0) : true";
     CelAbstractSyntaxTree ast = CEL.compile(expr).getAst();
 
-    CelVerifier verifier = CelVerifierFactory.newVerifier().setComprehensionUnrollLimit(0).build();
+    CelVerifier verifier =
+        CelVerifierFactory.newVerifier(CEL).setComprehensionUnrollLimit(0).build();
     CelVerificationResult verifiedValue = verifier.isAlwaysTrue(ast);
 
     assertThat(verifiedValue.status()).isEqualTo(VerificationStatus.VERIFIED);
@@ -1067,7 +1073,9 @@ public final class CelVerifierZ3ImplTest {
     CelAbstractSyntaxTree astB = celWithCustomFunc.compile("1 / 0").getAst();
 
     CelVerifier verifier =
-        CelVerifierFactory.newVerifier().addUnknownIdentifier("unknown_var").build();
+        CelVerifierFactory.newVerifier(celWithCustomFunc)
+            .addUnknownIdentifier("unknown_var")
+            .build();
 
     CelVerificationResult result = verifier.verifyEquivalence(astA, astB);
 
@@ -1981,7 +1989,18 @@ public final class CelVerifierZ3ImplTest {
     HETEROGENEOUS_UINT_NEGATIVE_DOUBLE_EQUIVALENCE("dyn(u) == -1.0", "false"),
     HETEROGENEOUS_UINT_ZERO_DOUBLE_EQUIVALENCE("dyn(u) == 0.0", "u == 0u"),
     DYNAMIC_LIST_ELEMENT_NEVER_ERROR_EQUIVALENCE(
-        "size(dyn_list) > 0 ? (dyn_list[0] == 1 || dyn_list[0] != 1) : true", "true");
+        "size(dyn_list) > 0 ? (dyn_list[0] == 1 || dyn_list[0] != 1) : true", "true"),
+    CANONICALIZE_MAP_TWO_VAR_PREDICATE_ORDER(
+        "string_int_map.exists(k, v, k == 'foo' && v == 1)",
+        "string_int_map.exists(k, v, v == 1 && k == 'foo')"),
+    CANONICALIZE_MAP_TWO_VAR_ALPHA_RENAME(
+        "string_int_map.exists(k, v, k == 'foo' && v == 1)",
+        "string_int_map.exists(key, val, key == 'foo' && val == 1)"),
+    CANONICALIZE_MAP_TWO_VAR_DE_MORGAN(
+        "!string_int_map.exists(k, v, !(v > 0))", "string_int_map.all(k, v, v > 0)"),
+    CANONICALIZE_LIST_PREDICATE_ORDER(
+        "int_list.all(e, e > 0 && e < 100)", "int_list.all(e, e < 100 && e > 0)"),
+    CANONICALIZE_LIST_ALPHA_RENAME("int_list.all(e, e > 0)", "int_list.all(elem, elem > 0)");
 
     private final String exprA;
     private final String exprB;
@@ -2367,7 +2386,7 @@ public final class CelVerifierZ3ImplTest {
   @Test
   @SuppressWarnings("GoodTime-ApiWithNumericTimeUnit") // Test only
   public void setTimeout_invalidDuration_throws(@TestParameter({"0", "-1"}) long timeoutSeconds) {
-    CelVerifierBuilder builder = CelVerifierFactory.newVerifier();
+    CelVerifierBuilder builder = CelVerifierFactory.newVerifier(CEL);
     IllegalArgumentException exception =
         assertThrows(
             IllegalArgumentException.class,
@@ -2386,9 +2405,6 @@ public final class CelVerifierZ3ImplTest {
 
   @Test
   public void isSatisfiable_timeoutReached_throwsCelVerificationException() throws Exception {
-    CelVerifier timeoutVerifier =
-        CelVerifierFactory.newVerifier().setTimeout(Duration.ofMillis(1)).build();
-
     Cel customCel =
         CelFactory.plannerCelBuilder()
             .addVar("d1", SimpleType.DOUBLE)
@@ -2396,6 +2412,8 @@ public final class CelVerifierZ3ImplTest {
             .addVar("d3", SimpleType.DOUBLE)
             .addVar("d4", SimpleType.DOUBLE)
             .build();
+    CelVerifier timeoutVerifier =
+        CelVerifierFactory.newVerifier(customCel).setTimeout(Duration.ofMillis(1)).build();
 
     // An overly complex double multiplication to guarantee Z3 FPA theory solver timeouts.
     CelAbstractSyntaxTree ast =
@@ -2819,7 +2837,7 @@ public final class CelVerifierZ3ImplTest {
 
     CelAbstractSyntaxTree ast = cel.compile("!(large_list == " + listLiteral + ")").getAst();
     CelVerifier verifier =
-        CelVerifierFactory.newVerifier().setTimeout(Duration.ofSeconds(10)).build();
+        CelVerifierFactory.newVerifier(cel).setTimeout(Duration.ofSeconds(10)).build();
 
     CelVerificationResult result = verifier.isAlwaysTrue(ast);
 
@@ -2844,7 +2862,7 @@ public final class CelVerifierZ3ImplTest {
 
     CelAbstractSyntaxTree ast = cel.compile("!(large_map == " + mapLiteral + ")").getAst();
     CelVerifier verifier =
-        CelVerifierFactory.newVerifier().setTimeout(Duration.ofSeconds(10)).build();
+        CelVerifierFactory.newVerifier(cel).setTimeout(Duration.ofSeconds(10)).build();
 
     CelVerificationResult result = verifier.isAlwaysTrue(ast);
 
@@ -2895,7 +2913,7 @@ public final class CelVerifierZ3ImplTest {
             .build();
     CelAbstractSyntaxTree ast =
         cel.compile("dyn_list == [1, 2] ? dyn_list.custom_fold(x) == true : true").getAst();
-    CelVerifier verifier = CelVerifierFactory.newVerifier().build();
+    CelVerifier verifier = CelVerifierFactory.newVerifier(cel).build();
 
     CelVerificationResult result = verifier.isAlwaysTrue(ast);
 
@@ -2910,7 +2928,8 @@ public final class CelVerifierZ3ImplTest {
     String expr = "int_list == [1, 2, 3, 4] ? int_list.exists(x, x == 42) && false : false";
     CelAbstractSyntaxTree ast = CEL.compile(expr).getAst();
 
-    CelVerifier verifier = CelVerifierFactory.newVerifier().setComprehensionUnrollLimit(3).build();
+    CelVerifier verifier =
+        CelVerifierFactory.newVerifier(CEL).setComprehensionUnrollLimit(3).build();
     CelVerificationResult result = verifier.isSatisfiable(ast);
 
     assertThat(result.status()).isEqualTo(VerificationStatus.VIOLATED);
@@ -2925,7 +2944,8 @@ public final class CelVerifierZ3ImplTest {
     CelAbstractSyntaxTree astA = CEL.compile(exprA).getAst();
     CelAbstractSyntaxTree astB = CEL.compile(exprB).getAst();
 
-    CelVerifier verifier = CelVerifierFactory.newVerifier().setComprehensionUnrollLimit(3).build();
+    CelVerifier verifier =
+        CelVerifierFactory.newVerifier(CEL).setComprehensionUnrollLimit(3).build();
     CelVerificationResult result = verifier.verifyEquivalence(astA, astB);
 
     assertThat(result.status()).isEqualTo(VerificationStatus.VERIFIED);
@@ -2952,7 +2972,8 @@ public final class CelVerifierZ3ImplTest {
     CelAbstractSyntaxTree astA = CEL.compile(testCase.exprA).getAst();
     CelAbstractSyntaxTree astB = CEL.compile(testCase.exprB).getAst();
 
-    CelVerifier verifier = CelVerifierFactory.newVerifier().setComprehensionUnrollLimit(0).build();
+    CelVerifier verifier =
+        CelVerifierFactory.newVerifier(CEL).setComprehensionUnrollLimit(0).build();
     CelVerificationResult result = verifier.verifyEquivalence(astA, astB);
 
     assertThat(result.status()).isEqualTo(VerificationStatus.INCONCLUSIVE);
@@ -3001,7 +3022,8 @@ public final class CelVerifierZ3ImplTest {
     CelAbstractSyntaxTree astA = customCel.compile("dyn_list.my_macro_1(true)").getAst();
     CelAbstractSyntaxTree astB = customCel.compile("dyn_list.my_macro_2(true)").getAst();
 
-    CelVerifier verifier = CelVerifierFactory.newVerifier().setComprehensionUnrollLimit(0).build();
+    CelVerifier verifier =
+        CelVerifierFactory.newVerifier(customCel).setComprehensionUnrollLimit(0).build();
     CelVerificationResult result = verifier.verifyEquivalence(astA, astB);
 
     assertThat(result.status()).isEqualTo(VerificationStatus.INCONCLUSIVE);
@@ -3045,7 +3067,8 @@ public final class CelVerifierZ3ImplTest {
     CelAbstractSyntaxTree astB =
         customCel.compile("cel.bind(x, 20, dyn_list.my_macro(1))").getAst();
 
-    CelVerifier verifier = CelVerifierFactory.newVerifier().setComprehensionUnrollLimit(0).build();
+    CelVerifier verifier =
+        CelVerifierFactory.newVerifier(customCel).setComprehensionUnrollLimit(0).build();
     CelVerificationResult result = verifier.verifyEquivalence(astA, astB);
 
     assertThat(result.status()).isEqualTo(VerificationStatus.INCONCLUSIVE);
@@ -3053,9 +3076,6 @@ public final class CelVerifierZ3ImplTest {
 
   @Test
   public void verifyEquivalence_timeoutReached_throwsCelVerificationException() throws Exception {
-    CelVerifier timeoutVerifier =
-        CelVerifierFactory.newVerifier().setTimeout(Duration.ofMillis(1)).build();
-
     Cel customCel =
         CelFactory.plannerCelBuilder()
             .addVar("d1", SimpleType.DOUBLE)
@@ -3063,6 +3083,9 @@ public final class CelVerifierZ3ImplTest {
             .addVar("d3", SimpleType.DOUBLE)
             .addVar("d4", SimpleType.DOUBLE)
             .build();
+
+    CelVerifier timeoutVerifier =
+        CelVerifierFactory.newVerifier(customCel).setTimeout(Duration.ofMillis(1)).build();
 
     CelAbstractSyntaxTree astA =
         customCel
@@ -3085,7 +3108,7 @@ public final class CelVerifierZ3ImplTest {
     CelAbstractSyntaxTree assertAst = CEL.compile("int_list.all(x, x > 0)").getAst();
 
     CelVerifier verifier =
-        CelVerifierFactory.newVerifier().setComprehensionUnrollLimit(2).build();
+        CelVerifierFactory.newVerifier(CEL).setComprehensionUnrollLimit(2).build();
     CelVerificationResult result =
         ((CelVerifierZ3Impl) verifier)
             .verifyImplication(assumeAst, assertAst, ImmutableMap.of(), "Implication");
@@ -3102,7 +3125,7 @@ public final class CelVerifierZ3ImplTest {
     // Assertion: x < d is false when d is NaN
     CelAbstractSyntaxTree assertAst = CEL.compile("!(x < d)").getAst();
 
-    CelVerifier verifier = CelVerifierFactory.newVerifier().build();
+    CelVerifier verifier = CelVerifierFactory.newVerifier(CEL).build();
     CelVerificationResult result =
         ((CelVerifierZ3Impl) verifier)
             .verifyImplication(assumeAst, assertAst, ImmutableMap.of(), "Implication");

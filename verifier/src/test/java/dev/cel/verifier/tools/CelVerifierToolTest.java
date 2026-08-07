@@ -268,6 +268,23 @@ public final class CelVerifierToolTest {
   }
 
   @Test
+  public void verifyEquivalence_canonicalizedMapComprehension() throws Exception {
+    VerificationOptions options =
+        VerificationOptions.builder().setTimeout(Duration.ofSeconds(5)).build();
+    ImmutableMap<String, CelType> vars =
+        ImmutableMap.of("map_string_int", MapType.create(SimpleType.STRING, SimpleType.INT));
+
+    CelVerificationResult result =
+        CelVerifierToolCore.verifyEquivalence(
+            "map_string_int.exists(k, v, k == 'foo' && v == 1)",
+            "map_string_int.exists(k, v, v == 1 && k == 'foo')",
+            vars,
+            options);
+
+    assertThat(result.status()).isEqualTo(VerificationStatus.VERIFIED);
+  }
+
+  @Test
   public void verifyPolicyInvariants_success() throws Exception {
     String yamlPolicy =
         "name: secure_access_policy\n"

@@ -175,6 +175,20 @@ public final class CelVerifierReplTest {
   }
 
   @Test
+  public void repl_equivCanonicalization() throws Exception {
+    String[] output =
+        runReplWithCommands(
+            ":var map_string_int map<string,int>",
+            ":var int_list list<int>",
+            "equiv map_string_int.exists(k, v, k == 'foo' && v == 1) <=> map_string_int.exists(k,"
+                + " v, v == 1 && k == 'foo')",
+            "equiv int_list.all(e, e > 0) <=> int_list.all(elem, elem > 0)",
+            ":quit");
+    assertThat(output[0]).contains("[VERIFIED]");
+    assertThat(output[1]).isEmpty();
+  }
+
+  @Test
   public void repl_unknownCommandsAndErrors() throws Exception {
     String[] output =
         runReplWithCommands(
