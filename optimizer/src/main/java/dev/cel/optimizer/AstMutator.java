@@ -18,11 +18,13 @@ import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static java.lang.Math.max;
 import static java.util.stream.Collectors.toCollection;
 
+import com.google.auto.value.AutoOneOf;
 import com.google.auto.value.AutoValue;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.HashBasedTable;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Streams;
 import com.google.common.collect.Table;
 import com.google.errorprone.annotations.Immutable;
 import dev.cel.common.CelAbstractSyntaxTree;
@@ -44,11 +46,13 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map.Entry;
 import java.util.NoSuchElementException;
 import java.util.Optional;
+import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
@@ -552,6 +556,140 @@ public final class AstMutator {
     return CelMutableAst.of(mutatedRoot, newAstSource);
   }
 
+  /**
+   * Replaces a subtree in the given AST with the specified {@link SubtreeReplacement}.
+   *
+   * <p>This operation is intended for AST optimization purposes.
+   *
+   * <p>This is a very dangerous operation. Callers must re-typecheck the mutated AST and
+   * additionally verify that the resulting AST is semantically valid.
+   *
+   * <p>All expression IDs will be renumbered in a stable manner to ensure there's no ID collision
+   * between the nodes. The renumbering occurs even if the subtree was not replaced.
+   *
+   * @param ast Original AST to mutate.
+   * @param replacement Subtree replacement containing the target node ID and the new expression or
+   *     AST.
+   */
+  public CelMutableAst replaceSubtree(CelMutableAst ast, SubtreeReplacement replacement) {
+    Preconditions.checkNotNull(ast);
+    Preconditions.checkNotNull(replacement);
+    switch (replacement.replacement().kind()) {
+      case EXPR:
+        return replaceSubtree(ast, replacement.replacement().expr(), replacement.exprIdToReplace());
+      case AST:
+        return replaceSubtree(ast, replacement.replacement().ast(), replacement.exprIdToReplace());
+    }
+    throw new IllegalArgumentException(
+        "Unsupported replacement kind: " + replacement.replacement().kind());
+  }
+
+  /**
+   * Repeatedly applies AST mutations using the provided AST-level rewriter until no further
+   * replacements match (fixed point reached) or the mutator's iteration limit is exhausted.
+   *
+   * <p>This operation is intended for AST optimization purposes.
+   *
+   * <p>This is a very dangerous operation. Callers must re-typecheck the mutated AST and
+   * additionally verify that the resulting AST is semantically valid.
+   *
+   * <p>All expression IDs will be renumbered in a stable manner to ensure there's no ID collision
+   * between the nodes.
+   *
+   * @param ast Initial mutable AST to mutate.
+   * @param astRewriter Function returning a {@link SubtreeReplacement} or {@code Optional.empty()}
+   *     when no further rewrites are possible.
+   * @return Mutated {@link CelMutableAst} at fixed point.
+   * @throws IllegalStateException If the iteration count exceeds {@code iterationLimit}.
+   */
+  public CelMutableAst mutateUntilFixedPoint(
+      CelMutableAst ast,
+      Function<CelNavigableMutableAst, Optional<SubtreeReplacement>> astRewriter) {
+    Preconditions.checkNotNull(ast);
+    Preconditions.checkNotNull(astRewriter);
+    CelMutableAst mutableAst = ast;
+    for (long i = 0; i < iterationLimit; i++) {
+      CelNavigableMutableAst navAst = CelNavigableMutableAst.fromAst(mutableAst);
+      Optional<SubtreeReplacement> replacement = astRewriter.apply(navAst);
+      if (!replacement.isPresent()) {
+        return mutableAst;
+      }
+      mutableAst = replaceSubtree(mutableAst, replacement.get());
+    }
+    throw new IllegalStateException("Max iteration count reached.");
+  }
+
+  /**
+   * Traverses nodes using the specified {@link TraversalOrder} and repeatedly rewrites matching
+   * subtrees until a fixed point is reached.
+   *
+   * <p>This operation is intended for AST optimization purposes.
+   *
+   * <p>This is a very dangerous operation. Callers must re-typecheck the mutated AST and
+   * additionally verify that the resulting AST is semantically valid.
+   *
+   * <p>All expression IDs will be renumbered in a stable manner to ensure there's no ID collision
+   * between the nodes.
+   *
+   * @param ast Initial mutable AST to mutate.
+   * @param traversalOrder Order in which nodes are visited per iteration pass.
+   * @param nodeRewriter Function returning a {@link SubtreeReplacement} or {@code
+   *     Optional.empty()}.
+   * @return Mutated {@link CelMutableAst} at fixed point.
+   * @throws IllegalStateException If the iteration count exceeds {@code iterationLimit}.
+   */
+  public CelMutableAst mutateUntilFixedPoint(
+      CelMutableAst ast,
+      TraversalOrder traversalOrder,
+      Function<CelNavigableMutableExpr, Optional<SubtreeReplacement>> nodeRewriter) {
+    Preconditions.checkNotNull(traversalOrder);
+    Preconditions.checkNotNull(nodeRewriter);
+    return mutateUntilFixedPoint(
+        ast,
+        navAst ->
+            navAst
+                .getRoot()
+                .allNodes(traversalOrder)
+                .flatMap(node -> Streams.stream(nodeRewriter.apply(node)))
+                .findFirst());
+  }
+
+  /**
+   * Traverses nodes using the specified {@link TraversalOrder}, applies the node matcher, and
+   * substitutes matching nodes with the returned replacement expression (targeting {@code
+   * node.id()}).
+   *
+   * <p>This operation is intended for AST optimization purposes.
+   *
+   * <p>This is a very dangerous operation. Callers must re-typecheck the mutated AST and
+   * additionally verify that the resulting AST is semantically valid.
+   *
+   * <p>All expression IDs will be renumbered in a stable manner to ensure there's no ID collision
+   * between the nodes.
+   *
+   * @param ast Initial mutable AST to mutate.
+   * @param traversalOrder Order in which nodes are visited per iteration pass.
+   * @param nodeMatcher Predicate to filter candidate nodes.
+   * @param nodeRewriter Function producing the new {@link CelMutableExpr} for matched nodes.
+   * @return Mutated {@link CelMutableAst} at fixed point.
+   * @throws IllegalStateException If the iteration count exceeds {@code iterationLimit}.
+   */
+  public CelMutableAst mutateUntilFixedPoint(
+      CelMutableAst ast,
+      TraversalOrder traversalOrder,
+      Predicate<CelNavigableMutableExpr> nodeMatcher,
+      Function<CelNavigableMutableExpr, Optional<CelMutableExpr>> nodeRewriter) {
+    Preconditions.checkNotNull(nodeMatcher);
+    Preconditions.checkNotNull(nodeRewriter);
+    return mutateUntilFixedPoint(
+        ast,
+        traversalOrder,
+        node ->
+            nodeMatcher.test(node)
+                ? nodeRewriter.apply(node).map(newExpr -> SubtreeReplacement.of(node.id(), newExpr))
+                : Optional.empty());
+  }
+
   private CelMutableExpr mangleIdentsInComprehensionExpr(
       CelMutableExpr root,
       CelMutableExpr comprehensionExpr,
@@ -981,6 +1119,55 @@ public final class AstMutator {
         String iterVarName, String iterVar2Name, String resultName) {
       return new AutoValue_AstMutator_MangledComprehensionName(
           iterVarName, iterVar2Name, resultName);
+    }
+  }
+
+  /**
+   * Represents a planned subtree replacement containing the target node ID to replace and either a
+   * {@link CelMutableExpr} or {@link CelMutableAst}.
+   */
+  @AutoValue
+  public abstract static class SubtreeReplacement {
+
+    public abstract long exprIdToReplace();
+
+    public abstract Replacement replacement();
+
+    public static SubtreeReplacement of(long exprIdToReplace, CelMutableExpr replacementExpr) {
+      return new AutoValue_AstMutator_SubtreeReplacement(
+          exprIdToReplace, Replacement.ofExpr(replacementExpr));
+    }
+
+    public static SubtreeReplacement of(long exprIdToReplace, CelMutableAst replacementAst) {
+      return new AutoValue_AstMutator_SubtreeReplacement(
+          exprIdToReplace, Replacement.ofAst(replacementAst));
+    }
+
+    /** Discriminated union of either a {@link CelMutableExpr} or a {@link CelMutableAst}. */
+    @AutoOneOf(Replacement.Kind.class)
+    public abstract static class Replacement {
+
+      public abstract CelMutableExpr expr();
+
+      public abstract CelMutableAst ast();
+
+      public abstract Kind kind();
+
+      public static Replacement ofExpr(CelMutableExpr expr) {
+        return AutoOneOf_AstMutator_SubtreeReplacement_Replacement.expr(
+            Preconditions.checkNotNull(expr));
+      }
+
+      public static Replacement ofAst(CelMutableAst ast) {
+        return AutoOneOf_AstMutator_SubtreeReplacement_Replacement.ast(
+            Preconditions.checkNotNull(ast));
+      }
+
+      /** Kind of {@link Replacement}. */
+      public enum Kind {
+        EXPR,
+        AST
+      }
     }
   }
 }
