@@ -70,6 +70,7 @@ public final class ConformanceTest extends Statement {
           CelExtensions.comprehensions(),
           CelExtensions.encoders(OPTIONS),
           CelExtensions.math(OPTIONS),
+          CelExtensions.network(),
           CelExtensions.protos(),
           CelExtensions.sets(OPTIONS),
           CelExtensions.strings(),
@@ -80,6 +81,7 @@ public final class ConformanceTest extends Statement {
           CelExtensions.comprehensions(),
           CelExtensions.encoders(OPTIONS),
           CelExtensions.math(OPTIONS),
+          CelExtensions.network(),
           CelExtensions.sets(OPTIONS),
           CelExtensions.strings(),
           CelOptionalLibrary.INSTANCE);
