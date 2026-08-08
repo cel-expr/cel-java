@@ -41,24 +41,31 @@ import dev.cel.common.ast.CelMutableExpr.CelMutableSelect;
 import dev.cel.common.ast.CelMutableExprConverter;
 import dev.cel.common.navigation.CelNavigableAst;
 import dev.cel.common.navigation.CelNavigableExpr;
+import dev.cel.common.navigation.TraversalOrder;
 import dev.cel.common.types.SimpleType;
 import dev.cel.common.types.StructTypeReference;
 import dev.cel.expr.conformance.proto3.TestAllTypes;
 import dev.cel.extensions.CelExtensions;
 import dev.cel.extensions.CelOptionalLibrary;
+import dev.cel.optimizer.AstMutator.SubtreeReplacement;
 import dev.cel.parser.CelStandardMacro;
 import dev.cel.parser.CelUnparser;
 import dev.cel.parser.CelUnparserFactory;
 import java.util.List;
+import java.util.Optional;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
 @RunWith(TestParameterInjector.class)
 public class AstMutatorTest {
   private static final Cel CEL =
-      CelFactory.standardCelBuilder()
+      CelFactory.plannerCelBuilder()
           .setStandardMacros(CelStandardMacro.STANDARD_MACROS)
-          .setOptions(CelOptions.current().populateMacroCalls(true).build())
+          .setOptions(
+              CelOptions.current()
+                  .populateMacroCalls(true)
+                  .enableHeterogeneousNumericComparisons(true)
+                  .build())
           .addMessageTypes(TestAllTypes.getDescriptor())
           .addCompilerLibraries(
               CelOptionalLibrary.INSTANCE, CelExtensions.bindings(), CelExtensions.comprehensions())
@@ -66,6 +73,7 @@ public class AstMutatorTest {
           .setContainer(CelContainer.ofName("cel.expr.conformance.proto3"))
           .addVar("msg", StructTypeReference.create(TestAllTypes.getDescriptor().getFullName()))
           .addVar("x", SimpleType.INT)
+          .addVar("b", SimpleType.BOOL)
           .build();
 
   private static final CelUnparser CEL_UNPARSER = CelUnparserFactory.newUnparser();
@@ -440,7 +448,7 @@ public class AstMutatorTest {
     //      10 [1]       func [4]
     //                4 [3]       5 [5]
     Cel cel =
-        CelFactory.standardCelBuilder()
+        CelFactory.plannerCelBuilder()
             .addFunctionDeclarations(
                 CelFunctionDecl.newFunctionDeclaration(
                     "func",
@@ -463,7 +471,7 @@ public class AstMutatorTest {
     //      10 [1]       func [4]
     //                4 [3]       5 [5]
     Cel cel =
-        CelFactory.standardCelBuilder()
+        CelFactory.plannerCelBuilder()
             .addFunctionDeclarations(
                 CelFunctionDecl.newFunctionDeclaration(
                     "func",
@@ -486,7 +494,7 @@ public class AstMutatorTest {
     //      10 [1]       func [4]
     //                4 [3]       5 [5]
     Cel cel =
-        CelFactory.standardCelBuilder()
+        CelFactory.plannerCelBuilder()
             .addFunctionDeclarations(
                 CelFunctionDecl.newFunctionDeclaration(
                     "func",
@@ -509,7 +517,7 @@ public class AstMutatorTest {
     //      10 [1]       func [4]
     //                4 [3]       5 [5]
     Cel cel =
-        CelFactory.standardCelBuilder()
+        CelFactory.plannerCelBuilder()
             .addFunctionDeclarations(
                 CelFunctionDecl.newFunctionDeclaration(
                     "func",
@@ -864,9 +872,13 @@ public class AstMutatorTest {
   public void mangleComprehensionVariable_macroSourceDisabled_macroCallMapIsEmpty()
       throws Exception {
     Cel cel =
-        CelFactory.standardCelBuilder()
+        CelFactory.plannerCelBuilder()
             .setStandardMacros(CelStandardMacro.STANDARD_MACROS)
-            .setOptions(CelOptions.current().populateMacroCalls(false).build())
+            .setOptions(
+                CelOptions.current()
+                    .populateMacroCalls(false)
+                    .enableHeterogeneousNumericComparisons(true)
+                    .build())
             .build();
     CelAbstractSyntaxTree ast = cel.compile("[false].exists(i, i)").getAst();
 
@@ -1042,6 +1054,159 @@ public class AstMutatorTest {
 
     assertThat(CEL_UNPARSER.unparse(callAst.toParsedAst()))
         .isEqualTo("func([1].exists(x, x >= 1), \"hello\")");
+  }
+
+  @Test
+  public void replaceSubtree_withSubtreeReplacement_expr() throws Exception {
+    CelAbstractSyntaxTree ast = CEL.compile("1 + 2").getAst();
+    CelMutableAst mutableAst = CelMutableAst.fromCelAst(ast);
+    SubtreeReplacement replacement =
+        SubtreeReplacement.of(1, CelMutableExpr.ofConstant(CelConstant.ofValue(10)));
+
+    CelMutableAst result = AST_MUTATOR.replaceSubtree(mutableAst, replacement);
+
+    assertThat(CEL_UNPARSER.unparse(result.toParsedAst())).isEqualTo("10 + 2");
+  }
+
+  @Test
+  public void replaceSubtree_withSubtreeReplacement_ast() throws Exception {
+    CelAbstractSyntaxTree ast = CEL.compile("true && false").getAst();
+    CelAbstractSyntaxTree macroAst = CEL.compile("[1].exists(x, x > 0)").getAst();
+    CelMutableAst mutableAst = CelMutableAst.fromCelAst(ast);
+    SubtreeReplacement replacement = SubtreeReplacement.of(3, CelMutableAst.fromCelAst(macroAst));
+
+    CelMutableAst result = AST_MUTATOR.replaceSubtree(mutableAst, replacement);
+
+    assertThat(CEL_UNPARSER.unparse(result.toParsedAst()))
+        .isEqualTo("true && [1].exists(x, x > 0)");
+    assertThat(result.source().getMacroCalls()).hasSize(1);
+  }
+
+  @Test
+  public void mutateUntilFixedPoint_astRewriter_success() throws Exception {
+    // Repeatedly simplifies addition with 0: "1 + 0 + 0" -> "1"
+    CelAbstractSyntaxTree ast = CEL.compile("1 + 0 + 0").getAst();
+    CelMutableAst mutableAst = CelMutableAst.fromCelAst(ast);
+
+    CelMutableAst result =
+        AST_MUTATOR.mutateUntilFixedPoint(
+            mutableAst,
+            navAst ->
+                navAst
+                    .getRoot()
+                    .allNodes()
+                    .filter(
+                        node ->
+                            node.getKind().equals(Kind.CALL)
+                                && node.expr().call().function().equals("_+_"))
+                    .filter(
+                        node -> {
+                          List<CelMutableExpr> args = node.expr().call().args();
+                          return args.get(1).getKind().equals(Kind.CONSTANT)
+                              && args.get(1).constant().int64Value() == 0;
+                        })
+                    .map(node -> SubtreeReplacement.of(node.id(), node.expr().call().args().get(0)))
+                    .findFirst());
+
+    assertThat(CEL_UNPARSER.unparse(result.toParsedAst())).isEqualTo("1");
+  }
+
+  @Test
+  public void mutateUntilFixedPoint_nodeRewriter_success() throws Exception {
+    // Rewrites nested calls: "func(func(1))" -> "1"
+    Cel cel =
+        CelFactory.plannerCelBuilder()
+            .addFunctionDeclarations(
+                CelFunctionDecl.newFunctionDeclaration(
+                    "func",
+                    CelOverloadDecl.newGlobalOverload(
+                        "func_overload", SimpleType.INT, SimpleType.INT)))
+            .build();
+    CelAbstractSyntaxTree ast = cel.compile("func(func(10))").getAst();
+    CelMutableAst mutableAst = CelMutableAst.fromCelAst(ast);
+
+    CelMutableAst result =
+        AST_MUTATOR.mutateUntilFixedPoint(
+            mutableAst,
+            TraversalOrder.POST_ORDER,
+            node -> {
+              if (node.getKind().equals(Kind.CALL)
+                  && node.expr().call().function().equals("func")) {
+                return Optional.of(
+                    SubtreeReplacement.of(node.id(), node.expr().call().args().get(0)));
+              }
+              return Optional.empty();
+            });
+
+    assertThat(CEL_UNPARSER.unparse(result.toParsedAst())).isEqualTo("10");
+  }
+
+  @Test
+  public void mutateUntilFixedPoint_matcherAndNodeRewriter_success() throws Exception {
+    // Replaces all variables named 'x' with constant 5 in "x + x + x" -> "5 + 5 + 5"
+    CelAbstractSyntaxTree ast = CEL.compile("x + x + x").getAst();
+    CelMutableAst mutableAst = CelMutableAst.fromCelAst(ast);
+
+    CelMutableAst result =
+        AST_MUTATOR.mutateUntilFixedPoint(
+            mutableAst,
+            TraversalOrder.POST_ORDER,
+            node -> node.getKind().equals(Kind.IDENT) && node.expr().ident().name().equals("x"),
+            node -> Optional.of(CelMutableExpr.ofConstant(CelConstant.ofValue(5))));
+
+    assertThat(CEL_UNPARSER.unparse(result.toParsedAst())).isEqualTo("5 + 5 + 5");
+  }
+
+  @Test
+  public void mutateUntilFixedPoint_withReplacementAst_preservesMacroSource() throws Exception {
+    // Replaces identifier 'b' with macro AST in "b && true"
+    CelAbstractSyntaxTree ast = CEL.compile("b && true").getAst();
+    CelAbstractSyntaxTree macroAst = CEL.compile("[1].exists(i, i > 0)").getAst();
+    CelMutableAst mutableAst = CelMutableAst.fromCelAst(ast);
+
+    CelMutableAst result =
+        AST_MUTATOR.mutateUntilFixedPoint(
+            mutableAst,
+            navAst ->
+                navAst
+                    .getRoot()
+                    .allNodes()
+                    .filter(
+                        node ->
+                            node.getKind().equals(Kind.IDENT)
+                                && node.expr().ident().name().equals("b"))
+                    .map(
+                        node ->
+                            SubtreeReplacement.of(node.id(), CelMutableAst.fromCelAst(macroAst)))
+                    .findFirst());
+
+    assertThat(CEL_UNPARSER.unparse(result.toParsedAst()))
+        .isEqualTo("[1].exists(i, i > 0) && true");
+    assertThat(result.source().getMacroCalls()).hasSize(1);
+    assertThat(CEL.createProgram(CEL.check(result.toParsedAst()).getAst()).eval()).isEqualTo(true);
+  }
+
+  @Test
+  public void mutateUntilFixedPoint_exceedsIterationLimit_throws() throws Exception {
+    // Circular rewrite rule that alternates between 1 and 2
+    CelAbstractSyntaxTree ast = CEL.compile("1").getAst();
+    CelMutableAst mutableAst = CelMutableAst.fromCelAst(ast);
+
+    IllegalStateException e =
+        assertThrows(
+            IllegalStateException.class,
+            () ->
+                AST_MUTATOR.mutateUntilFixedPoint(
+                    mutableAst,
+                    TraversalOrder.POST_ORDER,
+                    node -> node.getKind().equals(Kind.CONSTANT),
+                    node -> {
+                      long currentVal = node.expr().constant().int64Value();
+                      long nextVal = currentVal == 1L ? 2L : 1L;
+                      return Optional.of(CelMutableExpr.ofConstant(CelConstant.ofValue(nextVal)));
+                    }));
+
+    assertThat(e).hasMessageThat().isEqualTo("Max iteration count reached.");
   }
 
   @Test
