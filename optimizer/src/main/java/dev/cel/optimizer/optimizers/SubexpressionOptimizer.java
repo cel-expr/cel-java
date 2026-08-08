@@ -65,6 +65,7 @@ import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Stream;
 
@@ -161,27 +162,23 @@ public final class SubexpressionOptimizer implements CelAstOptimizer {
         break;
       }
 
+      CelMutableExpr targetCseShape = normalizeForEquality(cseCandidates.get(0));
       subexpressions.add(cseCandidates.get(0));
 
       String blockIdentifier = BLOCK_INDEX_PREFIX + blockIdentifierIndex++;
 
       // Replace all CSE candidates with new block index identifier
-      for (CelMutableExpr cseCandidate : cseCandidates) {
-        iterCount++;
+      astToModify =
+          astMutator.mutateUntilFixedPoint(
+              astToModify,
+              TraversalOrder.POST_ORDER,
+              node -> normalizeForEquality(node.expr()).equals(targetCseShape),
+              node -> Optional.of(CelMutableExpr.ofIdent(blockIdentifier)));
 
-        astToModify =
-            astMutator.replaceSubtree(
-                navAst,
-                CelNavigableMutableAst.fromAst(
-                    CelMutableAst.of(
-                        CelMutableExpr.ofIdent(blockIdentifier), navAst.getAst().source())),
-                cseCandidate.id());
-
-        // Retain the existing macro calls in case if the block identifiers are replacing a subtree
-        // that contains a comprehension.
-        sourceToModify.addAllMacroCalls(astToModify.source().getMacroCalls());
-        astToModify = CelMutableAst.of(astToModify.expr(), sourceToModify);
-      }
+      // Retain the existing macro calls in case if the block identifiers are replacing a subtree
+      // that contains a comprehension.
+      sourceToModify.addAllMacroCalls(astToModify.source().getMacroCalls());
+      astToModify = CelMutableAst.of(astToModify.expr(), sourceToModify);
     }
 
     if (iterCount >= cseOptions.iterationLimit()) {

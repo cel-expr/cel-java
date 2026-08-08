@@ -128,13 +128,13 @@ public class ConstantFoldingOptimizerTest {
             CelExtensions.comprehensions(),
             CelExtensions.bindings(),
             CelOptionalLibrary.INSTANCE,
-            CelExtensions.math(CEL_OPTIONS),
+            CelExtensions.math(),
             CelExtensions.strings(),
             CelExtensions.sets(CEL_OPTIONS),
             CelExtensions.encoders(CEL_OPTIONS))
         .addRuntimeLibraries(
             CelOptionalLibrary.INSTANCE,
-            CelExtensions.math(CEL_OPTIONS),
+            CelExtensions.math(),
             CelExtensions.strings(),
             CelExtensions.sets(CEL_OPTIONS),
             CelExtensions.encoders(CEL_OPTIONS))

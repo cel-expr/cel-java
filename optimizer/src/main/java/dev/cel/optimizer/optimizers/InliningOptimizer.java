@@ -14,8 +14,6 @@
 
 package dev.cel.optimizer.optimizers;
 
-import static com.google.common.collect.ImmutableList.toImmutableList;
-
 import com.google.auto.value.AutoValue;
 import com.google.common.collect.ImmutableList;
 import com.google.common.primitives.UnsignedLong;
@@ -29,13 +27,14 @@ import dev.cel.common.ast.CelMutableExpr;
 import dev.cel.common.ast.CelMutableExpr.CelMutableCall;
 import dev.cel.common.ast.CelMutableExpr.CelMutableStruct;
 import dev.cel.common.navigation.CelNavigableExprUtil;
-import dev.cel.common.navigation.CelNavigableMutableAst;
 import dev.cel.common.navigation.CelNavigableMutableExpr;
+import dev.cel.common.navigation.TraversalOrder;
 import dev.cel.common.types.CelKind;
 import dev.cel.common.types.CelType;
 import dev.cel.common.types.SimpleType;
 import dev.cel.common.values.NullValue;
 import dev.cel.optimizer.AstMutator;
+import dev.cel.optimizer.AstMutator.SubtreeReplacement;
 import dev.cel.optimizer.CelAstOptimizer;
 import java.util.ArrayList;
 import java.util.List;
@@ -105,28 +104,25 @@ public final class InliningOptimizer implements CelAstOptimizer {
   public OptimizationResult optimize(CelAbstractSyntaxTree ast, Cel cel) {
     CelMutableAst mutableAst = CelMutableAst.fromCelAst(ast);
     for (InlineVariable inlineVariable : inlineVariables) {
-      ImmutableList<CelNavigableMutableExpr> inlinableExprs =
-          CelNavigableMutableAst.fromAst(mutableAst)
-              .getRoot()
-              .allNodes()
-              .filter(node -> canInline(node, inlineVariable.name()))
-              .collect(toImmutableList());
+      mutableAst =
+          astMutator.mutateUntilFixedPoint(
+              mutableAst,
+              TraversalOrder.POST_ORDER,
+              node -> {
+                if (!canInline(node, inlineVariable.name())) {
+                  return Optional.empty();
+                }
+                CelMutableAst inlineVariableAst = CelMutableAst.fromCelAst(inlineVariable.ast());
+                CelMutableExpr replacementExpr = inlineVariableAst.expr();
 
-      for (CelNavigableMutableExpr inlinableExpr : inlinableExprs) {
-        CelMutableAst inlineVariableAst = CelMutableAst.fromCelAst(inlineVariable.ast());
-        CelMutableExpr replacementExpr = inlineVariableAst.expr();
+                if (node.getKind().equals(Kind.SELECT) && node.expr().select().testOnly()) {
+                  replacementExpr = rewritePresenceExpr(inlineVariable, replacementExpr);
+                }
 
-        if (inlinableExpr.getKind().equals(Kind.SELECT)
-            && inlinableExpr.expr().select().testOnly()) {
-          replacementExpr = rewritePresenceExpr(inlineVariable, replacementExpr);
-        }
-
-        mutableAst =
-            astMutator.replaceSubtree(
-                mutableAst,
-                CelMutableAst.of(replacementExpr, inlineVariableAst.source()),
-                inlinableExpr.id());
-      }
+                return Optional.of(
+                    SubtreeReplacement.of(
+                        node.id(), CelMutableAst.of(replacementExpr, inlineVariableAst.source())));
+              });
     }
 
     return OptimizationResult.create(astMutator.renumberIdsConsecutively(mutableAst).toParsedAst());
