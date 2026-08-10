@@ -21,6 +21,7 @@ java_library(
         "//common/ast",
         "//common/ast:mutable_expr",
         "//common/navigation",
+        "//common/navigation:common",
         "//common/types",
         "//compiler",
         "//extensions",

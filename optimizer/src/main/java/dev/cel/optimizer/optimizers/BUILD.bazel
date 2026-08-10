@@ -96,6 +96,7 @@ java_library(
         "//common:operator",
         "//common/ast",
         "//common/ast:mutable_expr",
+        "//common/navigation:common",
         "//common/navigation:expr_util",
         "//common/navigation:mutable_navigation",
         "//common/types",

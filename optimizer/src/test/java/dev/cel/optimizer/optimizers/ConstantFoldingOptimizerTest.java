@@ -107,6 +107,7 @@ public class ConstantFoldingOptimizerTest {
         .addVar("bool_var", SimpleType.BOOL)
         .addVar("list_var", ListType.create(SimpleType.STRING))
         .addVar("map_var", MapType.create(SimpleType.STRING, SimpleType.STRING))
+        .addVar("msg", StructTypeReference.create(TestAllTypes.getDescriptor().getFullName()))
         .setStandardMacros(CelStandardMacro.STANDARD_MACROS)
         .addFunctionDeclarations(
             CelFunctionDecl.newFunctionDeclaration(
@@ -128,13 +129,13 @@ public class ConstantFoldingOptimizerTest {
             CelExtensions.comprehensions(),
             CelExtensions.bindings(),
             CelOptionalLibrary.INSTANCE,
-            CelExtensions.math(CEL_OPTIONS),
+            CelExtensions.math(),
             CelExtensions.strings(),
             CelExtensions.sets(CEL_OPTIONS),
             CelExtensions.encoders(CEL_OPTIONS))
         .addRuntimeLibraries(
             CelOptionalLibrary.INSTANCE,
-            CelExtensions.math(CEL_OPTIONS),
+            CelExtensions.math(),
             CelExtensions.strings(),
             CelExtensions.sets(CEL_OPTIONS),
             CelExtensions.encoders(CEL_OPTIONS))
@@ -299,6 +300,12 @@ public class ConstantFoldingOptimizerTest {
   @TestParameters("{source: 'true == bool_var', expected: 'bool_var'}")
   @TestParameters("{source: 'bool_var == false', expected: '!bool_var'}")
   @TestParameters("{source: 'false == bool_var', expected: '!bool_var'}")
+  @TestParameters(
+      "{source: 'msg.?single_bool.orValue(false) == true', expected:"
+          + " 'msg.?single_bool.orValue(false)'}")
+  @TestParameters(
+      "{source: 'msg.?single_bool.orValue(false) == false', expected:"
+          + " '!msg.?single_bool.orValue(false)'}")
   @TestParameters("{source: 'true == false', expected: 'false'}")
   @TestParameters("{source: 'true == true', expected: 'true'}")
   @TestParameters("{source: 'false == true', expected: 'false'}")
@@ -326,6 +333,12 @@ public class ConstantFoldingOptimizerTest {
   @TestParameters("{source: 'true != bool_var', expected: '!bool_var'}")
   @TestParameters("{source: 'bool_var != false', expected: 'bool_var'}")
   @TestParameters("{source: 'false != bool_var', expected: 'bool_var'}")
+  @TestParameters(
+      "{source: 'msg.?single_bool.orValue(false) != true', expected:"
+          + " '!msg.?single_bool.orValue(false)'}")
+  @TestParameters(
+      "{source: 'msg.?single_bool.orValue(false) != false', expected:"
+          + " 'msg.?single_bool.orValue(false)'}")
   @TestParameters("{source: 'true != false', expected: 'true'}")
   @TestParameters("{source: 'true != true', expected: 'false'}")
   @TestParameters("{source: 'false != true', expected: 'true'}")
