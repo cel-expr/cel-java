@@ -1139,9 +1139,9 @@ public final class AstMutator {
   @AutoValue
   public abstract static class SubtreeReplacement {
 
-    public abstract long exprIdToReplace();
+    abstract long exprIdToReplace();
 
-    public abstract Replacement replacement();
+    abstract Replacement replacement();
 
     public static SubtreeReplacement of(long exprIdToReplace, CelMutableExpr replacementExpr) {
       return new AutoValue_AstMutator_SubtreeReplacement(
@@ -1155,26 +1155,26 @@ public final class AstMutator {
 
     /** Discriminated union of either a {@link CelMutableExpr} or a {@link CelMutableAst}. */
     @AutoOneOf(Replacement.Kind.class)
-    public abstract static class Replacement {
+    abstract static class Replacement {
 
-      public abstract CelMutableExpr expr();
+      abstract CelMutableExpr expr();
 
-      public abstract CelMutableAst ast();
+      abstract CelMutableAst ast();
 
-      public abstract Replacement.Kind kind();
+      abstract Kind kind();
 
-      public static Replacement ofExpr(CelMutableExpr expr) {
+      static Replacement ofExpr(CelMutableExpr expr) {
         return AutoOneOf_AstMutator_SubtreeReplacement_Replacement.expr(
             Preconditions.checkNotNull(expr));
       }
 
-      public static Replacement ofAst(CelMutableAst ast) {
+      static Replacement ofAst(CelMutableAst ast) {
         return AutoOneOf_AstMutator_SubtreeReplacement_Replacement.ast(
             Preconditions.checkNotNull(ast));
       }
 
       /** Kind of {@link Replacement}. */
-      public enum Kind {
+      enum Kind {
         EXPR,
         AST
       }
