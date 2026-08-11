@@ -146,9 +146,9 @@ public final class CelPolicyCompilerImplTest {
             + "rule:\n"
             + "  aggregate:\n"
             + "    - condition: 'true'\n"
-            + "      emit: '\"PII\"'\n"
+            + "      output: '\"PII\"'\n"
             + "    - condition: 'true'\n"
-            + "      emit: '\"CONFIDENTIAL\"'\n";
+            + "      output: '\"CONFIDENTIAL\"'\n";
     Cel cel = newCel();
     CelPolicy policy = POLICY_PARSER.parse(policySource);
 
@@ -166,11 +166,11 @@ public final class CelPolicyCompilerImplTest {
             + "rule:\n"
             + "  aggregate:\n"
             + "    - condition: \"size(resource.payload) > 5\"\n"
-            + "      emit: '\"CSE1\"'\n"
+            + "      output: '\"CSE1\"'\n"
             + "    - condition: \"size(resource.payload) > 5\"\n"
-            + "      emit: '\"CSE2\"'\n"
+            + "      output: '\"CSE2\"'\n"
             + "    - condition: 'true'\n"
-            + "      emit: '\"ALWAYS\"'\n";
+            + "      output: '\"ALWAYS\"'\n";
     Cel cel =
         newCel()
             .toCelBuilder()
@@ -213,7 +213,7 @@ public final class CelPolicyCompilerImplTest {
             + "          - condition: \"true\"\n"
             + "            output: \"payload.filter(x, x > 10).exists(y, y % 2 == 0)\"\n"
             + "    - condition: \"true\"\n"
-            + "      emit: \"payload.all(x, x > 0)\"\n";
+            + "      output: \"payload.all(x, x > 0)\"\n";
     Cel cel =
         newCel()
             .toCelBuilder()
@@ -243,7 +243,7 @@ public final class CelPolicyCompilerImplTest {
             + "      rule:\n"
             + "        aggregate:\n"
             + "          - condition: 'true'\n"
-            + "            emit: \"'foo'\"\n";
+            + "            output: \"'foo'\"\n";
     CelPolicy policy = POLICY_PARSER.parse(policySource);
 
     CelPolicyValidationException e =
@@ -269,7 +269,7 @@ public final class CelPolicyCompilerImplTest {
             + "            rule:\n"
             + "              aggregate:\n"
             + "                - condition: 'true'\n"
-            + "                  emit: \"'foo'\"\n";
+            + "                  output: \"'foo'\"\n";
     CelPolicy policy = POLICY_PARSER.parse(policySource);
 
     CelPolicyValidationException e =
@@ -292,7 +292,7 @@ public final class CelPolicyCompilerImplTest {
             + "      rule:\n"
             + "        aggregate:\n"
             + "          - condition: 'true'\n"
-            + "            emit: \"'foo'\"\n";
+            + "            output: \"'foo'\"\n";
     CelPolicy policy = POLICY_PARSER.parse(policySource);
 
     CelAbstractSyntaxTree ast =
