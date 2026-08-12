@@ -40,6 +40,19 @@ public class CelOptimizerFactoryTest {
   }
 
   @Test
+  public void standardCelOptimizerBuilder_withParserCheckerRuntimeAndOptions() {
+    CelOptimizerBuilder builder =
+        CelOptimizerFactory.standardCelOptimizerBuilder(
+            CelParserFactory.standardCelParserBuilder().build(),
+            CelCompilerFactory.standardCelCheckerBuilder().build(),
+            CelRuntimeFactory.standardCelRuntimeBuilder().build(),
+            CelOptimizerOptions.newBuilder().enableAstValidation(true).build());
+
+    assertThat(builder).isNotNull();
+    assertThat(builder.build()).isNotNull();
+  }
+
+  @Test
   public void standardCelOptimizerBuilder_withCompilerAndRuntime() {
     CelOptimizerBuilder builder =
         CelOptimizerFactory.standardCelOptimizerBuilder(
@@ -51,9 +64,32 @@ public class CelOptimizerFactoryTest {
   }
 
   @Test
+  public void standardCelOptimizerBuilder_withCompilerRuntimeAndOptions() {
+    CelOptimizerBuilder builder =
+        CelOptimizerFactory.standardCelOptimizerBuilder(
+            CelCompilerFactory.standardCelCompilerBuilder().build(),
+            CelRuntimeFactory.standardCelRuntimeBuilder().build(),
+            CelOptimizerOptions.newBuilder().enableAstValidation(true).build());
+
+    assertThat(builder).isNotNull();
+    assertThat(builder.build()).isNotNull();
+  }
+
+  @Test
   public void standardCelOptimizerBuilder_withCel() {
     CelOptimizerBuilder builder =
         CelOptimizerFactory.standardCelOptimizerBuilder(CelFactory.standardCelBuilder().build());
+
+    assertThat(builder).isNotNull();
+    assertThat(builder.build()).isNotNull();
+  }
+
+  @Test
+  public void standardCelOptimizerBuilder_withCelAndOptions() {
+    CelOptimizerBuilder builder =
+        CelOptimizerFactory.standardCelOptimizerBuilder(
+            CelFactory.standardCelBuilder().build(),
+            CelOptimizerOptions.newBuilder().enableAstValidation(true).build());
 
     assertThat(builder).isNotNull();
     assertThat(builder.build()).isNotNull();

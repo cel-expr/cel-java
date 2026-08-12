@@ -17,15 +17,20 @@ package dev.cel.optimizer;
 import static com.google.common.truth.Truth.assertThat;
 import static org.junit.Assert.assertThrows;
 
+import com.google.common.collect.ImmutableList;
 import dev.cel.bundle.Cel;
 import dev.cel.bundle.CelFactory;
 import dev.cel.common.CelAbstractSyntaxTree;
+import dev.cel.common.CelOptions;
 import dev.cel.common.CelSource;
 import dev.cel.common.CelValidationException;
+import dev.cel.common.ast.CelConstant;
 import dev.cel.common.ast.CelExpr;
 import dev.cel.optimizer.CelAstOptimizer.OptimizationResult;
+import dev.cel.parser.CelStandardMacro;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
@@ -33,7 +38,11 @@ import org.junit.runners.JUnit4;
 @RunWith(JUnit4.class)
 public class CelOptimizerImplTest {
 
-  private static final Cel CEL = CelFactory.standardCelBuilder().build();
+  private static final Cel CEL =
+      CelFactory.standardCelBuilder()
+          .setOptions(CelOptions.current().populateMacroCalls(true).build())
+          .setStandardMacros(CelStandardMacro.STANDARD_MACROS)
+          .build();
 
   @Test
   public void constructCelOptimizer_success() {
@@ -130,5 +139,182 @@ public class CelOptimizerImplTest {
             "Optimized AST failed to type-check: ERROR: :1:1: undeclared reference to"
                 + " 'undeclared_ident' (in container '')");
     assertThat(e).hasCauseThat().isInstanceOf(CelValidationException.class);
+  }
+
+  @Test
+  public void optimize_duplicateExprId_throwsException() {
+    CelOptimizer celOptimizer =
+        CelOptimizerImpl.newBuilder(
+                CEL, CelOptimizerOptions.newBuilder().enableAstValidation(true).build())
+            .addAstOptimizers(
+                (navigableAst, cel) ->
+                    OptimizationResult.create(
+                        CelAbstractSyntaxTree.newParsedAst(
+                            CelExpr.ofCall(
+                                1,
+                                Optional.empty(),
+                                "_+_",
+                                ImmutableList.of(
+                                    CelExpr.ofConstant(1, CelConstant.ofValue(1L)),
+                                    CelExpr.ofConstant(2, CelConstant.ofValue(2L)))),
+                            CelSource.newBuilder().build())))
+            .build();
+
+    CelOptimizationException e =
+        assertThrows(
+            CelOptimizationException.class,
+            () -> celOptimizer.optimize(CEL.compile("1 + 2").getAst()));
+
+    assertThat(e)
+        .hasMessageThat()
+        .isEqualTo("Optimization failure: Duplicate expr ID 1 detected in the AST.");
+    assertThat(e).hasCauseThat().isInstanceOf(IllegalStateException.class);
+  }
+
+  @Test
+  public void optimize_macroCallRootIdNonZero_throwsException() {
+    CelOptimizer celOptimizer =
+        CelOptimizerImpl.newBuilder(
+                CEL, CelOptimizerOptions.newBuilder().enableAstValidation(true).build())
+            .addAstOptimizers(
+                (navigableAst, cel) ->
+                    OptimizationResult.create(
+                        CelAbstractSyntaxTree.newParsedAst(
+                            CelExpr.ofConstant(1, CelConstant.ofValue(1L)),
+                            CelSource.newBuilder()
+                                .addMacroCalls(
+                                    1L,
+                                    CelExpr.ofCall(
+                                        10L,
+                                        Optional.empty(),
+                                        "has",
+                                        ImmutableList.of(
+                                            CelExpr.ofConstant(1L, CelConstant.ofValue(1L)))))
+                                .build())))
+            .build();
+
+    CelOptimizationException e =
+        assertThrows(
+            CelOptimizationException.class, () -> celOptimizer.optimize(CEL.compile("1").getAst()));
+
+    assertThat(e)
+        .hasMessageThat()
+        .isEqualTo("Optimization failure: Expected macro call root ID to be 0, but was 10.");
+    assertThat(e).hasCauseThat().isInstanceOf(IllegalStateException.class);
+  }
+
+  @Test
+  public void optimize_macroCallKindMismatch_throwsException() {
+    CelOptimizer celOptimizer =
+        CelOptimizerImpl.newBuilder(
+                CEL, CelOptimizerOptions.newBuilder().enableAstValidation(true).build())
+            .addAstOptimizers(
+                (navigableAst, cel) ->
+                    OptimizationResult.create(
+                        CelAbstractSyntaxTree.newParsedAst(
+                            CelExpr.ofConstant(1, CelConstant.ofValue(1L)),
+                            CelSource.newBuilder()
+                                .addMacroCalls(
+                                    1L,
+                                    CelExpr.ofCall(
+                                        0L,
+                                        Optional.empty(),
+                                        "has",
+                                        ImmutableList.of(CelExpr.ofIdent(1L, "x"))))
+                                .build())))
+            .build();
+
+    CelOptimizationException e =
+        assertThrows(
+            CelOptimizationException.class, () -> celOptimizer.optimize(CEL.compile("1").getAst()));
+
+    assertThat(e)
+        .hasMessageThat()
+        .isEqualTo(
+            "Optimization failure: Macro call node 1 kind mismatch: expected CONSTANT (from AST),"
+                + " but was IDENT (in macro call).");
+    assertThat(e).hasCauseThat().isInstanceOf(IllegalStateException.class);
+  }
+
+  @Test
+  public void optimize_macroCallComprehensionKindNotSetMismatch_throwsException() throws Exception {
+    CelAbstractSyntaxTree astWithComprehension = CEL.compile("[1].all(x, x > 0)").getAst();
+    long compId = astWithComprehension.getExpr().id();
+
+    CelOptimizer celOptimizer =
+        CelOptimizerImpl.newBuilder(
+                CEL, CelOptimizerOptions.newBuilder().enableAstValidation(true).build())
+            .addAstOptimizers(
+                (navigableAst, cel) ->
+                    OptimizationResult.create(
+                        CelAbstractSyntaxTree.newParsedAst(
+                            astWithComprehension.getExpr(),
+                            CelSource.newBuilder()
+                                .addMacroCalls(
+                                    compId,
+                                    CelExpr.ofCall(
+                                        0L,
+                                        Optional.empty(),
+                                        "all",
+                                        ImmutableList.of(
+                                            CelExpr.ofIdent(compId, "not_set_expected"))))
+                                .build())))
+            .build();
+
+    CelOptimizationException e =
+        assertThrows(
+            CelOptimizationException.class, () -> celOptimizer.optimize(astWithComprehension));
+
+    assertThat(e)
+        .hasMessageThat()
+        .isEqualTo(
+            String.format(
+                "Optimization failure: Expected macro call node %d to be NOT_SET for comprehension,"
+                    + " but was IDENT.",
+                compId));
+    assertThat(e).hasCauseThat().isInstanceOf(IllegalStateException.class);
+  }
+
+  @Test
+  public void optimize_macroCallComprehensionKindNotSet_success() throws Exception {
+    CelAbstractSyntaxTree astWithComprehension = CEL.compile("[1].all(x, x > 0)").getAst();
+    long compId = astWithComprehension.getExpr().id();
+
+    CelOptimizer celOptimizer =
+        CelOptimizerImpl.newBuilder(CEL)
+            .addAstOptimizers(
+                (navigableAst, cel) ->
+                    OptimizationResult.create(
+                        CelAbstractSyntaxTree.newParsedAst(
+                            astWithComprehension.getExpr(),
+                            CelSource.newBuilder()
+                                .addMacroCalls(
+                                    compId,
+                                    CelExpr.ofCall(
+                                        0L,
+                                        Optional.empty(),
+                                        "all",
+                                        ImmutableList.of(CelExpr.ofNotSet(compId))))
+                                .build())))
+            .build();
+
+    CelAbstractSyntaxTree optimizedAst = celOptimizer.optimize(astWithComprehension);
+
+    assertThat(optimizedAst).isNotNull();
+  }
+
+  @Test
+  public void optimize_validMacroCalls_success() throws Exception {
+    CelAbstractSyntaxTree ast = CEL.compile("[1, 2, 3].all(x, x > 0)").getAst();
+
+    CelOptimizer celOptimizer =
+        CelOptimizerImpl.newBuilder(CEL)
+            .addAstOptimizers((navigableAst, cel) -> OptimizationResult.create(navigableAst))
+            .build();
+
+    CelAbstractSyntaxTree optimizedAst = celOptimizer.optimize(ast);
+
+    assertThat(optimizedAst).isNotNull();
+    assertThat(optimizedAst.getSource().getMacroCalls()).hasSize(1);
   }
 }

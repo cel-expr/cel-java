@@ -25,22 +25,48 @@ import dev.cel.runtime.CelRuntime;
 /** Factory class for constructing an {@link CelOptimizer} instance. */
 public final class CelOptimizerFactory {
 
+  private static final CelOptimizerOptions DEFAULT_OPTIMIZER_OPTIONS =
+      CelOptimizerOptions.newBuilder().build();
+
   /** Create a new builder for constructing a {@link CelOptimizer} instance. */
   public static CelOptimizerBuilder standardCelOptimizerBuilder(Cel cel) {
-    return CelOptimizerImpl.newBuilder(cel);
+    return standardCelOptimizerBuilder(cel, DEFAULT_OPTIMIZER_OPTIONS);
+  }
+
+  /** Create a new builder for constructing a {@link CelOptimizer} instance with custom options. */
+  public static CelOptimizerBuilder standardCelOptimizerBuilder(
+      Cel cel, CelOptimizerOptions optimizerOptions) {
+    return CelOptimizerImpl.newBuilder(cel, optimizerOptions);
   }
 
   /** Create a new builder for constructing a {@link CelOptimizer} instance. */
   public static CelOptimizerBuilder standardCelOptimizerBuilder(
       CelCompiler celCompiler, CelRuntime celRuntime) {
-    return standardCelOptimizerBuilder(CelFactory.combine(celCompiler, celRuntime));
+    return standardCelOptimizerBuilder(celCompiler, celRuntime, DEFAULT_OPTIMIZER_OPTIONS);
+  }
+
+  /** Create a new builder for constructing a {@link CelOptimizer} instance with custom options. */
+  public static CelOptimizerBuilder standardCelOptimizerBuilder(
+      CelCompiler celCompiler, CelRuntime celRuntime, CelOptimizerOptions optimizerOptions) {
+    return standardCelOptimizerBuilder(
+        CelFactory.combine(celCompiler, celRuntime), optimizerOptions);
   }
 
   /** Create a new builder for constructing a {@link CelOptimizer} instance. */
   public static CelOptimizerBuilder standardCelOptimizerBuilder(
       CelParser celParser, CelChecker celChecker, CelRuntime celRuntime) {
     return standardCelOptimizerBuilder(
-        CelCompilerFactory.combine(celParser, celChecker), celRuntime);
+        celParser, celChecker, celRuntime, DEFAULT_OPTIMIZER_OPTIONS);
+  }
+
+  /** Create a new builder for constructing a {@link CelOptimizer} instance with custom options. */
+  public static CelOptimizerBuilder standardCelOptimizerBuilder(
+      CelParser celParser,
+      CelChecker celChecker,
+      CelRuntime celRuntime,
+      CelOptimizerOptions optimizerOptions) {
+    return standardCelOptimizerBuilder(
+        CelCompilerFactory.combine(celParser, celChecker), celRuntime, optimizerOptions);
   }
 
   private CelOptimizerFactory() {}

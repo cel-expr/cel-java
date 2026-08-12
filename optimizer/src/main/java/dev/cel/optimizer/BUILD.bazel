@@ -32,12 +32,14 @@ java_library(
     srcs = [
         "CelOptimizer.java",
         "CelOptimizerBuilder.java",
+        "CelOptimizerOptions.java",
     ],
     tags = [
     ],
     deps = [
         ":ast_optimizer",
         ":optimization_exception",
+        "//:auto_value",
         "//common:cel_ast",
         "@maven//:com_google_errorprone_error_prone_annotations",
     ],
@@ -57,6 +59,8 @@ java_library(
         "//bundle:cel",
         "//common:cel_ast",
         "//common:compiler_common",
+        "//common/ast",
+        "//common/navigation",
         "@maven//:com_google_guava_guava",
     ],
 )

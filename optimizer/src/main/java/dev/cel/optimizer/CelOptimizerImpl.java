@@ -20,16 +20,25 @@ import com.google.common.collect.ImmutableSet;
 import dev.cel.bundle.Cel;
 import dev.cel.common.CelAbstractSyntaxTree;
 import dev.cel.common.CelValidationException;
+import dev.cel.common.ast.CelExpr;
+import dev.cel.common.ast.CelExpr.ExprKind.Kind;
+import dev.cel.common.navigation.CelNavigableAst;
+import dev.cel.common.navigation.CelNavigableExpr;
 import dev.cel.optimizer.CelAstOptimizer.OptimizationResult;
 import java.util.Arrays;
+import java.util.HashMap;
+import java.util.Map;
 
 final class CelOptimizerImpl implements CelOptimizer {
   private final Cel cel;
   private final ImmutableSet<CelAstOptimizer> astOptimizers;
+  private final CelOptimizerOptions optimizerOptions;
 
-  CelOptimizerImpl(Cel cel, ImmutableSet<CelAstOptimizer> astOptimizers) {
+  CelOptimizerImpl(
+      Cel cel, ImmutableSet<CelAstOptimizer> astOptimizers, CelOptimizerOptions optimizerOptions) {
     this.cel = cel;
     this.astOptimizers = astOptimizers;
+    this.optimizerOptions = optimizerOptions;
   }
 
   @Override
@@ -52,6 +61,9 @@ final class CelOptimizerImpl implements CelOptimizer {
                   .build();
         }
         optimizedAst = celOptimizerEnv.check(result.optimizedAst()).getAst();
+        if (optimizerOptions.enableAstValidation()) {
+          assertAstIdCorrectness(optimizedAst);
+        }
       }
     } catch (CelValidationException e) {
       throw new CelOptimizationException(
@@ -63,18 +75,78 @@ final class CelOptimizerImpl implements CelOptimizer {
     return optimizedAst;
   }
 
+  private static void assertAstIdCorrectness(CelAbstractSyntaxTree ast) {
+    Map<Long, CelExpr> allExprs = new HashMap<>();
+    CelNavigableAst.fromAst(ast)
+        .getRoot()
+        .allNodes()
+        .forEach(
+            navExpr -> {
+              CelExpr expr = navExpr.expr();
+              CelExpr existing = allExprs.put(expr.id(), expr);
+              if (existing != null) {
+                throw new IllegalStateException(
+                    String.format("Duplicate expr ID %d detected in the AST.", expr.id()));
+              }
+            });
+
+    for (CelExpr macroCall : ast.getSource().getMacroCalls().values()) {
+      if (macroCall.id() != 0) {
+        throw new IllegalStateException(
+            String.format("Expected macro call root ID to be 0, but was %d.", macroCall.id()));
+      }
+      CelNavigableExpr.fromExpr(macroCall)
+          .descendants()
+          .forEach(
+              navExpr -> {
+                CelExpr macroExpr = navExpr.expr();
+                CelExpr astExpr = allExprs.get(macroExpr.id());
+                // A node may not exist in the AST if it is a synthetic macro node or was eliminated
+                // during optimization passes.
+                if (astExpr == null) {
+                  return;
+                }
+
+                if (astExpr.exprKind().getKind().equals(Kind.COMPREHENSION)) {
+                  if (!macroExpr.exprKind().getKind().equals(Kind.NOT_SET)) {
+                    throw new IllegalStateException(
+                        String.format(
+                            "Expected macro call node %d to be NOT_SET for comprehension, but"
+                                + " was %s.",
+                            macroExpr.id(), macroExpr.exprKind().getKind()));
+                  }
+                } else if (!macroExpr.exprKind().getKind().equals(astExpr.exprKind().getKind())) {
+                  throw new IllegalStateException(
+                      String.format(
+                          "Macro call node %d kind mismatch: expected %s (from AST), but was %s"
+                              + " (in macro call).",
+                          macroExpr.id(),
+                          astExpr.exprKind().getKind(),
+                          macroExpr.exprKind().getKind()));
+                }
+              });
+    }
+  }
+
   /** Create a new builder for constructing a {@link CelOptimizer} instance. */
   static CelOptimizerImpl.Builder newBuilder(Cel cel) {
-    return new CelOptimizerImpl.Builder(cel);
+    return newBuilder(cel, CelOptimizerOptions.newBuilder().build());
+  }
+
+  /** Create a new builder for constructing a {@link CelOptimizer} instance with custom options. */
+  static CelOptimizerImpl.Builder newBuilder(Cel cel, CelOptimizerOptions optimizerOptions) {
+    return new CelOptimizerImpl.Builder(cel, optimizerOptions);
   }
 
   /** Builder class for {@link CelOptimizerImpl}. */
   static final class Builder implements CelOptimizerBuilder {
     private final Cel cel;
+    private final CelOptimizerOptions optimizerOptions;
     private final ImmutableSet.Builder<CelAstOptimizer> astOptimizers;
 
-    private Builder(Cel cel) {
+    private Builder(Cel cel, CelOptimizerOptions optimizerOptions) {
       this.cel = cel;
+      this.optimizerOptions = checkNotNull(optimizerOptions);
       this.astOptimizers = ImmutableSet.builder();
     }
 
@@ -93,7 +165,7 @@ final class CelOptimizerImpl implements CelOptimizer {
 
     @Override
     public CelOptimizer build() {
-      return new CelOptimizerImpl(cel, astOptimizers.build());
+      return new CelOptimizerImpl(cel, astOptimizers.build(), optimizerOptions);
     }
   }
 }
