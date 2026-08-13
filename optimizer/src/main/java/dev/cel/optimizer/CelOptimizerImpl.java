@@ -32,13 +32,10 @@ import java.util.Map;
 final class CelOptimizerImpl implements CelOptimizer {
   private final Cel cel;
   private final ImmutableSet<CelAstOptimizer> astOptimizers;
-  private final CelOptimizerOptions optimizerOptions;
 
-  CelOptimizerImpl(
-      Cel cel, ImmutableSet<CelAstOptimizer> astOptimizers, CelOptimizerOptions optimizerOptions) {
+  CelOptimizerImpl(Cel cel, ImmutableSet<CelAstOptimizer> astOptimizers) {
     this.cel = cel;
     this.astOptimizers = astOptimizers;
-    this.optimizerOptions = optimizerOptions;
   }
 
   @Override
@@ -61,9 +58,7 @@ final class CelOptimizerImpl implements CelOptimizer {
                   .build();
         }
         optimizedAst = celOptimizerEnv.check(result.optimizedAst()).getAst();
-        if (optimizerOptions.enableAstValidation()) {
-          assertAstIdCorrectness(optimizedAst);
-        }
+        assertAstIdCorrectness(optimizedAst);
       }
     } catch (CelValidationException e) {
       throw new CelOptimizationException(
@@ -130,23 +125,16 @@ final class CelOptimizerImpl implements CelOptimizer {
 
   /** Create a new builder for constructing a {@link CelOptimizer} instance. */
   static CelOptimizerImpl.Builder newBuilder(Cel cel) {
-    return newBuilder(cel, CelOptimizerOptions.newBuilder().build());
-  }
-
-  /** Create a new builder for constructing a {@link CelOptimizer} instance with custom options. */
-  static CelOptimizerImpl.Builder newBuilder(Cel cel, CelOptimizerOptions optimizerOptions) {
-    return new CelOptimizerImpl.Builder(cel, optimizerOptions);
+    return new CelOptimizerImpl.Builder(cel);
   }
 
   /** Builder class for {@link CelOptimizerImpl}. */
   static final class Builder implements CelOptimizerBuilder {
     private final Cel cel;
-    private final CelOptimizerOptions optimizerOptions;
     private final ImmutableSet.Builder<CelAstOptimizer> astOptimizers;
 
-    private Builder(Cel cel, CelOptimizerOptions optimizerOptions) {
+    private Builder(Cel cel) {
       this.cel = cel;
-      this.optimizerOptions = checkNotNull(optimizerOptions);
       this.astOptimizers = ImmutableSet.builder();
     }
 
@@ -165,7 +153,7 @@ final class CelOptimizerImpl implements CelOptimizer {
 
     @Override
     public CelOptimizer build() {
-      return new CelOptimizerImpl(cel, astOptimizers.build(), optimizerOptions);
+      return new CelOptimizerImpl(cel, astOptimizers.build());
     }
   }
 }

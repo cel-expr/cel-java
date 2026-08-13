@@ -32,14 +32,12 @@ java_library(
     srcs = [
         "CelOptimizer.java",
         "CelOptimizerBuilder.java",
-        "CelOptimizerOptions.java",
     ],
     tags = [
     ],
     deps = [
         ":ast_optimizer",
         ":optimization_exception",
-        "//:auto_value",
         "//common:cel_ast",
         "@maven//:com_google_errorprone_error_prone_annotations",
     ],

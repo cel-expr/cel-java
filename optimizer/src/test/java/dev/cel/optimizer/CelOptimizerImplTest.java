@@ -144,8 +144,7 @@ public class CelOptimizerImplTest {
   @Test
   public void optimize_duplicateExprId_throwsException() {
     CelOptimizer celOptimizer =
-        CelOptimizerImpl.newBuilder(
-                CEL, CelOptimizerOptions.newBuilder().enableAstValidation(true).build())
+        CelOptimizerImpl.newBuilder(CEL)
             .addAstOptimizers(
                 (navigableAst, cel) ->
                     OptimizationResult.create(
@@ -174,8 +173,7 @@ public class CelOptimizerImplTest {
   @Test
   public void optimize_macroCallRootIdNonZero_throwsException() {
     CelOptimizer celOptimizer =
-        CelOptimizerImpl.newBuilder(
-                CEL, CelOptimizerOptions.newBuilder().enableAstValidation(true).build())
+        CelOptimizerImpl.newBuilder(CEL)
             .addAstOptimizers(
                 (navigableAst, cel) ->
                     OptimizationResult.create(
@@ -206,8 +204,7 @@ public class CelOptimizerImplTest {
   @Test
   public void optimize_macroCallKindMismatch_throwsException() {
     CelOptimizer celOptimizer =
-        CelOptimizerImpl.newBuilder(
-                CEL, CelOptimizerOptions.newBuilder().enableAstValidation(true).build())
+        CelOptimizerImpl.newBuilder(CEL)
             .addAstOptimizers(
                 (navigableAst, cel) ->
                     OptimizationResult.create(
@@ -242,8 +239,7 @@ public class CelOptimizerImplTest {
     long compId = astWithComprehension.getExpr().id();
 
     CelOptimizer celOptimizer =
-        CelOptimizerImpl.newBuilder(
-                CEL, CelOptimizerOptions.newBuilder().enableAstValidation(true).build())
+        CelOptimizerImpl.newBuilder(CEL)
             .addAstOptimizers(
                 (navigableAst, cel) ->
                     OptimizationResult.create(
