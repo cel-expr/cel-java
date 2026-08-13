@@ -25,7 +25,8 @@ final class EvalAttribute extends InterpretableAttribute {
 
   @Override
   Object evalInternal(GlobalResolver resolver, ExecutionFrame frame) {
-    Object resolved = attr.resolve(expr().id(), resolver, frame);
+    AttributeResolution resolution = resolveWithAttribute(resolver, frame);
+    Object resolved = resolution.value();
     if (resolved instanceof MissingAttribute) {
       ((MissingAttribute) resolved).resolve(expr().id(), resolver, frame);
     }
@@ -34,7 +35,12 @@ final class EvalAttribute extends InterpretableAttribute {
   }
 
   @Override
-  public EvalAttribute addQualifier(CelExpr expr, Qualifier qualifier) {
+  AttributeResolution resolveWithAttribute(GlobalResolver resolver, ExecutionFrame frame) {
+    return attr.resolve(expr().id(), resolver, frame);
+  }
+
+  @Override
+  EvalAttribute addQualifier(CelExpr expr, Qualifier qualifier) {
     Attribute newAttribute = attr.addQualifier(qualifier);
     return create(expr, newAttribute);
   }

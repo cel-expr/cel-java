@@ -14,9 +14,12 @@
 
 package dev.cel.runtime.planner;
 
+import static dev.cel.runtime.planner.EvalHelpers.enforceStrictnessAndAdaptUnknowns;
+
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Iterables;
 import com.google.errorprone.annotations.Immutable;
 import dev.cel.common.types.CelType;
 import dev.cel.common.types.CelTypeProvider;
@@ -27,8 +30,9 @@ import dev.cel.common.values.CelValueConverter;
 import dev.cel.runtime.AccumulatedUnknowns;
 import dev.cel.runtime.CelAttribute;
 import dev.cel.runtime.CelAttributePattern;
+import dev.cel.runtime.CelAttributeResolver;
+import dev.cel.runtime.CelUnknownSet;
 import dev.cel.runtime.GlobalResolver;
-import dev.cel.runtime.InterpreterUtil;
 import dev.cel.runtime.PartialVars;
 import java.util.Map;
 import java.util.NoSuchElementException;
@@ -52,7 +56,7 @@ final class NamespacedAttribute implements Attribute {
   }
 
   @Override
-  public Object resolve(long exprId, GlobalResolver ctx, ExecutionFrame frame) {
+  public AttributeResolution resolve(long exprId, GlobalResolver ctx, ExecutionFrame frame) {
     GlobalResolver inputVars = ctx;
     // Unwrap any local activations to ensure that we reach the variables provided as input
     // to the expression in the event that we need to disambiguate between global and local
@@ -63,44 +67,115 @@ final class NamespacedAttribute implements Attribute {
 
     for (Map.Entry<String, CelAttribute> entry : candidateAttributes.entrySet()) {
       String name = entry.getKey();
-      CelAttribute attr = entry.getValue();
+      CelAttribute candidateAttr = entry.getValue();
+      GlobalResolver resolver = disambiguateNames ? inputVars : ctx;
 
-      GlobalResolver resolver = ctx;
-      if (disambiguateNames) {
-        resolver = inputVars;
-      }
+      Object value;
+      CelAttribute fullyQualifiedAttr = null;
+      if (!isLocallyBound(resolver, name)) {
+        if (frame.hasUnknownResolvers()) {
+          fullyQualifiedAttr = qualify(candidateAttr, qualifiers);
 
-      Object value = resolver.resolve(name);
-      value = InterpreterUtil.maybeAdaptToAccumulatedUnknowns(value);
-
-      PartialVars partialVars = frame.partialVars().orElse(null);
-
-      if (partialVars != null && !isLocallyBound(resolver, name)) {
-        ImmutableList<CelAttributePattern> patterns = partialVars.unknowns();
-        // Avoid enhanced for loop to prevent UnmodifiableIterator from being allocated
-        for (int i = 0; i < qualifiers.size(); i++) {
-          attr = attr.qualify(CelAttribute.Qualifier.fromGeneric(qualifiers.get(i).value()));
+          // Check if the fully-qualified attribute is resolved or unknown
+          Object fullyQualifiedResult =
+              maybeResolveFullyQualified(exprId, fullyQualifiedAttr, frame);
+          if (fullyQualifiedResult != null) {
+            return AttributeResolution.of(fullyQualifiedResult, fullyQualifiedAttr);
+          }
         }
 
-        CelAttributePattern partialMatch = findPartialMatchingPattern(attr, patterns).orElse(null);
-        if (partialMatch != null) {
-          return AccumulatedUnknowns.create(
-              ImmutableList.of(exprId), ImmutableList.of(partialMatch.simplify(attr)));
-        }
+        // Resolve the base attribute (via iterative resolver or standard variable resolver)
+        value = maybeResolveBaseAttribute(candidateAttr, resolver, name, frame);
+      } else {
+        // Locally bound variable (e.g. comprehension variable)
+        Object rawValue = resolver.resolve(name);
+        value = rawValue != null ? enforceStrictnessAndAdaptUnknowns(rawValue) : null;
       }
 
       if (value != null) {
-        return applyQualifiers(value, celValueConverter, qualifiers);
+        Object resolvedValue;
+        if (value instanceof AccumulatedUnknowns && fullyQualifiedAttr != null) {
+          resolvedValue =
+              AccumulatedUnknowns.create(
+                  ((AccumulatedUnknowns) value).exprIds(), ImmutableList.of(fullyQualifiedAttr));
+        } else {
+          resolvedValue = applyQualifiers(value, celValueConverter, qualifiers);
+        }
+        return AttributeResolution.of(resolvedValue, fullyQualifiedAttr);
       }
 
-      // Attempt to resolve the qualify type name if the name is not a variable identifier
+      // Fallback: Attempt to resolve as a qualified type name or enum value
       value = findIdent(name);
       if (value != null) {
-        return value;
+        return AttributeResolution.ofValue(value);
       }
     }
 
-    return MissingAttribute.newMissingAttribute(candidateAttributes.keySet());
+    CelAttribute fallbackAttr =
+        frame.hasUnknownResolvers() && !candidateAttributes.isEmpty()
+            ? qualify(Iterables.getLast(candidateAttributes.values()), qualifiers)
+            : null;
+    return AttributeResolution.of(
+        MissingAttribute.newMissingAttribute(candidateAttributes.keySet()), fallbackAttr);
+  }
+
+  private static CelAttribute qualify(CelAttribute baseAttr, ImmutableList<Qualifier> qualifiers) {
+    CelAttribute attr = baseAttr;
+    // Avoid enhanced for loop to prevent UnmodifiableIterator from being allocated
+    for (int i = 0; i < qualifiers.size(); i++) {
+      attr = attr.qualify(CelAttribute.Qualifier.fromGeneric(qualifiers.get(i).value()));
+    }
+    return attr;
+  }
+
+  private static @Nullable Object maybeResolveFullyQualified(
+      long exprId, CelAttribute fullyQualifiedAttr, ExecutionFrame frame) {
+    // Check iterative eval AttributeResolver
+    CelAttributeResolver attributeResolver = frame.getAttributeResolver();
+    if (attributeResolver != null) {
+      Optional<Object> resolved = attributeResolver.resolve(fullyQualifiedAttr);
+      if (resolved.isPresent()) {
+        return enforceStrictnessAndAdaptUnknowns(resolved.get());
+      }
+    }
+
+    // Check batch PartialVars unknown patterns
+    PartialVars partialVars = frame.getPartialVars();
+    if (partialVars != null) {
+      ImmutableList<CelAttributePattern> patterns = partialVars.unknowns();
+      CelAttributePattern match = findMatchingPattern(fullyQualifiedAttr, patterns).orElse(null);
+      if (match != null) {
+        return AccumulatedUnknowns.create(
+            ImmutableList.of(exprId), ImmutableList.of(match.simplify(fullyQualifiedAttr)));
+      }
+    }
+
+    return null;
+  }
+
+  private static @Nullable Object maybeResolveBaseAttribute(
+      CelAttribute candidateAttr, GlobalResolver resolver, String name, ExecutionFrame frame) {
+    // Standard variable resolution
+    Object rawValue = resolver.resolve(name);
+    if (rawValue != null) {
+      return enforceStrictnessAndAdaptUnknowns(rawValue);
+    }
+
+    // Check iterative eval AttributeResolver
+    CelAttributeResolver attributeResolver = frame.getAttributeResolver();
+    if (attributeResolver != null) {
+      Optional<Object> baseResolved = attributeResolver.resolve(candidateAttr);
+      if (baseResolved.isPresent()) {
+        return enforceStrictnessAndAdaptUnknowns(baseResolved.get());
+      }
+
+      Optional<CelUnknownSet> partialUnknown = attributeResolver.maybePartialUnknown(candidateAttr);
+      if (partialUnknown.isPresent()) {
+        return AccumulatedUnknowns.create(ImmutableList.of(), partialUnknown.get().attributes());
+      }
+    }
+
+    return null;
   }
 
   private @Nullable Object findIdent(String name) {
@@ -199,10 +274,10 @@ final class NamespacedAttribute implements Attribute {
     return celValueConverter.maybeUnwrap(obj);
   }
 
-  private static Optional<CelAttributePattern> findPartialMatchingPattern(
+  private static Optional<CelAttributePattern> findMatchingPattern(
       CelAttribute attr, ImmutableList<CelAttributePattern> patterns) {
     for (CelAttributePattern pattern : patterns) {
-      if (pattern.isPartialMatch(attr)) {
+      if (pattern.isMatch(attr)) {
         return Optional.of(pattern);
       }
     }

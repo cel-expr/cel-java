@@ -17,6 +17,7 @@ package dev.cel.runtime.planner;
 import static dev.cel.runtime.planner.EvalHelpers.evalNonstrictly;
 import static dev.cel.runtime.planner.EvalHelpers.evalStrictly;
 
+import com.google.errorprone.annotations.Immutable;
 import dev.cel.common.ast.CelExpr;
 import dev.cel.common.values.CelValueConverter;
 import dev.cel.runtime.AccumulatedUnknowns;
@@ -24,6 +25,7 @@ import dev.cel.runtime.CelEvaluationException;
 import dev.cel.runtime.CelResolvedOverload;
 import dev.cel.runtime.GlobalResolver;
 
+@Immutable
 final class EvalBinary extends PlannedInterpretable {
 
   private final String functionName;

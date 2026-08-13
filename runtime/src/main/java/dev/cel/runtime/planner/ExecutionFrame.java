@@ -16,6 +16,7 @@ package dev.cel.runtime.planner;
 
 import dev.cel.common.CelOptions;
 import dev.cel.common.exceptions.CelIterationLimitExceededException;
+import dev.cel.runtime.CelAttributeResolver;
 import dev.cel.runtime.CelEvaluationException;
 import dev.cel.runtime.CelEvaluationListener;
 import dev.cel.runtime.CelFunctionResolver;
@@ -31,6 +32,7 @@ final class ExecutionFrame {
   private final int comprehensionIterationLimit;
   private final CelFunctionResolver functionResolver;
   private final PartialVars partialVars;
+  private final @Nullable CelAttributeResolver attributeResolver;
   private final @Nullable CelEvaluationListener listener;
   private int iterationCount;
   private BlockMemoizer blockMemoizer;
@@ -68,13 +70,35 @@ final class ExecutionFrame {
       CelFunctionResolver functionResolver,
       CelOptions celOptions,
       @Nullable PartialVars partialVars,
+      @Nullable CelAttributeResolver attributeResolver,
       @Nullable CelEvaluationListener listener) {
     return new ExecutionFrame(
-        functionResolver, celOptions.comprehensionMaxIterations(), partialVars, listener);
+        functionResolver,
+        celOptions.comprehensionMaxIterations(),
+        partialVars,
+        attributeResolver,
+        listener);
   }
 
-  Optional<PartialVars> partialVars() {
-    return Optional.ofNullable(partialVars);
+  static ExecutionFrame create(
+      CelFunctionResolver functionResolver,
+      CelOptions celOptions,
+      @Nullable PartialVars partialVars,
+      @Nullable CelEvaluationListener listener) {
+    return create(
+        functionResolver, celOptions, partialVars, /* attributeResolver= */ null, listener);
+  }
+
+  boolean hasUnknownResolvers() {
+    return attributeResolver != null || partialVars != null;
+  }
+
+  @Nullable PartialVars getPartialVars() {
+    return partialVars;
+  }
+
+  @Nullable CelAttributeResolver getAttributeResolver() {
+    return attributeResolver;
   }
 
   @Nullable CelEvaluationListener getListener() {
@@ -85,10 +109,12 @@ final class ExecutionFrame {
       CelFunctionResolver functionResolver,
       int limit,
       @Nullable PartialVars partialVars,
+      @Nullable CelAttributeResolver attributeResolver,
       @Nullable CelEvaluationListener listener) {
     this.comprehensionIterationLimit = limit;
     this.functionResolver = functionResolver;
     this.partialVars = partialVars;
+    this.attributeResolver = attributeResolver;
     this.listener = listener;
   }
 }

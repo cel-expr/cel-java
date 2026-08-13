@@ -30,7 +30,12 @@ final class EvalTestOnly extends InterpretableAttribute {
   }
 
   @Override
-  public EvalTestOnly addQualifier(CelExpr expr, Qualifier qualifier) {
+  AttributeResolution resolveWithAttribute(GlobalResolver resolver, ExecutionFrame frame) {
+    return attr.resolveWithAttribute(resolver, frame);
+  }
+
+  @Override
+  EvalTestOnly addQualifier(CelExpr expr, Qualifier qualifier) {
     PresenceTestQualifier presenceTestQualifier = PresenceTestQualifier.create(qualifier.value());
     return new EvalTestOnly(expr(), attr.addQualifier(expr, presenceTestQualifier));
   }

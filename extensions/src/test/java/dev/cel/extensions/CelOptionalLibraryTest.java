@@ -50,6 +50,7 @@ import dev.cel.expr.conformance.proto3.TestAllTypes;
 import dev.cel.expr.conformance.proto3.TestAllTypes.NestedMessage;
 import dev.cel.parser.CelMacro;
 import dev.cel.parser.CelStandardMacro;
+import dev.cel.runtime.CelAttribute;
 import dev.cel.runtime.CelAttributePattern;
 import dev.cel.runtime.CelEvaluationException;
 import dev.cel.runtime.CelFunctionBinding;
@@ -280,7 +281,7 @@ public class CelOptionalLibraryTest {
     Object result = cel.createProgram(ast).eval();
 
     assertThat(result).isInstanceOf(Optional.class);
-    assertThat(result).isEqualTo(Optional.empty());
+    assertThat((Optional<?>) result).isEmpty();
   }
 
   @Test
@@ -306,7 +307,7 @@ public class CelOptionalLibraryTest {
     Object result = cel.createProgram(ast).eval();
 
     assertThat(result).isInstanceOf(Optional.class);
-    assertThat(result).isEqualTo(Optional.empty());
+    assertThat((Optional<?>) result).isEmpty();
   }
 
   @Test
@@ -317,7 +318,7 @@ public class CelOptionalLibraryTest {
     Object result = cel.createProgram(ast).eval();
 
     assertThat(result).isInstanceOf(Optional.class);
-    assertThat(result).isEqualTo(Optional.empty());
+    assertThat((Optional<?>) result).isEmpty();
   }
 
   @Test
@@ -328,7 +329,7 @@ public class CelOptionalLibraryTest {
     Object result = cel.createProgram(ast).eval();
 
     assertThat(result).isInstanceOf(Optional.class);
-    assertThat(result).isEqualTo(Optional.empty());
+    assertThat((Optional<?>) result).isEmpty();
   }
 
   @Test
@@ -592,7 +593,7 @@ public class CelOptionalLibraryTest {
 
     Object result = cel.createProgram(ast).eval();
 
-    assertThat(result).isEqualTo(Optional.empty());
+    assertThat((Optional<?>) result).isEmpty();
   }
 
   @Test
@@ -882,7 +883,7 @@ public class CelOptionalLibraryTest {
         cel.createProgram(ast)
             .eval(ImmutableMap.of("optm", Optional.of(ImmutableMap.of("c", ImmutableMap.of()))));
 
-    assertThat(result).isEqualTo(Optional.empty());
+    assertThat((Optional<?>) result).isEmpty();
   }
 
   @Test
@@ -900,7 +901,7 @@ public class CelOptionalLibraryTest {
     Object result =
         cel.createProgram(ast).eval(ImmutableMap.of("m", ImmutableMap.of("c", ImmutableMap.of())));
 
-    assertThat(result).isEqualTo(Optional.empty());
+    assertThat((Optional<?>) result).isEmpty();
   }
 
   @Test
@@ -982,7 +983,197 @@ public class CelOptionalLibraryTest {
 
     Object result = cel.createProgram(ast).eval(ImmutableMap.of("l", ImmutableList.of("hello")));
 
-    assertThat(result).isEqualTo(Optional.of("hello"));
+    assertThat((Optional<?>) result).hasValue("hello");
+  }
+
+  @Test
+  public void optionalIndex_onList_negativeIndex_returnsOptionalEmpty() throws Exception {
+    Cel cel =
+        newCelBuilder()
+            .addVar("l", ListType.create(SimpleType.STRING))
+            .setResultType(OptionalType.create(SimpleType.STRING))
+            .build();
+    CelAbstractSyntaxTree ast = compile(cel, "l[?-1]");
+
+    Object result = cel.createProgram(ast).eval(ImmutableMap.of("l", ImmutableList.of("hello")));
+
+    assertThat((Optional<?>) result).isEmpty();
+  }
+
+  @Test
+  public void optionalIndex_onList_outOfBoundsIndex_returnsOptionalEmpty() throws Exception {
+    Cel cel =
+        newCelBuilder()
+            .addVar("l", ListType.create(SimpleType.STRING))
+            .setResultType(OptionalType.create(SimpleType.STRING))
+            .build();
+    CelAbstractSyntaxTree ast = compile(cel, "l[?5]");
+
+    Object result = cel.createProgram(ast).eval(ImmutableMap.of("l", ImmutableList.of("hello")));
+
+    assertThat((Optional<?>) result).isEmpty();
+  }
+
+  @Test
+  public void optionalIndex_targetIsUnknown_returnsUnknown() throws Exception {
+    Cel cel =
+        newCelBuilder()
+            .addVar("l", ListType.create(SimpleType.STRING))
+            .setResultType(OptionalType.create(SimpleType.STRING))
+            .build();
+    CelAbstractSyntaxTree ast = compile(cel, "l[?0]");
+
+    Object result =
+        cel.createProgram(ast)
+            .eval(PartialVars.of(CelAttributePattern.fromQualifiedIdentifier("l")));
+
+    assertThat(result).isInstanceOf(CelUnknownSet.class);
+  }
+
+  @Test
+  public void optionalIndex_indexIsUnknown_returnsUnknown() throws Exception {
+    Cel cel =
+        newCelBuilder()
+            .addVar("l", ListType.create(SimpleType.STRING))
+            .addVar("i", SimpleType.INT)
+            .setResultType(OptionalType.create(SimpleType.STRING))
+            .build();
+    CelAbstractSyntaxTree ast = compile(cel, "l[?i]");
+
+    Object result =
+        cel.createProgram(ast)
+            .eval(
+                PartialVars.of(
+                    ImmutableMap.of("l", ImmutableList.of("hello")),
+                    CelAttributePattern.fromQualifiedIdentifier("i")));
+
+    assertThat(result).isInstanceOf(CelUnknownSet.class);
+  }
+
+  @Test
+  public void optionalIndex_partialUnknownOnList_returnsUnknown() throws Exception {
+    if (testMode.equals(TestMode.LEGACY_CHECKED)) {
+      // Legacy runtime executes optional indexing through standard function bindings without attribute
+      // trail tracking, so it cannot intercept partial sub-attribute unknowns on known containers.
+      return;
+    }
+
+    Cel cel =
+        newCelBuilder()
+            .addVar("l", ListType.create(SimpleType.STRING))
+            .setResultType(OptionalType.create(SimpleType.STRING))
+            .build();
+    CelAbstractSyntaxTree ast = compile(cel, "l[?1]");
+    PartialVars partialVars =
+        PartialVars.of(
+            ImmutableMap.of("l", ImmutableList.of("hello", "world")),
+            CelAttributePattern.fromQualifiedIdentifier("l")
+                .qualify(CelAttribute.Qualifier.ofInt(1)));
+
+    Object result = cel.createProgram(ast).eval(partialVars);
+
+    assertThat(result).isInstanceOf(CelUnknownSet.class);
+  }
+
+  @Test
+  public void optionalIndex_partialUnknownOnList_unrelatedIndexEvaluatesNormally()
+      throws Exception {
+    if (testMode.equals(TestMode.LEGACY_CHECKED)) {
+      // Legacy runtime executes optional indexing through standard function bindings without attribute
+      // trail tracking, so it cannot intercept partial sub-attribute unknowns on known containers.
+      return;
+    }
+
+    Cel cel =
+        newCelBuilder()
+            .addVar("l", ListType.create(SimpleType.STRING))
+            .setResultType(OptionalType.create(SimpleType.STRING))
+            .build();
+    CelAbstractSyntaxTree ast = compile(cel, "l[?0]");
+    PartialVars partialVars =
+        PartialVars.of(
+            ImmutableMap.of("l", ImmutableList.of("hello", "world")),
+            CelAttributePattern.fromQualifiedIdentifier("l")
+                .qualify(CelAttribute.Qualifier.ofInt(1)));
+
+    Object result = cel.createProgram(ast).eval(partialVars);
+
+    assertThat((Optional<?>) result).hasValue("hello");
+  }
+
+  @Test
+  public void optionalIndex_partialUnknownOnMap_returnsUnknown() throws Exception {
+    if (testMode.equals(TestMode.LEGACY_CHECKED)) {
+      // Legacy runtime executes optional indexing through standard function bindings without attribute
+      // trail tracking, so it cannot intercept partial sub-attribute unknowns on known containers.
+      return;
+    }
+
+    Cel cel =
+        newCelBuilder()
+            .addVar("m", MapType.create(SimpleType.STRING, SimpleType.INT))
+            .setResultType(OptionalType.create(SimpleType.INT))
+            .build();
+    CelAbstractSyntaxTree ast = compile(cel, "m[?'b']");
+    PartialVars partialVars =
+        PartialVars.of(
+            ImmutableMap.of("m", ImmutableMap.of("a", 1, "b", 2)),
+            CelAttributePattern.fromQualifiedIdentifier("m")
+                .qualify(CelAttribute.Qualifier.ofString("b")));
+
+    Object result = cel.createProgram(ast).eval(partialVars);
+
+    assertThat(result).isInstanceOf(CelUnknownSet.class);
+  }
+
+  @Test
+  public void optionalIndex_partialUnknownOnMap_unrelatedKeyEvaluatesNormally() throws Exception {
+    if (testMode.equals(TestMode.LEGACY_CHECKED)) {
+      // Legacy runtime executes optional indexing through standard function bindings without attribute
+      // trail tracking, so it cannot intercept partial sub-attribute unknowns on known containers.
+      return;
+    }
+
+    Cel cel =
+        newCelBuilder()
+            .addVar("m", MapType.create(SimpleType.STRING, SimpleType.INT))
+            .setResultType(OptionalType.create(SimpleType.INT))
+            .build();
+    CelAbstractSyntaxTree ast = compile(cel, "m[?'a']");
+    PartialVars partialVars =
+        PartialVars.of(
+            ImmutableMap.of("m", ImmutableMap.of("a", 1, "b", 2)),
+            CelAttributePattern.fromQualifiedIdentifier("m")
+                .qualify(CelAttribute.Qualifier.ofString("b")));
+
+    Object result = cel.createProgram(ast).eval(partialVars);
+
+    assertThat((Optional<?>) result).hasValue(1);
+  }
+
+  @Test
+  public void optionalIndex_partialUnknownOnMap_missingKeyEvaluatesToEmpty() throws Exception {
+    if (testMode.equals(TestMode.LEGACY_CHECKED)) {
+      // Legacy runtime executes optional indexing through standard function bindings without attribute
+      // trail tracking, so it cannot intercept partial sub-attribute unknowns on known containers.
+      return;
+    }
+
+    Cel cel =
+        newCelBuilder()
+            .addVar("m", MapType.create(SimpleType.STRING, SimpleType.INT))
+            .setResultType(OptionalType.create(SimpleType.INT))
+            .build();
+    CelAbstractSyntaxTree ast = compile(cel, "m[?'c']");
+    PartialVars partialVars =
+        PartialVars.of(
+            ImmutableMap.of("m", ImmutableMap.of("a", 1, "b", 2)),
+            CelAttributePattern.fromQualifiedIdentifier("m")
+                .qualify(CelAttribute.Qualifier.ofString("b")));
+
+    Object result = cel.createProgram(ast).eval(partialVars);
+
+    assertThat((Optional<?>) result).isEmpty();
   }
 
   @Test
@@ -1013,7 +1204,7 @@ public class CelOptionalLibraryTest {
         cel.createProgram(ast)
             .eval(ImmutableMap.of("optl", Optional.of(ImmutableList.of("hello"))));
 
-    assertThat(result).isEqualTo(Optional.of("hello"));
+    assertThat((Optional<?>) result).hasValue("hello");
   }
 
   @Test
@@ -1043,13 +1234,13 @@ public class CelOptionalLibraryTest {
 
     Object result = cel.createProgram(ast).eval(ImmutableMap.of("optl", Optional.empty()));
 
-    assertThat(result).isEqualTo(Optional.empty());
+    assertThat((Optional<?>) result).isEmpty();
   }
 
   @Test
   public void optionalFieldSelect_fieldMarkedUnknown_returnsUnknownSet() throws Exception {
     if (testMode.equals(TestMode.LEGACY_CHECKED)) {
-      // This case is not possible to setup for legacy runtime
+      // Legacy runtime does not support attribute trail tracking for optional field selection (.?field).
       return;
     }
 
