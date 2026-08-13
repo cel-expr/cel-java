@@ -73,7 +73,7 @@ class CallArgumentChecker {
     unknowns = mergeOptionalUnknowns(unknowns, argUnknowns);
 
     // support for ExprValue unknowns.
-    if (InterpreterUtil.isAccumulatedUnknowns(arg.value())) {
+    if (arg.value() instanceof AccumulatedUnknowns) {
       AccumulatedUnknowns unknownSet = (AccumulatedUnknowns) arg.value();
       exprIds.addAll(unknownSet.exprIds());
     }

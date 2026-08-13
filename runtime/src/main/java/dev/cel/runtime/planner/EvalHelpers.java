@@ -19,9 +19,12 @@ import dev.cel.common.CelErrorCode;
 import dev.cel.common.exceptions.CelRuntimeException;
 import dev.cel.common.values.CelValueConverter;
 import dev.cel.common.values.ErrorValue;
+import dev.cel.runtime.AccumulatedUnknowns;
 import dev.cel.runtime.CelEvaluationException;
 import dev.cel.runtime.CelResolvedOverload;
+import dev.cel.runtime.CelUnknownSet;
 import dev.cel.runtime.GlobalResolver;
+import dev.cel.runtime.InterpreterUtil;
 
 final class EvalHelpers {
 
@@ -63,7 +66,7 @@ final class EvalHelpers {
       throws CelEvaluationException {
     try {
       Object result = overload.invoke(args);
-      return valueConverter.maybeUnwrap(valueConverter.toRuntimeValue(result));
+      return convertAndAdaptResult(valueConverter, result);
     } catch (RuntimeException e) {
       throw handleDispatchException(e, overload, args);
     }
@@ -77,7 +80,7 @@ final class EvalHelpers {
       throws CelEvaluationException {
     try {
       Object result = overload.invoke(arg);
-      return valueConverter.maybeUnwrap(valueConverter.toRuntimeValue(result));
+      return convertAndAdaptResult(valueConverter, result);
     } catch (RuntimeException e) {
       throw handleDispatchException(e, overload, arg);
     }
@@ -92,10 +95,20 @@ final class EvalHelpers {
       throws CelEvaluationException {
     try {
       Object result = overload.invoke(arg1, arg2);
-      return valueConverter.maybeUnwrap(valueConverter.toRuntimeValue(result));
+      return convertAndAdaptResult(valueConverter, result);
     } catch (RuntimeException e) {
       throw handleDispatchException(e, overload, arg1, arg2);
     }
+  }
+
+  /**
+   * Converts the raw invocation result into a CEL runtime value, unwraps it if necessary, and
+   * adapts any public {@link CelUnknownSet} instances into internal {@link AccumulatedUnknowns} for
+   * AST evaluation.
+   */
+  private static Object convertAndAdaptResult(CelValueConverter valueConverter, Object result) {
+    return InterpreterUtil.maybeAdaptToAccumulatedUnknowns(
+        valueConverter.maybeUnwrap(valueConverter.toRuntimeValue(result)));
   }
 
   private static RuntimeException handleDispatchException(

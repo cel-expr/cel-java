@@ -1253,6 +1253,123 @@ public final class ProgramPlannerTest {
     assertThat(result).isTrue();
   }
 
+  @Test
+  public void plan_customFunctionReturningUnknown_fieldSelection() throws Exception {
+    CelCompiler compiler =
+        CelCompilerFactory.standardCelCompilerBuilder()
+            .addMessageTypes(TestAllTypes.getDescriptor())
+            .addFunctionDeclarations(
+                newFunctionDeclaration(
+                    "getMsg",
+                    newGlobalOverload(
+                        "getMsg_overload",
+                        StructTypeReference.create(TestAllTypes.getDescriptor().getFullName()))))
+            .build();
+    CelAbstractSyntaxTree ast = compile(compiler, "getMsg().single_int32");
+
+    DefaultDispatcher.Builder dispatcherBuilder = DefaultDispatcher.newBuilder();
+    addBindingsToDispatcher(
+        dispatcherBuilder,
+        CelFunctionBinding.fromOverloads(
+            "getMsg",
+            CelFunctionBinding.from(
+                "getMsg_overload",
+                ImmutableList.of(),
+                (unused) -> CelUnknownSet.create(CelAttribute.create("custom_msg")))));
+    ProgramPlanner planner =
+        ProgramPlanner.newPlanner(
+            TYPE_PROVIDER,
+            VALUE_PROVIDER,
+            dispatcherBuilder.build(),
+            CEL_VALUE_CONVERTER,
+            CEL_CONTAINER,
+            CEL_OPTIONS,
+            ImmutableSet.of());
+
+    Program program = planner.plan(ast);
+
+    Object result = program.eval();
+    assertThat(((CelUnknownSet) result).attributes())
+        .containsExactly(CelAttribute.create("custom_msg"));
+  }
+
+  @Test
+  public void plan_customFunctionReturningUnknown_binaryOperation() throws Exception {
+    CelCompiler compiler =
+        CelCompilerFactory.standardCelCompilerBuilder()
+            .addFunctionDeclarations(
+                newFunctionDeclaration(
+                    "getUnknownInt", newGlobalOverload("getUnknownInt_overload", SimpleType.INT)))
+            .build();
+    CelAbstractSyntaxTree ast = compile(compiler, "getUnknownInt() == 100");
+
+    DefaultDispatcher.Builder dispatcherBuilder = DefaultDispatcher.newBuilder();
+    CelStandardFunctions stdFunctions =
+        CelStandardFunctions.newBuilder().includeFunctions(StandardFunction.EQUALS).build();
+    addBindingsToDispatcher(
+        dispatcherBuilder, stdFunctions.newFunctionBindings(RUNTIME_EQUALITY, CEL_OPTIONS));
+    addBindingsToDispatcher(
+        dispatcherBuilder,
+        CelFunctionBinding.fromOverloads(
+            "getUnknownInt",
+            CelFunctionBinding.from(
+                "getUnknownInt_overload",
+                ImmutableList.of(),
+                (unused) -> CelUnknownSet.create(CelAttribute.create("custom_int")))));
+    ProgramPlanner planner =
+        ProgramPlanner.newPlanner(
+            TYPE_PROVIDER,
+            VALUE_PROVIDER,
+            dispatcherBuilder.build(),
+            CEL_VALUE_CONVERTER,
+            CEL_CONTAINER,
+            CEL_OPTIONS,
+            ImmutableSet.of());
+
+    Program program = planner.plan(ast);
+
+    Object result = program.eval();
+    assertThat(((CelUnknownSet) result).attributes())
+        .containsExactly(CelAttribute.create("custom_int"));
+  }
+
+  @Test
+  public void plan_variableAsCelUnknownSet_propagatesUnknown() throws Exception {
+    CelCompiler compiler =
+        CelCompilerFactory.standardCelCompilerBuilder()
+            .addMessageTypes(TestAllTypes.getDescriptor())
+            .addVar("msg", StructTypeReference.create(TestAllTypes.getDescriptor().getFullName()))
+            .addVar("x", SimpleType.INT)
+            .build();
+    CelAbstractSyntaxTree ast1 = compile(compiler, "x + 1");
+    CelAbstractSyntaxTree ast2 = compile(compiler, "msg.single_int32");
+
+    DefaultDispatcher.Builder dispatcherBuilder = DefaultDispatcher.newBuilder();
+    CelStandardFunctions stdFunctions =
+        CelStandardFunctions.newBuilder().includeFunctions(StandardFunction.ADD).build();
+    addBindingsToDispatcher(
+        dispatcherBuilder, stdFunctions.newFunctionBindings(RUNTIME_EQUALITY, CEL_OPTIONS));
+    ProgramPlanner planner =
+        ProgramPlanner.newPlanner(
+            TYPE_PROVIDER,
+            VALUE_PROVIDER,
+            dispatcherBuilder.build(),
+            CEL_VALUE_CONVERTER,
+            CEL_CONTAINER,
+            CEL_OPTIONS,
+            ImmutableSet.of());
+
+    ImmutableMap<String, Object> vars =
+        ImmutableMap.of(
+            "msg", CelUnknownSet.create(CelAttribute.create("custom_msg")),
+            "x", CelUnknownSet.create(CelAttribute.create("custom_x")));
+
+    assertThat(planner.plan(ast1).eval(vars))
+        .isEqualTo(CelUnknownSet.create(CelAttribute.create("custom_x")));
+    assertThat(planner.plan(ast2).eval(vars))
+        .isEqualTo(CelUnknownSet.create(CelAttribute.create("custom_msg")));
+  }
+
   private CelAbstractSyntaxTree compile(String expression) throws Exception {
     return compile(CEL_COMPILER, expression);
   }

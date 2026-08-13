@@ -54,7 +54,7 @@ import dev.cel.runtime.CelAttributePattern;
 import dev.cel.runtime.CelEvaluationException;
 import dev.cel.runtime.CelFunctionBinding;
 import dev.cel.runtime.CelRuntime;
-import dev.cel.runtime.InterpreterUtil;
+import dev.cel.runtime.CelUnknownSet;
 import dev.cel.runtime.PartialVars;
 import java.time.Duration;
 import java.time.Instant;
@@ -937,7 +937,7 @@ public class CelOptionalLibraryTest {
         cel.createProgram(ast)
             .eval(PartialVars.of(CelAttributePattern.fromQualifiedIdentifier("x")));
 
-    assertThat(InterpreterUtil.isUnknown(result)).isTrue();
+    assertThat(result).isInstanceOf(CelUnknownSet.class);
   }
 
   @Test
@@ -1029,7 +1029,7 @@ public class CelOptionalLibraryTest {
         cel.createProgram(ast)
             .eval(PartialVars.of(CelAttributePattern.fromQualifiedIdentifier("x")));
 
-    assertThat(InterpreterUtil.isUnknown(result)).isTrue();
+    assertThat(result).isInstanceOf(CelUnknownSet.class);
   }
 
   @Test
@@ -1066,7 +1066,7 @@ public class CelOptionalLibraryTest {
                     ImmutableMap.of("msg", TestAllTypes.newBuilder().setSingleInt32(42).build()),
                     CelAttributePattern.fromQualifiedIdentifier("msg.single_int32")));
 
-    assertThat(InterpreterUtil.isUnknown(result)).isTrue();
+    assertThat(result).isInstanceOf(CelUnknownSet.class);
   }
 
   @Test
@@ -1089,7 +1089,7 @@ public class CelOptionalLibraryTest {
         cel.createProgram(ast)
             .eval(PartialVars.of(CelAttributePattern.fromQualifiedIdentifier("optx")));
 
-    assertThat(InterpreterUtil.isUnknown(result)).isTrue();
+    assertThat(result).isInstanceOf(CelUnknownSet.class);
   }
 
   @Test

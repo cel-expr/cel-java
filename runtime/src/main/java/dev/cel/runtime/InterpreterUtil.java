@@ -16,6 +16,7 @@ package dev.cel.runtime;
 
 import com.google.common.collect.ImmutableSet;
 import com.google.errorprone.annotations.CheckReturnValue;
+import com.google.errorprone.annotations.InlineMe;
 import dev.cel.common.annotations.Internal;
 import org.jspecify.annotations.Nullable;
 
@@ -51,13 +52,12 @@ public final class InterpreterUtil {
    *
    * @param obj Object to check.
    * @return boolean value if object is unknown.
+   * @deprecated Perform {@code obj instanceof CelUnknownSet} directly instead.
    */
+  @Deprecated
+  @InlineMe(replacement = "obj instanceof CelUnknownSet", imports = "dev.cel.runtime.CelUnknownSet")
   public static boolean isUnknown(Object obj) {
     return obj instanceof CelUnknownSet;
-  }
-
-  public static boolean isAccumulatedUnknowns(Object obj) {
-    return obj instanceof AccumulatedUnknowns;
   }
 
   /** If the argument is {@link CelUnknownSet}, adapts it into {@link AccumulatedUnknowns} */
@@ -102,7 +102,7 @@ public final class InterpreterUtil {
 
   public static Object valueOrUnknown(@Nullable Object valueOrThrowable, Long id) {
     // Handle the unknown value case.
-    if (isAccumulatedUnknowns(valueOrThrowable)) {
+    if (valueOrThrowable instanceof AccumulatedUnknowns) {
       return AccumulatedUnknowns.create(id);
     }
     // Handle the null value case.

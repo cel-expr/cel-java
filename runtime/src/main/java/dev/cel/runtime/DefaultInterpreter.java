@@ -282,7 +282,7 @@ final class DefaultInterpreter implements Interpreter {
     }
 
     private static boolean isUnknownValue(Object value) {
-      return InterpreterUtil.isAccumulatedUnknowns(value);
+      return value instanceof AccumulatedUnknowns;
     }
 
     private static boolean isUnknownOrError(Object value) {

@@ -522,7 +522,7 @@ public class CelRuntimeTest {
         (expr, res) -> {
           if (expr.constantOrDefault().getKind().equals(CelConstant.Kind.BOOLEAN_VALUE)
               || expr.identOrDefault().name().equals("x")) {
-            if (InterpreterUtil.isUnknown(res)) {
+            if (res instanceof CelUnknownSet) {
               branchResults.add("x"); // Swap unknown result with a sentinel value for testing
             } else {
               branchResults.add(res);
@@ -577,7 +577,7 @@ public class CelRuntimeTest {
     PartialVars partialVars = PartialVars.of(CelAttributePattern.create("x"));
     Object unknownResult = cel.createProgram(ast).trace(partialVars, listener);
 
-    assertThat(InterpreterUtil.isUnknown(unknownResult)).isTrue();
+    assertThat(unknownResult).isInstanceOf(CelUnknownSet.class);
     assertThat(branchResults.build()).containsExactly(true, true, unknownResult);
   }
 
@@ -653,7 +653,7 @@ public class CelRuntimeTest {
     PartialVars partialVars = PartialVars.of(CelAttributePattern.create("x"));
     Object unknownResult = cel.createProgram(ast).trace(partialVars, listener);
 
-    assertThat(InterpreterUtil.isUnknown(unknownResult)).isTrue();
+    assertThat(unknownResult).isInstanceOf(CelUnknownSet.class);
     assertThat(branchResults.build()).containsExactly(false, false, unknownResult);
   }
 
@@ -668,7 +668,7 @@ public class CelRuntimeTest {
         (expr, res) -> {
           if (expr.constantOrDefault().getKind().equals(CelConstant.Kind.BOOLEAN_VALUE)
               || expr.identOrDefault().name().equals("x")) {
-            if (InterpreterUtil.isUnknown(res)) {
+            if (res instanceof CelUnknownSet) {
               branchResults.add("x"); // Swap unknown result with a sentinel value for testing
             } else {
               branchResults.add(res);
@@ -748,7 +748,7 @@ public class CelRuntimeTest {
     PartialVars partialVars = PartialVars.of(CelAttributePattern.create("x"));
     Object unknownResult = cel.createProgram(ast).trace(partialVars, listener);
 
-    assertThat(InterpreterUtil.isUnknown(unknownResult)).isTrue();
+    assertThat(unknownResult).isInstanceOf(CelUnknownSet.class);
     assertThat(branchResults.build()).containsExactly(false, unknownResult, true);
   }
 
@@ -943,5 +943,152 @@ public class CelRuntimeTest {
 
     CelEvaluationException e = assertThrows(CelEvaluationException.class, () -> program.eval());
     assertThat(e).hasCauseThat().hasMessageThat().contains("error 1");
+  }
+
+  @Test
+  public void evaluate_customFunctionReturningCelUnknownSet_propagatesUnknown(
+      @TestParameter({
+            // Field selection
+            "getMsg().single_int32",
+            "getMsg().single_nested_message.bb",
+            // Binary & unary operators
+            "getMsg().single_int32 == 100",
+            "getMsg().single_int32 + 5 == 10",
+            "-getMsg().single_int32 == -10",
+            // Boolean operators & ternary
+            "true && (getMsg().single_int32 == 100)",
+            "false || (getMsg().single_int32 == 100)",
+            "(getMsg().single_int32 == 100) ? 'match' : 'no-match'",
+            // Comprehensions
+            "[1, 2, 3].exists(x, x == getMsg().single_int32)",
+            "[1, 2, 3].all(x, x > 0 && getMsg().single_int32 > 0)",
+            "[1, 2, 3].map(x, x + getMsg().single_int32)",
+            "[1, 2, 3].filter(x, x == getMsg().single_int32)",
+          })
+          String expression)
+      throws Exception {
+    Cel cel =
+        runtimeFlavor
+            .builder()
+            .setStandardMacros(CelStandardMacro.STANDARD_MACROS)
+            .addMessageTypes(TestAllTypes.getDescriptor())
+            .addFunctionDeclarations(
+                CelFunctionDecl.newFunctionDeclaration(
+                    "getMsg",
+                    CelOverloadDecl.newGlobalOverload(
+                        "getMsg_overload",
+                        StructTypeReference.create(TestAllTypes.getDescriptor().getFullName()),
+                        ImmutableList.of())))
+            .addFunctionBindings(
+                CelFunctionBinding.from(
+                    "getMsg_overload",
+                    ImmutableList.of(),
+                    args -> CelUnknownSet.create(CelAttribute.create("custom_msg"))))
+            .build();
+
+    Object result = cel.createProgram(cel.compile(expression).getAst()).eval();
+
+    assertThat(result).isInstanceOf(CelUnknownSet.class);
+  }
+
+  @Test
+  // Short-circuited boolean operators
+  @TestParameters("{expression: 'false && (getMsg().single_int32 == 100)', expected: false}")
+  @TestParameters("{expression: 'true || (getMsg().single_int32 == 100)', expected: true}")
+  // Short-circuited comprehensions
+  @TestParameters(
+      "{expression: '[1, 2, 3].exists(x, x == 1 || x == getMsg().single_int32)', expected: true}")
+  @TestParameters(
+      "{expression: '[1, 2, 3].all(x, x == 0 && getMsg().single_int32 > 0)', expected: false}")
+  public void evaluate_customFunctionReturningCelUnknownSet_shortCircuits(
+      String expression, boolean expected) throws Exception {
+    Cel cel =
+        runtimeFlavor
+            .builder()
+            .setStandardMacros(CelStandardMacro.STANDARD_MACROS)
+            .addMessageTypes(TestAllTypes.getDescriptor())
+            .addFunctionDeclarations(
+                CelFunctionDecl.newFunctionDeclaration(
+                    "getMsg",
+                    CelOverloadDecl.newGlobalOverload(
+                        "getMsg_overload",
+                        StructTypeReference.create(TestAllTypes.getDescriptor().getFullName()),
+                        ImmutableList.of())))
+            .addFunctionBindings(
+                CelFunctionBinding.from(
+                    "getMsg_overload",
+                    ImmutableList.of(),
+                    args -> CelUnknownSet.create(CelAttribute.create("custom_msg"))))
+            .build();
+
+    Object result = cel.createProgram(cel.compile(expression).getAst()).eval();
+
+    assertThat(result).isEqualTo(expected);
+  }
+
+  @Test
+  public void evaluate_customFunctionReturningCelUnknownSet_differentArities() throws Exception {
+    Cel cel =
+        runtimeFlavor
+            .builder()
+            .addFunctionDeclarations(
+                CelFunctionDecl.newFunctionDeclaration(
+                    "unkZero",
+                    CelOverloadDecl.newGlobalOverload(
+                        "unk_zero", SimpleType.INT, ImmutableList.of())),
+                CelFunctionDecl.newFunctionDeclaration(
+                    "unkUnary",
+                    CelOverloadDecl.newGlobalOverload("unk_unary", SimpleType.INT, SimpleType.INT)),
+                CelFunctionDecl.newFunctionDeclaration(
+                    "unkBinary",
+                    CelOverloadDecl.newGlobalOverload(
+                        "unk_binary", SimpleType.INT, SimpleType.INT, SimpleType.INT)),
+                CelFunctionDecl.newFunctionDeclaration(
+                    "unkMember",
+                    CelOverloadDecl.newMemberOverload(
+                        "unk_member", SimpleType.INT, SimpleType.STRING, SimpleType.INT)),
+                CelFunctionDecl.newFunctionDeclaration(
+                    "unkVarargs",
+                    CelOverloadDecl.newGlobalOverload(
+                        "unk_varargs",
+                        SimpleType.INT,
+                        SimpleType.INT,
+                        SimpleType.INT,
+                        SimpleType.INT)))
+            .addFunctionBindings(
+                CelFunctionBinding.from(
+                    "unk_zero",
+                    ImmutableList.of(),
+                    args -> CelUnknownSet.create(CelAttribute.create("attr_zero"))),
+                CelFunctionBinding.from(
+                    "unk_unary",
+                    Long.class,
+                    arg -> CelUnknownSet.create(CelAttribute.create("attr_unary"))),
+                CelFunctionBinding.from(
+                    "unk_binary",
+                    Long.class,
+                    Long.class,
+                    (a, b) -> CelUnknownSet.create(CelAttribute.create("attr_binary"))),
+                CelFunctionBinding.from(
+                    "unk_member",
+                    String.class,
+                    Long.class,
+                    (target, arg) -> CelUnknownSet.create(CelAttribute.create("attr_member"))),
+                CelFunctionBinding.from(
+                    "unk_varargs",
+                    ImmutableList.of(Long.class, Long.class, Long.class),
+                    args -> CelUnknownSet.create(CelAttribute.create("attr_varargs"))))
+            .build();
+
+    assertThat(cel.createProgram(cel.compile("unkZero() + 1").getAst()).eval())
+        .isEqualTo(CelUnknownSet.create(CelAttribute.create("attr_zero")));
+    assertThat(cel.createProgram(cel.compile("unkUnary(1) + 1").getAst()).eval())
+        .isEqualTo(CelUnknownSet.create(CelAttribute.create("attr_unary")));
+    assertThat(cel.createProgram(cel.compile("unkBinary(1, 2) + 1").getAst()).eval())
+        .isEqualTo(CelUnknownSet.create(CelAttribute.create("attr_binary")));
+    assertThat(cel.createProgram(cel.compile("'target'.unkMember(1) + 1").getAst()).eval())
+        .isEqualTo(CelUnknownSet.create(CelAttribute.create("attr_member")));
+    assertThat(cel.createProgram(cel.compile("unkVarargs(1, 2, 3) + 1").getAst()).eval())
+        .isEqualTo(CelUnknownSet.create(CelAttribute.create("attr_varargs")));
   }
 }

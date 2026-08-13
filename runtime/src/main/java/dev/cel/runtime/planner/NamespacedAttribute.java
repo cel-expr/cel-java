@@ -184,6 +184,9 @@ final class NamespacedAttribute implements Attribute {
 
   private static Object applyQualifiers(
       Object value, CelValueConverter celValueConverter, ImmutableList<Qualifier> qualifiers) {
+    if (value instanceof AccumulatedUnknowns) {
+      return value;
+    }
     Object obj = celValueConverter.toRuntimeValue(value);
 
     // Avoid enhanced for loop to prevent UnmodifiableIterator from being allocated
