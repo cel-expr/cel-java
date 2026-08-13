@@ -21,6 +21,7 @@ import dev.cel.common.annotations.Internal;
 import dev.cel.common.exceptions.CelRuntimeException;
 import dev.cel.common.values.ErrorValue;
 import dev.cel.runtime.Activation;
+import dev.cel.runtime.CelAttributeResolver;
 import dev.cel.runtime.CelEvaluationException;
 import dev.cel.runtime.CelEvaluationExceptionBuilder;
 import dev.cel.runtime.CelEvaluationListener;
@@ -134,11 +135,13 @@ public abstract class PlannedProgram implements Program {
       GlobalResolver resolver,
       CelFunctionResolver functionResolver,
       @Nullable PartialVars partialVars,
+      @Nullable CelAttributeResolver attributeResolver,
       @Nullable CelEvaluationListener listener)
       throws CelEvaluationException {
     try {
       ExecutionFrame frame =
-          ExecutionFrame.create(functionResolver, options(), partialVars, listener);
+          ExecutionFrame.create(
+              functionResolver, options(), partialVars, attributeResolver, listener);
       Object evalResult = interpretable.eval(resolver, frame);
       if (evalResult instanceof ErrorValue) {
         ErrorValue errorValue = (ErrorValue) evalResult;
@@ -149,6 +152,22 @@ public abstract class PlannedProgram implements Program {
     } catch (RuntimeException e) {
       throw newCelEvaluationException(interpretable.expr().id(), e);
     }
+  }
+
+  public Object evalOrThrow(
+      PlannedInterpretable interpretable,
+      GlobalResolver resolver,
+      CelFunctionResolver functionResolver,
+      @Nullable PartialVars partialVars,
+      @Nullable CelEvaluationListener listener)
+      throws CelEvaluationException {
+    return evalOrThrow(
+        interpretable,
+        resolver,
+        functionResolver,
+        partialVars,
+        /* attributeResolver= */ null,
+        listener);
   }
 
   public Object trace(

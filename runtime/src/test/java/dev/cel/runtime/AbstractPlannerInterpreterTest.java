@@ -59,13 +59,14 @@ public abstract class AbstractPlannerInterpreterTest extends BaseInterpreterTest
     declareVariable("x", StructTypeReference.create(TestAllTypes.getDescriptor().getFullName()));
 
     CelAttributePattern patternX = CelAttributePattern.fromQualifiedIdentifier("x");
+    TestAllTypes message = TestAllTypes.newBuilder().setSingleString("test").build();
 
     source = "x";
     // We have the full message, but we're claiming that the attribute is unknown.
-    runTest(ImmutableMap.of("x", TestAllTypes.getDefaultInstance()), patternX);
-    // A "partially known message". The result is still an unknown.
+    runTest(ImmutableMap.of("x", message), patternX);
+    // A "partially known message". Evaluating the message itself yields the underlying value.
     runTest(
-        ImmutableMap.of("x", TestAllTypes.getDefaultInstance()),
+        ImmutableMap.of("x", message),
         CelAttributePattern.fromQualifiedIdentifier("x.single_int32"));
 
     source = "x.single_int32";

@@ -235,7 +235,25 @@ public abstract class CelRuntimeImpl implements CelRuntime {
 
       @Override
       public Object advanceEvaluation(UnknownContext context) throws CelEvaluationException {
-        throw new UnsupportedOperationException("Unsupported operation.");
+        PlannedProgram plannedProgram = (PlannedProgram) program;
+        if (!plannedProgram.options().enableUnknownTracking()) {
+          return plannedProgram.evalOrThrow(
+              plannedProgram.interpretable(),
+              context.variableResolver(),
+              EMPTY_FUNCTION_RESOLVER,
+              /* partialVars= */ null,
+              /* attributeResolver= */ null,
+              /* listener= */ null);
+        }
+        return plannedProgram.evalOrThrow(
+            plannedProgram.interpretable(),
+            context.variableResolver(),
+            EMPTY_FUNCTION_RESOLVER,
+            PartialVars.of(
+                (name) -> Optional.ofNullable(context.variableResolver().resolve(name)),
+                context.unresolvedAttributes()),
+            context.createAttributeResolver(),
+            /* listener= */ null);
       }
     };
   }

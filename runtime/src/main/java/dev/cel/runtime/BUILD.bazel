@@ -773,6 +773,8 @@ java_library(
 cel_android_library(
     name = "function_resolver_android",
     srcs = ["CelFunctionResolver.java"],
+    tags = [
+    ],
     deps = [
         ":evaluation_exception",
         ":resolved_overload_android",

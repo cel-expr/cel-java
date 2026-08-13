@@ -107,6 +107,16 @@ public class UnknownContext {
     return variableResolver;
   }
 
+  /** Accessor for unresolved attribute patterns. */
+  ImmutableList<CelAttributePattern> unresolvedAttributes() {
+    return unresolvedAttributes;
+  }
+
+  /** Accessor for resolved attribute values. */
+  ImmutableMap<CelAttribute, Object> resolvedAttributes() {
+    return resolvedAttributes;
+  }
+
   /**
    * Creates a new unknown context that is a copy of the current context with the provided
    * additional attribute values.
@@ -123,12 +133,28 @@ public class UnknownContext {
         ImmutableMap.<CelAttribute, Object>builder()
             .putAll(this.resolvedAttributes)
             .putAll(resolvedAttributes)
-            .buildOrThrow());
+            .buildKeepingLast());
   }
 
-  private boolean patternMaskedByResolvedAttribute(
+  private static boolean patternMaskedByResolvedAttribute(
       Map<CelAttribute, Object> resolved, CelAttributePattern pattern) {
-    return resolved.keySet().stream().anyMatch(pattern::isPartialMatch);
+    return resolved.keySet().stream().anyMatch(attr -> isPatternMaskedByAttribute(pattern, attr));
+  }
+
+  private static boolean isPatternMaskedByAttribute(
+      CelAttributePattern pattern, CelAttribute attribute) {
+    if (attribute.qualifiers().size() > pattern.qualifiers().size()) {
+      return false;
+    }
+    for (int i = 0; i < attribute.qualifiers().size(); i++) {
+      CelAttribute.Qualifier patternQualifier = pattern.qualifiers().get(i);
+      CelAttribute.Qualifier attrQualifier = attribute.qualifiers().get(i);
+      if (patternQualifier.kind() == CelAttribute.Qualifier.Kind.WILD_CARD
+          || !patternQualifier.equals(attrQualifier)) {
+        return false;
+      }
+    }
+    return true;
   }
 
   /**
@@ -168,10 +194,27 @@ public class UnknownContext {
 
     @Override
     public Optional<CelUnknownSet> maybePartialUnknown(CelAttribute attribute) {
-      return unresolvedAttributes.stream()
-          .filter(p -> p.isPartialMatch(attribute))
-          .findFirst()
-          .map(p -> CelUnknownSet.create(p.simplify(attribute)));
+      if (attribute.equals(CelAttribute.EMPTY)) {
+        return Optional.empty();
+      }
+      Optional<CelUnknownSet> fromUnresolved =
+          unresolvedAttributes.stream()
+              .filter(p -> p.isPartialMatch(attribute))
+              .findFirst()
+              .map(p -> CelUnknownSet.create(p.simplify(attribute)));
+      if (fromUnresolved.isPresent()) {
+        return fromUnresolved;
+      }
+      for (CelAttribute resolved : resolvedAttributes.keySet()) {
+        if (resolved.qualifiers().size() > attribute.qualifiers().size()
+            && resolved
+                .qualifiers()
+                .subList(0, attribute.qualifiers().size())
+                .equals(attribute.qualifiers())) {
+          return Optional.of(CelUnknownSet.create(attribute));
+        }
+      }
+      return Optional.empty();
     }
   }
 }

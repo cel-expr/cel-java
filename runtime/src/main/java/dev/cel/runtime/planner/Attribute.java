@@ -20,7 +20,7 @@ import dev.cel.runtime.GlobalResolver;
 /** Represents a resolvable symbol or path (such as a variable or a field selection). */
 @Immutable
 interface Attribute {
-  Object resolve(long exprId, GlobalResolver ctx, ExecutionFrame frame);
+  AttributeResolution resolve(long exprId, GlobalResolver ctx, ExecutionFrame frame);
 
   Attribute addQualifier(Qualifier qualifier);
 }

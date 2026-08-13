@@ -327,7 +327,8 @@ public final class ProgramPlanner {
         return EvalUnary.create(
             expr, functionName, resolvedOverload, evaluatedArgs[0], celValueConverter);
       case 2:
-        if (functionName.equals(Operator.INDEX.getFunction())) {
+        if (functionName.equals(Operator.INDEX.getFunction())
+            || functionName.equals(Operator.OPTIONAL_INDEX.getFunction())) {
           return EvalIndex.create(
               expr,
               functionName,

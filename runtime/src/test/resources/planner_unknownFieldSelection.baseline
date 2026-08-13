@@ -3,7 +3,8 @@ declare x {
   value cel.expr.conformance.proto3.TestAllTypes
 }
 =====>
-bindings: {x=, unknown_attributes=[x]}
+bindings: {x=single_string: "test"
+, unknown_attributes=[x]}
 result:   CelUnknownSet{attributes=[x], unknownExprIds=[1]}
 
 Source: x
@@ -11,8 +12,10 @@ declare x {
   value cel.expr.conformance.proto3.TestAllTypes
 }
 =====>
-bindings: {x=, unknown_attributes=[x.single_int32]}
-result:   CelUnknownSet{attributes=[x], unknownExprIds=[1]}
+bindings: {x=single_string: "test"
+, unknown_attributes=[x.single_int32]}
+result:   single_string: "test"
+
 
 Source: x.single_int32
 declare x {

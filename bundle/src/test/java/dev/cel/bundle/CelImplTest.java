@@ -198,7 +198,11 @@ public final class CelImplTest {
           .build();
 
   private CelBuilder standardCelBuilderWithMacros() {
-    return CelFactory.standardCelBuilder().setStandardMacros(CelStandardMacro.STANDARD_MACROS);
+    return standardCelBuilderWithMacros(CelRuntimeFlavor.LEGACY);
+  }
+
+  private CelBuilder standardCelBuilderWithMacros(CelRuntimeFlavor flavor) {
+    return flavor.builder().setStandardMacros(CelStandardMacro.STANDARD_MACROS);
   }
 
   @Test
@@ -1228,13 +1232,19 @@ public final class CelImplTest {
   }
 
   @Test
-  public void programAdvanceEvaluation_unknownsBasic() throws Exception {
+  public void programAdvanceEvaluation_unknownsBasic(@TestParameter CelRuntimeFlavor runtimeFlavor)
+      throws Exception {
     Cel cel =
-        standardCelBuilderWithMacros()
-            .setOptions(CelOptions.current().enableUnknownTracking(true).build())
+        runtimeFlavor
+            .builder()
+            .setStandardMacros(CelStandardMacro.STANDARD_MACROS)
+            .setOptions(
+                CelOptions.current()
+                    .enableUnknownTracking(true)
+                    .enableHeterogeneousNumericComparisons(true)
+                    .build())
             .addVar("a", SimpleType.BOOL)
             .addVar("b", SimpleType.BOOL)
-            .addFunctionBindings()
             .setResultType(SimpleType.BOOL)
             .build();
     CelRuntime.Program program = cel.createProgram(cel.compile("a || b").getAst());
@@ -1256,13 +1266,17 @@ public final class CelImplTest {
   }
 
   @Test
-  public void programAdvanceEvaluation_attributesIgnoredIfDisabled() throws Exception {
+  public void programAdvanceEvaluation_attributesIgnoredIfDisabled(
+      @TestParameter CelRuntimeFlavor runtimeFlavor) throws Exception {
     Cel cel =
-        standardCelBuilderWithMacros()
-            .setOptions(CelOptions.current().enableUnknownTracking(false).build())
+        standardCelBuilderWithMacros(runtimeFlavor)
+            .setOptions(
+                CelOptions.current()
+                    .enableUnknownTracking(false)
+                    .enableHeterogeneousNumericComparisons(true)
+                    .build())
             .addVar("a", SimpleType.BOOL)
             .addVar("b", SimpleType.BOOL)
-            .addFunctionBindings()
             .setResultType(SimpleType.BOOL)
             .build();
     CelRuntime.Program program = cel.createProgram(cel.compile("a || b").getAst());
@@ -1281,10 +1295,13 @@ public final class CelImplTest {
   @Test
   public void programAdvanceEvaluation_logicOperatorTypeMismatchThrows() throws Exception {
     Cel cel =
-        standardCelBuilderWithMacros()
-            .setOptions(CelOptions.current().enableUnknownTracking(true).build())
+        standardCelBuilderWithMacros(CelRuntimeFlavor.LEGACY)
+            .setOptions(
+                CelOptions.current()
+                    .enableUnknownTracking(true)
+                    .enableHeterogeneousNumericComparisons(true)
+                    .build())
             .addVar("a", SimpleType.BOOL)
-            .addFunctionBindings()
             .setResultType(SimpleType.BOOL)
             .build();
     CelRuntime.Program program = cel.createProgram(cel.compile("a || dyn(42)").getAst());
@@ -1301,13 +1318,17 @@ public final class CelImplTest {
   }
 
   @Test
-  public void programAdvanceEvaluation_unknownsCollection() throws Exception {
+  public void programAdvanceEvaluation_unknownsCollection(
+      @TestParameter CelRuntimeFlavor runtimeFlavor) throws Exception {
     Cel cel =
-        standardCelBuilderWithMacros()
-            .setOptions(CelOptions.current().enableUnknownTracking(true).build())
+        standardCelBuilderWithMacros(runtimeFlavor)
+            .setOptions(
+                CelOptions.current()
+                    .enableUnknownTracking(true)
+                    .enableHeterogeneousNumericComparisons(true)
+                    .build())
             .addVar("a", SimpleType.BOOL)
             .addVar("b", SimpleType.BOOL)
-            .addFunctionBindings()
             .setResultType(SimpleType.BOOL)
             .build();
     CelRuntime.Program program = cel.createProgram(cel.compile("a || b").getAst());
@@ -1332,14 +1353,18 @@ public final class CelImplTest {
   }
 
   @Test
-  public void programAdvanceEvaluation_unknownsNamespaceSupport() throws Exception {
+  public void programAdvanceEvaluation_unknownsNamespaceSupport(
+      @TestParameter CelRuntimeFlavor runtimeFlavor) throws Exception {
     Cel cel =
-        standardCelBuilderWithMacros()
-            .setOptions(CelOptions.current().enableUnknownTracking(true).build())
+        standardCelBuilderWithMacros(runtimeFlavor)
+            .setOptions(
+                CelOptions.current()
+                    .enableUnknownTracking(true)
+                    .enableHeterogeneousNumericComparisons(true)
+                    .build())
             .addVar("com.google.a", SimpleType.BOOL)
             .addVar("com.google.b", SimpleType.BOOL)
             .setContainer(CelContainer.ofName("com.google"))
-            .addFunctionBindings()
             .setResultType(SimpleType.BOOL)
             .build();
     CelRuntime.Program program = cel.createProgram(cel.compile("a || b").getAst());
@@ -1361,14 +1386,18 @@ public final class CelImplTest {
   }
 
   @Test
-  public void programAdvanceEvaluation_unknownsIterativeEvalExample() throws Exception {
+  public void programAdvanceEvaluation_unknownsIterativeEvalExample(
+      @TestParameter CelRuntimeFlavor runtimeFlavor) throws Exception {
     Cel cel =
-        standardCelBuilderWithMacros()
-            .setOptions(CelOptions.current().enableUnknownTracking(true).build())
+        standardCelBuilderWithMacros(runtimeFlavor)
+            .setOptions(
+                CelOptions.current()
+                    .enableUnknownTracking(true)
+                    .enableHeterogeneousNumericComparisons(true)
+                    .build())
             .addVar("com.google.a", SimpleType.BOOL)
             .addVar("com.google.b", SimpleType.BOOL)
             .setContainer(CelContainer.ofName("com.google"))
-            .addFunctionBindings()
             .setResultType(SimpleType.BOOL)
             .build();
     CelRuntime.Program program = cel.createProgram(cel.compile("a || b").getAst());
@@ -1388,12 +1417,16 @@ public final class CelImplTest {
   }
 
   @Test
-  public void programAdvanceEvaluation_nestedSelect() throws Exception {
+  public void programAdvanceEvaluation_nestedSelect(@TestParameter CelRuntimeFlavor runtimeFlavor)
+      throws Exception {
     Cel cel =
-        standardCelBuilderWithMacros()
-            .setOptions(CelOptions.current().enableUnknownTracking(true).build())
+        standardCelBuilderWithMacros(runtimeFlavor)
+            .setOptions(
+                CelOptions.current()
+                    .enableUnknownTracking(true)
+                    .enableHeterogeneousNumericComparisons(true)
+                    .build())
             .addVar("com", MapType.create(SimpleType.STRING, SimpleType.DYN))
-            .addFunctionBindings()
             .setResultType(SimpleType.BOOL)
             .build();
     CelRuntime.Program program = cel.createProgram(cel.compile("com.google.a || false").getAst());
@@ -1406,12 +1439,16 @@ public final class CelImplTest {
         .isEqualTo(CelUnknownSet.create(CelAttribute.fromQualifiedIdentifier("com.google.a")));
   }
 
-
   @Test
-  public void programAdvanceEvaluation_argumentMergeErrorPriority() throws Exception {
+  public void programAdvanceEvaluation_argumentMergeErrorPriority(
+      @TestParameter CelRuntimeFlavor runtimeFlavor) throws Exception {
     Cel cel =
-        standardCelBuilderWithMacros()
-            .setOptions(CelOptions.current().enableUnknownTracking(true).build())
+        standardCelBuilderWithMacros(runtimeFlavor)
+            .setOptions(
+                CelOptions.current()
+                    .enableUnknownTracking(true)
+                    .enableHeterogeneousNumericComparisons(true)
+                    .build())
             .addVar("unk", SimpleType.BOOL)
             .addDeclarations(
                 Decl.newBuilder()
@@ -1427,8 +1464,12 @@ public final class CelImplTest {
                                     .setResultType(
                                         Type.newBuilder().setPrimitive(PrimitiveType.BOOL))))
                     .build())
+            .addFunctionBindings(
+                CelFunctionBinding.from(
+                    "acceptThreeBoolArgs",
+                    ImmutableList.of(Boolean.class, Boolean.class, Boolean.class),
+                    args -> true))
             .setContainer(CelContainer.ofName(""))
-            .addFunctionBindings()
             .setResultType(SimpleType.BOOL)
             .build();
 
@@ -1439,7 +1480,7 @@ public final class CelImplTest {
     CelRuntime.Program program =
         cel.createProgram(cel.compile("acceptThreeBoolArgs(false, unk, [false][1])").getAst());
 
-    Assert.assertThrows(
+    assertThrows(
         CelEvaluationException.class,
         () ->
             program.advanceEvaluation(
@@ -1449,10 +1490,15 @@ public final class CelImplTest {
   }
 
   @Test
-  public void programAdvanceEvaluation_argumentMergeUnknowns() throws Exception {
+  public void programAdvanceEvaluation_argumentMergeUnknowns(
+      @TestParameter CelRuntimeFlavor runtimeFlavor) throws Exception {
     Cel cel =
-        standardCelBuilderWithMacros()
-            .setOptions(CelOptions.current().enableUnknownTracking(true).build())
+        standardCelBuilderWithMacros(runtimeFlavor)
+            .setOptions(
+                CelOptions.current()
+                    .enableUnknownTracking(true)
+                    .enableHeterogeneousNumericComparisons(true)
+                    .build())
             .addVar("unk.a", SimpleType.BOOL)
             .addVar("unk.b", SimpleType.BOOL)
             .addVar("unk.c", SimpleType.BOOL)
@@ -1470,8 +1516,12 @@ public final class CelImplTest {
                                     .setResultType(
                                         Type.newBuilder().setPrimitive(PrimitiveType.BOOL))))
                     .build())
+            .addFunctionBindings(
+                CelFunctionBinding.from(
+                    "acceptThreeBoolArgs",
+                    ImmutableList.of(Boolean.class, Boolean.class, Boolean.class),
+                    args -> true))
             .setContainer(CelContainer.ofName(""))
-            .addFunctionBindings()
             .setResultType(SimpleType.BOOL)
             .build();
     CelRuntime.Program program =
@@ -1492,13 +1542,17 @@ public final class CelImplTest {
   }
 
   @Test
-  public void programAdvanceEvaluation_mapSelectUnknowns() throws Exception {
+  public void programAdvanceEvaluation_mapSelectUnknowns(
+      @TestParameter CelRuntimeFlavor runtimeFlavor) throws Exception {
     Cel cel =
-        standardCelBuilderWithMacros()
-            .setOptions(CelOptions.current().enableUnknownTracking(true).build())
+        standardCelBuilderWithMacros(runtimeFlavor)
+            .setOptions(
+                CelOptions.current()
+                    .enableUnknownTracking(true)
+                    .enableHeterogeneousNumericComparisons(true)
+                    .build())
             .addVar("unk", MapType.create(SimpleType.STRING, SimpleType.BOOL))
             .setContainer(CelContainer.ofName(""))
-            .addFunctionBindings()
             .setResultType(SimpleType.BOOL)
             .build();
     CelRuntime.Program program = cel.createProgram(cel.compile("unk.a || unk.b || unk.c").getAst());
@@ -1518,13 +1572,17 @@ public final class CelImplTest {
   }
 
   @Test
-  public void programAdvanceEvaluation_mapIndexUnknowns() throws Exception {
+  public void programAdvanceEvaluation_mapIndexUnknowns(
+      @TestParameter CelRuntimeFlavor runtimeFlavor) throws Exception {
     Cel cel =
-        standardCelBuilderWithMacros()
-            .setOptions(CelOptions.current().enableUnknownTracking(true).build())
+        standardCelBuilderWithMacros(runtimeFlavor)
+            .setOptions(
+                CelOptions.current()
+                    .enableUnknownTracking(true)
+                    .enableHeterogeneousNumericComparisons(true)
+                    .build())
             .addVar("unk", MapType.create(SimpleType.STRING, SimpleType.BOOL))
             .setContainer(CelContainer.ofName(""))
-            .addFunctionBindings()
             .setResultType(SimpleType.BOOL)
             .build();
 
@@ -1547,13 +1605,17 @@ public final class CelImplTest {
   }
 
   @Test
-  public void programAdvanceEvaluation_listIndexUnknowns() throws Exception {
+  public void programAdvanceEvaluation_listIndexUnknowns(
+      @TestParameter CelRuntimeFlavor runtimeFlavor) throws Exception {
     Cel cel =
-        standardCelBuilderWithMacros()
-            .setOptions(CelOptions.current().enableUnknownTracking(true).build())
+        standardCelBuilderWithMacros(runtimeFlavor)
+            .setOptions(
+                CelOptions.current()
+                    .enableUnknownTracking(true)
+                    .enableHeterogeneousNumericComparisons(true)
+                    .build())
             .addVar("unk", ListType.create(SimpleType.BOOL))
             .setContainer(CelContainer.ofName(""))
-            .addFunctionBindings()
             .setResultType(SimpleType.BOOL)
             .build();
 
@@ -1576,13 +1638,17 @@ public final class CelImplTest {
   }
 
   @Test
-  public void programAdvanceEvaluation_indexOnUnknownContainer() throws Exception {
+  public void programAdvanceEvaluation_indexOnUnknownContainer(
+      @TestParameter CelRuntimeFlavor runtimeFlavor) throws Exception {
     Cel cel =
-        standardCelBuilderWithMacros()
-            .setOptions(CelOptions.current().enableUnknownTracking(true).build())
+        standardCelBuilderWithMacros(runtimeFlavor)
+            .setOptions(
+                CelOptions.current()
+                    .enableUnknownTracking(true)
+                    .enableHeterogeneousNumericComparisons(true)
+                    .build())
             .addVar("unk", ListType.create(SimpleType.BOOL))
             .setContainer(CelContainer.ofName(""))
-            .addFunctionBindings()
             .setResultType(SimpleType.BOOL)
             .build();
 
@@ -1598,13 +1664,17 @@ public final class CelImplTest {
   }
 
   @Test
-  public void programAdvanceEvaluation_unsupportedIndexIgnored() throws Exception {
+  public void programAdvanceEvaluation_unsupportedIndexIgnored(
+      @TestParameter CelRuntimeFlavor runtimeFlavor) throws Exception {
     Cel cel =
-        standardCelBuilderWithMacros()
-            .setOptions(CelOptions.current().enableUnknownTracking(true).build())
+        standardCelBuilderWithMacros(runtimeFlavor)
+            .setOptions(
+                CelOptions.current()
+                    .enableUnknownTracking(true)
+                    .enableHeterogeneousNumericComparisons(true)
+                    .build())
             .addVar("unk", MapType.create(SimpleType.STRING, SimpleType.BOOL))
             .setContainer(CelContainer.ofName(""))
-            .addFunctionBindings()
             .setResultType(SimpleType.BOOL)
             .build();
 
@@ -1635,13 +1705,94 @@ public final class CelImplTest {
   }
 
   @Test
-  public void programAdvanceEvaluation_listIndexMacroTracking() throws Exception {
+  public void programAdvanceEvaluation_sizeList() throws Exception {
     Cel cel =
-        standardCelBuilderWithMacros()
-            .setOptions(CelOptions.current().enableUnknownTracking(true).build())
+        standardCelBuilderWithMacros(CelRuntimeFlavor.PLANNER)
+            .setOptions(
+                CelOptions.current()
+                    .enableUnknownTracking(true)
+                    .enableHeterogeneousNumericComparisons(true)
+                    .build())
             .addVar("testList", ListType.create(SimpleType.BOOL))
             .setContainer(CelContainer.ofName(""))
-            .addFunctionBindings()
+            .setResultType(SimpleType.INT)
+            .build();
+    CelRuntime.Program program = cel.createProgram(cel.compile("size(testList)").getAst());
+
+    Object result =
+        program.advanceEvaluation(
+            UnknownContext.create(
+                fromMap(ImmutableMap.of("testList", ImmutableList.of(true, true, false))),
+                ImmutableList.of(
+                    CelAttributePattern.create("testList").qualify(Qualifier.ofInt(2)))));
+
+    assertThat(result).isEqualTo(3L);
+  }
+
+  @Test
+  public void programAdvanceEvaluation_listIndexUnknownElement_returnsUnknown(
+      @TestParameter CelRuntimeFlavor runtimeFlavor) throws Exception {
+    Cel cel =
+        standardCelBuilderWithMacros(runtimeFlavor)
+            .setOptions(
+                CelOptions.current()
+                    .enableUnknownTracking(true)
+                    .enableHeterogeneousNumericComparisons(true)
+                    .build())
+            .addVar("testList", ListType.create(SimpleType.BOOL))
+            .setContainer(CelContainer.ofName(""))
+            .setResultType(SimpleType.BOOL)
+            .build();
+    CelRuntime.Program program = cel.createProgram(cel.compile("testList[2] == true").getAst());
+    UnknownContext context =
+        UnknownContext.create(
+            fromMap(ImmutableMap.of("testList", ImmutableList.of(true, true, false))),
+            ImmutableList.of(CelAttributePattern.create("testList").qualify(Qualifier.ofInt(2))));
+
+    Object result = program.advanceEvaluation(context);
+
+    assertThat(result)
+        .isEqualTo(
+            CelUnknownSet.create(
+                ImmutableSet.of(CelAttribute.create("testList").qualify(Qualifier.ofInt(2)))));
+  }
+
+  @Test
+  public void programAdvanceEvaluation_listIndexKnownElement_evaluatesSuccessfully(
+      @TestParameter CelRuntimeFlavor runtimeFlavor) throws Exception {
+    Cel cel =
+        standardCelBuilderWithMacros(runtimeFlavor)
+            .setOptions(
+                CelOptions.current()
+                    .enableUnknownTracking(true)
+                    .enableHeterogeneousNumericComparisons(true)
+                    .build())
+            .addVar("testList", ListType.create(SimpleType.BOOL))
+            .setContainer(CelContainer.ofName(""))
+            .setResultType(SimpleType.BOOL)
+            .build();
+    CelRuntime.Program program = cel.createProgram(cel.compile("testList[1] == true").getAst());
+    UnknownContext context =
+        UnknownContext.create(
+            fromMap(ImmutableMap.of("testList", ImmutableList.of(true, true, false))),
+            ImmutableList.of(CelAttributePattern.create("testList").qualify(Qualifier.ofInt(2))));
+
+    Object result = program.advanceEvaluation(context);
+
+    assertThat(result).isEqualTo(true);
+  }
+
+  @Test
+  public void programAdvanceEvaluation_listIndexMacroTracking() throws Exception {
+    Cel cel =
+        standardCelBuilderWithMacros(CelRuntimeFlavor.LEGACY)
+            .setOptions(
+                CelOptions.current()
+                    .enableUnknownTracking(true)
+                    .enableHeterogeneousNumericComparisons(true)
+                    .build())
+            .addVar("testList", ListType.create(SimpleType.BOOL))
+            .setContainer(CelContainer.ofName(""))
             .setResultType(SimpleType.BOOL)
             .build();
 
@@ -1668,13 +1819,17 @@ public final class CelImplTest {
   }
 
   @Test
-  public void programAdvanceEvaluation_mapIndexMacroTracking() throws Exception {
+  public void programAdvanceEvaluation_mapIndexMacroTracking(
+      @TestParameter CelRuntimeFlavor runtimeFlavor) throws Exception {
     Cel cel =
-        standardCelBuilderWithMacros()
-            .setOptions(CelOptions.current().enableUnknownTracking(true).build())
+        standardCelBuilderWithMacros(runtimeFlavor)
+            .setOptions(
+                CelOptions.current()
+                    .enableUnknownTracking(true)
+                    .enableHeterogeneousNumericComparisons(true)
+                    .build())
             .addVar("testMap", MapType.create(SimpleType.STRING, SimpleType.BOOL))
             .setContainer(CelContainer.ofName(""))
-            .addFunctionBindings()
             .setResultType(SimpleType.BOOL)
             .build();
 
@@ -1718,13 +1873,16 @@ public final class CelImplTest {
   @Test
   public void programAdvanceEvaluation_boolOperatorMergeUnknownPriority() throws Exception {
     Cel cel =
-        standardCelBuilderWithMacros()
-            .setOptions(CelOptions.current().enableUnknownTracking(true).build())
+        standardCelBuilderWithMacros(CelRuntimeFlavor.LEGACY)
+            .setOptions(
+                CelOptions.current()
+                    .enableUnknownTracking(true)
+                    .enableHeterogeneousNumericComparisons(true)
+                    .build())
             .addVarDeclarations(
                 CelVarDecl.newVarDeclaration("unk", SimpleType.BOOL),
                 CelVarDecl.newVarDeclaration("err", SimpleType.BOOL))
             .setContainer(CelContainer.ofName("com.google"))
-            .addFunctionBindings()
             .setResultType(SimpleType.BOOL)
             .build();
     CelRuntime.Program program = cel.createProgram(cel.compile("unk || err").getAst());
@@ -1742,14 +1900,17 @@ public final class CelImplTest {
   @Test
   public void programAdvanceEvaluation_partialUnknownMapEntryPropagates() throws Exception {
     Cel cel =
-        standardCelBuilderWithMacros()
-            .setOptions(CelOptions.current().enableUnknownTracking(true).build())
+        standardCelBuilderWithMacros(CelRuntimeFlavor.LEGACY)
+            .setOptions(
+                CelOptions.current()
+                    .enableUnknownTracking(true)
+                    .enableHeterogeneousNumericComparisons(true)
+                    .build())
             .addVarDeclarations(
                 ImmutableList.of(
                     CelVarDecl.newVarDeclaration("partialList1", ListType.create(SimpleType.INT)),
                     CelVarDecl.newVarDeclaration("partialList2", ListType.create(SimpleType.INT))))
             .setContainer(CelContainer.ofName("com.google"))
-            .addFunctionBindings()
             .build();
     CelRuntime.Program program =
         cel.createProgram(
@@ -1775,12 +1936,15 @@ public final class CelImplTest {
   @Test
   public void programAdvanceEvaluation_partialUnknownListElementPropagates() throws Exception {
     Cel cel =
-        standardCelBuilderWithMacros()
-            .setOptions(CelOptions.current().enableUnknownTracking(true).build())
+        standardCelBuilderWithMacros(CelRuntimeFlavor.LEGACY)
+            .setOptions(
+                CelOptions.current()
+                    .enableUnknownTracking(true)
+                    .enableHeterogeneousNumericComparisons(true)
+                    .build())
             .addVar("partialList1", ListType.create(SimpleType.INT))
             .addVar("partialList2", ListType.create(SimpleType.INT))
             .setContainer(CelContainer.ofName("com.google"))
-            .addFunctionBindings()
             .build();
     CelRuntime.Program program =
         cel.createProgram(cel.compile("[partialList1, partialList2, [1, 2, 3]]").getAst());
@@ -1804,8 +1968,12 @@ public final class CelImplTest {
   @Test
   public void programAdvanceEvaluation_partialUnknownMessageFieldPropagates() throws Exception {
     Cel cel =
-        standardCelBuilderWithMacros()
-            .setOptions(CelOptions.current().enableUnknownTracking(true).build())
+        standardCelBuilderWithMacros(CelRuntimeFlavor.LEGACY)
+            .setOptions(
+                CelOptions.current()
+                    .enableUnknownTracking(true)
+                    .enableHeterogeneousNumericComparisons(true)
+                    .build())
             .addMessageTypes(TestAllTypes.getDescriptor())
             .addVar(
                 "partialMessage1",
@@ -1816,7 +1984,6 @@ public final class CelImplTest {
             .setResultType(
                 StructTypeReference.create("cel.expr.conformance.proto3.NestedTestAllTypes"))
             .setContainer(CelContainer.ofName("cel.expr.conformance.proto3"))
-            .addFunctionBindings()
             .build();
     Program program =
         cel.createProgram(

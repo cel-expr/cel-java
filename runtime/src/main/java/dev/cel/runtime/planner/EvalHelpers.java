@@ -102,6 +102,21 @@ final class EvalHelpers {
   }
 
   /**
+   * Enforces strictness on a resolved attribute or variable value and adapts unknown sets.
+   *
+   * <p>If the value is a {@link RuntimeException} (e.g. from an asynchronous resolver), strictness
+   * is enforced by throwing it. Otherwise, {@link CelUnknownSet} is adapted into {@link
+   * AccumulatedUnknowns}.
+   */
+  static Object enforceStrictnessAndAdaptUnknowns(Object resolvedVal) {
+    if (resolvedVal instanceof RuntimeException) {
+      throw (RuntimeException) resolvedVal;
+    }
+
+    return InterpreterUtil.maybeAdaptToAccumulatedUnknowns(resolvedVal);
+  }
+
+  /**
    * Converts the raw invocation result into a CEL runtime value, unwraps it if necessary, and
    * adapts any public {@link CelUnknownSet} instances into internal {@link AccumulatedUnknowns} for
    * AST evaluation.
