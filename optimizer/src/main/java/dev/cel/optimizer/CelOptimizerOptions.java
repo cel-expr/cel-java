@@ -44,7 +44,7 @@ public abstract class CelOptimizerOptions {
 
   /** Returns a new options builder with recommended defaults pre-configured. */
   public static Builder newBuilder() {
-    return new AutoValue_CelOptimizerOptions.Builder().enableAstValidation(false);
+    return new AutoValue_CelOptimizerOptions.Builder().enableAstValidation(true);
   }
 
   CelOptimizerOptions() {}
