@@ -23,6 +23,7 @@ import com.google.errorprone.annotations.Immutable;
 import dev.cel.common.CelFunctionDecl;
 import dev.cel.common.CelIssue;
 import dev.cel.common.CelOverloadDecl;
+import dev.cel.common.ast.CelBlock;
 import dev.cel.common.ast.CelExpr;
 import dev.cel.common.types.ListType;
 import dev.cel.common.types.SimpleType;
@@ -59,6 +60,15 @@ public final class CelBindingsExtensions
     return LIBRARY;
   }
 
+  public static final CelFunctionDecl CEL_BLOCK_FUNCTION_DECL =
+      CelFunctionDecl.newFunctionDeclaration(
+          CelBlock.FUNCTION_NAME,
+          CelOverloadDecl.newGlobalOverload(
+              "cel_block_list",
+              TypeParamType.create("T"),
+              ListType.create(SimpleType.DYN),
+              TypeParamType.create("T")));
+
   @Override
   public int version() {
     return 0;
@@ -67,14 +77,7 @@ public final class CelBindingsExtensions
   @Override
   public ImmutableSet<CelFunctionDecl> functions() {
     // TODO: Add bindings for block once decorator support is available.
-    return ImmutableSet.of(
-        CelFunctionDecl.newFunctionDeclaration(
-            "cel.@block",
-            CelOverloadDecl.newGlobalOverload(
-                "cel_block_list",
-                TypeParamType.create("T"),
-                ListType.create(SimpleType.DYN),
-                TypeParamType.create("T"))));
+    return ImmutableSet.of(CEL_BLOCK_FUNCTION_DECL);
   }
 
   @Override

@@ -73,6 +73,7 @@ java_library(
         "//common/navigation:mutable_navigation",
         "//common/types",
         "//common/types:type_providers",
+        "//extensions:bindings",
         "//optimizer:ast_optimizer",
         "//optimizer:mutable_ast",
         "@maven//:com_google_errorprone_error_prone_annotations",

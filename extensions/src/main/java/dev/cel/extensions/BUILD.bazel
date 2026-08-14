@@ -145,6 +145,7 @@ java_library(
     deps = [
         "//common:compiler_common",
         "//common/ast",
+        "//common/ast:cel_block",
         "//common/types",
         "//compiler:compiler_builder",
         "//extensions:extension_library",

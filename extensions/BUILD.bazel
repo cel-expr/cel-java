@@ -61,3 +61,9 @@ java_library(
     name = "native",
     exports = ["//extensions/src/main/java/dev/cel/extensions:native"],
 )
+
+java_library(
+    name = "bindings",
+    visibility = ["//:internal"],
+    exports = ["//extensions/src/main/java/dev/cel/extensions:bindings"],
+)

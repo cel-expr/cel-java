@@ -34,7 +34,6 @@ import dev.cel.common.CelAbstractSyntaxTree;
 import dev.cel.common.CelFunctionDecl;
 import dev.cel.common.CelMutableAst;
 import dev.cel.common.CelMutableSource;
-import dev.cel.common.CelOverloadDecl;
 import dev.cel.common.CelSource;
 import dev.cel.common.CelSource.Extension;
 import dev.cel.common.CelSource.Extension.Component;
@@ -55,8 +54,8 @@ import dev.cel.common.navigation.CelNavigableMutableAst;
 import dev.cel.common.navigation.CelNavigableMutableExpr;
 import dev.cel.common.navigation.TraversalOrder;
 import dev.cel.common.types.CelType;
-import dev.cel.common.types.ListType;
 import dev.cel.common.types.SimpleType;
+import dev.cel.extensions.CelBindingsExtensions;
 import dev.cel.optimizer.AstMutator;
 import dev.cel.optimizer.AstMutator.MangledComprehensionAst;
 import dev.cel.optimizer.CelAstOptimizer;
@@ -98,8 +97,6 @@ public final class SubexpressionOptimizer implements CelAstOptimizer {
   private static final SubexpressionOptimizer INSTANCE =
       new SubexpressionOptimizer(SubexpressionOptimizerOptions.newBuilder().build());
   private static final String BIND_IDENTIFIER_PREFIX = "@r";
-  private static final String CEL_BLOCK_FUNCTION = "cel.@block";
-  private static final String BLOCK_INDEX_PREFIX = "@index";
   private static final Extension CEL_BLOCK_AST_EXTENSION_TAG =
       Extension.create("cel_block", Version.of(1L, 1L), Component.COMPONENT_RUNTIME);
 
@@ -165,7 +162,7 @@ public final class SubexpressionOptimizer implements CelAstOptimizer {
       CelMutableExpr targetCseShape = normalizeForEquality(cseCandidates.get(0));
       subexpressions.add(cseCandidates.get(0));
 
-      String blockIdentifier = BLOCK_INDEX_PREFIX + blockIdentifierIndex++;
+      String blockIdentifier = CelBlock.INDEX_PREFIX + blockIdentifierIndex++;
 
       // Replace all CSE candidates with new block index identifier
       astToModify =
@@ -217,7 +214,7 @@ public final class SubexpressionOptimizer implements CelAstOptimizer {
 
     // Wrap the optimized expression in cel.block
     astToModify =
-        astMutator.wrapAstWithNewCelBlock(CEL_BLOCK_FUNCTION, astToModify, subexpressions);
+        astMutator.wrapAstWithNewCelBlock(CelBlock.FUNCTION_NAME, astToModify, subexpressions);
     astToModify = astMutator.renumberIdsConsecutively(astToModify);
 
     // Tag the AST with cel.block designated as an extension
@@ -226,7 +223,7 @@ public final class SubexpressionOptimizer implements CelAstOptimizer {
     return OptimizationResult.create(
         optimizedAst,
         newVarDecls.build(),
-        ImmutableList.of(newCelBlockFunctionDecl(ast.getResultType())));
+        ImmutableList.of(CelBindingsExtensions.CEL_BLOCK_FUNCTION_DECL));
   }
 
   /**
@@ -595,11 +592,8 @@ public final class SubexpressionOptimizer implements CelAstOptimizer {
   }
 
   @VisibleForTesting
-  static CelFunctionDecl newCelBlockFunctionDecl(CelType resultType) {
-    return CelFunctionDecl.newFunctionDeclaration(
-        CEL_BLOCK_FUNCTION,
-        CelOverloadDecl.newGlobalOverload(
-            "cel_block_list", resultType, ListType.create(SimpleType.DYN), resultType));
+  static CelFunctionDecl newCelBlockFunctionDecl(CelType unusedResultType) {
+    return CelBindingsExtensions.CEL_BLOCK_FUNCTION_DECL;
   }
 
   /** Options to configure how Common Subexpression Elimination behave. */
