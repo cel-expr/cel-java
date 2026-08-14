@@ -22,7 +22,6 @@ import static dev.cel.common.formats.YamlHelper.newInteger;
 import static dev.cel.common.formats.YamlHelper.newString;
 import static dev.cel.common.formats.YamlHelper.parseYamlSource;
 import static dev.cel.common.formats.YamlHelper.validateYamlType;
-import static java.util.Collections.singletonList;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -60,7 +59,7 @@ import org.yaml.snakeyaml.nodes.Tag;
  */
 public final class CelEnvironmentYamlParser {
   // Sentinel values to be returned for various declarations when parsing failure is encountered.
-  private static final TypeDecl ERROR_TYPE_DECL = TypeDecl.create(ERROR);
+  private static final TypeDecl ERROR_TYPE_DECL = TypeSpecifierParser.ERROR_TYPE_DECL;
   private static final VariableDecl ERROR_VARIABLE_DECL =
       VariableDecl.create(ERROR, ERROR_TYPE_DECL);
   private static final FunctionDecl ERROR_FUNCTION_DECL =
@@ -335,6 +334,7 @@ public final class CelEnvironmentYamlParser {
       Node valueNode = nodeTuple.getValueNode();
       String keyName = ((ScalarNode) keyNode).getValue();
       switch (keyName) {
+        case "type":
         case "type_name":
           typeName = newString(ctx, valueNode);
           break;
@@ -478,7 +478,7 @@ public final class CelEnvironmentYamlParser {
     return builder.build();
   }
 
-  private static ImmutableSet<OverloadDecl> parseOverloads(ParserContext<Node> ctx, Node node) {
+  private ImmutableSet<OverloadDecl> parseOverloads(ParserContext<Node> ctx, Node node) {
     long listId = ctx.collectMetadata(node);
     ImmutableSet.Builder<OverloadDecl> overloadSetBuilder = ImmutableSet.builder();
     if (!assertYamlType(ctx, listId, node, YamlNodeType.LIST)) {
@@ -553,8 +553,7 @@ public final class CelEnvironmentYamlParser {
     return builder.build();
   }
 
-  private static ImmutableList<TypeDecl> parseOverloadArguments(
-      ParserContext<Node> ctx, Node node) {
+  private ImmutableList<TypeDecl> parseOverloadArguments(ParserContext<Node> ctx, Node node) {
     long listValueId = ctx.collectMetadata(node);
     if (!assertYamlType(ctx, listValueId, node, YamlNodeType.LIST)) {
       return ImmutableList.of();
@@ -791,7 +790,7 @@ public final class CelEnvironmentYamlParser {
   }
 
   @CanIgnoreReturnValue
-  private static TypeDecl.Builder parseInlinedTypeDecl(
+  private TypeDecl.Builder parseInlinedTypeDecl(
       ParserContext<Node> ctx, long keyId, Node keyNode, Node valueNode, TypeDecl.Builder builder) {
     if (!assertYamlType(ctx, keyId, keyNode, YamlNodeType.STRING, YamlNodeType.TEXT)) {
       return builder;
@@ -800,24 +799,28 @@ public final class CelEnvironmentYamlParser {
     // Create a synthetic node to make this behave as if a `type: ` parent node actually exists.
     MappingNode mapNode =
         new MappingNode(
-            Tag.MAP, /* value= */ singletonList(new NodeTuple(keyNode, valueNode)), FlowStyle.AUTO);
+            Tag.MAP,
+            /* value= */ ImmutableList.of(new NodeTuple(keyNode, valueNode)),
+            FlowStyle.AUTO);
 
     return parseTypeDeclFields(ctx, mapNode, builder);
   }
 
-  private static TypeDecl parseTypeDecl(ParserContext<Node> ctx, Node node) {
-    TypeDecl.Builder builder = TypeDecl.newBuilder();
+  private TypeDecl parseTypeDecl(ParserContext<Node> ctx, Node node) {
     long id = ctx.collectMetadata(node);
-    if (!assertYamlType(ctx, id, node, YamlNodeType.MAP)) {
-      return ERROR_TYPE_DECL;
+    if (validateYamlType(node, YamlNodeType.STRING, YamlNodeType.TEXT)) {
+      return TypeSpecifierParser.parse(ctx, id, newString(ctx, node));
     }
-
-    MappingNode mapNode = (MappingNode) node;
-    return parseTypeDeclFields(ctx, mapNode, builder).build();
+    if (validateYamlType(node, YamlNodeType.MAP)) {
+      TypeDecl.Builder builder = TypeDecl.newBuilder();
+      return parseTypeDeclFields(ctx, (MappingNode) node, builder).build();
+    }
+    assertYamlType(ctx, id, node, YamlNodeType.STRING, YamlNodeType.TEXT, YamlNodeType.MAP);
+    return ERROR_TYPE_DECL;
   }
 
   @CanIgnoreReturnValue
-  private static TypeDecl.Builder parseTypeDeclFields(
+  private TypeDecl.Builder parseTypeDeclFields(
       ParserContext<Node> ctx, MappingNode mapNode, TypeDecl.Builder builder) {
     for (NodeTuple nodeTuple : mapNode.getValue()) {
       Node keyNode = nodeTuple.getKeyNode();

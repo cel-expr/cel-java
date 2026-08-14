@@ -19,12 +19,14 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.Assert.assertThrows;
 
 import com.google.common.base.Ascii;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.io.Resources;
 import com.google.rpc.context.AttributeContext;
 import com.google.testing.junit.testparameterinjector.TestParameter;
 import com.google.testing.junit.testparameterinjector.TestParameterInjector;
+import dev.cel.bundle.CelEnvironment.ContextVariable;
 import dev.cel.bundle.CelEnvironment.ExtensionConfig;
 import dev.cel.bundle.CelEnvironment.FunctionDecl;
 import dev.cel.bundle.CelEnvironment.LibrarySubset;
@@ -379,6 +381,256 @@ public final class CelEnvironmentYamlParserTest {
   }
 
   @Test
+  public void environment_setListVariable_shorthand() throws Exception {
+    String yamlConfig =
+        "variables:\n" //
+            + "- name: 'request'\n" //
+            + "  type: 'list<string>'";
+
+    CelEnvironment environment = ENVIRONMENT_PARSER.parse(yamlConfig);
+
+    assertThat(environment)
+        .isEqualTo(
+            CelEnvironment.newBuilder()
+                .setSource(environment.source().get())
+                .setVariables(
+                    ImmutableSet.of(
+                        VariableDecl.create(
+                            "request",
+                            TypeDecl.newBuilder()
+                                .setName("list")
+                                .addParams(TypeDecl.create("string"))
+                                .build())))
+                .build());
+    assertThat(environment.extend(CEL_WITH_MESSAGE_TYPES, CelOptions.DEFAULT)).isNotNull();
+  }
+
+  @Test
+  public void environment_setMapVariable_shorthand() throws Exception {
+    String yamlConfig =
+        "variables:\n" //
+            + "- name: 'request'\n" //
+            + "  type: 'map<string, dyn>'";
+
+    CelEnvironment environment = ENVIRONMENT_PARSER.parse(yamlConfig);
+
+    assertThat(environment)
+        .isEqualTo(
+            CelEnvironment.newBuilder()
+                .setSource(environment.source().get())
+                .setVariables(
+                    ImmutableSet.of(
+                        VariableDecl.create(
+                            "request",
+                            TypeDecl.newBuilder()
+                                .setName("map")
+                                .addParams(TypeDecl.create("string"), TypeDecl.create("dyn"))
+                                .build())))
+                .build());
+    assertThat(environment.extend(CEL_WITH_MESSAGE_TYPES, CelOptions.DEFAULT)).isNotNull();
+  }
+
+  @Test
+  public void environment_withTypeSpecifiersEnabled_handlesStructuredMapTypeDecl()
+      throws Exception {
+    String yamlConfig =
+        "variables:\n" //
+            + "- name: 'request'\n" //
+            + "  type:\n" //
+            + "    type_name: 'map'\n" //
+            + "    params:\n" //
+            + "      - type_name: 'string'\n" //
+            + "      - type_name: 'dyn'";
+
+    CelEnvironment environment = ENVIRONMENT_PARSER.parse(yamlConfig);
+
+    assertThat(environment)
+        .isEqualTo(
+            CelEnvironment.newBuilder()
+                .setSource(environment.source().get())
+                .setVariables(
+                    ImmutableSet.of(
+                        VariableDecl.create(
+                            "request",
+                            TypeDecl.newBuilder()
+                                .setName("map")
+                                .addParams(TypeDecl.create("string"), TypeDecl.create("dyn"))
+                                .build())))
+                .build());
+    assertThat(environment.extend(CEL_WITH_MESSAGE_TYPES, CelOptions.DEFAULT)).isNotNull();
+  }
+
+  @Test
+  public void environment_withTypeSpecifiersEnabled_handlesBlockScalarTextTypeDecl()
+      throws Exception {
+    String yamlConfig =
+        "variables:\n" //
+            + "- name: 'request'\n" //
+            + "  type: >-\n" //
+            + "    list<string>";
+
+    CelEnvironment environment = ENVIRONMENT_PARSER.parse(yamlConfig);
+
+    assertThat(environment)
+        .isEqualTo(
+            CelEnvironment.newBuilder()
+                .setSource(environment.source().get())
+                .setVariables(
+                    ImmutableSet.of(
+                        VariableDecl.create(
+                            "request",
+                            TypeDecl.newBuilder()
+                                .setName("list")
+                                .addParams(TypeDecl.create("string"))
+                                .build())))
+                .build());
+    assertThat(environment.extend(CEL_WITH_MESSAGE_TYPES, CelOptions.DEFAULT)).isNotNull();
+  }
+
+  @Test
+  public void environment_setMessageVariable_shorthand() throws Exception {
+    String yamlConfig =
+        "variables:\n" //
+            + "- name: 'request'\n" //
+            + "  type: 'google.rpc.context.AttributeContext.Request'";
+
+    CelEnvironment environment = ENVIRONMENT_PARSER.parse(yamlConfig);
+
+    assertThat(environment)
+        .isEqualTo(
+            CelEnvironment.newBuilder()
+                .setSource(environment.source().get())
+                .setVariables(
+                    ImmutableSet.of(
+                        VariableDecl.create(
+                            "request",
+                            TypeDecl.create("google.rpc.context.AttributeContext.Request"))))
+                .build());
+    assertThat(environment.extend(CEL_WITH_MESSAGE_TYPES, CelOptions.DEFAULT)).isNotNull();
+  }
+
+  @Test
+  public void environment_setContextVariable_type() throws Exception {
+    String yamlConfig =
+        "context_variable:\n" //
+            + "  type: 'google.rpc.context.AttributeContext.Request'";
+
+    CelEnvironment environment = ENVIRONMENT_PARSER.parse(yamlConfig);
+
+    assertThat(environment)
+        .isEqualTo(
+            CelEnvironment.newBuilder()
+                .setSource(environment.source().get())
+                .setContextVariable(
+                    ContextVariable.create("google.rpc.context.AttributeContext.Request"))
+                .build());
+    assertThat(environment.extend(CEL_WITH_MESSAGE_TYPES, CelOptions.DEFAULT)).isNotNull();
+  }
+
+  @Test
+  public void environment_setFunctions_shorthand() throws Exception {
+    String yamlConfig =
+        "functions:\n" //
+            + "- name: 'isEmpty'\n" //
+            + "  overloads:\n" //
+            + "  - id: 'list_isEmpty'\n" //
+            + "    target: 'list<~T>'\n" //
+            + "    return: 'bool'\n" //
+            + "- name: 'getOrDefault'\n" //
+            + "  overloads:\n" //
+            + "  - id: 'map_getOrDefault'\n" //
+            + "    target: 'map<~K, ~V>'\n" //
+            + "    args:\n" //
+            + "    - '~K'\n" //
+            + "    - '~V'\n" //
+            + "    return: '~V'";
+
+    CelEnvironment environment = ENVIRONMENT_PARSER.parse(yamlConfig);
+
+    assertThat(environment)
+        .isEqualTo(
+            CelEnvironment.newBuilder()
+                .setSource(environment.source().get())
+                .setFunctions(
+                    ImmutableSet.of(
+                        FunctionDecl.create(
+                            "isEmpty",
+                            ImmutableSet.of(
+                                OverloadDecl.newBuilder()
+                                    .setId("list_isEmpty")
+                                    .setTarget(
+                                        TypeDecl.newBuilder()
+                                            .setName("list")
+                                            .addParams(TypeDecl.ofTypeParam("T"))
+                                            .build())
+                                    .setReturnType(TypeDecl.create("bool"))
+                                    .build())),
+                        FunctionDecl.create(
+                            "getOrDefault",
+                            ImmutableSet.of(
+                                OverloadDecl.newBuilder()
+                                    .setId("map_getOrDefault")
+                                    .setTarget(
+                                        TypeDecl.newBuilder()
+                                            .setName("map")
+                                            .addParams(
+                                                TypeDecl.ofTypeParam("K"),
+                                                TypeDecl.ofTypeParam("V"))
+                                            .build())
+                                    .addArguments(
+                                        TypeDecl.ofTypeParam("K"), TypeDecl.ofTypeParam("V"))
+                                    .setReturnType(TypeDecl.ofTypeParam("V"))
+                                    .build()))))
+                .build());
+    assertThat(environment.extend(CEL_WITH_MESSAGE_TYPES, CelOptions.DEFAULT)).isNotNull();
+  }
+
+  @Test
+  public void environment_withTypeSpecifier_invalidSyntaxError() {
+    String yamlConfig =
+        "variables:\n" //
+            + "- name: 'request'\n" //
+            + "  type: 'list<'";
+
+    CelEnvironmentException e =
+        assertThrows(CelEnvironmentException.class, () -> ENVIRONMENT_PARSER.parse(yamlConfig));
+    assertThat(e).hasMessageThat().contains("missing identifier at position 5");
+  }
+
+  @Test
+  public void environment_withTypeSpecifier_invalidYamlNodeError() {
+    String yamlConfig =
+        "variables:\n" //
+            + "- name: 'request'\n" //
+            + "  type: 1";
+
+    CelEnvironmentException e =
+        assertThrows(CelEnvironmentException.class, () -> ENVIRONMENT_PARSER.parse(yamlConfig));
+    assertThat(e)
+        .hasMessageThat()
+        .contains("wanted type(s) [tag:yaml.org,2002:str !txt tag:yaml.org,2002:map]");
+  }
+
+  @Test
+  public void environment_evaluatesShorthandVariable() throws Exception {
+    String yamlConfig =
+        "variables:\n" //
+            + "- name: 'values'\n" //
+            + "  type: 'list<string>'";
+
+    CelEnvironment environment = ENVIRONMENT_PARSER.parse(yamlConfig);
+    Cel cel = environment.extend(CelFactory.standardCelBuilder().build(), CelOptions.DEFAULT);
+
+    CelAbstractSyntaxTree ast = cel.compile("values.size() == 2 && values[0] == 'hello'").getAst();
+    boolean result =
+        (boolean)
+            cel.createProgram(ast)
+                .eval(
+                    ImmutableMap.<String, Object>of("values", ImmutableList.of("hello", "world")));
+    assertThat(result).isTrue();
+  }
+
+  @Test
   public void environment_setContainer() throws Exception {
     String yamlConfig =
         "container: google.rpc.context\n"
@@ -577,7 +829,7 @@ public final class CelEnvironmentYamlParserTest {
             + " - name: foo\n" //
             + "   type: 1",
         "ERROR: <input>:3:10: Got yaml node type tag:yaml.org,2002:int, wanted type(s)"
-            + " [tag:yaml.org,2002:map]\n"
+            + " [tag:yaml.org,2002:str !txt tag:yaml.org,2002:map]\n"
             + " |    type: 1\n"
             + " | .........^"),
     ILLEGAL_YAML_TYPE_TYPE_VALUE(
@@ -889,6 +1141,48 @@ public final class CelEnvironmentYamlParserTest {
                                                 .build())
                                         .build())
                                 .setReturnType(TypeDecl.create("bool"))
+                                .build()))
+                    .build(),
+                FunctionDecl.newBuilder()
+                    .setName("isEmptyAlt")
+                    .setDescription(
+                        "determines whether a list is empty,\nor a string has no characters")
+                    .setOverloads(
+                        ImmutableSet.of(
+                            OverloadDecl.newBuilder()
+                                .setId("wrapper_string_isEmpty")
+                                .setTarget(TypeDecl.create("google.protobuf.StringValue"))
+                                .addExamples("''.isEmptyAlt() // true")
+                                .setReturnType(TypeDecl.create("bool"))
+                                .build(),
+                            OverloadDecl.newBuilder()
+                                .setId("list_isEmpty")
+                                .addExamples("[].isEmptyAlt() // true")
+                                .addExamples("[1].isEmptyAlt() // false")
+                                .setTarget(
+                                    TypeDecl.newBuilder()
+                                        .setName("list")
+                                        .addParams(TypeDecl.ofTypeParam("T"))
+                                        .build())
+                                .setReturnType(TypeDecl.create("bool"))
+                                .build()))
+                    .build(),
+                FunctionDecl.newBuilder()
+                    .setName("getOrDefault")
+                    .setDescription(
+                        "Returns the value of a key in a map or the provided\ndefault value.")
+                    .setOverloads(
+                        ImmutableSet.of(
+                            OverloadDecl.newBuilder()
+                                .setId("map_getOrDefault")
+                                .setTarget(
+                                    TypeDecl.newBuilder()
+                                        .setName("map")
+                                        .addParams(
+                                            TypeDecl.ofTypeParam("K"), TypeDecl.ofTypeParam("V"))
+                                        .build())
+                                .addArguments(TypeDecl.ofTypeParam("K"), TypeDecl.ofTypeParam("V"))
+                                .setReturnType(TypeDecl.ofTypeParam("V"))
                                 .build()))
                     .build())
             .setFeatures(CelEnvironment.FeatureFlag.create("cel.feature.macro_call_tracking", true))

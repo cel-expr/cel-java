@@ -14,6 +14,8 @@
 
 package dev.cel.compiler.tools;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
+
 import dev.cel.expr.CheckedExpr;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.io.Files;
@@ -34,7 +36,6 @@ import dev.cel.parser.CelStandardMacro;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Locale;
@@ -95,7 +96,7 @@ final class CelCompilerTool implements Callable<Integer> {
     }
 
     CelEnvironmentYamlParser environmentYamlParser = CelEnvironmentYamlParser.newInstance();
-    String yamlContent = new String(readFileBytes(celEnvironmentPath), StandardCharsets.UTF_8);
+    String yamlContent = new String(readFileBytes(celEnvironmentPath), UTF_8);
     CelEnvironment environment = environmentYamlParser.parse(yamlContent);
 
     return environment.extend(celCompilerBuilder.build(), CEL_OPTIONS);

@@ -97,6 +97,7 @@ java_library(
     name = "environment",
     srcs = [
         "CelEnvironment.java",
+        "TypeSpecifierParser.java",
     ],
     tags = [
     ],
@@ -111,6 +112,7 @@ java_library(
         "//common:container",
         "//common:options",
         "//common:source",
+        "//common/formats:parser_context",
         "//common/types",
         "//common/types:type_providers",
         "//compiler:compiler_builder",

@@ -692,6 +692,19 @@ public abstract class CelEnvironment {
       return newBuilder().setName(name).build();
     }
 
+    /**
+     * Parses a type specifier shorthand string (e.g. {@code "list<int>"}, {@code "map<string,
+     * dyn>"}, {@code "list<~T>"}) into a {@link TypeDecl}.
+     */
+    static TypeDecl parse(String typeSpecifier) {
+      return TypeSpecifierParser.parse(typeSpecifier);
+    }
+
+    /** Creates a new {@link TypeDecl} representing a type parameter with the provided name. */
+    static TypeDecl ofTypeParam(String typeParamName) {
+      return newBuilder().setName(typeParamName).setIsTypeParam(true).build();
+    }
+
     public static TypeDecl.Builder newBuilder() {
       return new AutoValue_CelEnvironment_TypeDecl.Builder().setIsTypeParam(false);
     }

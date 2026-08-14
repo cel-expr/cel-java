@@ -55,6 +55,7 @@ import dev.cel.testing.testdata.SingleFile;
 import dev.cel.testing.testdata.proto3.StandaloneGlobalEnum;
 import java.io.IOException;
 import java.net.URL;
+import java.util.EnumSet;
 import java.util.Map;
 import java.util.Optional;
 import org.junit.Test;
@@ -199,6 +200,37 @@ public final class CelPolicyCompilerImplTest {
         ImmutableMap.of("resource", ImmutableMap.of("payload", ImmutableList.of(1, 2, 3)));
     Object evalResultFalse = cel.createProgram(ast).eval(inputFalse);
     assertThat(evalResultFalse).isEqualTo(ImmutableList.of("ALWAYS"));
+  }
+
+  @Test
+  public void evaluateYamlPolicy_withShorthandTypeSpecifiersInEnvironment() throws Exception {
+    String configSource =
+        "variables:\n" //
+            + "- name: 'user_scores'\n" //
+            + "  type: 'map<string, int>'\n" //
+            + "- name: 'allowed_users'\n" //
+            + "  type: 'list<string>'\n";
+    CelEnvironment celEnvironment = CelEnvironmentYamlParser.newInstance().parse(configSource);
+    Cel cel = celEnvironment.extend(newCel(), CEL_OPTIONS);
+
+    String policySource =
+        "name: 'user_access_policy'\n" //
+            + "rule:\n" //
+            + "  match:\n" //
+            + "  - condition: \"user_scores['alice'] > 50 && 'alice' in allowed_users\"\n" //
+            + "    output: 'true'\n";
+    CelPolicy policy = POLICY_PARSER.parse(policySource);
+
+    CelAbstractSyntaxTree ast =
+        CelPolicyCompilerFactory.newPolicyCompiler(cel).build().compile(policy);
+
+    Object evalResult =
+        cel.createProgram(ast)
+            .eval(
+                ImmutableMap.of(
+                    "user_scores", ImmutableMap.of("alice", 95L),
+                    "allowed_users", ImmutableList.of("alice", "bob")));
+    assertThat(evalResult).isEqualTo(Optional.of(true));
   }
 
   @Test
@@ -398,7 +430,7 @@ public final class CelPolicyCompilerImplTest {
   }
 
   @Test
-  @SuppressWarnings("unchecked")
+  @SuppressWarnings("unchecked") // Test only
   public void evaluateYamlPolicy_withCanonicalTestData(
       @TestParameter(valuesProvider = EvaluablePolicyTestDataProvider.class)
           EvaluablePolicyTestData testData)
@@ -470,7 +502,7 @@ public final class CelPolicyCompilerImplTest {
   }
 
   @Test
-  @SuppressWarnings("unchecked")
+  @SuppressWarnings("unchecked") // Test only
   public void evaluateYamlPolicy_nestedRuleProducesOptionalOutput() throws Exception {
     Cel cel = newCel();
     String policySource =
@@ -527,7 +559,7 @@ public final class CelPolicyCompilerImplTest {
     String evalResult =
         (String)
             cel.createProgram(compiledPolicyAst)
-                .eval((unused) -> Optional.empty(), lateFunctionBindings);
+                .eval(unused -> Optional.empty(), lateFunctionBindings);
     assertThat(evalResult).isEqualTo("foo" + exampleValue);
   }
 
@@ -587,7 +619,7 @@ public final class CelPolicyCompilerImplTest {
     @Override
     protected ImmutableList<TestParameterValue> provideValues(Context context) throws Exception {
       ImmutableList.Builder<TestParameterValue> builder = ImmutableList.builder();
-      for (TestYamlPolicy yamlPolicy : TestYamlPolicy.values()) {
+      for (TestYamlPolicy yamlPolicy : EnumSet.allOf(TestYamlPolicy.class)) {
         PolicyTestSuite testSuite = yamlPolicy.readTestYamlContent();
         for (PolicyTestSection testSection : testSuite.getSection()) {
           for (PolicyTestCase testCase : testSection.getTests()) {
