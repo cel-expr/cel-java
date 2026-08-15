@@ -15,6 +15,9 @@
 package dev.cel.verifier;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.primitives.UnsignedLong;
 import com.microsoft.z3.ArrayExpr;
 import com.microsoft.z3.Context;
 import com.microsoft.z3.Expr;
@@ -23,14 +26,25 @@ import com.microsoft.z3.FuncDecl;
 import com.microsoft.z3.IntNum;
 import com.microsoft.z3.Model;
 import com.microsoft.z3.RatNum;
+import dev.cel.common.types.CelType;
+import dev.cel.common.types.ListType;
+import dev.cel.common.types.MapType;
+import dev.cel.common.types.OptionalType;
+import dev.cel.common.types.SimpleType;
+import dev.cel.common.types.StructTypeReference;
+import dev.cel.common.values.CelByteString;
+import dev.cel.common.values.CelValueProvider;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import org.jspecify.annotations.Nullable;
 
-/** Generates human-readable counterexample strings from Z3 models. */
+/** Generates structured counterexamples and human-readable strings from Z3 models. */
 @SuppressWarnings({"unchecked", "rawtypes"}) // Z3 Java API uses raw types.
 final class CelZ3CounterexampleGenerator {
 
@@ -38,15 +52,18 @@ final class CelZ3CounterexampleGenerator {
 
   private CelZ3CounterexampleGenerator() {}
 
-  static String generate(
+  static CelCounterexample extract(
       Context ctx,
       CelZ3TypeSystem typeSystem,
+      CelValueProvider valueProvider,
       Model model,
       boolean isApproximate,
-      boolean isCounterexample) {
+      boolean isSatisfyingInput) {
     FuncDecl[] constDecls = model.getConstDecls();
 
-    List<String> bindings = new ArrayList<>();
+    ImmutableMap.Builder<String, CelCounterexample.Binding> bindingsBuilder =
+        ImmutableMap.builder();
+    List<String> bindingStrings = new ArrayList<>();
     for (FuncDecl decl : constDecls) {
       String name = decl.getName().toString();
       // Filter out internal solver-generated Skolem constants (e.g., k!1, seq.empty!0).
@@ -56,106 +73,189 @@ final class CelZ3CounterexampleGenerator {
       }
       Expr<?> constInterp = model.getConstInterp(decl);
       if (constInterp != null) {
-        bindings.add(
-            String.format("\n  %s = %s", name, formatExpr(ctx, typeSystem, model, constInterp)));
+        ExtractedNode node = extractNode(ctx, typeSystem, valueProvider, model, constInterp);
+        bindingsBuilder.put(
+            name, CelCounterexample.Binding.of(name, node.type, node.nativeValue, node.celString));
+        bindingStrings.add(String.format("\n  %s = %s", name, node.celString));
       }
     }
 
+    ImmutableMap<String, CelCounterexample.Binding> bindings = bindingsBuilder.buildOrThrow();
+
+    String displayString;
     if (bindings.isEmpty()) {
-      return isCounterexample
-          ? " (The expression fails unconditionally, regardless of input state)"
-          : " (The expression is satisfiable unconditionally, regardless of input state)";
+      displayString =
+          isSatisfyingInput
+              ? " (The expression is satisfiable unconditionally, regardless of input state)"
+              : " (The expression fails unconditionally, regardless of input state)";
+    } else {
+      String prefix;
+      if (isSatisfyingInput) {
+        prefix = isApproximate ? " Potential satisfying input:" : " Satisfying input:";
+      } else {
+        prefix = isApproximate ? " Potential counterexample input:" : " Counterexample input:";
+      }
+      displayString = prefix + String.join("", bindingStrings);
     }
 
-    String prefix;
-    if (isCounterexample) {
-      prefix = isApproximate ? " Potential counterexample input:" : " Counterexample input:";
-    } else {
-      prefix = isApproximate ? " Potential satisfying input:" : " Satisfying input:";
-    }
-    return prefix + String.join("", bindings);
+    return CelCounterexample.create(bindings, isApproximate, isSatisfyingInput, displayString);
   }
 
-  private static String formatExpr(
-      Context ctx, CelZ3TypeSystem typeSystem, Model model, @Nullable Expr<?> expr) {
-    Preconditions.checkState(expr != null, "Z3 failed to evaluate the expression natively.");
+  static final class ExtractedNode {
+    final CelType type;
+    final @Nullable Object nativeValue;
+    final String celString;
 
-    FuncDecl decl = expr.getFuncDecl();
+    ExtractedNode(CelType type, @Nullable Object nativeValue, String celString) {
+      this.type = type;
+      this.nativeValue = nativeValue;
+      this.celString = celString;
+    }
+  }
 
-    // Handle CelType constructors wrapper unwrapping
-    if (decl.equals(typeSystem.intCons().ConstructorDecl())) {
-      return formatExpr(ctx, typeSystem, model, expr.getArgs()[0]);
-    } else if (decl.equals(typeSystem.timestampCons().ConstructorDecl())) {
-      return "timestamp(" + formatExpr(ctx, typeSystem, model, expr.getArgs()[0]) + ")";
-    } else if (decl.equals(typeSystem.durationCons().ConstructorDecl())) {
-      return "duration('" + formatExpr(ctx, typeSystem, model, expr.getArgs()[0]) + "s')";
-    } else if (decl.equals(typeSystem.uintCons().ConstructorDecl())) {
-      return formatExpr(ctx, typeSystem, model, expr.getArgs()[0]) + "u";
-    } else if (decl.equals(typeSystem.boolCons().ConstructorDecl())) {
-      return formatExpr(ctx, typeSystem, model, expr.getArgs()[0]);
-    } else if (decl.equals(typeSystem.stringCons().ConstructorDecl())) {
-      return expr.getArgs()[0].toString();
-    } else if (decl.equals(typeSystem.bytesCons().ConstructorDecl())) {
-      return "b" + expr.getArgs()[0];
-    } else if (decl.equals(typeSystem.doubleCons().ConstructorDecl())) {
-      Expr<?> doubleArg = expr.getArgs()[0];
-      if (doubleArg instanceof FPNum) {
-        FPNum fpNum = (FPNum) doubleArg;
-        if (fpNum.isNaN()) {
-          return "NaN";
-        }
-        if (fpNum.isInf()) {
-          return fpNum.isNegative() ? "-Infinity" : "Infinity";
-        }
-        if (fpNum.isZero()) {
-          return fpNum.isNegative() ? "-0.0" : "0.0";
-        }
-        Expr<?> realExpr = ctx.mkFPToReal(fpNum).simplify();
-        if (realExpr instanceof RatNum) {
-          RatNum ratNum = (RatNum) realExpr;
-          double val =
-              ratNum.getBigIntNumerator().doubleValue()
-                  / ratNum.getBigIntDenominator().doubleValue();
-          return Double.toString(val);
-        }
+  static ExtractedNode extractNode(
+      Context ctx,
+      CelZ3TypeSystem typeSystem,
+      CelValueProvider valueProvider,
+      Model model,
+      Expr<?> expr) {
+    Preconditions.checkNotNull(expr, "Z3 failed to evaluate the expression natively.");
+
+    if (expr.getArgs().length == 0) {
+      String consName = expr.getFuncDecl().getName().toString();
+      if (consName.equals(CelZ3TypeSystem.CONS_NULL)) {
+        return new ExtractedNode(SimpleType.NULL_TYPE, null, "null");
       }
-      return doubleArg.toString();
-    } else if (decl.equals(typeSystem.listCons().ConstructorDecl())) {
-      return reconstructList(ctx, typeSystem, model, expr.getArgs()[0]);
-    } else if (decl.equals(typeSystem.mapCons().ConstructorDecl())) {
-      return reconstructMap(ctx, typeSystem, model, expr.getArgs()[0]);
-    } else if (decl.equals(typeSystem.messageCons().ConstructorDecl())) {
-      return reconstructMessage(ctx, typeSystem, model, expr.getArgs()[0]);
-    } else if (decl.equals(typeSystem.errorCons().ConstructorDecl())) {
-      return "Error";
-    } else if (decl.equals(typeSystem.unknownCons().ConstructorDecl())) {
-      return "Unknown";
-    } else if (decl.equals(typeSystem.nullCons().ConstructorDecl())) {
-      return "null";
-    } else if (decl.equals(typeSystem.optionalCons().ConstructorDecl())) {
-      Expr<?> optRef = expr.getArgs()[0];
-      Expr<?> hasValueExpr =
+      if (consName.equals(CelZ3TypeSystem.CONS_ERROR)) {
+        return new ExtractedNode(SimpleType.ERROR, null, "Error");
+      }
+      if (expr.isString()) {
+        String raw = expr.toString();
+        return new ExtractedNode(SimpleType.STRING, unquoteZ3String(raw), raw);
+      }
+      if (expr.isTrue() || expr.isFalse()) {
+        boolean val = expr.isTrue();
+        return new ExtractedNode(SimpleType.BOOL, val, Boolean.toString(val));
+      }
+      if (expr instanceof IntNum) {
+        long val = ((IntNum) expr).getInt64();
+        return new ExtractedNode(SimpleType.INT, val, Long.toString(val));
+      }
+      if (expr instanceof FPNum || expr instanceof RatNum) {
+        return decodeDouble(ctx, expr);
+      }
+      return new ExtractedNode(SimpleType.DYN, null, expr.toString());
+    }
+
+    String consName = expr.getFuncDecl().getName().toString();
+    switch (consName) {
+      case CelZ3TypeSystem.CONS_INT:
+        long intVal = ((IntNum) expr.getArgs()[0]).getBigInteger().longValue();
+        return new ExtractedNode(SimpleType.INT, intVal, Long.toString(intVal));
+      case CelZ3TypeSystem.CONS_UINT:
+        UnsignedLong uVal = UnsignedLong.valueOf(((IntNum) expr.getArgs()[0]).getBigInteger());
+        return new ExtractedNode(SimpleType.UINT, uVal, uVal + "u");
+      case CelZ3TypeSystem.CONS_BOOL:
+        boolean boolVal = expr.getArgs()[0].isTrue();
+        return new ExtractedNode(SimpleType.BOOL, boolVal, Boolean.toString(boolVal));
+      case CelZ3TypeSystem.CONS_STRING:
+        String strVal = expr.getArgs()[0].toString();
+        return new ExtractedNode(SimpleType.STRING, unquoteZ3String(strVal), strVal);
+      case CelZ3TypeSystem.CONS_BYTES:
+        String byteVal = expr.getArgs()[0].toString();
+        return new ExtractedNode(
+            SimpleType.BYTES, CelByteString.copyFromUtf8(unquoteZ3String(byteVal)), "b" + byteVal);
+      case CelZ3TypeSystem.CONS_DOUBLE:
+        return decodeDouble(ctx, expr.getArgs()[0]);
+      case CelZ3TypeSystem.CONS_TIMESTAMP:
+        long tsSeconds = ((IntNum) expr.getArgs()[0]).getBigInteger().longValue();
+        return new ExtractedNode(
+            SimpleType.TIMESTAMP, Instant.ofEpochSecond(tsSeconds), "timestamp(" + tsSeconds + ")");
+      case CelZ3TypeSystem.CONS_DURATION:
+        long durSeconds = ((IntNum) expr.getArgs()[0]).getBigInteger().longValue();
+        return new ExtractedNode(
+            SimpleType.DURATION, Duration.ofSeconds(durSeconds), "duration('" + durSeconds + "s')");
+      case CelZ3TypeSystem.CONS_LIST:
+        return reconstructList(ctx, typeSystem, valueProvider, model, expr.getArgs()[0]);
+      case CelZ3TypeSystem.CONS_MAP:
+        return reconstructMap(ctx, typeSystem, valueProvider, model, expr.getArgs()[0]);
+      case CelZ3TypeSystem.CONS_MESSAGE:
+        return reconstructMessage(ctx, typeSystem, valueProvider, model, expr.getArgs()[0]);
+      case CelZ3TypeSystem.CONS_OPTIONAL:
+        return decodeOptional(ctx, typeSystem, valueProvider, model, expr.getArgs()[0]);
+      case CelZ3TypeSystem.CONS_UNKNOWN:
+        return new ExtractedNode(SimpleType.DYN, null, "Unknown");
+      default:
+        return new ExtractedNode(SimpleType.DYN, null, expr.toString());
+    }
+  }
+
+  static String unquoteZ3String(String raw) {
+    if (raw.startsWith("\"") && raw.endsWith("\"") && raw.length() >= 2) {
+      return raw.substring(1, raw.length() - 1).replace("\"\"", "\"");
+    }
+    return raw;
+  }
+
+  static ExtractedNode decodeDouble(Context ctx, Expr<?> doubleArg) {
+    if (doubleArg instanceof FPNum) {
+      FPNum fpNum = (FPNum) doubleArg;
+      if (fpNum.isNaN()) {
+        return new ExtractedNode(SimpleType.DOUBLE, Double.NaN, "NaN");
+      }
+      if (fpNum.isInf()) {
+        double val = fpNum.isNegative() ? Double.NEGATIVE_INFINITY : Double.POSITIVE_INFINITY;
+        return new ExtractedNode(
+            SimpleType.DOUBLE, val, fpNum.isNegative() ? "-Infinity" : "Infinity");
+      }
+      if (fpNum.isZero()) {
+        double val = fpNum.isNegative() ? -0.0 : 0.0;
+        return new ExtractedNode(SimpleType.DOUBLE, val, fpNum.isNegative() ? "-0.0" : "0.0");
+      }
+      Expr<?> realExpr = ctx.mkFPToReal(fpNum).simplify();
+      if (realExpr instanceof RatNum) {
+        RatNum ratNum = (RatNum) realExpr;
+        double val =
+            ratNum.getBigIntNumerator().doubleValue() / ratNum.getBigIntDenominator().doubleValue();
+        return new ExtractedNode(SimpleType.DOUBLE, val, Double.toString(val));
+      }
+    }
+    return new ExtractedNode(SimpleType.DOUBLE, null, doubleArg.toString());
+  }
+
+  static ExtractedNode decodeOptional(
+      Context ctx,
+      CelZ3TypeSystem typeSystem,
+      CelValueProvider valueProvider,
+      Model model,
+      Expr<?> optRef) {
+    Expr<?> hasValueExpr =
+        evaluateStrict(
+            model,
+            typeSystem.optHasValue(optRef),
+            String.format("Z3 failed to evaluate optHasValue natively for %s", optRef));
+    if (hasValueExpr.isTrue()) {
+      Expr<?> valueExpr =
           evaluateStrict(
               model,
-              typeSystem.optHasValue(optRef),
-              String.format("Z3 failed to evaluate optHasValue natively for %s", optRef));
-      if (hasValueExpr.isTrue()) {
-        Expr<?> valueExpr =
-            evaluateStrict(
-                model,
-                typeSystem.getOptionalValue(optRef),
-                String.format("Z3 failed to evaluate optValue natively for %s", optRef));
-        return "optional(" + formatExpr(ctx, typeSystem, model, valueExpr) + ")";
-      } else if (hasValueExpr.isFalse()) {
-        return "optional.none()";
-      }
+              typeSystem.getOptionalValue(optRef),
+              String.format("Z3 failed to evaluate optValue natively for %s", optRef));
+      ExtractedNode valueNode = extractNode(ctx, typeSystem, valueProvider, model, valueExpr);
+      return new ExtractedNode(
+          OptionalType.create(valueNode.type),
+          Optional.ofNullable(valueNode.nativeValue),
+          "optional(" + valueNode.celString + ")");
     }
-
-    return expr.toString();
+    return new ExtractedNode(
+        OptionalType.create(SimpleType.DYN), Optional.empty(), "optional.none()");
   }
 
-  private static String reconstructList(
-      Context ctx, CelZ3TypeSystem typeSystem, Model model, Expr<?> listRef) {
+  private static ExtractedNode reconstructList(
+      Context ctx,
+      CelZ3TypeSystem typeSystem,
+      CelValueProvider valueProvider,
+      Model model,
+      Expr<?> listRef) {
     Expr<?> lenExpr =
         evaluateStrict(
             model,
@@ -165,25 +265,42 @@ final class CelZ3CounterexampleGenerator {
         lenExpr instanceof IntNum, "Expected IntNum length for list %s, got %s", listRef, lenExpr);
     long length = ((IntNum) lenExpr).getInt64();
     int printLimit = (int) Math.min(length, (long) MAX_ELEMENTS_TO_PRINT);
-    List<String> elements = new ArrayList<>();
-    for (int i = 0; i < printLimit; i++) {
+    List<String> elementStrings = new ArrayList<>();
+    ImmutableList.Builder<Object> nativeElements = ImmutableList.builder();
+    CelType elemType = SimpleType.DYN;
+    for (int i = 0; i < length; i++) {
       Expr<?> elem =
           evaluateStrict(
               model,
               ctx.mkNth(typeSystem.getSeq(listRef), ctx.mkInt(i)),
               String.format(
                   "Z3 failed to evaluate list element at index %d for list %s", i, listRef));
-      elements.add(formatExpr(ctx, typeSystem, model, elem));
+      ExtractedNode elemNode = extractNode(ctx, typeSystem, valueProvider, model, elem);
+      if (elemNode.nativeValue != null) {
+        nativeElements.add(elemNode.nativeValue);
+      }
+      if (i < printLimit) {
+        elementStrings.add(elemNode.celString);
+      }
+      elemType = elemNode.type;
     }
     if (length > printLimit) {
-      elements.add("... (" + (length - printLimit) + " more elements)");
+      elementStrings.add("... (" + (length - printLimit) + " more elements)");
     }
 
-    return "[" + String.join(", ", elements) + "]";
+    ImmutableList<Object> builtList = nativeElements.build();
+    Object adaptedList = valueProvider.celValueConverter().toRuntimeValue(builtList);
+
+    return new ExtractedNode(
+        ListType.create(elemType), adaptedList, "[" + String.join(", ", elementStrings) + "]");
   }
 
-  private static String reconstructMap(
-      Context ctx, CelZ3TypeSystem typeSystem, Model model, Expr<?> mapRef) {
+  static ExtractedNode reconstructMap(
+      Context ctx,
+      CelZ3TypeSystem typeSystem,
+      CelValueProvider valueProvider,
+      Model model,
+      Expr<?> mapRef) {
     Expr<?> lenExpr =
         evaluateStrict(
             model,
@@ -194,9 +311,12 @@ final class CelZ3CounterexampleGenerator {
 
     long length = ((IntNum) lenExpr).getInt64();
     int printLimit = (int) Math.min(length, (long) MAX_ELEMENTS_TO_PRINT);
-    List<String> entries = new ArrayList<>();
+    List<String> entryStrings = new ArrayList<>();
+    ImmutableMap.Builder<Object, Object> nativeMap = ImmutableMap.builder();
     Set<Expr<?>> seenKeys = new HashSet<>();
-    for (int i = 0; i < printLimit; i++) {
+    CelType keyType = SimpleType.DYN;
+    CelType valType = SimpleType.DYN;
+    for (int i = 0; i < length; i++) {
       Expr<?> key =
           evaluateStrict(
               model,
@@ -217,21 +337,35 @@ final class CelZ3CounterexampleGenerator {
                 model,
                 ctx.mkSelect((ArrayExpr) typeSystem.getMapValues(mapRef), key),
                 String.format("Z3 failed to evaluate map value for key %s in map %s", key, mapRef));
-        entries.add(
-            formatExpr(ctx, typeSystem, model, key)
-                + ": "
-                + formatExpr(ctx, typeSystem, model, value));
+        ExtractedNode keyNode = extractNode(ctx, typeSystem, valueProvider, model, key);
+        ExtractedNode valNode = extractNode(ctx, typeSystem, valueProvider, model, value);
+        if (keyNode.nativeValue != null && valNode.nativeValue != null) {
+          nativeMap.put(keyNode.nativeValue, valNode.nativeValue);
+        }
+        if (entryStrings.size() < printLimit) {
+          entryStrings.add(keyNode.celString + ": " + valNode.celString);
+        }
+        keyType = keyNode.type;
+        valType = valNode.type;
       }
     }
     if (length > printLimit) {
-      entries.add("... (" + (length - printLimit) + " more entries)");
+      entryStrings.add("... (" + (length - printLimit) + " more entries)");
     }
 
-    return "{" + String.join(", ", entries) + "}";
+    ImmutableMap<Object, Object> builtMap = nativeMap.buildOrThrow();
+    Object adaptedMap = valueProvider.celValueConverter().toRuntimeValue(builtMap);
+
+    return new ExtractedNode(
+        MapType.create(keyType, valType), adaptedMap, "{" + String.join(", ", entryStrings) + "}");
   }
 
-  private static String reconstructMessage(
-      Context ctx, CelZ3TypeSystem typeSystem, Model model, Expr<?> msgRef) {
+  static ExtractedNode reconstructMessage(
+      Context ctx,
+      CelZ3TypeSystem typeSystem,
+      CelValueProvider valueProvider,
+      Model model,
+      Expr<?> msgRef) {
     Expr<?> presenceArray =
         evaluateStrict(
             model,
@@ -244,12 +378,16 @@ final class CelZ3CounterexampleGenerator {
             typeSystem.getMsgTypeName(msgRef),
             String.format("Z3 failed to evaluate type name natively for msg %s", msgRef));
 
-    String typeName = formatExpr(ctx, typeSystem, model, typeNameExpr).replace("\"", "");
+    String typeName =
+        extractNode(ctx, typeSystem, valueProvider, model, typeNameExpr)
+            .celString
+            .replace("\"", "");
 
     Set<Expr<?>> keys = new LinkedHashSet<>();
     extractKeys(presenceArray, keys);
 
-    List<String> entries = new ArrayList<>();
+    List<String> entryStrings = new ArrayList<>();
+    ImmutableMap.Builder<String, Object> fieldMap = ImmutableMap.builder();
     for (Expr<?> key : keys) {
       Expr<?> presence =
           evaluateStrict(
@@ -265,12 +403,35 @@ final class CelZ3CounterexampleGenerator {
                 ctx.mkSelect((ArrayExpr) typeSystem.getMsgValues(msgRef), key),
                 String.format("Z3 failed to evaluate msg value for key %s in msg %s", key, msgRef));
 
-        String fieldName = formatExpr(ctx, typeSystem, model, key).replace("\"", "");
-        entries.add(fieldName + ": " + formatExpr(ctx, typeSystem, model, value));
+        String fieldName =
+            extractNode(ctx, typeSystem, valueProvider, model, key).celString.replace("\"", "");
+        ExtractedNode valNode = extractNode(ctx, typeSystem, valueProvider, model, value);
+        if (valNode.nativeValue != null) {
+          fieldMap.put(fieldName, valNode.nativeValue);
+        }
+        entryStrings.add(fieldName + ": " + valNode.celString);
       }
     }
 
-    return typeName + "{" + String.join(", ", entries) + "}";
+    ImmutableMap<String, Object> builtFieldMap = fieldMap.buildOrThrow();
+    Object nativeVal = null;
+    try {
+      Optional<Object> structVal = valueProvider.newValue(typeName, builtFieldMap);
+      if (structVal.isPresent()) {
+        nativeVal = valueProvider.celValueConverter().maybeUnwrap(structVal.get());
+      }
+    } catch (IllegalArgumentException | UnsupportedOperationException e) {
+      // Z3 solver may assign values to non-existent field names for unconstrained message sorts.
+      nativeVal = null;
+    }
+    if (nativeVal == null) {
+      nativeVal = builtFieldMap;
+    }
+
+    return new ExtractedNode(
+        StructTypeReference.create(typeName),
+        nativeVal,
+        typeName + "{" + String.join(", ", entryStrings) + "}");
   }
 
   private static void extractKeys(Expr<?> arrayExpr, Set<Expr<?>> keys) {
