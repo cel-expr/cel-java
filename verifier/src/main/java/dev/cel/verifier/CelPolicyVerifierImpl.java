@@ -28,6 +28,9 @@ import dev.cel.policy.CelCompiledRule.CelCompiledVariable;
 import dev.cel.policy.CelPolicy;
 import dev.cel.policy.CelPolicyCompiler;
 import dev.cel.policy.CelPolicyValidationException;
+import dev.cel.verifier.CelPolicyEquivalenceDiagnostic.PolicyBranchAttribution;
+import dev.cel.verifier.CelVerificationResult.VerificationStatus;
+import java.util.Optional;
 
 /** Implementation of CelPolicyVerifier using a CelVerifier. */
 final class CelPolicyVerifierImpl implements CelPolicyVerifier {
@@ -66,7 +69,42 @@ final class CelPolicyVerifierImpl implements CelPolicyVerifier {
       throws CelPolicyValidationException, CelVerificationException {
     CelAbstractSyntaxTree astA = compiler.compile(policyA);
     CelAbstractSyntaxTree astB = compiler.compile(policyB);
-    return astVerifier.verifyEquivalence(astA, astB);
+    CelVerificationResult result = astVerifier.verifyEquivalence(astA, astB);
+    if (result.status() == VerificationStatus.VIOLATED
+        && result.counterexampleModel().isPresent()) {
+      CelCounterexample model = result.counterexampleModel().get();
+      CelCompiledRule compiledRuleA = compiler.compileRule(policyA);
+      CelCompiledRule compiledRuleB = compiler.compileRule(policyB);
+
+      Optional<CelPolicyPathTracer.MatchTrace> traceA =
+          CelPolicyPathTracer.traceMatchingBranch(policyA, compiledRuleA, model);
+      Optional<CelPolicyPathTracer.MatchTrace> traceB =
+          CelPolicyPathTracer.traceMatchingBranch(policyB, compiledRuleB, model);
+
+      if (traceA.isPresent() && traceB.isPresent()) {
+        PolicyBranchAttribution branchA =
+            PolicyBranchAttribution.create(
+                policyA.name().value(),
+                traceA.get().ruleName,
+                traceA.get().ruleIndex,
+                traceA.get().sourceId,
+                traceA.get().location,
+                String.valueOf(traceA.get().evaluatedOutput));
+        PolicyBranchAttribution branchB =
+            PolicyBranchAttribution.create(
+                policyB.name().value(),
+                traceB.get().ruleName,
+                traceB.get().ruleIndex,
+                traceB.get().sourceId,
+                traceB.get().location,
+                String.valueOf(traceB.get().evaluatedOutput));
+
+        CelPolicyEquivalenceDiagnostic equivDiag =
+            CelPolicyEquivalenceDiagnostic.of(branchA, branchB);
+        result = result.toBuilder().setPolicyEquivalenceDiagnostic(equivDiag).build();
+      }
+    }
+    return result;
   }
 
   @Override
@@ -153,6 +191,42 @@ final class CelPolicyVerifierImpl implements CelPolicyVerifier {
                   assertAst,
                   boundSymbols,
                   String.format("Invariant '%s'", invariantId));
+
+      if (result.status() == VerificationStatus.VIOLATED
+          && result.counterexampleModel().isPresent()) {
+        Optional<CelPolicyPathTracer.MatchTrace> matchTrace =
+            CelPolicyPathTracer.traceMatchingBranch(
+                policy, compiledRule, result.counterexampleModel().get());
+        if (matchTrace.isPresent()) {
+          CelPolicyPathTracer.MatchTrace trace = matchTrace.get();
+          String ruleIdentifier =
+              trace.ruleName.isPresent()
+                  ? String.format("rule '%s'", trace.ruleName.get())
+                  : String.format("match[%d]", trace.ruleIndex);
+          String outputStr = String.valueOf(trace.evaluatedOutput);
+          String explanation;
+          if (outputStr.startsWith("<condition error:")) {
+            explanation =
+                String.format(
+                    "Invariant '%s' violated: %s condition failed to evaluate (%s)",
+                    invariantId, ruleIdentifier, outputStr);
+          } else {
+            explanation =
+                String.format(
+                    "Invariant '%s' violated because %s matched and evaluated to output: %s",
+                    invariantId, ruleIdentifier, outputStr);
+          }
+          CelPolicyDiagnostic diagnostic =
+              CelPolicyDiagnostic.create(
+                  invariantId,
+                  trace.ruleName,
+                  trace.ruleIndex,
+                  trace.sourceId,
+                  trace.location,
+                  explanation);
+          result = result.toBuilder().setPolicyDiagnostic(diagnostic).build();
+        }
+      }
       resultsBuilder.put(invariantId, result);
     }
 
