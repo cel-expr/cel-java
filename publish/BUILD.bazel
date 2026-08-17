@@ -335,7 +335,7 @@ pom_file(
         "CEL_VERSION": CEL_VERSION,
         "CEL_ARTIFACT_ID": "verifier",
         "PACKAGE_NAME": "CEL Java Verifier",
-        "PACKAGE_DESC": "Formal verification tools for Common Expression Language for Java.",
+        "PACKAGE_DESC": "Formal verification library for Common Expression Language for Java.",
     },
     targets = VERIFIER_TARGETS,
     template_file = "pom_template.xml",
@@ -362,8 +362,28 @@ pom_file(
     template_file = "pom_template.xml",
 )
 
+genrule(
+    name = "empty_sources_jar",
+    outs = ["empty_sources.jar"],
+    cmd = "$(location @bazel_tools//tools/zip:zipper) c $@ META-INF/MANIFEST.MF=/dev/null",
+    tools = ["@bazel_tools//tools/zip:zipper"],
+)
+
+genrule(
+    name = "empty_javadoc_jar",
+    outs = ["empty_javadoc.jar"],
+    cmd = "$(location @bazel_tools//tools/zip:zipper) c $@ META-INF/MANIFEST.MF=/dev/null",
+    tools = ["@bazel_tools//tools/zip:zipper"],
+)
+
 maven_export(
     name = "cel_verifier_cli",
+    classifier_artifacts = {
+        # Maven Central deployment requires source and javadoc JARs.
+        # Since this doesn't apply to CLI (uber-jar), we generate an empty one.
+        "sources": ":empty_sources_jar",
+        "javadoc": ":empty_javadoc_jar",
+    },
     maven_coordinates = "dev.cel:verifier-cli:%s" % CEL_VERSION,
     pom_template = ":cel_verifier_cli_pom",
     target = "//verifier/src/main/java/dev/cel/verifier/tools:cel_verifier_tool_deploy.jar",

@@ -798,12 +798,10 @@ public final class CelPolicyCompilerImplTest {
     DUPLICATE_VARIABLE("duplicate_variable"),
     IMPORT("import"),
     INCOMPATIBLE_OUTPUTS("incompatible_outputs"),
-    UNDECLARED_REFERENCE("undeclared_reference");
-    // TODO: Re-enable once cel-policy OSS dependency is updated with aggregate
-    // testdata.
-    // AGGREGATE_ERRORS("aggregate_errors"),
-    // AGGREGATE_LIST_ERRORS("aggregate_list_errors"),
-    // AGGREGATE_NESTED_MIXED_SEMANTICS("aggregate_nested_mixed_semantics");
+    UNDECLARED_REFERENCE("undeclared_reference"),
+    AGGREGATE_ERRORS("aggregate_errors"),
+    AGGREGATE_LIST_ERRORS("aggregate_list_errors"),
+    AGGREGATE_NESTED_MIXED_SEMANTICS("aggregate_nested_mixed_semantics");
 
     private final String name;
     private final String policyFilePath;

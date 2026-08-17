@@ -24,8 +24,8 @@ def antlr4_jar_dependency():
     )
 
 def bazel_common_dependency():
-    bazel_common_tag = "aaa4d801588f7744c6f4428e4f133f26b8518f42"
-    bazel_common_sha = "1f85abb0043f3589b9bf13a80319dc48a5f01a052c68bab3c08015a56d92ab7f"
+    bazel_common_tag = "768dbe0b3247e2e5def0b9ac6c4cde95e214f18a"
+    bazel_common_sha = "b3f1fe7e26ade37712b00b82a0ab3760bb340e9307d57166872dacc679b78da1"
     http_archive(
         name = "bazel_common",
         sha256 = bazel_common_sha,
@@ -34,8 +34,8 @@ def bazel_common_dependency():
     )
 
 def cel_policy_dependency():
-    cel_policy_tag = "e4c38defbbf34dfff2dc448dc58e93a9733ae8b1"
-    cel_policy_sha = "46378e0d17a16465899f9fefc94c3d44e1f40aedd8a31c9c0b2b6198048eabd6"
+    cel_policy_tag = "01bcc1c3f7c9c5e442fa940013cd6d029af2baf7"
+    cel_policy_sha = "8e3ddc74e918c2a5910794387354a236da601694dbf7b6921f8a7babf7b78181"
     http_archive(
         name = "cel_policy",
         sha256 = cel_policy_sha,
