@@ -148,8 +148,12 @@ final class RuleComposer implements CelAstOptimizer {
 
   private @Nullable Step createBaseStep(boolean returnList, boolean hasOptionalOutput) {
     if (returnList) {
-      // If the rule is evaluated as a list (AGGREGATE), the base case is an empty list.
-      return Step.newUnconditionalNonOptionalStep(newTrueLiteral(), newList());
+      if (hasOptionalOutput) {
+        // If a nested rule inside an aggregate context has an optional output, the last result in
+        // the ternary should return an empty list to allow concatenation with other branches.
+        return Step.newUnconditionalNonOptionalStep(newTrueLiteral(), newList());
+      }
+      return null;
     }
 
     if (hasOptionalOutput) {
@@ -278,6 +282,10 @@ final class RuleComposer implements CelAstOptimizer {
 
     } else {
       conditionalListPart = currentListPart;
+    }
+
+    if (accumulatedStep == null) {
+      return Step.newUnconditionalNonOptionalStep(trueCondition, conditionalListPart);
     }
 
     CelMutableAst concatenated =

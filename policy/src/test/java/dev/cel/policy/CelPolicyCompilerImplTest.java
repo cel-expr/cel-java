@@ -261,8 +261,62 @@ public final class CelPolicyCompilerImplTest {
     String unparsed = CelUnparserFactory.newUnparser().unparse(ast);
     assertThat(unparsed)
         .isEqualTo(
-            "(cond ? [payload.filter(x, x > 10, x).exists(y, y % 2 == 0)] : []) "
-                + "+ ([payload.all(x, x > 0)] + [])");
+            "(cond ? [payload.filter(x, x > 10).exists(y, y % 2 == 0)] : []) "
+                + "+ [payload.all(x, x > 0)]");
+  }
+
+  @Test
+  public void compileYamlPolicy_aggregateSingleMatch_noSuperfluousConcatenation() throws Exception {
+    String policySource =
+        "name: aggregate_single_match\n"
+            + "rule:\n"
+            + "  aggregate:\n"
+            + "    - condition: \"cond\"\n"
+            + "      output: \"payload.filter(x, x > 10).exists(y, y % 2 == 0)\"\n";
+    Cel cel =
+        newCel()
+            .toCelBuilder()
+            .addVar("cond", SimpleType.BOOL)
+            .addVar("payload", ListType.create(SimpleType.INT))
+            .build();
+
+    CelPolicy policy = POLICY_PARSER.parse(policySource);
+
+    CelAbstractSyntaxTree ast =
+        CelPolicyCompilerFactory.newPolicyCompiler(cel).build().compile(policy);
+
+    String unparsed = CelUnparserFactory.newUnparser().unparse(ast);
+    assertThat(unparsed).isEqualTo("cond ? [payload.filter(x, x > 10).exists(y, y % 2 == 0)] : []");
+  }
+
+  @Test
+  public void compileYamlPolicy_aggregateMultipleConditionalMatches_noSuperfluousConcatenation()
+      throws Exception {
+    String policySource =
+        "name: aggregate_multiple_conditional\n"
+            + "rule:\n"
+            + "  aggregate:\n"
+            + "    - condition: \"cond1\"\n"
+            + "      output: \"payload.all(x, x > 0)\"\n"
+            + "    - condition: \"cond2\"\n"
+            + "      output: \"payload.exists(x, x == 0)\"\n";
+    Cel cel =
+        newCel()
+            .toCelBuilder()
+            .addVar("cond1", SimpleType.BOOL)
+            .addVar("cond2", SimpleType.BOOL)
+            .addVar("payload", ListType.create(SimpleType.INT))
+            .build();
+
+    CelPolicy policy = POLICY_PARSER.parse(policySource);
+
+    CelAbstractSyntaxTree ast =
+        CelPolicyCompilerFactory.newPolicyCompiler(cel).build().compile(policy);
+
+    String unparsed = CelUnparserFactory.newUnparser().unparse(ast);
+    assertThat(unparsed)
+        .isEqualTo(
+            "(cond1 ? [payload.all(x, x > 0)] : []) + (cond2 ? [payload.exists(x, x == 0)] : [])");
   }
 
   @Test
