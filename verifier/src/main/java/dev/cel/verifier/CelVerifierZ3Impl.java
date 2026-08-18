@@ -32,6 +32,7 @@ import dev.cel.bundle.CelFactory;
 import dev.cel.common.CelAbstractSyntaxTree;
 import dev.cel.common.types.CelType;
 import dev.cel.common.types.CelTypeProvider;
+import dev.cel.common.values.CelValueProvider;
 import dev.cel.optimizer.CelOptimizationException;
 import dev.cel.optimizer.CelOptimizer;
 import dev.cel.optimizer.CelOptimizerFactory;
@@ -69,9 +70,12 @@ final class CelVerifierZ3Impl implements CelVerifier {
   private final ImmutableSet<String> unknownIdentifiers;
   private final CelZ3FunctionRegistry functionRegistry;
   private final CelTypeProvider typeProvider;
+  private final boolean enableCegarRefinement;
 
   @SuppressWarnings("Immutable") // Cel environment is immutable, just not marked as such
   private final Cel cel;
+
+  private final CegarRefiner cegarRefiner;
 
   static Builder newBuilder() {
     return new Builder(CelFactory.plannerCelBuilder().build());
@@ -88,6 +92,7 @@ final class CelVerifierZ3Impl implements CelVerifier {
     private final ImmutableList.Builder<CelZ3FunctionAxiom> functionAxioms;
     private final Cel cel;
     private CelTypeProvider typeProvider;
+    private boolean enableCegarRefinement;
 
     private Builder(Cel cel) {
       this.timeout = Duration.ofSeconds(10);
@@ -96,6 +101,7 @@ final class CelVerifierZ3Impl implements CelVerifier {
       this.functionAxioms = ImmutableList.builder();
       this.typeProvider = EMPTY_TYPE_PROVIDER;
       this.cel = cel;
+      this.enableCegarRefinement = false;
     }
 
     @Override
@@ -130,6 +136,13 @@ final class CelVerifierZ3Impl implements CelVerifier {
       return this;
     }
 
+    @Override
+    @CanIgnoreReturnValue
+    public CelVerifierBuilder setEnableCegarRefinement(boolean enableCegarRefinement) {
+      this.enableCegarRefinement = enableCegarRefinement;
+      return this;
+    }
+
     @CanIgnoreReturnValue
     Builder addFunctionAxioms(CelZ3FunctionAxiom... axioms) {
       return addFunctionAxioms(Arrays.asList(axioms));
@@ -156,7 +169,8 @@ final class CelVerifierZ3Impl implements CelVerifier {
           unknownIdentifiers.build(),
           registry,
           typeProvider,
-          cel);
+          cel,
+          enableCegarRefinement);
     }
   }
 
@@ -222,37 +236,53 @@ final class CelVerifierZ3Impl implements CelVerifier {
               translator,
               /* checkTruncation= */ false);
 
+      CelValueProvider valueProvider = cel.toCelBuilder().valueProvider();
       switch (result.outcome) {
         case EXACT_MATCH:
-          return CelVerificationResult.failed(
-              "Equivalence violation detected.",
-              getCounterexampleString(
+          CelCounterexample exactCe =
+              CelZ3CounterexampleGenerator.extract(
                   ctx,
                   translator.getTypeSystem(),
+                  valueProvider,
                   result.model,
                   /* isApproximate= */ false,
-                  /* isCounterexample= */ true));
+                  /* isSatisfyingInput= */ false);
+          return CelVerificationResult.failed("Equivalence violation detected.", exactCe);
         case APPROXIMATE_MATCH:
+          CelCounterexample approxCe =
+              CelZ3CounterexampleGenerator.extract(
+                  ctx,
+                  translator.getTypeSystem(),
+                  valueProvider,
+                  result.model,
+                  /* isApproximate= */ true,
+                  /* isSatisfyingInput= */ false);
+          if (enableCegarRefinement) {
+            CegarRefiner.CegarOutcome cegar = cegarRefiner.refineEquivalence(astA, astB, approxCe);
+            if (cegar.isViolation()) {
+              return CelVerificationResult.failed("Equivalence violation detected.", approxCe);
+            }
+            if (cegar.evaluationErrorMessage().isPresent()) {
+              return CelVerificationResult.inconclusive(
+                  "Inconclusive: a divergence may exist, but concrete evaluation produced an error:"
+                      + " "
+                      + cegar.evaluationErrorMessage().get(),
+                  approxCe);
+            }
+          }
           return CelVerificationResult.inconclusive(
               "Inconclusive: a divergence may exist, but it depends on approximations, missing"
                   + " theories, or loop bounds.",
-              getCounterexampleString(
-                  ctx,
-                  translator.getTypeSystem(),
-                  result.model,
-                  /* isApproximate= */ true,
-                  /* isCounterexample= */ true));
-        case TRUNCATED:
-          return CelVerificationResult.inconclusive(
-              "Inconclusive: expressions are equivalent within the current loop unroll limit, but"
-                  + " may diverge for larger collections.");
+              approxCe);
         case NO_MATCH:
           return CelVerificationResult.verified();
         case SOLVER_UNKNOWN:
           return CelVerificationResult.inconclusive(
               "Inconclusive: the solver returned unknown status (" + result.reason + ").");
+        default:
+          throw new AssertionError(
+              "Unexpected or unreachable verification outcome: " + result.outcome);
       }
-      throw new AssertionError("Unknown verification outcome: " + result.outcome);
     }
   }
 
@@ -312,26 +342,48 @@ final class CelVerifierZ3Impl implements CelVerifier {
               translator,
               /* checkTruncation= */ true);
 
+      CelValueProvider valueProvider = cel.toCelBuilder().valueProvider();
       switch (result.outcome) {
         case EXACT_MATCH:
-          return CelVerificationResult.failed(
-              String.format("%s violation detected.", subjectName),
-              getCounterexampleString(
+          CelCounterexample exactCe =
+              CelZ3CounterexampleGenerator.extract(
                   ctx,
                   translator.getTypeSystem(),
+                  valueProvider,
                   result.model,
                   /* isApproximate= */ false,
-                  /* isCounterexample= */ true));
+                  /* isSatisfyingInput= */ false);
+          return CelVerificationResult.failed(
+              String.format("%s violation detected.", subjectName), exactCe);
         case APPROXIMATE_MATCH:
+          CelCounterexample approxCe =
+              CelZ3CounterexampleGenerator.extract(
+                  ctx,
+                  translator.getTypeSystem(),
+                  valueProvider,
+                  result.model,
+                  /* isApproximate= */ true,
+                  /* isSatisfyingInput= */ false);
+          if (enableCegarRefinement) {
+            CegarRefiner.CegarOutcome cegar =
+                cegarRefiner.refineImplication(assumeAst, assertAst, boundSymbols, approxCe);
+            if (cegar.isViolation()) {
+              return CelVerificationResult.failed(
+                  String.format("%s violation detected.", subjectName), approxCe);
+            }
+            if (cegar.evaluationErrorMessage().isPresent()) {
+              return CelVerificationResult.inconclusive(
+                  String.format(
+                      "Inconclusive: %s violation candidate found, but concrete evaluation produced"
+                          + " an error: %s",
+                      subjectName, cegar.evaluationErrorMessage().get()),
+                  approxCe);
+            }
+          }
           return CelVerificationResult.inconclusive(
               "Inconclusive: a counterexample may exist, but it depends on approximations, missing"
                   + " theories, or loop bounds.",
-              getCounterexampleString(
-                  ctx,
-                  translator.getTypeSystem(),
-                  result.model,
-                  /* isApproximate= */ true,
-                  /* isCounterexample= */ true));
+              approxCe);
         case TRUNCATED:
           return CelVerificationResult.inconclusive(
               String.format(
@@ -376,41 +428,56 @@ final class CelVerifierZ3Impl implements CelVerifier {
               translator,
               /* checkTruncation= */ true);
 
+      CelValueProvider valueProvider = cel.toCelBuilder().valueProvider();
       switch (result.outcome) {
         case EXACT_MATCH:
+          CelCounterexample exactCe =
+              CelZ3CounterexampleGenerator.extract(
+                  ctx,
+                  translator.getTypeSystem(),
+                  valueProvider,
+                  result.model,
+                  /* isApproximate= */ false,
+                  /* isSatisfyingInput= */ !searchForCounterexample);
           return searchForCounterexample
-              ? CelVerificationResult.failed(
-                  "Condition is not always true.",
-                  getCounterexampleString(
-                      ctx,
-                      translator.getTypeSystem(),
-                      result.model,
-                      /* isApproximate= */ false,
-                      /* isCounterexample= */ true))
-              : CelVerificationResult.verified(
-                  "Condition is satisfiable."
-                      + getCounterexampleString(
-                          ctx,
-                          translator.getTypeSystem(),
-                          result.model,
-                          /* isApproximate= */ false,
-                          /* isCounterexample= */ false));
+              ? CelVerificationResult.failed("Condition is not always true.", exactCe)
+              : CelVerificationResult.verified("Condition is satisfiable.", exactCe);
 
         case APPROXIMATE_MATCH:
+          CelCounterexample approxCe =
+              CelZ3CounterexampleGenerator.extract(
+                  ctx,
+                  translator.getTypeSystem(),
+                  valueProvider,
+                  result.model,
+                  /* isApproximate= */ true,
+                  /* isSatisfyingInput= */ !searchForCounterexample);
+          if (enableCegarRefinement) {
+            CegarRefiner.CegarOutcome cegar =
+                cegarRefiner.refineSatisfiability(ast, searchForCounterexample, approxCe);
+            if (cegar.isViolation()) {
+              return searchForCounterexample
+                  ? CelVerificationResult.failed("Condition is not always true.", approxCe)
+                  : CelVerificationResult.verified("Condition is satisfiable.", approxCe);
+            }
+            if (cegar.evaluationErrorMessage().isPresent()) {
+              return CelVerificationResult.inconclusive(
+                  (searchForCounterexample
+                          ? "Inconclusive: property may not be always true, but concrete evaluation"
+                              + " produced an error: "
+                          : "Inconclusive: condition may be satisfiable, but concrete evaluation"
+                              + " produced an error: ")
+                      + cegar.evaluationErrorMessage().get(),
+                  approxCe);
+            }
+          }
           String prefix =
               searchForCounterexample
                   ? "Inconclusive: a counterexample may exist, but it depends on approximations,"
                       + " missing theories, or loop bounds."
                   : "Inconclusive: a satisfying model may exist, but it depends on"
                       + " approximations, missing theories, or loop bounds.";
-          return CelVerificationResult.inconclusive(
-              prefix,
-              getCounterexampleString(
-                  ctx,
-                  translator.getTypeSystem(),
-                  result.model,
-                  /* isApproximate= */ true,
-                  /* isCounterexample= */ searchForCounterexample));
+          return CelVerificationResult.inconclusive(prefix, approxCe);
 
         case TRUNCATED:
           return CelVerificationResult.inconclusive(
@@ -503,29 +570,22 @@ final class CelVerifierZ3Impl implements CelVerifier {
     return solver;
   }
 
-  private static String getCounterexampleString(
-      Context ctx,
-      CelZ3TypeSystem typeSystem,
-      Model model,
-      boolean isApproximate,
-      boolean isCounterexample) {
-    return CelZ3CounterexampleGenerator.generate(
-        ctx, typeSystem, model, isApproximate, isCounterexample);
-  }
-
   CelVerifierZ3Impl(
       Duration timeout,
       int comprehensionUnrollLimit,
       ImmutableSet<String> unknownIdentifiers,
       CelZ3FunctionRegistry functionRegistry,
       CelTypeProvider typeProvider,
-      Cel cel) {
+      Cel cel,
+      boolean enableCegarRefinement) {
     this.timeout = timeout;
     this.comprehensionUnrollLimit = comprehensionUnrollLimit;
     this.unknownIdentifiers = unknownIdentifiers;
     this.functionRegistry = functionRegistry;
     this.typeProvider = typeProvider;
     this.cel = cel;
+    this.enableCegarRefinement = enableCegarRefinement;
+    this.cegarRefiner = new CegarRefiner(cel);
   }
 
   private enum SolverOutcome {

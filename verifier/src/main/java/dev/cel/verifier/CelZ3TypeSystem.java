@@ -56,50 +56,50 @@ import java.util.Map;
 public final class CelZ3TypeSystem {
 
   private static final String TYPE_CEL_VALUE = "CelValue";
-  private static final String CONS_BOOL = "Bool";
+  static final String CONS_BOOL = "Bool";
   private static final String IS_BOOL = "isBool";
   private static final String GET_BOOL = "getBool";
 
-  private static final String CONS_INT = "Int";
+  static final String CONS_INT = "Int";
   private static final String IS_INT = "isInt";
   private static final String GET_INT = "getInt";
 
-  private static final String CONS_UINT = "Uint";
+  static final String CONS_UINT = "Uint";
   private static final String IS_UINT = "isUint";
   private static final String GET_UINT = "getUint";
 
-  private static final String CONS_DOUBLE = "Double";
+  static final String CONS_DOUBLE = "Double";
   private static final String IS_DOUBLE = "isDouble";
   private static final String GET_DOUBLE = "getDouble";
 
-  private static final String CONS_STRING = "String";
+  static final String CONS_STRING = "String";
   private static final String IS_STRING = "isString";
   private static final String GET_STRING = "getString";
 
-  private static final String CONS_BYTES = "Bytes";
+  static final String CONS_BYTES = "Bytes";
   private static final String IS_BYTES = "isBytes";
   private static final String GET_BYTES = "getBytes";
 
-  private static final String CONS_TIMESTAMP = "Timestamp";
+  static final String CONS_TIMESTAMP = "Timestamp";
   private static final String IS_TIMESTAMP = "isTimestamp";
   private static final String GET_TIMESTAMP = "getTimestamp";
 
-  private static final String CONS_DURATION = "Duration";
+  static final String CONS_DURATION = "Duration";
   private static final String IS_DURATION = "isDuration";
   private static final String GET_DURATION = "getDuration";
 
-  private static final String CONS_ERROR = "CelError";
+  static final String CONS_ERROR = "CelError";
   private static final String IS_ERROR = "isError";
 
-  private static final String CONS_UNKNOWN = "CelUnknown";
+  static final String CONS_UNKNOWN = "CelUnknown";
   private static final String IS_UNKNOWN = "isUnknown";
   private static final String GET_UNKNOWN = "getUnknownId";
   private static final String GENERIC_UNKNOWN_ID = "!generic_unknown";
 
-  private static final String CONS_NULL = "CelNull";
+  static final String CONS_NULL = "CelNull";
   private static final String IS_NULL = "isNull";
 
-  private static final String CONS_OPTIONAL = "Optional";
+  static final String CONS_OPTIONAL = "Optional";
   private static final String IS_OPTIONAL = "isOptional";
 
   private static final String SORT_OPTIONAL_REF = "OptionalRef";
@@ -108,13 +108,13 @@ public final class CelZ3TypeSystem {
   private static final String FUNC_OPT_OF_REF = "!optionalOfRef";
 
   private static final String SORT_LIST_REF = "ListRef";
-  private static final String CONS_LIST = "List";
+  static final String CONS_LIST = "List";
   private static final String IS_LIST = "isList";
   private static final String GET_LIST_REF = "getListRef";
   private static final String FUNC_AS_SEQ = "as_seq";
 
   private static final String SORT_MAP_REF = "MapRef";
-  private static final String CONS_MAP = "Map";
+  static final String CONS_MAP = "Map";
   private static final String IS_MAP = "isMap";
   private static final String GET_MAP_REF = "getMapRef";
 
@@ -123,7 +123,7 @@ public final class CelZ3TypeSystem {
   private static final String FUNC_MAP_PRESENCE = "map_presence";
 
   private static final String SORT_MESSAGE_REF = "MessageRef";
-  private static final String CONS_MESSAGE = "Message";
+  static final String CONS_MESSAGE = "Message";
   private static final String IS_MESSAGE = "isMessage";
   private static final String GET_MESSAGE_REF = "getMessageRef";
 
@@ -215,6 +215,7 @@ public final class CelZ3TypeSystem {
   public Expr<?> mkMessageRefConst(String prefix) {
     return ctx.mkFreshConst(prefix, messageRefSort);
   }
+
 
   /**
    * Interns and retrieves a Z3 function declaration by name and signature.

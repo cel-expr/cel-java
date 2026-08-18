@@ -15,9 +15,12 @@
 package dev.cel.verifier;
 
 import com.google.auto.value.AutoValue;
+import com.google.errorprone.annotations.Immutable;
+import java.util.Optional;
 
 /** Result object containing the outcome of a CEL AST verification check. */
 @AutoValue
+@Immutable
 public abstract class CelVerificationResult {
 
   /** Represents the outcome of the verification process. */
@@ -38,10 +41,11 @@ public abstract class CelVerificationResult {
    */
   public abstract String reason();
 
-  /**
-   * Returns a detailed counterexample or satisfying model assignment, if one was found.
-   */
+  /** Returns a detailed counterexample or satisfying model assignment string, if one was found. */
   public abstract String counterexample();
+
+  /** Returns the structured counterexample or satisfying model assignment, if one was found. */
+  public abstract Optional<CelCounterexample> counterexampleModel();
 
   /**
    * Returns a message detailing the outcome of the verification check, such as a counterexample
@@ -53,28 +57,41 @@ public abstract class CelVerificationResult {
   }
 
   static CelVerificationResult verified() {
-    return new AutoValue_CelVerificationResult(VerificationStatus.VERIFIED, "", "");
+    return new AutoValue_CelVerificationResult(
+        VerificationStatus.VERIFIED, "", "", Optional.empty());
   }
 
-  static CelVerificationResult verified(String reason) {
-    return new AutoValue_CelVerificationResult(VerificationStatus.VERIFIED, reason, "");
+  static CelVerificationResult verified(String reason, CelCounterexample counterexample) {
+    return new AutoValue_CelVerificationResult(
+        VerificationStatus.VERIFIED,
+        reason,
+        counterexample.toDisplayString(),
+        Optional.of(counterexample));
   }
 
   static CelVerificationResult failed(String reason) {
-    return new AutoValue_CelVerificationResult(VerificationStatus.VIOLATED, reason, "");
+    return new AutoValue_CelVerificationResult(
+        VerificationStatus.VIOLATED, reason, "", Optional.empty());
   }
 
-  static CelVerificationResult failed(String reason, String counterexample) {
+  static CelVerificationResult failed(String reason, CelCounterexample counterexample) {
     return new AutoValue_CelVerificationResult(
-        VerificationStatus.VIOLATED, reason, counterexample);
+        VerificationStatus.VIOLATED,
+        reason,
+        counterexample.toDisplayString(),
+        Optional.of(counterexample));
   }
 
   static CelVerificationResult inconclusive(String reason) {
-    return new AutoValue_CelVerificationResult(VerificationStatus.INCONCLUSIVE, reason, "");
+    return new AutoValue_CelVerificationResult(
+        VerificationStatus.INCONCLUSIVE, reason, "", Optional.empty());
   }
 
-  static CelVerificationResult inconclusive(String reason, String counterexample) {
+  static CelVerificationResult inconclusive(String reason, CelCounterexample counterexample) {
     return new AutoValue_CelVerificationResult(
-        VerificationStatus.INCONCLUSIVE, reason, counterexample);
+        VerificationStatus.INCONCLUSIVE,
+        reason,
+        counterexample.toDisplayString(),
+        Optional.of(counterexample));
   }
 }
