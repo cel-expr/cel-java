@@ -32,6 +32,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Locale;
+import java.util.Map;
 import org.junit.runners.model.Statement;
 
 /** Statement representing a single CEL policy conformance test case. */
@@ -40,21 +41,30 @@ public final class PolicyConformanceTest extends Statement {
   private static final Cel CEL =
       CelFactory.standardCelBuilder()
           .addFunctionBindings(
-              CelFunctionBinding.fromOverloads(
-                  "locationCode",
-                  CelFunctionBinding.from(
-                      "locationCode_string",
-                      String.class,
-                      (ip) -> {
-                        switch (ip) {
-                          case "10.0.0.1":
-                            return "us";
-                          case "10.0.0.2":
-                            return "de";
-                          default:
-                            return "ir";
-                        }
-                      })))
+              CelFunctionBinding.from(
+                  "locationCode_string",
+                  String.class,
+                  (ip) -> {
+                    switch (ip) {
+                      case "10.0.0.1":
+                        return "us";
+                      case "10.0.0.2":
+                        return "de";
+                      default:
+                        return "ir";
+                    }
+                  }),
+              CelFunctionBinding.from(
+                  "hasCreditCard",
+                  Object.class,
+                  (arg) -> arg instanceof Map && ((Map<?, ?>) arg).containsKey("cc")),
+              CelFunctionBinding.from(
+                  "hasEmailOrPhone",
+                  Object.class,
+                  (arg) ->
+                      arg instanceof Map
+                          && (((Map<?, ?>) arg).containsKey("email")
+                              || ((Map<?, ?>) arg).containsKey("phone"))))
           .build();
 
   private final String name;
