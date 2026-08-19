@@ -280,7 +280,7 @@ public class CelOptionalLibraryTest {
     Object result = cel.createProgram(ast).eval();
 
     assertThat(result).isInstanceOf(Optional.class);
-    assertThat(result).isEqualTo(Optional.empty());
+    assertThat((Optional<?>) result).isEmpty();
   }
 
   @Test
@@ -306,7 +306,7 @@ public class CelOptionalLibraryTest {
     Object result = cel.createProgram(ast).eval();
 
     assertThat(result).isInstanceOf(Optional.class);
-    assertThat(result).isEqualTo(Optional.empty());
+    assertThat((Optional<?>) result).isEmpty();
   }
 
   @Test
@@ -317,7 +317,7 @@ public class CelOptionalLibraryTest {
     Object result = cel.createProgram(ast).eval();
 
     assertThat(result).isInstanceOf(Optional.class);
-    assertThat(result).isEqualTo(Optional.empty());
+    assertThat((Optional<?>) result).isEmpty();
   }
 
   @Test
@@ -328,7 +328,7 @@ public class CelOptionalLibraryTest {
     Object result = cel.createProgram(ast).eval();
 
     assertThat(result).isInstanceOf(Optional.class);
-    assertThat(result).isEqualTo(Optional.empty());
+    assertThat((Optional<?>) result).isEmpty();
   }
 
   @Test
@@ -592,7 +592,7 @@ public class CelOptionalLibraryTest {
 
     Object result = cel.createProgram(ast).eval();
 
-    assertThat(result).isEqualTo(Optional.empty());
+    assertThat((Optional<?>) result).isEmpty();
   }
 
   @Test
@@ -882,7 +882,7 @@ public class CelOptionalLibraryTest {
         cel.createProgram(ast)
             .eval(ImmutableMap.of("optm", Optional.of(ImmutableMap.of("c", ImmutableMap.of()))));
 
-    assertThat(result).isEqualTo(Optional.empty());
+    assertThat((Optional<?>) result).isEmpty();
   }
 
   @Test
@@ -900,7 +900,7 @@ public class CelOptionalLibraryTest {
     Object result =
         cel.createProgram(ast).eval(ImmutableMap.of("m", ImmutableMap.of("c", ImmutableMap.of())));
 
-    assertThat(result).isEqualTo(Optional.empty());
+    assertThat((Optional<?>) result).isEmpty();
   }
 
   @Test
@@ -982,7 +982,71 @@ public class CelOptionalLibraryTest {
 
     Object result = cel.createProgram(ast).eval(ImmutableMap.of("l", ImmutableList.of("hello")));
 
-    assertThat(result).isEqualTo(Optional.of("hello"));
+    assertThat((Optional<?>) result).hasValue("hello");
+  }
+
+  @Test
+  public void optionalIndex_onList_negativeIndex_returnsOptionalEmpty() throws Exception {
+    Cel cel =
+        newCelBuilder()
+            .addVar("l", ListType.create(SimpleType.STRING))
+            .setResultType(OptionalType.create(SimpleType.STRING))
+            .build();
+    CelAbstractSyntaxTree ast = compile(cel, "l[?-1]");
+
+    Object result = cel.createProgram(ast).eval(ImmutableMap.of("l", ImmutableList.of("hello")));
+
+    assertThat((Optional<?>) result).isEmpty();
+  }
+
+  @Test
+  public void optionalIndex_onList_outOfBoundsIndex_returnsOptionalEmpty() throws Exception {
+    Cel cel =
+        newCelBuilder()
+            .addVar("l", ListType.create(SimpleType.STRING))
+            .setResultType(OptionalType.create(SimpleType.STRING))
+            .build();
+    CelAbstractSyntaxTree ast = compile(cel, "l[?5]");
+
+    Object result = cel.createProgram(ast).eval(ImmutableMap.of("l", ImmutableList.of("hello")));
+
+    assertThat((Optional<?>) result).isEmpty();
+  }
+
+  @Test
+  public void optionalIndex_targetIsUnknown_returnsUnknown() throws Exception {
+    Cel cel =
+        newCelBuilder()
+            .addVar("l", ListType.create(SimpleType.STRING))
+            .setResultType(OptionalType.create(SimpleType.STRING))
+            .build();
+    CelAbstractSyntaxTree ast = compile(cel, "l[?0]");
+
+    Object result =
+        cel.createProgram(ast)
+            .eval(PartialVars.of(CelAttributePattern.fromQualifiedIdentifier("l")));
+
+    assertThat(result).isInstanceOf(CelUnknownSet.class);
+  }
+
+  @Test
+  public void optionalIndex_indexIsUnknown_returnsUnknown() throws Exception {
+    Cel cel =
+        newCelBuilder()
+            .addVar("l", ListType.create(SimpleType.STRING))
+            .addVar("i", SimpleType.INT)
+            .setResultType(OptionalType.create(SimpleType.STRING))
+            .build();
+    CelAbstractSyntaxTree ast = compile(cel, "l[?i]");
+
+    Object result =
+        cel.createProgram(ast)
+            .eval(
+                PartialVars.of(
+                    ImmutableMap.of("l", ImmutableList.of("hello")),
+                    CelAttributePattern.fromQualifiedIdentifier("i")));
+
+    assertThat(result).isInstanceOf(CelUnknownSet.class);
   }
 
   @Test
@@ -1013,7 +1077,7 @@ public class CelOptionalLibraryTest {
         cel.createProgram(ast)
             .eval(ImmutableMap.of("optl", Optional.of(ImmutableList.of("hello"))));
 
-    assertThat(result).isEqualTo(Optional.of("hello"));
+    assertThat((Optional<?>) result).hasValue("hello");
   }
 
   @Test
@@ -1043,7 +1107,7 @@ public class CelOptionalLibraryTest {
 
     Object result = cel.createProgram(ast).eval(ImmutableMap.of("optl", Optional.empty()));
 
-    assertThat(result).isEqualTo(Optional.empty());
+    assertThat((Optional<?>) result).isEmpty();
   }
 
   @Test

@@ -574,6 +574,99 @@ public final class ProgramPlannerTest {
   }
 
   @Test
+  public void plan_call_listIndex() throws Exception {
+    CelAbstractSyntaxTree ast = compile("[10, 20, 30][1]");
+    Program program = PLANNER.plan(ast);
+
+    Long result = (Long) program.eval();
+
+    assertThat(result).isEqualTo(20L);
+  }
+
+  @Test
+  public void plan_call_listIndex_outOfBounds_throws() throws Exception {
+    CelAbstractSyntaxTree ast = compile("[10, 20, 30][5]");
+    Program program = PLANNER.plan(ast);
+
+    assertThrows(CelEvaluationException.class, program::eval);
+  }
+
+  @Test
+  public void plan_call_listIndex_negative_throws() throws Exception {
+    CelAbstractSyntaxTree ast = compile("[10, 20, 30][-1]");
+    Program program = PLANNER.plan(ast);
+
+    assertThrows(CelEvaluationException.class, program::eval);
+  }
+
+  @Test
+  public void plan_call_mapIndex_missingKey_throws() throws Exception {
+    CelAbstractSyntaxTree ast = compile("map_var['missing']");
+    Program program = PLANNER.plan(ast);
+
+    assertThrows(
+        CelEvaluationException.class,
+        () -> program.eval(ImmutableMap.of("map_var", ImmutableMap.of("key", 1L))));
+  }
+
+  @Test
+  public void plan_call_index_withUnknownTarget() throws Exception {
+    CelCompiler compiler =
+        CelCompilerFactory.standardCelCompilerBuilder()
+            .addVar("unk_list", ListType.create(SimpleType.INT))
+            .build();
+    CelAbstractSyntaxTree ast = compile(compiler, "unk_list[0]");
+    Program program = PLANNER.plan(ast);
+
+    CelUnknownSet result =
+        (CelUnknownSet) program.eval(PartialVars.of(CelAttributePattern.create("unk_list")));
+
+    assertThat(result)
+        .isEqualTo(
+            CelUnknownSet.create(
+                ImmutableSet.of(CelAttribute.create("unk_list")), ImmutableSet.of(1L)));
+  }
+
+  @Test
+  public void plan_call_index_withUnknownIndex() throws Exception {
+    CelCompiler compiler =
+        CelCompilerFactory.standardCelCompilerBuilder().addVar("unk_index", SimpleType.INT).build();
+    CelAbstractSyntaxTree ast = compile(compiler, "[10, 20, 30][unk_index]");
+    Program program = PLANNER.plan(ast);
+
+    CelUnknownSet result =
+        (CelUnknownSet) program.eval(PartialVars.of(CelAttributePattern.create("unk_index")));
+
+    assertThat(result)
+        .isEqualTo(
+            CelUnknownSet.create(
+                ImmutableSet.of(CelAttribute.create("unk_index")), ImmutableSet.of(6L)));
+  }
+
+  @Test
+  public void plan_call_index_withMultipleUnknowns_mergesUnknowns() throws Exception {
+    CelCompiler compiler =
+        CelCompilerFactory.standardCelCompilerBuilder()
+            .addVar("unk_map", MapType.create(SimpleType.STRING, SimpleType.INT))
+            .addVar("unk_key", SimpleType.STRING)
+            .build();
+    CelAbstractSyntaxTree ast = compile(compiler, "unk_map[unk_key]");
+    Program program = PLANNER.plan(ast);
+
+    CelUnknownSet result =
+        (CelUnknownSet)
+            program.eval(
+                PartialVars.of(
+                    CelAttributePattern.create("unk_map"), CelAttributePattern.create("unk_key")));
+
+    assertThat(result)
+        .isEqualTo(
+            CelUnknownSet.create(
+                ImmutableSet.of(CelAttribute.create("unk_map"), CelAttribute.create("unk_key")),
+                ImmutableSet.of(1L, 3L)));
+  }
+
+  @Test
   public void plan_call_noMatchingOverload_throws() throws Exception {
     CelAbstractSyntaxTree ast = compile("concat(b'abc', dyn_var)");
     Program program = PLANNER.plan(ast);
