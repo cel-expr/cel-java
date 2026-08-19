@@ -16,6 +16,7 @@ package dev.cel.runtime.planner;
 
 import com.google.common.collect.ImmutableList;
 import com.google.errorprone.annotations.Immutable;
+import dev.cel.runtime.CelAttribute;
 import dev.cel.runtime.GlobalResolver;
 
 /**
@@ -28,25 +29,30 @@ final class MaybeAttribute implements Attribute {
   private final ImmutableList<NamespacedAttribute> attributes;
 
   @Override
-  public Object resolve(long exprId, GlobalResolver ctx, ExecutionFrame frame) {
+  public AttributeResolution resolve(long exprId, GlobalResolver ctx, ExecutionFrame frame) {
     MissingAttribute maybeError = null;
+    CelAttribute fallbackAttr = null;
     for (NamespacedAttribute attr : attributes) {
-      Object value = attr.resolve(exprId, ctx, frame);
+      AttributeResolution resolution = attr.resolve(exprId, ctx, frame);
+      Object value = resolution.value();
       if (value == null) {
         continue;
       }
 
       if (value instanceof MissingAttribute) {
         maybeError = (MissingAttribute) value;
+        if (fallbackAttr == null && resolution.attribute() != null) {
+          fallbackAttr = resolution.attribute();
+        }
         // When the variable is missing in a maybe attribute, defer erroring.
         // The variable may exist in other namespaced attributes.
         continue;
       }
 
-      return value;
+      return resolution;
     }
 
-    return maybeError;
+    return AttributeResolution.of(maybeError, fallbackAttr);
   }
 
   @Override

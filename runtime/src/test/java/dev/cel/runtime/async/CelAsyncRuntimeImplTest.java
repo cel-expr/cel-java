@@ -29,7 +29,6 @@ import com.google.testing.junit.testparameterinjector.TestParameter;
 import com.google.testing.junit.testparameterinjector.TestParameterInjector;
 // import com.google.testing.testsize.MediumTest;
 import dev.cel.bundle.Cel;
-import dev.cel.bundle.CelFactory;
 import dev.cel.common.CelAbstractSyntaxTree;
 import dev.cel.common.CelContainer;
 import dev.cel.common.CelOptions;
@@ -40,6 +39,7 @@ import dev.cel.runtime.CelAttributeParser;
 import dev.cel.runtime.CelAttributePattern;
 import dev.cel.runtime.CelEvaluationException;
 import dev.cel.runtime.async.CelAsyncRuntime.AsyncProgram;
+import dev.cel.testing.CelRuntimeFlavor;
 import java.time.Duration;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
@@ -52,6 +52,14 @@ import org.junit.runner.RunWith;
 // @MediumTest
 public final class CelAsyncRuntimeImplTest {
 
+  private static final CelOptions CEL_OPTIONS =
+      CelOptions.current()
+          .enableUnknownTracking(true)
+          .enableHeterogeneousNumericComparisons(true)
+          .build();
+
+  @TestParameter private CelRuntimeFlavor celRuntimeFlavor;
+
   @Test
   public void asyncProgram_basicUnknownResolution() throws Exception {
     // Arrange
@@ -62,8 +70,9 @@ public final class CelAsyncRuntimeImplTest {
               return attr.toString();
             });
     Cel cel =
-        CelFactory.standardCelBuilder()
-            .setOptions(CelOptions.current().enableUnknownTracking(true).build())
+        celRuntimeFlavor
+            .builder()
+            .setOptions(CEL_OPTIONS)
             .addMessageTypes(TestAllTypes.getDescriptor())
             .addVar("com.google.var1", SimpleType.STRING)
             .addVar("com.google.var2", SimpleType.STRING)
@@ -113,8 +122,9 @@ public final class CelAsyncRuntimeImplTest {
               return attr.toString();
             });
     Cel cel =
-        CelFactory.standardCelBuilder()
-            .setOptions(CelOptions.current().enableUnknownTracking(true).build())
+        celRuntimeFlavor
+            .builder()
+            .setOptions(CEL_OPTIONS)
             .addMessageTypes(TestAllTypes.getDescriptor())
             .addVar("com.google.var1", SimpleType.BOOL)
             .addVar("com.google.var2", SimpleType.STRING)
@@ -161,8 +171,9 @@ public final class CelAsyncRuntimeImplTest {
     SettableFuture<Object> var3 = SettableFuture.create();
 
     Cel cel =
-        CelFactory.standardCelBuilder()
-            .setOptions(CelOptions.current().enableUnknownTracking(true).build())
+        celRuntimeFlavor
+            .builder()
+            .setOptions(CEL_OPTIONS)
             .addMessageTypes(TestAllTypes.getDescriptor())
             .addVar("com.google.var1", SimpleType.STRING)
             .addVar("com.google.var2", SimpleType.STRING)
@@ -213,8 +224,9 @@ public final class CelAsyncRuntimeImplTest {
     SettableFuture<Object> var3 = SettableFuture.create();
 
     Cel cel =
-        CelFactory.standardCelBuilder()
-            .setOptions(CelOptions.current().enableUnknownTracking(true).build())
+        celRuntimeFlavor
+            .builder()
+            .setOptions(CEL_OPTIONS)
             .addMessageTypes(TestAllTypes.getDescriptor())
             .addVar("com.google.var1", SimpleType.STRING)
             .addVar("com.google.var2", SimpleType.STRING)
@@ -259,13 +271,14 @@ public final class CelAsyncRuntimeImplTest {
 
   @Test
   public void asyncProgram_concurrency(
-      @TestParameter(valuesProvider = RepeatedTestProvider.class) int testRunIndex)
+      @TestParameter(valuesProvider = RepeatedTestProvider.class) int unusedTestRunIndex)
       throws Exception {
     Duration taskDelay = Duration.ofMillis(500);
     // Arrange
     Cel cel =
-        CelFactory.standardCelBuilder()
-            .setOptions(CelOptions.current().enableUnknownTracking(true).build())
+        celRuntimeFlavor
+            .builder()
+            .setOptions(CEL_OPTIONS)
             .addMessageTypes(TestAllTypes.getDescriptor())
             .addVar("com.google.var1", SimpleType.STRING)
             .addVar("com.google.var2", SimpleType.STRING)
@@ -317,8 +330,9 @@ public final class CelAsyncRuntimeImplTest {
   public void asyncProgram_elementResolver() throws Exception {
     // Arrange
     Cel cel =
-        CelFactory.standardCelBuilder()
-            .setOptions(CelOptions.current().enableUnknownTracking(true).build())
+        celRuntimeFlavor
+            .builder()
+            .setOptions(CEL_OPTIONS)
             .addMessageTypes(TestAllTypes.getDescriptor())
             .addVar(
                 "com.google.listVar",
@@ -366,8 +380,9 @@ public final class CelAsyncRuntimeImplTest {
   public void asyncProgram_thrownExceptionPropagatesImmediately() throws Exception {
     // Arrange
     Cel cel =
-        CelFactory.standardCelBuilder()
-            .setOptions(CelOptions.current().enableUnknownTracking(true).build())
+        celRuntimeFlavor
+            .builder()
+            .setOptions(CEL_OPTIONS)
             .addMessageTypes(TestAllTypes.getDescriptor())
             .addVar("com.google.var1", SimpleType.STRING)
             .addVar("com.google.var2", SimpleType.STRING)
@@ -422,8 +437,9 @@ public final class CelAsyncRuntimeImplTest {
   public void asyncProgram_returnedExceptionPropagatesToEvaluator() throws Exception {
     // Arrange
     Cel cel =
-        CelFactory.standardCelBuilder()
-            .setOptions(CelOptions.current().enableUnknownTracking(true).build())
+        celRuntimeFlavor
+            .builder()
+            .setOptions(CEL_OPTIONS)
             .addMessageTypes(TestAllTypes.getDescriptor())
             .addVar("com.google.var1", SimpleType.STRING)
             .addVar("com.google.var2", SimpleType.STRING)
@@ -477,8 +493,9 @@ public final class CelAsyncRuntimeImplTest {
   public void asyncProgram_returnedExceptionPropagatesToEvaluatorIsPruneable() throws Exception {
     // Arrange
     Cel cel =
-        CelFactory.standardCelBuilder()
-            .setOptions(CelOptions.current().enableUnknownTracking(true).build())
+        celRuntimeFlavor
+            .builder()
+            .setOptions(CEL_OPTIONS)
             .addMessageTypes(TestAllTypes.getDescriptor())
             .addVar("com.google.var1", SimpleType.STRING)
             .addVar("com.google.var2", SimpleType.STRING)

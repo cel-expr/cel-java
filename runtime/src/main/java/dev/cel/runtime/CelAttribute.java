@@ -21,6 +21,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.primitives.UnsignedLong;
 import com.google.errorprone.annotations.Immutable;
 import com.google.re2j.Pattern;
+import org.jspecify.annotations.Nullable;
 
 /**
  * CelAttribute represents the select path from the root (.) to a single leaf value that may be
@@ -100,16 +101,27 @@ public abstract class CelAttribute {
      *     index.
      */
     public static Qualifier fromGeneric(Object value) {
+      Qualifier qualifier = fromGenericOrNull(value);
+      if (qualifier != null) {
+        return qualifier;
+      }
+      throw new IllegalArgumentException("Unsupported attribute qualifier kind");
+    }
+
+    @SuppressWarnings("IfChainToSwitch")
+    public static @Nullable Qualifier fromGenericOrNull(Object value) {
       if (value instanceof UnsignedLong) {
         return ofUint((UnsignedLong) value);
       } else if (value instanceof Long) {
         return ofInt((Long) value);
+      } else if (value instanceof Integer) {
+        return ofInt(((Integer) value).longValue());
       } else if (value instanceof Boolean) {
         return ofBool((boolean) value);
       } else if (value instanceof String) {
         return ofString((String) value);
       }
-      throw new IllegalArgumentException("Unsupported attribute qualifier kind");
+      return null;
     }
 
     public String toIndexFormat() {

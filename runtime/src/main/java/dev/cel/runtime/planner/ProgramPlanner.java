@@ -327,6 +327,16 @@ public final class ProgramPlanner {
         return EvalUnary.create(
             expr, functionName, resolvedOverload, evaluatedArgs[0], celValueConverter);
       case 2:
+        if (functionName.equals(Operator.INDEX.getFunction())
+            || functionName.equals(Operator.OPTIONAL_INDEX.getFunction())) {
+          return EvalIndex.create(
+              expr,
+              functionName,
+              resolvedOverload,
+              evaluatedArgs[0],
+              evaluatedArgs[1],
+              celValueConverter);
+        }
         return EvalBinary.create(
             expr,
             functionName,
@@ -385,7 +395,7 @@ public final class ProgramPlanner {
         break;
     }
 
-    if (Operator.OPTIONAL_SELECT.getFunction().equals(functionName)) {
+    if (functionName.equals(Operator.OPTIONAL_SELECT.getFunction())) {
       String field = expr.call().args().get(1).constant().stringValue();
       InterpretableAttribute attribute;
       if (evaluatedArgs[0] instanceof EvalAttribute) {

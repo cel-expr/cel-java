@@ -107,6 +107,16 @@ public class UnknownContext {
     return variableResolver;
   }
 
+  /** Accessor for unresolved attribute patterns. */
+  ImmutableList<CelAttributePattern> unresolvedAttributes() {
+    return unresolvedAttributes;
+  }
+
+  /** Accessor for resolved attribute values. */
+  ImmutableMap<CelAttribute, Object> resolvedAttributes() {
+    return resolvedAttributes;
+  }
+
   /**
    * Creates a new unknown context that is a copy of the current context with the provided
    * additional attribute values.
@@ -123,7 +133,7 @@ public class UnknownContext {
         ImmutableMap.<CelAttribute, Object>builder()
             .putAll(this.resolvedAttributes)
             .putAll(resolvedAttributes)
-            .buildOrThrow());
+            .buildKeepingLast());
   }
 
   private boolean patternMaskedByResolvedAttribute(
@@ -168,10 +178,27 @@ public class UnknownContext {
 
     @Override
     public Optional<CelUnknownSet> maybePartialUnknown(CelAttribute attribute) {
-      return unresolvedAttributes.stream()
-          .filter(p -> p.isPartialMatch(attribute))
-          .findFirst()
-          .map(p -> CelUnknownSet.create(p.simplify(attribute)));
+      if (attribute.equals(CelAttribute.EMPTY) || attribute.qualifiers().isEmpty()) {
+        return Optional.empty();
+      }
+      Optional<CelUnknownSet> fromUnresolved =
+          unresolvedAttributes.stream()
+              .filter(p -> p.isPartialMatch(attribute))
+              .findFirst()
+              .map(p -> CelUnknownSet.create(p.simplify(attribute)));
+      if (fromUnresolved.isPresent()) {
+        return fromUnresolved;
+      }
+      for (CelAttribute resolved : resolvedAttributes.keySet()) {
+        if (resolved.qualifiers().size() > attribute.qualifiers().size()
+            && resolved
+                .qualifiers()
+                .subList(0, attribute.qualifiers().size())
+                .equals(attribute.qualifiers())) {
+          return Optional.of(CelUnknownSet.create(attribute));
+        }
+      }
+      return Optional.empty();
     }
   }
 }

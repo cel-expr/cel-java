@@ -143,6 +143,7 @@ public final class CelAttributeTest {
 
   @Test
   public void fromGeneric_supportedTypes() {
+    assertThat(Qualifier.fromGeneric(1)).isEqualTo(Qualifier.ofInt(1));
     assertThat(Qualifier.fromGeneric(Long.valueOf(1))).isEqualTo(Qualifier.ofInt(1));
     assertThat(Qualifier.fromGeneric(UnsignedLong.valueOf(1))).isEqualTo(Qualifier.ofUint(1));
     assertThat(Qualifier.fromGeneric("abcd")).isEqualTo(Qualifier.ofString("abcd"));
@@ -150,9 +151,25 @@ public final class CelAttributeTest {
   }
 
   @Test
+  public void fromGeneric_integerBoundaryValues() {
+    assertThat(Qualifier.fromGeneric(Integer.MAX_VALUE))
+        .isEqualTo(Qualifier.ofInt(Integer.MAX_VALUE));
+    assertThat(Qualifier.fromGeneric(Integer.MIN_VALUE))
+        .isEqualTo(Qualifier.ofInt(Integer.MIN_VALUE));
+    assertThat(Qualifier.fromGeneric(0)).isEqualTo(Qualifier.ofInt(0));
+  }
+
+  @Test
+  public void fromGeneric_nullThrows() {
+    assertThrows(IllegalArgumentException.class, () -> Qualifier.fromGeneric(null));
+  }
+
+  @Test
   public void fromGeneric_unsupportedTypeThrows() {
     assertThrows(
         IllegalArgumentException.class, () -> Qualifier.fromGeneric(new ArrayList<String>()));
+    assertThrows(IllegalArgumentException.class, () -> Qualifier.fromGeneric(1.0));
+    assertThrows(IllegalArgumentException.class, () -> Qualifier.fromGeneric(new byte[] {1, 2}));
   }
 
   @Test

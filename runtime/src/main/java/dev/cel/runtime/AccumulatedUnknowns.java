@@ -19,6 +19,7 @@ import dev.cel.common.annotations.Internal;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
 import org.jspecify.annotations.Nullable;
@@ -36,12 +37,12 @@ public final class AccumulatedUnknowns {
   private final Set<Long> exprIds;
   private final Set<CelAttribute> attributes;
 
-  Set<Long> exprIds() {
-    return exprIds;
+  public Set<Long> exprIds() {
+    return Collections.unmodifiableSet(exprIds);
   }
 
-  Set<CelAttribute> attributes() {
-    return attributes;
+  public Set<CelAttribute> attributes() {
+    return Collections.unmodifiableSet(attributes);
   }
 
   /**

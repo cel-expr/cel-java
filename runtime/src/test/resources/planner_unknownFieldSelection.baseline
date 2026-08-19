@@ -12,7 +12,7 @@ declare x {
 }
 =====>
 bindings: {x=, unknown_attributes=[x.single_int32]}
-result:   CelUnknownSet{attributes=[x], unknownExprIds=[1]}
+result:
 
 Source: x.single_int32
 declare x {

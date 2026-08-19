@@ -1228,13 +1228,19 @@ public final class CelImplTest {
   }
 
   @Test
-  public void programAdvanceEvaluation_unknownsBasic() throws Exception {
+  public void programAdvanceEvaluation_unknownsBasic(@TestParameter CelRuntimeFlavor runtimeFlavor)
+      throws Exception {
     Cel cel =
-        standardCelBuilderWithMacros()
-            .setOptions(CelOptions.current().enableUnknownTracking(true).build())
+        runtimeFlavor
+            .builder()
+            .setStandardMacros(CelStandardMacro.STANDARD_MACROS)
+            .setOptions(
+                CelOptions.current()
+                    .enableUnknownTracking(true)
+                    .enableHeterogeneousNumericComparisons(true)
+                    .build())
             .addVar("a", SimpleType.BOOL)
             .addVar("b", SimpleType.BOOL)
-            .addFunctionBindings()
             .setResultType(SimpleType.BOOL)
             .build();
     CelRuntime.Program program = cel.createProgram(cel.compile("a || b").getAst());
@@ -1439,7 +1445,7 @@ public final class CelImplTest {
     CelRuntime.Program program =
         cel.createProgram(cel.compile("acceptThreeBoolArgs(false, unk, [false][1])").getAst());
 
-    Assert.assertThrows(
+    assertThrows(
         CelEvaluationException.class,
         () ->
             program.advanceEvaluation(
@@ -1632,6 +1638,72 @@ public final class CelImplTest {
                             "unk", ImmutableMap.of(CelByteString.copyFromUtf8("a"), false))),
                     ImmutableList.of())))
         .isEqualTo(false);
+  }
+
+  @Test
+  public void programAdvanceEvaluation_sizeList() throws Exception {
+    Cel cel =
+        CelRuntimeFlavor.PLANNER
+            .builder()
+            .setStandardMacros(CelStandardMacro.STANDARD_MACROS)
+            .setOptions(
+                CelOptions.current()
+                    .enableUnknownTracking(true)
+                    .enableHeterogeneousNumericComparisons(true)
+                    .build())
+            .addVar("testList", ListType.create(SimpleType.BOOL))
+            .setContainer(CelContainer.ofName(""))
+            .addFunctionBindings()
+            .setResultType(SimpleType.INT)
+            .build();
+    CelRuntime.Program program = cel.createProgram(cel.compile("size(testList)").getAst());
+    Object result =
+        program.advanceEvaluation(
+            UnknownContext.create(
+                fromMap(ImmutableMap.of("testList", ImmutableList.of(true, true, false))),
+                ImmutableList.of(
+                    CelAttributePattern.create("testList").qualify(Qualifier.ofInt(2)))));
+    assertThat(result).isEqualTo(3L);
+  }
+
+  @Test
+  public void programAdvanceEvaluation_listIndexUnknownElement() throws Exception {
+    Cel cel =
+        CelRuntimeFlavor.PLANNER
+            .builder()
+            .setStandardMacros(CelStandardMacro.STANDARD_MACROS)
+            .setOptions(
+                CelOptions.current()
+                    .enableUnknownTracking(true)
+                    .enableHeterogeneousNumericComparisons(true)
+                    .build())
+            .addVar("testList", ListType.create(SimpleType.BOOL))
+            .setContainer(CelContainer.ofName(""))
+            .addFunctionBindings()
+            .setResultType(SimpleType.BOOL)
+            .build();
+
+    CelRuntime.Program program = cel.createProgram(cel.compile("testList[2] == true").getAst());
+
+    assertThat(
+            program.advanceEvaluation(
+                UnknownContext.create(
+                    fromMap(ImmutableMap.of("testList", ImmutableList.of(true, true, false))),
+                    ImmutableList.of(
+                        CelAttributePattern.create("testList").qualify(Qualifier.ofInt(2))))))
+        .isEqualTo(
+            CelUnknownSet.create(
+                ImmutableSet.of(CelAttribute.create("testList").qualify(Qualifier.ofInt(2)))));
+
+    CelRuntime.Program programIndex1 =
+        cel.createProgram(cel.compile("testList[1] == true").getAst());
+    assertThat(
+            programIndex1.advanceEvaluation(
+                UnknownContext.create(
+                    fromMap(ImmutableMap.of("testList", ImmutableList.of(true, true, false))),
+                    ImmutableList.of(
+                        CelAttributePattern.create("testList").qualify(Qualifier.ofInt(2))))))
+        .isEqualTo(true);
   }
 
   @Test

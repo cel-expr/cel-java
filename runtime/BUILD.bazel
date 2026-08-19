@@ -379,3 +379,9 @@ cel_android_library(
     name = "partial_vars_android",
     exports = ["//runtime/src/main/java/dev/cel/runtime:partial_vars_android"],
 )
+
+cel_android_library(
+    name = "function_resolver_android",
+    visibility = ["//:internal"],
+    exports = ["//runtime/src/main/java/dev/cel/runtime:function_resolver_android"],
+)
