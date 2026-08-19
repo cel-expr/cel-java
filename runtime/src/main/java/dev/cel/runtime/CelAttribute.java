@@ -104,6 +104,8 @@ public abstract class CelAttribute {
         return ofUint((UnsignedLong) value);
       } else if (value instanceof Long) {
         return ofInt((Long) value);
+      } else if (value instanceof Integer) {
+        return ofInt(((Integer) value).longValue());
       } else if (value instanceof Boolean) {
         return ofBool((boolean) value);
       } else if (value instanceof String) {
