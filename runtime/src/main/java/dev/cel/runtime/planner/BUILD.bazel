@@ -29,7 +29,9 @@ java_library(
         ":eval_exhaustive_conditional",
         ":eval_exhaustive_or",
         ":eval_fold",
+        ":eval_index",
         ":eval_late_bound_call",
+        ":eval_optional_index",
         ":eval_optional_or",
         ":eval_optional_or_value",
         ":eval_optional_select_field",
@@ -227,6 +229,39 @@ java_library(
         "//runtime:evaluation_exception",
         "//runtime:interpretable",
         "//runtime:resolved_overload",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+    ],
+)
+
+java_library(
+    name = "eval_index",
+    srcs = ["EvalIndex.java"],
+    deps = [
+        ":eval_helpers",
+        ":planned_interpretable",
+        "//common/ast",
+        "//common/values",
+        "//runtime:accumulated_unknowns",
+        "//runtime:evaluation_exception",
+        "//runtime:interpretable",
+        "//runtime:resolved_overload",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+    ],
+)
+
+java_library(
+    name = "eval_optional_index",
+    srcs = ["EvalOptionalIndex.java"],
+    deps = [
+        ":eval_helpers",
+        ":planned_interpretable",
+        "//common/ast",
+        "//common/values",
+        "//runtime:accumulated_unknowns",
+        "//runtime:evaluation_exception",
+        "//runtime:interpretable",
+        "//runtime:resolved_overload",
+        "@maven//:com_google_errorprone_error_prone_annotations",
     ],
 )
 
@@ -544,7 +579,9 @@ cel_android_library(
         ":eval_exhaustive_conditional_android",
         ":eval_exhaustive_or_android",
         ":eval_fold_android",
+        ":eval_index_android",
         ":eval_late_bound_call_android",
+        ":eval_optional_index_android",
         ":eval_optional_or_android",
         ":eval_optional_or_value_android",
         ":eval_optional_select_field_android",
@@ -735,10 +772,43 @@ cel_android_library(
         ":planned_interpretable_android",
         "//common/ast:ast_android",
         "//common/values:values_android",
+        "//runtime:accumulated_unknowns_android",
         "//runtime:evaluation_exception",
         "//runtime:interpretable_android",
         "//runtime:resolved_overload_android",
-        "//runtime/src/main/java/dev/cel/runtime:accumulated_unknowns_android",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+    ],
+)
+
+cel_android_library(
+    name = "eval_index_android",
+    srcs = ["EvalIndex.java"],
+    deps = [
+        ":eval_helpers_android",
+        ":planned_interpretable_android",
+        "//common/ast:ast_android",
+        "//common/values:values_android",
+        "//runtime:accumulated_unknowns_android",
+        "//runtime:evaluation_exception",
+        "//runtime:interpretable_android",
+        "//runtime:resolved_overload_android",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+    ],
+)
+
+cel_android_library(
+    name = "eval_optional_index_android",
+    srcs = ["EvalOptionalIndex.java"],
+    deps = [
+        ":eval_helpers_android",
+        ":planned_interpretable_android",
+        "//common/ast:ast_android",
+        "//common/values:values_android",
+        "//runtime:accumulated_unknowns_android",
+        "//runtime:evaluation_exception",
+        "//runtime:interpretable_android",
+        "//runtime:resolved_overload_android",
+        "@maven//:com_google_errorprone_error_prone_annotations",
     ],
 )
 

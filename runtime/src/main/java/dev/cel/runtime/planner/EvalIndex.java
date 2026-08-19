@@ -26,55 +26,56 @@ import dev.cel.runtime.CelResolvedOverload;
 import dev.cel.runtime.GlobalResolver;
 
 @Immutable
-final class EvalBinary extends PlannedInterpretable {
+final class EvalIndex extends PlannedInterpretable {
 
   private final String functionName;
   private final CelResolvedOverload resolvedOverload;
-  private final PlannedInterpretable arg1;
-  private final PlannedInterpretable arg2;
+  private final PlannedInterpretable target;
+  private final PlannedInterpretable index;
   private final CelValueConverter celValueConverter;
 
   @Override
   Object evalInternal(GlobalResolver resolver, ExecutionFrame frame) throws CelEvaluationException {
     boolean isStrict = resolvedOverload.isStrict();
-    Object argVal1 =
-        isStrict ? evalStrictly(arg1, resolver, frame) : evalNonstrictly(arg1, resolver, frame);
-    Object argVal2 =
-        isStrict ? evalStrictly(arg2, resolver, frame) : evalNonstrictly(arg2, resolver, frame);
+    Object targetVal =
+        isStrict ? evalStrictly(target, resolver, frame) : evalNonstrictly(target, resolver, frame);
+    Object indexVal =
+        isStrict ? evalStrictly(index, resolver, frame) : evalNonstrictly(index, resolver, frame);
+
     if (isStrict) {
-      AccumulatedUnknowns unknowns = AccumulatedUnknowns.maybeMerge(null, argVal1);
-      unknowns = AccumulatedUnknowns.maybeMerge(unknowns, argVal2);
+      AccumulatedUnknowns unknowns = AccumulatedUnknowns.maybeMerge(null, targetVal);
+      unknowns = AccumulatedUnknowns.maybeMerge(unknowns, indexVal);
       if (unknowns != null) {
         return unknowns;
       }
     }
 
     return EvalHelpers.dispatch(
-        functionName, resolvedOverload, celValueConverter, argVal1, argVal2);
+        functionName, resolvedOverload, celValueConverter, targetVal, indexVal);
   }
 
-  static EvalBinary create(
+  static EvalIndex create(
       CelExpr expr,
       String functionName,
       CelResolvedOverload resolvedOverload,
-      PlannedInterpretable arg1,
-      PlannedInterpretable arg2,
+      PlannedInterpretable target,
+      PlannedInterpretable index,
       CelValueConverter celValueConverter) {
-    return new EvalBinary(expr, functionName, resolvedOverload, arg1, arg2, celValueConverter);
+    return new EvalIndex(expr, functionName, resolvedOverload, target, index, celValueConverter);
   }
 
-  private EvalBinary(
+  private EvalIndex(
       CelExpr expr,
       String functionName,
       CelResolvedOverload resolvedOverload,
-      PlannedInterpretable arg1,
-      PlannedInterpretable arg2,
+      PlannedInterpretable target,
+      PlannedInterpretable index,
       CelValueConverter celValueConverter) {
     super(expr);
     this.functionName = functionName;
     this.resolvedOverload = resolvedOverload;
-    this.arg1 = arg1;
-    this.arg2 = arg2;
+    this.target = target;
+    this.index = index;
     this.celValueConverter = celValueConverter;
   }
 }
