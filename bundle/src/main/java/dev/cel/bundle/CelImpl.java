@@ -379,6 +379,7 @@ final class CelImpl implements Cel, EnvVisitable {
     }
 
     @Override
+    @Deprecated
     public CelBuilder setStandardEnvironmentEnabled(boolean value) {
       compilerBuilder.setStandardEnvironmentEnabled(value);
       runtimeBuilder.setStandardEnvironmentEnabled(value);

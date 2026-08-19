@@ -219,6 +219,7 @@ public final class CelRuntimeLegacyImpl implements CelRuntime {
     }
 
     @Override
+    @Deprecated
     public CelRuntimeBuilder setStandardEnvironmentEnabled(boolean value) {
       standardEnvironmentEnabled = value;
       return this;

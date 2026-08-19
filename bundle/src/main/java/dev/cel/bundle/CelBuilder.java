@@ -292,7 +292,15 @@ public interface CelBuilder {
   @CanIgnoreReturnValue
   CelBuilder addFileTypes(FileDescriptorSet fileDescriptorSet);
 
-  /** Enable or disable the standard CEL library functions and variables */
+  /**
+   * Enable or disable the standard CEL library functions and variables.
+   *
+   * @deprecated Use {@link #setStandardDeclarations(CelStandardDeclarations)} and/or {@link
+   *     #setStandardFunctions(CelStandardFunctions)} to configure or subset the standard
+   *     environment. Use {@link CelStandardDeclarations#EMPTY} and {@link
+   *     CelStandardFunctions#EMPTY} to disable all standard declarations and functions.
+   */
+  @Deprecated
   @CanIgnoreReturnValue
   CelBuilder setStandardEnvironmentEnabled(boolean value);
 
@@ -314,8 +322,7 @@ public interface CelBuilder {
 
   /**
    * Override the standard declarations for the type-checker. This can be used to subset the
-   * standard environment to only expose the desired declarations to the type-checker. {@link
-   * #setStandardEnvironmentEnabled(boolean)} must be set to false for this to take effect.
+   * standard environment to only expose the desired declarations to the type-checker.
    */
   @CanIgnoreReturnValue
   CelBuilder setStandardDeclarations(CelStandardDeclarations standardDeclarations);

@@ -393,6 +393,7 @@ public abstract class CelRuntimeImpl implements CelRuntime {
     }
 
     @Override
+    @Deprecated
     public Builder setStandardEnvironmentEnabled(boolean value) {
       throw new UnsupportedOperationException(
           "Unsupported. Subset the environment using setStandardFunctions instead.");

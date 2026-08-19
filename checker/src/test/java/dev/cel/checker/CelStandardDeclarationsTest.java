@@ -86,24 +86,63 @@ public class CelStandardDeclarationsTest {
   }
 
   @Test
-  public void compiler_standardEnvironmentEnabled_throwsWhenOverridingDeclarations() {
-    IllegalArgumentException e =
-        assertThrows(
-            IllegalArgumentException.class,
-            () ->
-                CelCompilerFactory.standardCelCompilerBuilder()
-                    .setStandardEnvironmentEnabled(true)
-                    .setStandardDeclarations(
-                        CelStandardDeclarations.newBuilder()
-                            .includeFunctions(StandardFunction.ADD, StandardFunction.SUBTRACT)
-                            .build())
-                    .build());
+  public void compiler_setStandardDeclarations_overridesDefaultStandardEnvironment()
+      throws Exception {
+    CelCompiler compiler =
+        CelCompilerFactory.standardCelCompilerBuilder()
+            .setStandardDeclarations(
+                CelStandardDeclarations.newBuilder()
+                    .includeFunctions(StandardFunction.ADD)
+                    .build())
+            .build();
 
-    assertThat(e)
-        .hasMessageThat()
-        .contains(
-            "setStandardEnvironmentEnabled must be set to false to override standard"
-                + " declarations.");
+    assertThat(compiler.compile("1 + 1").hasError()).isFalse();
+    assertThat(compiler.compile("1 - 1").hasError()).isTrue();
+  }
+
+  @Test
+  public void compiler_setStandardDeclarations_withStandardEnvironmentExplicitlyEnabled()
+      throws Exception {
+    CelCompiler compiler =
+        CelCompilerFactory.standardCelCompilerBuilder()
+            .setStandardEnvironmentEnabled(true)
+            .setStandardDeclarations(
+                CelStandardDeclarations.newBuilder()
+                    .includeFunctions(StandardFunction.ADD)
+                    .build())
+            .build();
+
+    assertThat(compiler.compile("1 + 1").hasError()).isFalse();
+    assertThat(compiler.compile("1 - 1").hasError()).isTrue();
+  }
+
+  @Test
+  public void compiler_setStandardDeclarations_withStandardEnvironmentExplicitlyDisabled()
+      throws Exception {
+    CelCompiler compiler =
+        CelCompilerFactory.standardCelCompilerBuilder()
+            .setStandardEnvironmentEnabled(false)
+            .setStandardDeclarations(
+                CelStandardDeclarations.newBuilder()
+                    .includeFunctions(StandardFunction.ADD)
+                    .build())
+            .build();
+
+    assertThat(compiler.compile("1 + 1").hasError()).isFalse();
+    assertThat(compiler.compile("1 - 1").hasError()).isTrue();
+  }
+
+  @Test
+  public void compiler_setStandardDeclarations_emptyDisablesAllStandardDeclarations()
+      throws Exception {
+    CelCompiler compiler =
+        CelCompilerFactory.standardCelCompilerBuilder()
+            .setStandardDeclarations(CelStandardDeclarations.EMPTY)
+            .build();
+
+    assertThat(compiler.compile("1 + 1").hasError()).isTrue();
+    assertThat(compiler.compile("1 - 1").hasError()).isTrue();
+    assertThat(compiler.compile("size([1])").hasError()).isTrue();
   }
 
   @Test

@@ -170,7 +170,14 @@ public interface CelRuntimeBuilder {
   /** Returns the configured {@link CelValueProvider}, or null if not set. */
   CelValueProvider valueProvider();
 
-  /** Enable or disable the standard CEL library functions and variables. */
+  /**
+   * Enable or disable the standard CEL library functions and variables.
+   *
+   * @deprecated Use {@link #setStandardFunctions(CelStandardFunctions)} to configure or subset the
+   *     standard environment. Use {@link CelStandardFunctions#EMPTY} to disable all standard
+   *     functions.
+   */
+  @Deprecated
   @CanIgnoreReturnValue
   CelRuntimeBuilder setStandardEnvironmentEnabled(boolean value);
 

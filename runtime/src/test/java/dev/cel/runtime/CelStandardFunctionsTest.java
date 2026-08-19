@@ -137,6 +137,11 @@ public class CelStandardFunctionsTest {
   }
 
   @Test
+  public void standardFunctions_empty() {
+    assertThat(CelStandardFunctions.EMPTY.getOverloads()).isEmpty();
+  }
+
+  @Test
   public void standardEnvironment_subsetEnvironment() throws Exception {
     CelCompiler celCompiler = CelCompilerFactory.standardCelCompilerBuilder().build();
     CelRuntime celRuntime =

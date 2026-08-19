@@ -60,6 +60,7 @@ import com.google.rpc.context.AttributeContext;
 import com.google.testing.junit.testparameterinjector.TestParameter;
 import com.google.testing.junit.testparameterinjector.TestParameterInjector;
 import dev.cel.checker.CelCheckerLegacyImpl;
+import dev.cel.checker.CelStandardDeclarations;
 import dev.cel.checker.DescriptorTypeProvider;
 import dev.cel.checker.ProtoTypeMask;
 import dev.cel.checker.TypeProvider;
@@ -110,6 +111,7 @@ import dev.cel.runtime.CelRuntime;
 import dev.cel.runtime.CelRuntime.Program;
 import dev.cel.runtime.CelRuntimeFactory;
 import dev.cel.runtime.CelRuntimeLegacyImpl;
+import dev.cel.runtime.CelStandardFunctions;
 import dev.cel.runtime.CelUnknownSet;
 import dev.cel.runtime.CelVariableResolver;
 import dev.cel.runtime.UnknownContext;
@@ -2293,5 +2295,28 @@ public final class CelImplTest {
                 .enableQuotedIdentifierSyntax(true)
                 .build())
         .build();
+  }
+
+  @Test
+  public void plannerCelBuilder_setStandardDeclarationsAndFunctions_subsetsEnvironment()
+      throws Exception {
+    Cel cel =
+        CelFactory.plannerCelBuilder()
+            .setStandardDeclarations(
+                CelStandardDeclarations.newBuilder()
+                    .includeFunctions(CelStandardDeclarations.StandardFunction.ADD)
+                    .build())
+            .setStandardFunctions(
+                CelStandardFunctions.newBuilder()
+                    .includeFunctions(CelStandardFunctions.StandardFunction.ADD)
+                    .build())
+            .build();
+
+    CelAbstractSyntaxTree ast = cel.compile("1 + 1").getAst();
+    assertThat(cel.createProgram(ast).eval()).isEqualTo(2L);
+
+    CelValidationException validationException =
+        assertThrows(CelValidationException.class, () -> cel.compile("1 - 1").getAst());
+    assertThat(validationException).hasMessageThat().contains("undeclared reference to '_-_'");
   }
 }

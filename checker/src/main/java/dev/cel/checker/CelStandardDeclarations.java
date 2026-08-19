@@ -51,6 +51,10 @@ public final class CelStandardDeclarations {
   private static final TypeParamType TYPE_PARAM_B = TypeParamType.create("B");
   private static final MapType MAP_OF_AB = MapType.create(TYPE_PARAM_A, TYPE_PARAM_B);
 
+  /** An empty instance of {@link CelStandardDeclarations} with no functions or identifiers. */
+  public static final CelStandardDeclarations EMPTY =
+      new CelStandardDeclarations(ImmutableSet.of(), ImmutableSet.of());
+
   private final ImmutableSet<CelFunctionDecl> celFunctionDecls;
   private final ImmutableSet<CelIdentDecl> celIdentDecls;
 

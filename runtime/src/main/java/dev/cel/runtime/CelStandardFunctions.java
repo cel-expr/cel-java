@@ -140,6 +140,10 @@ public final class CelStandardFunctions {
           GreaterEqualsOverload.GREATER_EQUALS_UINT64_DOUBLE,
           GreaterEqualsOverload.GREATER_EQUALS_DOUBLE_UINT64);
 
+  /** An empty instance of {@link CelStandardFunctions} with no functions. */
+  public static final CelStandardFunctions EMPTY =
+      new CelStandardFunctions(ImmutableMultimap.of());
+
   private final ImmutableMultimap<String, CelStandardOverload> standardOverloads;
 
   public static final ImmutableSet<CelStandardFunction> ALL_STANDARD_FUNCTIONS =

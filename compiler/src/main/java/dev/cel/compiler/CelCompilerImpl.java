@@ -283,6 +283,7 @@ public final class CelCompilerImpl implements CelCompiler, EnvVisitable {
     }
 
     @Override
+    @Deprecated
     public CelCompilerBuilder setStandardEnvironmentEnabled(boolean value) {
       checkerBuilder.setStandardEnvironmentEnabled(value);
       return this;
