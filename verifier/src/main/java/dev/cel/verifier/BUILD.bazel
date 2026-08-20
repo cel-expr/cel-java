@@ -11,6 +11,9 @@ package(
 java_library(
     name = "verifier",
     srcs = [
+        "CelCounterexample.java",
+        "CelPolicyDiagnostic.java",
+        "CelPolicyEquivalenceDiagnostic.java",
         "CelVerificationException.java",
         "CelVerificationResult.java",
         "CelVerifier.java",
@@ -21,8 +24,13 @@ java_library(
     deps = [
         "//:auto_value",
         "//common:cel_ast",
+        "//common:compiler_common",
+        "//common:source",
+        "//common:source_location",
         "//common/types:type_providers",
         "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:com_google_guava_guava",
+        "@maven//:org_jspecify_jspecify",
     ],
 )
 
@@ -76,7 +84,10 @@ java_library(
 
 java_library(
     name = "policy_verifier_impl",
-    srcs = ["CelPolicyVerifierImpl.java"],
+    srcs = [
+        "CelPolicyPathTracer.java",
+        "CelPolicyVerifierImpl.java",
+    ],
     compatible_with = [],
     tags = [
     ],
@@ -88,11 +99,14 @@ java_library(
         "//common:cel_ast",
         "//common:cel_source",
         "//common:compiler_common",
+        "//common:source_location",
         "//common/formats:value_string",
         "//policy",
         "//policy:compiled_rule",
         "//policy:compiler",
+        "//policy:source",
         "//policy:validation_exception",
+        "//runtime:evaluation_exception",
         "@maven//:com_google_guava_guava",
     ],
 )
@@ -153,6 +167,7 @@ java_library(
 java_library(
     name = "z3_impl",
     srcs = [
+        "CegarRefiner.java",
         "CelAstAlphaHasher.java",
         "CelAstToZ3Translator.java",
         "CelVerifierZ3Impl.java",
@@ -180,9 +195,12 @@ java_library(
         "//common/types",
         "//common/types:cel_types",
         "//common/types:type_providers",
+        "//common/values:cel_byte_string",
+        "//common/values:cel_value_provider",
         "//optimizer",
         "//optimizer:optimization_exception",
         "//optimizer:optimizer_builder",
+        "//runtime:evaluation_exception",
         "//verifier/axioms",
         "@maven//:com_google_errorprone_error_prone_annotations",
         "@maven//:com_google_guava_guava",
