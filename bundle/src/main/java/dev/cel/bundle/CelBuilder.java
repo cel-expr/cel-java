@@ -29,6 +29,7 @@ import dev.cel.common.CelContainer;
 import dev.cel.common.CelFunctionDecl;
 import dev.cel.common.CelOptions;
 import dev.cel.common.CelVarDecl;
+import dev.cel.common.ast.CelConstant;
 import dev.cel.common.types.CelType;
 import dev.cel.common.types.CelTypeProvider;
 import dev.cel.common.values.CelValueProvider;
@@ -100,6 +101,13 @@ public interface CelBuilder {
   /** Add a variable declaration with a given {@code name} and {@link CelType}. */
   @CanIgnoreReturnValue
   CelBuilder addVar(String name, CelType type);
+
+  /**
+   * Adds a named constant declaration to the CEL environment. The declared constant will be inlined
+   * into the expression during type-check.
+   */
+  @CanIgnoreReturnValue
+  CelBuilder addConstant(String name, CelConstant celConstant);
 
   /** Add variable and function {@code declarations} to the CEL environment. */
   @CanIgnoreReturnValue

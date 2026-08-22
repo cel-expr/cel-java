@@ -38,6 +38,7 @@ import dev.cel.common.CelOptions;
 import dev.cel.common.CelSource;
 import dev.cel.common.CelValidationResult;
 import dev.cel.common.CelVarDecl;
+import dev.cel.common.ast.CelConstant;
 import dev.cel.common.internal.EnvVisitable;
 import dev.cel.common.internal.EnvVisitor;
 import dev.cel.common.internal.FileDescriptorSetConverter;
@@ -218,6 +219,12 @@ final class CelImpl implements Cel, EnvVisitable {
     @Override
     public CelBuilder addVar(String name, CelType type) {
       compilerBuilder.addVar(name, type);
+      return this;
+    }
+
+    @Override
+    public CelBuilder addConstant(String name, CelConstant celConstant) {
+      compilerBuilder.addConstant(name, celConstant);
       return this;
     }
 

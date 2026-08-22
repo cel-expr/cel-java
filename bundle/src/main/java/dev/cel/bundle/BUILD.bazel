@@ -74,6 +74,7 @@ java_library(
         "//common:compiler_common",
         "//common:container",
         "//common:options",
+        "//common/ast",
         "//common/internal:env_visitor",
         "//common/internal:file_descriptor_converter",
         "//common/types:cel_proto_types",

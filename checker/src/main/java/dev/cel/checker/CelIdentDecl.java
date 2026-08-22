@@ -52,6 +52,9 @@ public abstract class CelIdentDecl {
   /** Documentation string for the identifier. */
   public abstract String doc();
 
+  /** If set, the identifier will get inlined as a constant value during type-check. */
+  abstract boolean isInlinable();
+
   /** Converts a {@link CelIdentDecl} to a protobuf equivalent form {@code Decl} */
   public static Decl celIdentToDecl(CelIdentDecl identDecl) {
     IdentDecl.Builder identBuilder =
@@ -71,7 +74,7 @@ public abstract class CelIdentDecl {
   }
 
   public static Builder newBuilder() {
-    return new AutoValue_CelIdentDecl.Builder().setDoc("");
+    return new AutoValue_CelIdentDecl.Builder().setDoc("").setIsInlinable(false);
   }
 
   /** Builder for configuring the {@link CelIdentDecl}. */
@@ -91,6 +94,8 @@ public abstract class CelIdentDecl {
 
     @CanIgnoreReturnValue
     public abstract Builder setDoc(String value);
+
+    public abstract Builder setIsInlinable(boolean value);
 
     @CanIgnoreReturnValue
     public Builder clearConstant() {

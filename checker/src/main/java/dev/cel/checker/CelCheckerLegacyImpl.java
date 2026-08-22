@@ -42,6 +42,7 @@ import dev.cel.common.CelSourceLocation;
 import dev.cel.common.CelValidationResult;
 import dev.cel.common.CelVarDecl;
 import dev.cel.common.annotations.Internal;
+import dev.cel.common.ast.CelConstant;
 import dev.cel.common.ast.CelExprConverter;
 import dev.cel.common.internal.EnvVisitable;
 import dev.cel.common.internal.EnvVisitor;
@@ -50,6 +51,7 @@ import dev.cel.common.types.CelProtoTypes;
 import dev.cel.common.types.CelType;
 import dev.cel.common.types.CelTypeProvider;
 import dev.cel.common.types.ProtoMessageTypeProvider;
+import dev.cel.common.types.SimpleType;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -287,6 +289,27 @@ public final class CelCheckerLegacyImpl implements CelChecker, EnvVisitable {
         this.identDeclarations.add(
             CelIdentDecl.newIdentDeclaration(celVarDecl.name(), celVarDecl.type()));
       }
+      return this;
+    }
+
+    @Override
+    public CelCheckerBuilder addConstant(String name, CelConstant celConstant) {
+      switch (celConstant.getKind()) {
+        case NOT_SET:
+        case TIMESTAMP_VALUE:
+        case DURATION_VALUE:
+          throw new IllegalArgumentException("Unsupported constant: " + celConstant.getKind());
+        default:
+          break;
+      }
+
+      this.identDeclarations.add(
+          CelIdentDecl.newBuilder()
+              .setName(name)
+              .setType(SimpleType.DYN)
+              .setConstant(celConstant)
+              .setIsInlinable(true)
+              .build());
       return this;
     }
 
