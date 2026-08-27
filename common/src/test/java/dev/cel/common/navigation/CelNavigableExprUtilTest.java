@@ -475,4 +475,143 @@ public final class CelNavigableExprUtilTest {
     assertThat(CelNavigableExprUtil.findDeclaringComprehension(identV, "v")).hasValue(innerComp);
     assertThat(CelNavigableExprUtil.findDeclaringComprehension(identX, "unknown")).isEmpty();
   }
+
+  @Test
+  public void getEnclosingComprehensionVariables_singleVar_loopStep() throws Exception {
+    CelAbstractSyntaxTree ast = COMPILER.compile("[1, 2].all(x, x > 0)").getAst();
+    CelNavigableAst navigableAst = CelNavigableAst.fromAst(ast);
+
+    CelNavigableExpr identX =
+        navigableAst
+            .getRoot()
+            .allNodes()
+            .filter(node -> node.expr().identOrDefault().name().equals("x"))
+            .findFirst()
+            .get();
+
+    CelNavigableExpr comp =
+        navigableAst
+            .getRoot()
+            .allNodes()
+            .filter(node -> node.getKind() == Kind.COMPREHENSION)
+            .findFirst()
+            .get();
+    String accuVar = comp.expr().comprehension().accuVar();
+
+    assertThat(CelNavigableExprUtil.getEnclosingComprehensionVariables(identX))
+        .containsExactly("x", accuVar);
+  }
+
+  @Test
+  public void getEnclosingComprehensionVariables_twoVar_loopStep() throws Exception {
+    CelAbstractSyntaxTree ast =
+        COMPILER.compile("{'k1': 1, 'k2': 2}.all(k, v, k != '' && v > 0)").getAst();
+    CelNavigableAst navigableAst = CelNavigableAst.fromAst(ast);
+
+    CelNavigableExpr identK =
+        navigableAst
+            .getRoot()
+            .allNodes()
+            .filter(node -> node.expr().identOrDefault().name().equals("k"))
+            .findFirst()
+            .get();
+
+    CelNavigableExpr comp =
+        navigableAst
+            .getRoot()
+            .allNodes()
+            .filter(node -> node.getKind() == Kind.COMPREHENSION)
+            .findFirst()
+            .get();
+    String accuVar = comp.expr().comprehension().accuVar();
+
+    assertThat(CelNavigableExprUtil.getEnclosingComprehensionVariables(identK))
+        .containsExactly("k", "v", accuVar);
+  }
+
+  @Test
+  public void getEnclosingComprehensionVariables_iterRange_empty() throws Exception {
+    CelAbstractSyntaxTree ast = COMPILER.compile("[a].all(x, x > 0)").getAst();
+    CelNavigableAst navigableAst = CelNavigableAst.fromAst(ast);
+
+    CelNavigableExpr identA =
+        navigableAst
+            .getRoot()
+            .allNodes()
+            .filter(node -> node.expr().identOrDefault().name().equals("a"))
+            .findFirst()
+            .get();
+
+    assertThat(CelNavigableExprUtil.getEnclosingComprehensionVariables(identA)).isEmpty();
+  }
+
+  @Test
+  public void getEnclosingComprehensionVariables_nestedComprehension() throws Exception {
+    CelAbstractSyntaxTree ast =
+        COMPILER.compile("[1, 2].all(x, [3, 4].all(y, x > 0 && y > 0))").getAst();
+    CelNavigableAst navigableAst = CelNavigableAst.fromAst(ast);
+
+    CelNavigableExpr innerIdentY =
+        navigableAst
+            .getRoot()
+            .allNodes()
+            .filter(node -> node.expr().identOrDefault().name().equals("y"))
+            .findFirst()
+            .get();
+
+    CelNavigableExpr innerComp =
+        navigableAst
+            .getRoot()
+            .allNodes()
+            .filter(
+                node ->
+                    node.getKind() == Kind.COMPREHENSION
+                        && node.expr().comprehension().iterVar().equals("y"))
+            .findFirst()
+            .get();
+
+    String innerAccuVar = innerComp.expr().comprehension().accuVar();
+
+    assertThat(CelNavigableExprUtil.getEnclosingComprehensionVariables(innerIdentY))
+        .containsExactly("y", innerAccuVar, "x");
+  }
+
+  @Test
+  public void getEnclosingComprehensionVariables_zeroedOutIds_scopedCorrectly() {
+    // Construct a mutable comprehension where ALL expression IDs are 0 (e.g. freshly minted AST)
+    CelMutableExpr iterRange = CelMutableExpr.ofList(0, CelMutableList.create());
+    CelMutableExpr accuInit = CelMutableExpr.ofConstant(0, CelConstant.ofValue(true));
+    CelMutableExpr loopCond = CelMutableExpr.ofConstant(0, CelConstant.ofValue(true));
+    CelMutableExpr identX = CelMutableExpr.ofIdent(0, "x");
+    CelMutableExpr loopStep = CelMutableExpr.ofCall(0, CelMutableCall.create("!_", identX));
+    CelMutableExpr result = CelMutableExpr.ofIdent(0, "accu");
+
+    CelMutableExpr comp =
+        CelMutableExpr.ofComprehension(
+            0,
+            CelMutableComprehension.create(
+                "x", iterRange, "accu", accuInit, loopCond, loopStep, result));
+
+    CelNavigableMutableExpr root = CelNavigableMutableExpr.fromExpr(comp);
+
+    CelNavigableMutableExpr navIdentX =
+        root.allNodes()
+            .filter(node -> node.getKind() == Kind.IDENT && node.expr().ident().name().equals("x"))
+            .findFirst()
+            .get();
+    CelNavigableMutableExpr navIterRange =
+        root.allNodes().filter(node -> node.getKind() == Kind.LIST).findFirst().get();
+    CelNavigableMutableExpr navResult =
+        root.allNodes()
+            .filter(
+                node -> node.getKind() == Kind.IDENT && node.expr().ident().name().equals("accu"))
+            .findFirst()
+            .get();
+
+    assertThat(CelNavigableExprUtil.getEnclosingComprehensionVariables(navIdentX))
+        .containsExactly("x", "accu");
+    assertThat(CelNavigableExprUtil.getEnclosingComprehensionVariables(navIterRange)).isEmpty();
+    assertThat(CelNavigableExprUtil.getEnclosingComprehensionVariables(navResult))
+        .containsExactly("accu");
+  }
 }

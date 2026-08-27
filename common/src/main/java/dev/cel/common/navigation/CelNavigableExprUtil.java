@@ -16,6 +16,7 @@ package dev.cel.common.navigation;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
+import com.google.common.collect.ImmutableSet;
 import com.google.errorprone.annotations.CheckReturnValue;
 import dev.cel.common.ast.CelExpr.ExprKind.Kind;
 import dev.cel.common.ast.Expression;
@@ -77,6 +78,51 @@ public final class CelNavigableExprUtil {
       maybeParent = parent.parent();
     }
     return Optional.empty();
+  }
+
+  /**
+   * Returns a set of all variables declared by enclosing comprehensions that are in scope for
+   * {@code expr}.
+   *
+   * <p>A comprehension variable ({@code iterVar}, {@code iterVar2}, or {@code accuVar}) is in scope
+   * if {@code expr} resides within the branch where that variable is active:
+   *
+   * <ul>
+   *   <li>In {@code loopCondition} and {@code loopStep}: {@code iterVar}, {@code iterVar2}, and
+   *       {@code accuVar} are in scope.
+   *   <li>In {@code result}: only {@code accuVar} is in scope.
+   *   <li>In {@code iterRange} and {@code accuInit}: none of the comprehension variables are in
+   *       scope.
+   * </ul>
+   */
+  @SuppressWarnings("ReferenceEquality") // Disambiguates mutable child branches
+  public static ImmutableSet<String> getEnclosingComprehensionVariables(BaseNavigableExpr<?> expr) {
+    checkNotNull(expr);
+    ImmutableSet.Builder<String> variables = ImmutableSet.builder();
+    BaseNavigableExpr<?> curr = expr;
+    Optional<? extends BaseNavigableExpr<?>> maybeParent = curr.parent();
+    while (maybeParent.isPresent()) {
+      BaseNavigableExpr<?> parent = maybeParent.get();
+      if (parent.getKind() == Kind.COMPREHENSION) {
+        Expression.Comprehension<?> comp = parent.expr().comprehension();
+        Expression currExpr = curr.expr();
+
+        if (currExpr != comp.iterRange() && currExpr != comp.accuInit()) {
+          if (currExpr == comp.result()) {
+            variables.add(comp.accuVar());
+          } else {
+            variables.add(comp.iterVar());
+            if (!comp.iterVar2().isEmpty()) {
+              variables.add(comp.iterVar2());
+            }
+            variables.add(comp.accuVar());
+          }
+        }
+      }
+      curr = parent;
+      maybeParent = parent.parent();
+    }
+    return variables.build();
   }
 
   /**
