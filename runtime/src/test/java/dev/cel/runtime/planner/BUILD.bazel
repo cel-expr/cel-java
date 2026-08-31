@@ -46,6 +46,7 @@ java_library(
         "//runtime:partial_vars",
         "//runtime:program",
         "//runtime:runtime_equality",
+        "//runtime:runtime_factory",
         "//runtime:runtime_helpers",
         "//runtime:standard_functions",
         "//runtime:unknown_attributes",

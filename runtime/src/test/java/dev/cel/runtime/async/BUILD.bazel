@@ -23,6 +23,7 @@ java_library(
         "//runtime:unknown_attributes",
         "//runtime:unknown_options",
         "//runtime/async",
+        "//testing:cel_runtime_flavor",
         "@maven//:junit_junit",
         "@maven//:com_google_testparameterinjector_test_parameter_injector",
         "//:java_truth",

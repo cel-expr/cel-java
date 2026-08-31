@@ -21,6 +21,7 @@ import static dev.cel.common.CelOverloadDecl.newMemberOverload;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.Assert.assertThrows;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -68,9 +69,12 @@ import dev.cel.extensions.CelExtensions;
 import dev.cel.parser.CelStandardMacro;
 import dev.cel.runtime.CelAttribute;
 import dev.cel.runtime.CelAttributePattern;
+import dev.cel.runtime.CelAttributeResolver;
 import dev.cel.runtime.CelEvaluationException;
 import dev.cel.runtime.CelFunctionBinding;
 import dev.cel.runtime.CelLateFunctionBindings;
+import dev.cel.runtime.CelRuntime;
+import dev.cel.runtime.CelRuntimeFactory;
 import dev.cel.runtime.CelStandardFunctions;
 import dev.cel.runtime.CelStandardFunctions.StandardFunction;
 import dev.cel.runtime.CelUnknownSet;
@@ -81,7 +85,9 @@ import dev.cel.runtime.PartialVars;
 import dev.cel.runtime.Program;
 import dev.cel.runtime.RuntimeEquality;
 import dev.cel.runtime.RuntimeHelpers;
+import dev.cel.runtime.UnknownContext;
 import dev.cel.runtime.standard.TypeFunction;
+import java.util.Optional;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
@@ -92,7 +98,9 @@ public final class ProgramPlannerTest {
   private static final CelTypeProvider TYPE_PROVIDER =
       new CombinedCelTypeProvider(
           DefaultTypeProvider.getInstance(),
-          new ProtoMessageTypeProvider(ImmutableSet.of(TestAllTypes.getDescriptor())));
+          ProtoMessageTypeProvider.newBuilder()
+              .addDescriptors(ImmutableSet.of(TestAllTypes.getDescriptor()))
+              .build());
   private static final RuntimeEquality RUNTIME_EQUALITY =
       RuntimeEquality.create(RuntimeHelpers.create(), CEL_OPTIONS);
   private static final CelDescriptorPool DESCRIPTOR_POOL =
@@ -255,9 +263,7 @@ public final class ProgramPlannerTest {
 
   private static void addBindingsToDispatcher(
       DefaultDispatcher.Builder builder, ImmutableCollection<CelFunctionBinding> overloadBindings) {
-    if (overloadBindings.isEmpty()) {
-      throw new IllegalArgumentException("Invalid bindings");
-    }
+    Preconditions.checkArgument(!overloadBindings.isEmpty(), "Invalid bindings");
 
     overloadBindings.forEach(
         overload ->
@@ -519,7 +525,7 @@ public final class ProgramPlannerTest {
         .hasMessageThat()
         .contains("evaluation error at <input>:5: Function 'error' failed with arg(s) ''");
     assertThat(e).hasCauseThat().isInstanceOf(IllegalArgumentException.class);
-    assertThat(e.getCause()).hasMessageThat().contains("Intentional error");
+    assertThat(e).hasCauseThat().hasMessageThat().contains("Intentional error");
   }
 
   @Test
@@ -1079,10 +1085,10 @@ public final class ProgramPlannerTest {
         .isEqualTo(
             CelUnknownSet.create(
                 ImmutableSet.of(
-                    CelAttribute.create("unk"),
+                    CelAttribute.create("unk").qualify(CelAttribute.Qualifier.ofString("c")),
                     CelAttribute.create("unk").qualify(CelAttribute.Qualifier.ofString("a")),
                     CelAttribute.create("unk").qualify(CelAttribute.Qualifier.ofString("b"))),
-                ImmutableSet.of(2L, 5L, 7L)));
+                ImmutableSet.of(2L, 5L, 8L)));
   }
 
   @Test
@@ -1577,4 +1583,917 @@ public final class ProgramPlannerTest {
       this.expected = expected;
     }
   }
+
+  @Test
+  public void advanceEvaluation_unresolvedAttribute_returnsUnknownSet() throws Exception {
+    CelCompiler compiler =
+        CelCompilerFactory.standardCelCompilerBuilder().addVar("unk", SimpleType.INT).build();
+    CelAbstractSyntaxTree ast = compile(compiler, "unk + 1");
+    CelRuntime celRuntime =
+        CelRuntimeFactory.plannerRuntimeBuilder()
+            .setOptions(
+                CelOptions.current()
+                    .enableUnknownTracking(true)
+                    .enableHeterogeneousNumericComparisons(true)
+                    .build())
+            .build();
+    CelRuntime.Program program = celRuntime.createProgram(ast);
+    UnknownContext context =
+        UnknownContext.create(
+            name -> Optional.empty(), ImmutableList.of(CelAttributePattern.create("unk")));
+
+    Object result = program.advanceEvaluation(context);
+
+    assertThat(result).isEqualTo(CelUnknownSet.create(CelAttribute.create("unk")));
+  }
+
+  @Test
+  public void advanceEvaluation_withResolvedAttributes_returnsResult() throws Exception {
+    CelCompiler compiler =
+        CelCompilerFactory.standardCelCompilerBuilder().addVar("unk", SimpleType.INT).build();
+    CelAbstractSyntaxTree ast = compile(compiler, "unk + 1");
+    CelRuntime celRuntime =
+        CelRuntimeFactory.plannerRuntimeBuilder()
+            .setOptions(
+                CelOptions.current()
+                    .enableUnknownTracking(true)
+                    .enableHeterogeneousNumericComparisons(true)
+                    .build())
+            .build();
+    CelRuntime.Program program = celRuntime.createProgram(ast);
+    UnknownContext context =
+        UnknownContext.create(
+            name -> Optional.empty(), ImmutableList.of(CelAttributePattern.create("unk")));
+    UnknownContext resolvedContext =
+        context.withResolvedAttributes(ImmutableMap.of(CelAttribute.create("unk"), 41L));
+
+    Object result = program.advanceEvaluation(resolvedContext);
+
+    assertThat(result).isEqualTo(42L);
+  }
+
+  @Test
+  public void advanceEvaluation_multiVariable_bothUnknown_returnsBothUnknowns() throws Exception {
+    CelCompiler compiler =
+        CelCompilerFactory.standardCelCompilerBuilder()
+            .addVar("a", SimpleType.INT)
+            .addVar("b", SimpleType.INT)
+            .build();
+    CelAbstractSyntaxTree ast = compile(compiler, "a + b");
+    CelRuntime celRuntime =
+        CelRuntimeFactory.plannerRuntimeBuilder()
+            .setOptions(
+                CelOptions.current()
+                    .enableUnknownTracking(true)
+                    .enableHeterogeneousNumericComparisons(true)
+                    .build())
+            .build();
+    CelRuntime.Program program = celRuntime.createProgram(ast);
+    UnknownContext context =
+        UnknownContext.create(
+            name -> Optional.empty(),
+            ImmutableList.of(CelAttributePattern.create("a"), CelAttributePattern.create("b")));
+
+    Object result = program.advanceEvaluation(context);
+
+    assertThat(result)
+        .isEqualTo(
+            CelUnknownSet.create(
+                ImmutableSet.of(CelAttribute.create("a"), CelAttribute.create("b"))));
+  }
+
+  @Test
+  public void advanceEvaluation_multiVariable_oneResolved_returnsRemainingUnknown()
+      throws Exception {
+    CelCompiler compiler =
+        CelCompilerFactory.standardCelCompilerBuilder()
+            .addVar("a", SimpleType.INT)
+            .addVar("b", SimpleType.INT)
+            .build();
+    CelAbstractSyntaxTree ast = compile(compiler, "a + b");
+    CelRuntime celRuntime =
+        CelRuntimeFactory.plannerRuntimeBuilder()
+            .setOptions(
+                CelOptions.current()
+                    .enableUnknownTracking(true)
+                    .enableHeterogeneousNumericComparisons(true)
+                    .build())
+            .build();
+    CelRuntime.Program program = celRuntime.createProgram(ast);
+    UnknownContext context =
+        UnknownContext.create(
+                name -> Optional.empty(),
+                ImmutableList.of(CelAttributePattern.create("a"), CelAttributePattern.create("b")))
+            .withResolvedAttributes(ImmutableMap.of(CelAttribute.create("a"), 10L));
+
+    Object result = program.advanceEvaluation(context);
+
+    assertThat(result).isEqualTo(CelUnknownSet.create(CelAttribute.create("b")));
+  }
+
+  @Test
+  public void advanceEvaluation_multiVariable_allResolved_returnsValue() throws Exception {
+    CelCompiler compiler =
+        CelCompilerFactory.standardCelCompilerBuilder()
+            .addVar("a", SimpleType.INT)
+            .addVar("b", SimpleType.INT)
+            .build();
+    CelAbstractSyntaxTree ast = compile(compiler, "a + b");
+    CelRuntime celRuntime =
+        CelRuntimeFactory.plannerRuntimeBuilder()
+            .setOptions(
+                CelOptions.current()
+                    .enableUnknownTracking(true)
+                    .enableHeterogeneousNumericComparisons(true)
+                    .build())
+            .build();
+    CelRuntime.Program program = celRuntime.createProgram(ast);
+    UnknownContext context =
+        UnknownContext.create(
+                name -> Optional.empty(),
+                ImmutableList.of(CelAttributePattern.create("a"), CelAttributePattern.create("b")))
+            .withResolvedAttributes(
+                ImmutableMap.of(CelAttribute.create("a"), 10L, CelAttribute.create("b"), 20L));
+
+    Object result = program.advanceEvaluation(context);
+
+    assertThat(result).isEqualTo(30L);
+  }
+
+  @Test
+  public void advanceEvaluation_qualifiedAttribute_unresolved_returnsUnknownSet() throws Exception {
+    CelCompiler compiler =
+        CelCompilerFactory.standardCelCompilerBuilder()
+            .addVar("msg", MapType.create(SimpleType.STRING, SimpleType.STRING))
+            .build();
+    CelAbstractSyntaxTree ast = compile(compiler, "msg.field");
+    CelRuntime celRuntime =
+        CelRuntimeFactory.plannerRuntimeBuilder()
+            .setOptions(
+                CelOptions.current()
+                    .enableUnknownTracking(true)
+                    .enableHeterogeneousNumericComparisons(true)
+                    .build())
+            .build();
+    CelRuntime.Program program = celRuntime.createProgram(ast);
+    UnknownContext context =
+        UnknownContext.create(
+            name -> Optional.empty(),
+            ImmutableList.of(
+                CelAttributePattern.create("msg").qualify(CelAttribute.Qualifier.ofWildCard())));
+
+    Object result = program.advanceEvaluation(context);
+
+    assertThat(result)
+        .isEqualTo(
+            CelUnknownSet.create(
+                CelAttribute.create("msg").qualify(CelAttribute.Qualifier.ofString("field"))));
+  }
+
+  @Test
+  public void advanceEvaluation_qualifiedAttribute_resolved_returnsValue() throws Exception {
+    CelCompiler compiler =
+        CelCompilerFactory.standardCelCompilerBuilder()
+            .addVar("msg", MapType.create(SimpleType.STRING, SimpleType.STRING))
+            .build();
+    CelAbstractSyntaxTree ast = compile(compiler, "msg.field");
+    CelRuntime celRuntime =
+        CelRuntimeFactory.plannerRuntimeBuilder()
+            .setOptions(
+                CelOptions.current()
+                    .enableUnknownTracking(true)
+                    .enableHeterogeneousNumericComparisons(true)
+                    .build())
+            .build();
+    CelRuntime.Program program = celRuntime.createProgram(ast);
+    CelAttribute qualifiedAttr =
+        CelAttribute.create("msg").qualify(CelAttribute.Qualifier.ofString("field"));
+    UnknownContext context =
+        UnknownContext.create(
+                name -> Optional.empty(),
+                ImmutableList.of(
+                    CelAttributePattern.create("msg").qualify(CelAttribute.Qualifier.ofWildCard())))
+            .withResolvedAttributes(ImmutableMap.of(qualifiedAttr, "hello"));
+
+    Object result = program.advanceEvaluation(context);
+
+    assertThat(result).isEqualTo("hello");
+  }
+
+  @Test
+  public void advanceEvaluation_unresolvedMapIndex_returnsUnknownSet() throws Exception {
+    CelCompiler compiler =
+        CelCompilerFactory.standardCelCompilerBuilder()
+            .addVar("msg", MapType.create(SimpleType.STRING, SimpleType.STRING))
+            .build();
+    CelAbstractSyntaxTree ast = compile(compiler, "msg['field']");
+    CelRuntime celRuntime =
+        CelRuntimeFactory.plannerRuntimeBuilder()
+            .setOptions(
+                CelOptions.current()
+                    .enableUnknownTracking(true)
+                    .enableHeterogeneousNumericComparisons(true)
+                    .build())
+            .build();
+    CelRuntime.Program program = celRuntime.createProgram(ast);
+    UnknownContext context =
+        UnknownContext.create(
+            name -> Optional.empty(),
+            ImmutableList.of(
+                CelAttributePattern.create("msg").qualify(CelAttribute.Qualifier.ofWildCard())));
+
+    Object result = program.advanceEvaluation(context);
+
+    assertThat(result)
+        .isEqualTo(
+            CelUnknownSet.create(
+                CelAttribute.create("msg").qualify(CelAttribute.Qualifier.ofString("field"))));
+  }
+
+  @Test
+  public void advanceEvaluation_resolvedMapIndex_returnsValue() throws Exception {
+    CelCompiler compiler =
+        CelCompilerFactory.standardCelCompilerBuilder()
+            .addVar("msg", MapType.create(SimpleType.STRING, SimpleType.STRING))
+            .build();
+    CelAbstractSyntaxTree ast = compile(compiler, "msg['field']");
+    CelRuntime celRuntime =
+        CelRuntimeFactory.plannerRuntimeBuilder()
+            .setOptions(
+                CelOptions.current()
+                    .enableUnknownTracking(true)
+                    .enableHeterogeneousNumericComparisons(true)
+                    .build())
+            .build();
+    CelRuntime.Program program = celRuntime.createProgram(ast);
+    CelAttribute qualifiedAttr =
+        CelAttribute.create("msg").qualify(CelAttribute.Qualifier.ofString("field"));
+    UnknownContext context =
+        UnknownContext.create(
+                name -> Optional.empty(),
+                ImmutableList.of(
+                    CelAttributePattern.create("msg").qualify(CelAttribute.Qualifier.ofWildCard())))
+            .withResolvedAttributes(ImmutableMap.of(qualifiedAttr, "hello"));
+
+    Object result = program.advanceEvaluation(context);
+
+    assertThat(result).isEqualTo("hello");
+  }
+
+  @Test
+  public void advanceEvaluation_nestedIndex_unresolved_returnsUnknownSet() throws Exception {
+    CelCompiler compiler =
+        CelCompilerFactory.standardCelCompilerBuilder()
+            .addVar("nested", MapType.create(SimpleType.STRING, SimpleType.DYN))
+            .build();
+    CelAbstractSyntaxTree ast = compile(compiler, "nested['a']['b']");
+    CelRuntime celRuntime =
+        CelRuntimeFactory.plannerRuntimeBuilder()
+            .setOptions(
+                CelOptions.current()
+                    .enableUnknownTracking(true)
+                    .enableHeterogeneousNumericComparisons(true)
+                    .build())
+            .build();
+    CelRuntime.Program program = celRuntime.createProgram(ast);
+    UnknownContext context =
+        UnknownContext.create(
+            name -> Optional.empty(),
+            ImmutableList.of(
+                CelAttributePattern.create("nested")
+                    .qualify(CelAttribute.Qualifier.ofString("a"))
+                    .qualify(CelAttribute.Qualifier.ofWildCard())));
+
+    Object result = program.advanceEvaluation(context);
+
+    assertThat(result)
+        .isEqualTo(
+            CelUnknownSet.create(
+                CelAttribute.create("nested")
+                    .qualify(CelAttribute.Qualifier.ofString("a"))
+                    .qualify(CelAttribute.Qualifier.ofString("b"))));
+  }
+
+  @Test
+  public void advanceEvaluation_nestedIndex_resolved_returnsValue() throws Exception {
+    CelCompiler compiler =
+        CelCompilerFactory.standardCelCompilerBuilder()
+            .addVar("nested", MapType.create(SimpleType.STRING, SimpleType.DYN))
+            .build();
+    CelAbstractSyntaxTree ast = compile(compiler, "nested['a']['b']");
+    CelRuntime celRuntime =
+        CelRuntimeFactory.plannerRuntimeBuilder()
+            .setOptions(
+                CelOptions.current()
+                    .enableUnknownTracking(true)
+                    .enableHeterogeneousNumericComparisons(true)
+                    .build())
+            .build();
+    CelRuntime.Program program = celRuntime.createProgram(ast);
+    CelAttribute targetAttr =
+        CelAttribute.create("nested")
+            .qualify(CelAttribute.Qualifier.ofString("a"))
+            .qualify(CelAttribute.Qualifier.ofString("b"));
+    UnknownContext context =
+        UnknownContext.create(
+                name -> Optional.empty(),
+                ImmutableList.of(
+                    CelAttributePattern.create("nested")
+                        .qualify(CelAttribute.Qualifier.ofString("a"))
+                        .qualify(CelAttribute.Qualifier.ofWildCard())))
+            .withResolvedAttributes(ImmutableMap.of(targetAttr, 99L));
+
+    Object result = program.advanceEvaluation(context);
+
+    assertThat(result).isEqualTo(99L);
+  }
+
+  @Test
+  public void advanceEvaluation_mixedSelectAndIndex_unresolved_returnsUnknownSet()
+      throws Exception {
+    CelCompiler compiler =
+        CelCompilerFactory.standardCelCompilerBuilder()
+            .addVar("msg", MapType.create(SimpleType.STRING, SimpleType.DYN))
+            .build();
+    CelAbstractSyntaxTree ast = compile(compiler, "msg.a['b']");
+    CelRuntime celRuntime =
+        CelRuntimeFactory.plannerRuntimeBuilder()
+            .setOptions(
+                CelOptions.current()
+                    .enableUnknownTracking(true)
+                    .enableHeterogeneousNumericComparisons(true)
+                    .build())
+            .build();
+    CelRuntime.Program program = celRuntime.createProgram(ast);
+    UnknownContext context =
+        UnknownContext.create(
+            name -> Optional.empty(),
+            ImmutableList.of(
+                CelAttributePattern.create("msg")
+                    .qualify(CelAttribute.Qualifier.ofString("a"))
+                    .qualify(CelAttribute.Qualifier.ofWildCard())));
+
+    Object result = program.advanceEvaluation(context);
+
+    assertThat(result)
+        .isEqualTo(
+            CelUnknownSet.create(
+                CelAttribute.create("msg")
+                    .qualify(CelAttribute.Qualifier.ofString("a"))
+                    .qualify(CelAttribute.Qualifier.ofString("b"))));
+  }
+
+  @Test
+  public void advanceEvaluation_mixedSelectAndIndex_resolved_returnsValue() throws Exception {
+    CelCompiler compiler =
+        CelCompilerFactory.standardCelCompilerBuilder()
+            .addVar("msg", MapType.create(SimpleType.STRING, SimpleType.DYN))
+            .build();
+    CelAbstractSyntaxTree ast = compile(compiler, "msg.a['b']");
+    CelRuntime celRuntime =
+        CelRuntimeFactory.plannerRuntimeBuilder()
+            .setOptions(
+                CelOptions.current()
+                    .enableUnknownTracking(true)
+                    .enableHeterogeneousNumericComparisons(true)
+                    .build())
+            .build();
+    CelRuntime.Program program = celRuntime.createProgram(ast);
+    CelAttribute targetAttr =
+        CelAttribute.create("msg")
+            .qualify(CelAttribute.Qualifier.ofString("a"))
+            .qualify(CelAttribute.Qualifier.ofString("b"));
+    UnknownContext context =
+        UnknownContext.create(
+                name -> Optional.empty(),
+                ImmutableList.of(
+                    CelAttributePattern.create("msg")
+                        .qualify(CelAttribute.Qualifier.ofString("a"))
+                        .qualify(CelAttribute.Qualifier.ofWildCard())))
+            .withResolvedAttributes(ImmutableMap.of(targetAttr, "deepValue"));
+
+    Object result = program.advanceEvaluation(context);
+
+    assertThat(result).isEqualTo("deepValue");
+  }
+
+  @Test
+  public void advanceEvaluation_exprIdOnlyUnknown_propagatesUnknownWithoutCrash() throws Exception {
+    CelCompiler compiler =
+        CelCompilerFactory.standardCelCompilerBuilder()
+            .addVar("testList", ListType.create(SimpleType.BOOL))
+            .build();
+    CelAbstractSyntaxTree ast = compile(compiler, "testList[0]");
+    CelRuntime celRuntime =
+        CelRuntimeFactory.plannerRuntimeBuilder()
+            .setOptions(
+                CelOptions.current()
+                    .enableUnknownTracking(true)
+                    .enableHeterogeneousNumericComparisons(true)
+                    .build())
+            .build();
+    CelRuntime.Program program = celRuntime.createProgram(ast);
+    // target has only exprId unknown, no attributes
+    UnknownContext context =
+        UnknownContext.create(
+            name ->
+                name.equals("testList")
+                    ? Optional.of(CelUnknownSet.create(100L))
+                    : Optional.empty(),
+            ImmutableList.of());
+
+    Object result = program.advanceEvaluation(context);
+
+    assertThat(result).isInstanceOf(CelUnknownSet.class);
+    assertThat(((CelUnknownSet) result).unknownExprIds()).containsExactly(100L);
+  }
+
+  @Test
+  public void advanceEvaluation_contextWithResolvedAttributesMultipleTimes_doesNotCrash() {
+    CelAttribute attr = CelAttribute.create("x");
+    UnknownContext context =
+        UnknownContext.create(name -> Optional.empty(), ImmutableList.of())
+            .withResolvedAttributes(ImmutableMap.of(attr, "val1"))
+            .withResolvedAttributes(ImmutableMap.of(attr, "val2"));
+
+    Optional<Object> resolved = context.createAttributeResolver().resolve(attr);
+
+    assertThat(resolved).hasValue("val2");
+  }
+
+  @Test
+  public void maybePartialUnknown_baseAttributeMatchesPattern_returnsPartialUnknown() {
+    UnknownContext context =
+        UnknownContext.create(
+            name -> Optional.empty(),
+            ImmutableList.of(
+                CelAttributePattern.create("x")
+                    .qualify(CelAttribute.Qualifier.ofString("single_int32"))));
+    CelAttributeResolver resolver = context.createAttributeResolver();
+
+    Optional<CelUnknownSet> partialUnknown = resolver.maybePartialUnknown(CelAttribute.create("x"));
+    Optional<CelUnknownSet> emptyUnknown = resolver.maybePartialUnknown(CelAttribute.EMPTY);
+    Optional<CelUnknownSet> unrelatedUnknown =
+        resolver.maybePartialUnknown(CelAttribute.create("y"));
+
+    assertThat(partialUnknown)
+        .hasValue(CelUnknownSet.create(ImmutableSet.of(CelAttribute.create("x"))));
+    assertThat(emptyUnknown).isEmpty();
+    assertThat(unrelatedUnknown).isEmpty();
+  }
+
+  @Test
+  public void advanceEvaluation_indexedAttributePartialUnknown_returnsUnknownSet()
+      throws Exception {
+    CelCompiler compiler =
+        CelCompilerFactory.standardCelCompilerBuilder()
+            .addVar("nestedList", ListType.create(ListType.create(SimpleType.INT)))
+            .build();
+    CelAbstractSyntaxTree ast = compile(compiler, "nestedList[0][1]");
+    CelRuntime celRuntime =
+        CelRuntimeFactory.plannerRuntimeBuilder()
+            .setOptions(
+                CelOptions.current()
+                    .enableUnknownTracking(true)
+                    .enableHeterogeneousNumericComparisons(true)
+                    .build())
+            .build();
+    CelRuntime.Program program = celRuntime.createProgram(ast);
+    CelAttribute targetPattern =
+        CelAttribute.create("nestedList")
+            .qualify(CelAttribute.Qualifier.ofInt(0))
+            .qualify(CelAttribute.Qualifier.ofInt(1));
+    UnknownContext context =
+        UnknownContext.create(
+            name ->
+                name.equals("nestedList")
+                    ? Optional.of(ImmutableList.of(ImmutableList.of(10, 20)))
+                    : Optional.empty(),
+            ImmutableList.of(
+                CelAttributePattern.create("nestedList")
+                    .qualify(CelAttribute.Qualifier.ofInt(0))
+                    .qualify(CelAttribute.Qualifier.ofInt(1))));
+
+    Object result = program.advanceEvaluation(context);
+
+    assertThat(result).isInstanceOf(CelUnknownSet.class);
+    assertThat(((CelUnknownSet) result).attributes()).containsExactly(targetPattern);
+  }
+
+  @Test
+  public void advanceEvaluation_multipleUnknownAttributesOnTarget_indexesAllAttributes()
+      throws Exception {
+    CelAttribute attrA = CelAttribute.create("listA");
+    CelAttribute attrB = CelAttribute.create("listB");
+    CelFunctionBinding customFn =
+        CelFunctionBinding.from(
+            "getUnknownLists",
+            ImmutableList.of(),
+            args -> CelUnknownSet.create(ImmutableSet.of(attrA, attrB)));
+    CelCompiler compiler =
+        CelCompilerFactory.standardCelCompilerBuilder()
+            .addFunctionDeclarations(
+                newFunctionDeclaration(
+                    "getUnknownLists",
+                    newGlobalOverload("getUnknownLists_overload", ListType.create(SimpleType.INT))))
+            .build();
+    CelAbstractSyntaxTree ast = compile(compiler, "getUnknownLists()[0]");
+    CelRuntime celRuntime =
+        CelRuntimeFactory.plannerRuntimeBuilder()
+            .addFunctionBindings(customFn)
+            .setOptions(
+                CelOptions.current()
+                    .enableUnknownTracking(true)
+                    .enableHeterogeneousNumericComparisons(true)
+                    .build())
+            .build();
+    CelRuntime.Program program = celRuntime.createProgram(ast);
+    UnknownContext context = UnknownContext.create(name -> Optional.empty(), ImmutableList.of());
+
+    Object result = program.advanceEvaluation(context);
+
+    assertThat(result).isInstanceOf(CelUnknownSet.class);
+    assertThat(((CelUnknownSet) result).attributes())
+        .containsExactly(
+            attrA.qualify(CelAttribute.Qualifier.ofInt(0)),
+            attrB.qualify(CelAttribute.Qualifier.ofInt(0)));
+  }
+
+  @Test
+  public void advanceEvaluation_multipleUnknownAttributesOnTarget_allResolvedToSameValue()
+      throws Exception {
+    CelAttribute attrA = CelAttribute.create("listA");
+    CelAttribute attrB = CelAttribute.create("listB");
+    CelFunctionBinding customFn =
+        CelFunctionBinding.from(
+            "getUnknownLists",
+            ImmutableList.of(),
+            args -> CelUnknownSet.create(ImmutableSet.of(attrA, attrB)));
+    CelCompiler compiler =
+        CelCompilerFactory.standardCelCompilerBuilder()
+            .addFunctionDeclarations(
+                newFunctionDeclaration(
+                    "getUnknownLists",
+                    newGlobalOverload("getUnknownLists_overload", ListType.create(SimpleType.INT))))
+            .build();
+    CelAbstractSyntaxTree ast = compile(compiler, "getUnknownLists()[0]");
+    CelRuntime celRuntime =
+        CelRuntimeFactory.plannerRuntimeBuilder()
+            .addFunctionBindings(customFn)
+            .setOptions(
+                CelOptions.current()
+                    .enableUnknownTracking(true)
+                    .enableHeterogeneousNumericComparisons(true)
+                    .build())
+            .build();
+    CelRuntime.Program program = celRuntime.createProgram(ast);
+    CelAttribute attrA0 = attrA.qualify(CelAttribute.Qualifier.ofInt(0));
+    CelAttribute attrB0 = attrB.qualify(CelAttribute.Qualifier.ofInt(0));
+    UnknownContext context =
+        UnknownContext.create(name -> Optional.empty(), ImmutableList.of())
+            .withResolvedAttributes(ImmutableMap.of(attrA0, 42L, attrB0, 42L));
+
+    Object result = program.advanceEvaluation(context);
+
+    assertThat(result).isEqualTo(42L);
+  }
+
+  @Test
+  public void
+      advanceEvaluation_multipleUnknownAttributesOnTarget_resolveToConflictingValues_remainsUnknown()
+          throws Exception {
+    CelAttribute attrA = CelAttribute.create("listA");
+    CelAttribute attrB = CelAttribute.create("listB");
+    CelFunctionBinding customFn =
+        CelFunctionBinding.from(
+            "getUnknownLists",
+            ImmutableList.of(),
+            args -> CelUnknownSet.create(ImmutableSet.of(attrA, attrB)));
+    CelCompiler compiler =
+        CelCompilerFactory.standardCelCompilerBuilder()
+            .addFunctionDeclarations(
+                newFunctionDeclaration(
+                    "getUnknownLists",
+                    newGlobalOverload("getUnknownLists_overload", ListType.create(SimpleType.INT))))
+            .build();
+    CelAbstractSyntaxTree ast = compile(compiler, "getUnknownLists()[0]");
+    CelRuntime celRuntime =
+        CelRuntimeFactory.plannerRuntimeBuilder()
+            .addFunctionBindings(customFn)
+            .setOptions(
+                CelOptions.current()
+                    .enableUnknownTracking(true)
+                    .enableHeterogeneousNumericComparisons(true)
+                    .build())
+            .build();
+    CelRuntime.Program program = celRuntime.createProgram(ast);
+    CelAttribute attrA0 = attrA.qualify(CelAttribute.Qualifier.ofInt(0));
+    CelAttribute attrB0 = attrB.qualify(CelAttribute.Qualifier.ofInt(0));
+    // Conflicting values: listA[0] is 42L, but listB[0] is 99L
+    UnknownContext context =
+        UnknownContext.create(name -> Optional.empty(), ImmutableList.of())
+            .withResolvedAttributes(ImmutableMap.of(attrA0, 42L, attrB0, 99L));
+
+    Object result = program.advanceEvaluation(context);
+
+    assertThat(result).isInstanceOf(CelUnknownSet.class);
+    assertThat(((CelUnknownSet) result).attributes()).containsExactly(attrA, attrB);
+  }
+
+  @Test
+  public void
+      advanceEvaluation_multipleUnknownAttributesOnTarget_someResolved_returnsRemainingUnknown()
+          throws Exception {
+    CelAttribute attrA = CelAttribute.create("listA");
+    CelAttribute attrB = CelAttribute.create("listB");
+    CelFunctionBinding customFn =
+        CelFunctionBinding.from(
+            "getUnknownLists",
+            ImmutableList.of(),
+            args -> CelUnknownSet.create(ImmutableSet.of(attrA, attrB)));
+    CelCompiler compiler =
+        CelCompilerFactory.standardCelCompilerBuilder()
+            .addFunctionDeclarations(
+                newFunctionDeclaration(
+                    "getUnknownLists",
+                    newGlobalOverload("getUnknownLists_overload", ListType.create(SimpleType.INT))))
+            .build();
+    CelAbstractSyntaxTree ast = compile(compiler, "getUnknownLists()[0]");
+    CelRuntime celRuntime =
+        CelRuntimeFactory.plannerRuntimeBuilder()
+            .addFunctionBindings(customFn)
+            .setOptions(
+                CelOptions.current()
+                    .enableUnknownTracking(true)
+                    .enableHeterogeneousNumericComparisons(true)
+                    .build())
+            .build();
+    CelRuntime.Program program = celRuntime.createProgram(ast);
+    CelAttribute attrA0 = attrA.qualify(CelAttribute.Qualifier.ofInt(0));
+    CelAttribute attrB0 = attrB.qualify(CelAttribute.Qualifier.ofInt(0));
+    // listA[0] is resolved to 42L, but listB remains unresolved
+    UnknownContext context =
+        UnknownContext.create(
+                name -> Optional.empty(),
+                ImmutableList.of(
+                    CelAttributePattern.create("listB")
+                        .qualify(CelAttribute.Qualifier.ofWildCard())))
+            .withResolvedAttributes(ImmutableMap.of(attrA0, 42L));
+
+    Object result = program.advanceEvaluation(context);
+
+    assertThat(result).isInstanceOf(CelUnknownSet.class);
+    assertThat(((CelUnknownSet) result).attributes()).containsExactly(attrB0);
+  }
+
+  @Test
+  public void
+      advanceEvaluation_multipleUnknownAttributesOnTarget_matchingUnresolvedPattern_qualifiesAll()
+          throws Exception {
+    CelAttribute attrA = CelAttribute.create("listA");
+    CelAttribute attrB = CelAttribute.create("listB");
+    CelFunctionBinding customFn =
+        CelFunctionBinding.from(
+            "getUnknownLists",
+            ImmutableList.of(),
+            args -> CelUnknownSet.create(ImmutableSet.of(attrA, attrB)));
+    CelCompiler compiler =
+        CelCompilerFactory.standardCelCompilerBuilder()
+            .addFunctionDeclarations(
+                newFunctionDeclaration(
+                    "getUnknownLists",
+                    newGlobalOverload("getUnknownLists_overload", ListType.create(SimpleType.INT))))
+            .build();
+    CelAbstractSyntaxTree ast = compile(compiler, "getUnknownLists()[0]");
+    CelRuntime celRuntime =
+        CelRuntimeFactory.plannerRuntimeBuilder()
+            .addFunctionBindings(customFn)
+            .setOptions(
+                CelOptions.current()
+                    .enableUnknownTracking(true)
+                    .enableHeterogeneousNumericComparisons(true)
+                    .build())
+            .build();
+    CelRuntime.Program program = celRuntime.createProgram(ast);
+    CelAttribute attrA0 = attrA.qualify(CelAttribute.Qualifier.ofInt(0));
+    CelAttribute attrB0 = attrB.qualify(CelAttribute.Qualifier.ofInt(0));
+    // Both listA and listB match unresolved patterns: attributeResolver.resolve() returns
+    // CelUnknownSet
+    UnknownContext context =
+        UnknownContext.create(
+            name -> Optional.empty(),
+            ImmutableList.of(
+                CelAttributePattern.create("listA").qualify(CelAttribute.Qualifier.ofWildCard()),
+                CelAttributePattern.create("listB").qualify(CelAttribute.Qualifier.ofWildCard())));
+
+    Object result = program.advanceEvaluation(context);
+
+    assertThat(result).isInstanceOf(CelUnknownSet.class);
+    assertThat(((CelUnknownSet) result).attributes()).containsExactly(attrA0, attrB0);
+  }
+
+  @Test
+  public void advanceEvaluation_indexWithUnsupportedQualifierType_fallsThroughGracefully()
+      throws Exception {
+    CelCompiler compiler =
+        CelCompilerFactory.standardCelCompilerBuilder()
+            .addVar("testMap", MapType.create(SimpleType.DYN, SimpleType.STRING))
+            .addVar("dynDouble", SimpleType.DYN)
+            .build();
+    CelAbstractSyntaxTree ast = compile(compiler, "testMap[dynDouble]");
+    CelRuntime celRuntime =
+        CelRuntimeFactory.plannerRuntimeBuilder()
+            .setOptions(
+                CelOptions.current()
+                    .enableUnknownTracking(true)
+                    .enableHeterogeneousNumericComparisons(true)
+                    .build())
+            .build();
+    CelRuntime.Program program = celRuntime.createProgram(ast);
+    UnknownContext context =
+        UnknownContext.create(
+            name -> {
+              if (name.equals("testMap")) {
+                return Optional.of(ImmutableMap.of(1.5, "val"));
+              }
+              if (name.equals("dynDouble")) {
+                return Optional.of(1.5);
+              }
+              return Optional.empty();
+            },
+            ImmutableList.of());
+
+    Object result = program.advanceEvaluation(context);
+
+    assertThat(result).isEqualTo("val");
+  }
+
+  @Test
+  public void advanceEvaluation_variableOnlyInResolvedAttributes_resolvesSuccessfully()
+      throws Exception {
+    CelCompiler compiler =
+        CelCompilerFactory.standardCelCompilerBuilder().addVar("x", SimpleType.STRING).build();
+    CelAbstractSyntaxTree ast = compile(compiler, "x");
+    CelRuntime celRuntime =
+        CelRuntimeFactory.plannerRuntimeBuilder()
+            .setOptions(
+                CelOptions.current()
+                    .enableUnknownTracking(true)
+                    .enableHeterogeneousNumericComparisons(true)
+                    .build())
+            .build();
+    CelRuntime.Program program = celRuntime.createProgram(ast);
+    CelAttribute attrX = CelAttribute.create("x");
+    UnknownContext context =
+        UnknownContext.create(name -> Optional.empty(), ImmutableList.of())
+            .withResolvedAttributes(ImmutableMap.of(attrX, "resolvedValue"));
+
+    Object result = program.advanceEvaluation(context);
+
+    assertThat(result).isEqualTo("resolvedValue");
+  }
+
+  @Test
+  public void advanceEvaluation_relativeAttributeOperandEvaluatesToNull_evaluatesSuccessfully()
+      throws Exception {
+    CelCompiler compiler =
+        CelCompilerFactory.standardCelCompilerBuilder()
+            .addMessageTypes(TestAllTypes.getDescriptor())
+            .addVar("x", StructTypeReference.create(TestAllTypes.getDescriptor().getFullName()))
+            .build();
+    CelAbstractSyntaxTree ast = compile(compiler, "x.single_nested_message.bb");
+    CelRuntime celRuntime =
+        CelRuntimeFactory.plannerRuntimeBuilder()
+            .addMessageTypes(TestAllTypes.getDescriptor())
+            .setOptions(
+                CelOptions.current()
+                    .enableUnknownTracking(true)
+                    .enableHeterogeneousNumericComparisons(true)
+                    .build())
+            .build();
+    CelRuntime.Program program = celRuntime.createProgram(ast);
+    UnknownContext context =
+        UnknownContext.create(
+            name ->
+                name.equals("x")
+                    ? Optional.of(TestAllTypes.getDefaultInstance())
+                    : Optional.empty(),
+            ImmutableList.of());
+
+    Object result = program.advanceEvaluation(context);
+
+    assertThat(result).isEqualTo(0L);
+  }
+
+  @Test
+  public void advanceEvaluation_relativeAttributeOperandUnknown_propagatesUnknown()
+      throws Exception {
+    CelCompiler compiler =
+        CelCompilerFactory.standardCelCompilerBuilder()
+            .addMessageTypes(TestAllTypes.getDescriptor())
+            .addVar(
+                "msgs",
+                ListType.create(
+                    StructTypeReference.create(TestAllTypes.getDescriptor().getFullName())))
+            .build();
+    CelAbstractSyntaxTree ast = compile(compiler, "msgs[0].single_nested_message.bb");
+    CelRuntime celRuntime =
+        CelRuntimeFactory.plannerRuntimeBuilder()
+            .addMessageTypes(TestAllTypes.getDescriptor())
+            .setOptions(
+                CelOptions.current()
+                    .enableUnknownTracking(true)
+                    .enableHeterogeneousNumericComparisons(true)
+                    .build())
+            .build();
+    CelRuntime.Program program = celRuntime.createProgram(ast);
+    UnknownContext context =
+        UnknownContext.create(
+            name -> Optional.empty(), ImmutableList.of(CelAttributePattern.create("msgs")));
+
+    Object result = program.advanceEvaluation(context);
+
+    assertThat(result).isInstanceOf(CelUnknownSet.class);
+    assertThat(((CelUnknownSet) result).attributes()).containsExactly(CelAttribute.create("msgs"));
+  }
+
+  @Test
+  public void advanceEvaluation_wildcardPattern_oneChildResolved_siblingRemainsUnknown()
+      throws Exception {
+    CelCompiler compiler =
+        CelCompilerFactory.standardCelCompilerBuilder()
+            .addVar("testMap", MapType.create(SimpleType.STRING, SimpleType.INT))
+            .build();
+    CelAbstractSyntaxTree ast = compile(compiler, "testMap.a == 1 && testMap.b == 2");
+    CelRuntime celRuntime =
+        CelRuntimeFactory.plannerRuntimeBuilder()
+            .setOptions(
+                CelOptions.current()
+                    .enableUnknownTracking(true)
+                    .enableHeterogeneousNumericComparisons(true)
+                    .build())
+            .build();
+    CelRuntime.Program program = celRuntime.createProgram(ast);
+    CelAttribute targetB =
+        CelAttribute.create("testMap").qualify(CelAttribute.Qualifier.ofString("b"));
+    UnknownContext context =
+        UnknownContext.create(
+                name ->
+                    name.equals("testMap")
+                        ? Optional.of(ImmutableMap.of("a", 1, "b", 2))
+                        : Optional.empty(),
+                ImmutableList.of(
+                    CelAttributePattern.create("testMap")
+                        .qualify(CelAttribute.Qualifier.ofWildCard())))
+            .withResolvedAttributes(
+                ImmutableMap.of(
+                    CelAttribute.create("testMap").qualify(CelAttribute.Qualifier.ofString("a")),
+                    1));
+
+    Object result = program.advanceEvaluation(context);
+
+    assertThat(result).isInstanceOf(CelUnknownSet.class);
+    assertThat(((CelUnknownSet) result).attributes()).containsExactly(targetB);
+  }
+
+  @Test
+  public void advanceEvaluation_exprIdOnlyTargetUnknown_indexUnknown_mergesUnknowns()
+      throws Exception {
+    CelCompiler compiler =
+        CelCompilerFactory.standardCelCompilerBuilder()
+            .addVar("testList", ListType.create(SimpleType.INT))
+            .addVar("idx", SimpleType.INT)
+            .build();
+    CelAbstractSyntaxTree ast = compile(compiler, "testList[idx]");
+    CelRuntime celRuntime =
+        CelRuntimeFactory.plannerRuntimeBuilder()
+            .setOptions(
+                CelOptions.current()
+                    .enableUnknownTracking(true)
+                    .enableHeterogeneousNumericComparisons(true)
+                    .build())
+            .build();
+    CelRuntime.Program program = celRuntime.createProgram(ast);
+    CelAttribute idxAttr = CelAttribute.create("idx");
+    UnknownContext context =
+        UnknownContext.create(
+            name -> {
+              if (name.equals("testList")) {
+                return Optional.of(CelUnknownSet.create(100L));
+              }
+              if (name.equals("idx")) {
+                return Optional.of(CelUnknownSet.create(idxAttr));
+              }
+              return Optional.empty();
+            },
+            ImmutableList.of(CelAttributePattern.create("idx")));
+
+    Object result = program.advanceEvaluation(context);
+
+    assertThat(result).isInstanceOf(CelUnknownSet.class);
+    assertThat(((CelUnknownSet) result).unknownExprIds()).containsExactly(100L);
+    assertThat(((CelUnknownSet) result).attributes())
+        .containsExactly(idxAttr, CelAttribute.create("testList"));
+  }
 }
+

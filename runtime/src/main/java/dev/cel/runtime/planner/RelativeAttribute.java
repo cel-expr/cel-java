@@ -18,6 +18,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.errorprone.annotations.Immutable;
 import dev.cel.common.values.CelValueConverter;
 import dev.cel.runtime.AccumulatedUnknowns;
+import dev.cel.runtime.CelAttribute;
 import dev.cel.runtime.GlobalResolver;
 
 /**
@@ -32,10 +33,27 @@ final class RelativeAttribute implements Attribute {
   private final ImmutableList<Qualifier> qualifiers;
 
   @Override
-  public Object resolve(long exprId, GlobalResolver ctx, ExecutionFrame frame) {
-    Object obj = EvalHelpers.evalStrictly(operand, ctx, frame);
-    if (obj instanceof AccumulatedUnknowns) {
-      return obj;
+  public AttributeResolution resolve(long exprId, GlobalResolver ctx, ExecutionFrame frame) {
+    Object obj;
+    CelAttribute attr = null;
+
+    if (operand instanceof InterpretableAttribute) {
+      AttributeResolution res = ((InterpretableAttribute) operand).resolveWithAttribute(ctx, frame);
+      obj = res.value();
+      attr = res.attribute();
+    } else {
+      obj = EvalHelpers.evalStrictly(operand, ctx, frame);
+    }
+
+    if (obj instanceof AccumulatedUnknowns || obj == null || obj instanceof MissingAttribute) {
+      CelAttribute qualifiedAttr = attr;
+      if (qualifiedAttr != null) {
+        for (int i = 0; i < qualifiers.size(); i++) {
+          qualifiedAttr =
+              qualifiedAttr.qualify(CelAttribute.Qualifier.fromGeneric(qualifiers.get(i).value()));
+        }
+      }
+      return AttributeResolution.of(obj, qualifiedAttr);
     }
 
     obj = celValueConverter.toRuntimeValue(obj);
@@ -45,9 +63,12 @@ final class RelativeAttribute implements Attribute {
       Qualifier element = qualifiers.get(i);
       obj = element.qualify(obj);
       obj = celValueConverter.toRuntimeValue(obj);
+      if (attr != null) {
+        attr = attr.qualify(CelAttribute.Qualifier.fromGeneric(element.value()));
+      }
     }
 
-    return celValueConverter.maybeUnwrap(obj);
+    return AttributeResolution.of(celValueConverter.maybeUnwrap(obj), attr);
   }
 
   @Override
