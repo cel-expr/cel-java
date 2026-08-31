@@ -42,7 +42,6 @@ java_library(
         "//parser:unparser",
         "//runtime",
         "//runtime:function_binding",
-        "//runtime:interpreter_util",
         "//runtime:lite_runtime",
         "//runtime:lite_runtime_factory",
         "//runtime:partial_vars",
