@@ -34,6 +34,7 @@ import dev.cel.common.internal.ComparisonFunctions;
 import dev.cel.common.types.ListType;
 import dev.cel.common.types.SimpleType;
 import dev.cel.common.types.TypeParamType;
+import dev.cel.common.values.CelByteString;
 import dev.cel.compiler.CelCompilerLibrary;
 import dev.cel.parser.CelMacro;
 import dev.cel.parser.CelMacroExprFactory;
@@ -42,11 +43,14 @@ import dev.cel.runtime.CelFunctionBinding;
 import dev.cel.runtime.CelInternalRuntimeLibrary;
 import dev.cel.runtime.CelRuntimeBuilder;
 import dev.cel.runtime.RuntimeEquality;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -132,16 +136,21 @@ public final class CelListsExtensions
         CelFunctionBinding.from("list_sort", Collection.class, CelListsExtensions::sort)),
     SORT_BY(
         CelFunctionDecl.newFunctionDeclaration(
-            "lists.@sortByAssociatedKeys",
-            CelOverloadDecl.newGlobalOverload(
+            "@sortByAssociatedKeys",
+            CelOverloadDecl.newMemberOverload(
                 "list_sortByAssociatedKeys",
-                "Sorts a list by a key value. Used by the 'sortBy' macro",
+                "Sorts a list by associated keys. Used by the 'sortBy' macro",
                 ListType.create(TypeParamType.create("T")),
-                ListType.create(TypeParamType.create("T")))),
+                ListType.create(TypeParamType.create("T")),
+                ListType.create(TypeParamType.create("U")))),
         CelFunctionBinding.from(
             "list_sortByAssociatedKeys",
-            Collection.class,
-            CelListsExtensions::sortByAssociatedKeys));
+            ImmutableList.of(Collection.class, Collection.class),
+            (args) -> {
+              Collection<Object> target = (Collection<Object>) args[0];
+              Collection<Object> keys = (Collection<Object>) args[1];
+              return CelListsExtensions.sortByAssociatedKeys(target, keys);
+            }));
 
     private final CelFunctionDecl functionDecl;
     private final ImmutableSet<CelFunctionBinding> functionBindings;
@@ -222,7 +231,7 @@ public final class CelListsExtensions
 
   @Override
   public ImmutableSet<CelMacro> macros() {
-    if (version >= 2) {
+    if (version >= 2 || (version == -1 && functions.contains(Function.SORT_BY))) {
       return ImmutableSet.of(
           CelMacro.newReceiverMacro("sortBy", 2, CelListsExtensions::sortByMacro));
     }
@@ -300,7 +309,10 @@ public final class CelListsExtensions
   }
 
   public static ImmutableList<Long> genRange(long end) {
-    ImmutableList.Builder<Long> builder = ImmutableList.builder();
+    checkArgument(end >= 0, "lists.range: size must be non-negative, got %s", end);
+    checkArgument(end <= 1_000_000, "lists.range: size %s exceeds maximum allowed (1000000)", end);
+
+    ImmutableList.Builder<Long> builder = ImmutableList.builderWithExpectedSize((int) end);
     for (long i = 0; i < end; i++) {
       builder.add(i);
     }
@@ -359,6 +371,17 @@ public final class CelListsExtensions
   }
 
   private static ImmutableList<Object> sort(Collection<Object> objects) {
+    if (objects.isEmpty()) {
+      return ImmutableList.of();
+    }
+    for (Object element : objects) {
+      if (!isSupportedComparableType(element)) {
+        throw new IllegalArgumentException("List elements must be comparable");
+      }
+    }
+    if (objects.size() < 2) {
+      return ImmutableList.copyOf(objects);
+    }
     return ImmutableList.sortedCopyOf(new CelObjectComparator(), objects);
   }
 
@@ -369,18 +392,59 @@ public final class CelListsExtensions
     @SuppressWarnings({"unchecked"})
     @Override
     public int compare(Object o1, Object o2) {
+      if (o1 == null || o2 == null) {
+        throw new IllegalArgumentException("List elements must be comparable");
+      }
       if (o1 instanceof Number && o2 instanceof Number) {
         return ComparisonFunctions.numericCompare((Number) o1, (Number) o2);
       }
-
-      if (!(o1 instanceof Comparable)) {
-        throw new IllegalArgumentException("List elements must be comparable");
+      if (isByteType(o1) && isByteType(o2)) {
+        return compareBytes(o1, o2);
       }
       if (o1.getClass() != o2.getClass()) {
         throw new IllegalArgumentException("List elements must have the same type");
       }
       return ((Comparable) o1).compareTo(o2);
     }
+  }
+
+  private static boolean isByteType(Object obj) {
+    return obj instanceof CelByteString || obj instanceof byte[];
+  }
+
+  private static int compareBytes(Object o1, Object o2) {
+    if (o1 instanceof CelByteString && o2 instanceof CelByteString) {
+      return CelByteString.unsignedLexicographicalComparator()
+          .compare((CelByteString) o1, (CelByteString) o2);
+    }
+
+    byte[] b1 = o1 instanceof CelByteString ? ((CelByteString) o1).toByteArray() : (byte[]) o1;
+    byte[] b2 = o2 instanceof CelByteString ? ((CelByteString) o2).toByteArray() : (byte[]) o2;
+
+    int minLength = Math.min(b1.length, b2.length);
+    for (int i = 0; i < minLength; i++) {
+      int result = Integer.compare(Byte.toUnsignedInt(b1[i]), Byte.toUnsignedInt(b2[i]));
+      if (result != 0) {
+        return result;
+      }
+    }
+    return Integer.compare(b1.length, b2.length);
+  }
+
+  private static boolean isSupportedComparableType(Object obj) {
+    if (obj == null) {
+      return false;
+    }
+    if (obj instanceof Number
+        || obj instanceof Boolean
+        || obj instanceof String
+        || obj instanceof CelByteString
+        || obj instanceof byte[]
+        || obj instanceof Duration
+        || obj instanceof Instant) {
+      return true;
+    }
+    return obj instanceof Comparable && !(obj instanceof Collection) && !(obj instanceof Map);
   }
 
   private static Optional<CelExpr> sortByMacro(
@@ -400,56 +464,79 @@ public final class CelListsExtensions
     String varName = varIdent.ident().name();
     CelExpr sortKeyExpr = checkNotNull(arguments.get(1));
 
-    // Compute the key using the second argument of the `sortBy(e, key)` macro.
-    // Combine the key and the value in a two-element list
-    CelExpr step = exprFactory.newList(sortKeyExpr, varIdent);
-    // Wrap the pair in another list in order to be able to use the `list+list` operator
-    step = exprFactory.newList(step);
-    // Append the key-value pair to the i
-    step =
+    String sortByInputVar = "@__sortBy_input__";
+    CelExpr sortByInputIdent = exprFactory.newIdentifier(sortByInputVar);
+
+    // Map comprehension: target.map(varName, sortKeyExpr)
+    CelExpr mapStep =
         exprFactory.newGlobalCall(
             Operator.ADD.getFunction(),
             exprFactory.newIdentifier(exprFactory.getAccumulatorVarName()),
-            step);
-    // Create an intermediate list and populate it with key-value pairs
-    step =
+            exprFactory.newList(sortKeyExpr));
+    CelExpr mapCompr =
         exprFactory.fold(
             varName,
-            target,
+            sortByInputIdent,
             exprFactory.getAccumulatorVarName(),
             exprFactory.newList(),
-            exprFactory.newBoolLiteral(true), // Include all elements
-            step,
+            exprFactory.newBoolLiteral(true),
+            mapStep,
             exprFactory.newIdentifier(exprFactory.getAccumulatorVarName()));
-    // Finally, sort the list of key-value pairs and map it to a list of values
-    step = exprFactory.newGlobalCall(Function.SORT_BY.getFunction(), step);
 
-    return Optional.of(step);
+    // Receiver call: sortByInputIdent.@sortByAssociatedKeys(mapCompr)
+    CelExpr callExpr =
+        exprFactory.newReceiverCall(
+            Function.SORT_BY.getFunction(),
+            sortByInputIdent,
+            mapCompr);
+
+    // cel.bind(sortByInputVar, target, callExpr)
+    CelExpr bindExpr =
+        exprFactory.fold(
+            "#unused",
+            exprFactory.newList(),
+            sortByInputVar,
+            target,
+            // Loop condition is false because this comprehension simulates a local variable assignment (`bind`), rather than a traditional iteration.
+            exprFactory.newBoolLiteral(false),
+            sortByInputIdent,
+            callExpr);
+
+    return Optional.of(bindExpr);
   }
 
-  @SuppressWarnings({"unchecked", "rawtypes"})
   private static ImmutableList<Object> sortByAssociatedKeys(
-      Collection<List<Object>> keyValuePairs) {
-    List<Object>[] array = keyValuePairs.toArray(new List[0]);
-    Arrays.sort(array, new CelObjectByKeyComparator(new CelObjectComparator()));
-    ImmutableList.Builder<Object> builder = ImmutableList.builderWithExpectedSize(array.length);
-    for (List<Object> pair : array) {
-      builder.add(pair.get(1));
+      Collection<Object> list, Collection<Object> keys) {
+    if (list.size() != keys.size()) {
+      throw new IllegalArgumentException(
+          String.format(
+              "@sortByAssociatedKeys() expected a list of the same size as the associated keys"
+                  + " list, but got %d and %d elements respectively.",
+              list.size(), keys.size()));
+    }
+    if (list.isEmpty()) {
+      return ImmutableList.of();
+    }
+    for (Object key : keys) {
+      if (!isSupportedComparableType(key)) {
+        throw new IllegalArgumentException("List elements must be comparable");
+      }
+    }
+    if (list.size() < 2) {
+      return ImmutableList.copyOf(list);
+    }
+    Object[] listArray = list.toArray();
+    Object[] keysArray = keys.toArray();
+    Integer[] indices = new Integer[listArray.length];
+    for (int i = 0; i < indices.length; i++) {
+      indices[i] = i;
+    }
+    CelObjectComparator comparator = new CelObjectComparator();
+    Arrays.sort(indices, (i1, i2) -> comparator.compare(keysArray[i1], keysArray[i2]));
+    ImmutableList.Builder<Object> builder = ImmutableList.builderWithExpectedSize(indices.length);
+    for (int idx : indices) {
+      builder.add(listArray[idx]);
     }
     return builder.build();
-  }
-
-  private static class CelObjectByKeyComparator implements Comparator<Object> {
-    private final CelObjectComparator keyComparator;
-
-    CelObjectByKeyComparator(CelObjectComparator keyComparator) {
-      this.keyComparator = keyComparator;
-    }
-
-    @SuppressWarnings({"unchecked"})
-    @Override
-    public int compare(Object o1, Object o2) {
-      return keyComparator.compare(((List<Object>) o1).get(0), ((List<Object>) o2).get(0));
-    }
   }
 }
