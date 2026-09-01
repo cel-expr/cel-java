@@ -20,6 +20,8 @@ import com.google.auto.value.AutoValue;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.util.concurrent.ListenableFuture;
+import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import com.google.errorprone.annotations.Immutable;
 import com.google.protobuf.DescriptorProtos;
@@ -115,7 +117,7 @@ public abstract class CelRuntimeImpl implements CelRuntime {
         }
       };
 
-  public Program toRuntimeProgram(dev.cel.runtime.Program program) {
+  private Program toRuntimeProgram(PlannedProgram program) {
     return new Program() {
 
       @Override
@@ -136,10 +138,9 @@ public abstract class CelRuntimeImpl implements CelRuntime {
 
       @Override
       public Object eval(Message message) throws CelEvaluationException {
-        PlannedProgram plannedProgram = (PlannedProgram) program;
-        return plannedProgram.evalOrThrow(
-            plannedProgram.interpretable(),
-            ProtoMessageActivationFactory.fromProto(message, plannedProgram.options()),
+        return program.evalOrThrow(
+            program.interpretable(),
+            ProtoMessageActivationFactory.fromProto(message, program.options()),
             EMPTY_FUNCTION_RESOLVER,
             /* partialVars= */ null,
             /* listener= */ null);
@@ -164,24 +165,21 @@ public abstract class CelRuntimeImpl implements CelRuntime {
 
       @Override
       public Object trace(CelEvaluationListener listener) throws CelEvaluationException {
-        return ((PlannedProgram) program)
-            .trace(GlobalResolver.EMPTY, EMPTY_FUNCTION_RESOLVER, null, listener);
+        return program.trace(GlobalResolver.EMPTY, EMPTY_FUNCTION_RESOLVER, null, listener);
       }
 
       @Override
       public Object trace(Map<String, ?> mapValue, CelEvaluationListener listener)
           throws CelEvaluationException {
-        return ((PlannedProgram) program)
-            .trace(Activation.copyOf(mapValue), EMPTY_FUNCTION_RESOLVER, null, listener);
+        return program.trace(Activation.copyOf(mapValue), EMPTY_FUNCTION_RESOLVER, null, listener);
       }
 
       @Override
       public Object trace(Message message, CelEvaluationListener listener)
           throws CelEvaluationException {
-        PlannedProgram plannedProgram = (PlannedProgram) program;
-        return plannedProgram.evalOrThrow(
-            plannedProgram.interpretable(),
-            ProtoMessageActivationFactory.fromProto(message, plannedProgram.options()),
+        return program.evalOrThrow(
+            program.interpretable(),
+            ProtoMessageActivationFactory.fromProto(message, program.options()),
             EMPTY_FUNCTION_RESOLVER,
             /* partialVars= */ null,
             listener);
@@ -190,12 +188,8 @@ public abstract class CelRuntimeImpl implements CelRuntime {
       @Override
       public Object trace(CelVariableResolver resolver, CelEvaluationListener listener)
           throws CelEvaluationException {
-        return ((PlannedProgram) program)
-            .trace(
-                (name) -> resolver.find(name).orElse(null),
-                EMPTY_FUNCTION_RESOLVER,
-                null,
-                listener);
+        return program.trace(
+            (name) -> resolver.find(name).orElse(null), EMPTY_FUNCTION_RESOLVER, null, listener);
       }
 
       @Override
@@ -204,12 +198,8 @@ public abstract class CelRuntimeImpl implements CelRuntime {
           CelFunctionResolver lateBoundFunctionResolver,
           CelEvaluationListener listener)
           throws CelEvaluationException {
-        return ((PlannedProgram) program)
-            .trace(
-                (name) -> resolver.find(name).orElse(null),
-                lateBoundFunctionResolver,
-                null,
-                listener);
+        return program.trace(
+            (name) -> resolver.find(name).orElse(null), lateBoundFunctionResolver, null, listener);
       }
 
       @Override
@@ -218,24 +208,52 @@ public abstract class CelRuntimeImpl implements CelRuntime {
           CelFunctionResolver lateBoundFunctionResolver,
           CelEvaluationListener listener)
           throws CelEvaluationException {
-        return ((PlannedProgram) program)
-            .trace(Activation.copyOf(mapValue), lateBoundFunctionResolver, null, listener);
+        return program.trace(
+            Activation.copyOf(mapValue), lateBoundFunctionResolver, null, listener);
       }
 
       @Override
       public Object trace(PartialVars partialVars, CelEvaluationListener listener)
           throws CelEvaluationException {
-        return ((PlannedProgram) program)
-            .trace(
-                (name) -> partialVars.resolver().find(name).orElse(null),
-                EMPTY_FUNCTION_RESOLVER,
-                partialVars,
-                listener);
+        return program.trace(
+            (name) -> partialVars.resolver().find(name).orElse(null),
+            EMPTY_FUNCTION_RESOLVER,
+            partialVars,
+            listener);
       }
 
       @Override
-      public Object advanceEvaluation(UnknownContext context) throws CelEvaluationException {
+      public Object advanceEvaluation(UnknownContext context) {
         throw new UnsupportedOperationException("Unsupported operation.");
+      }
+
+      @Override
+      public ListenableFuture<Object> evalAsync(
+          GlobalResolver resolver,
+          CelFunctionResolver lateBoundResolver,
+          @Nullable PartialVars partialVars,
+          ListeningExecutorService executor,
+          CelAsyncEvaluationOptions asyncOptions) {
+        return program.evalAsync(resolver, lateBoundResolver, partialVars, executor, asyncOptions);
+      }
+
+      @Override
+      public ListenableFuture<Object> evalAsync(
+          Message message, ListeningExecutorService executor) {
+        return evalAsync(message, executor, CelAsyncEvaluationOptions.defaultOptions());
+      }
+
+      @Override
+      public ListenableFuture<Object> evalAsync(
+          Message message,
+          ListeningExecutorService executor,
+          CelAsyncEvaluationOptions asyncOptions) {
+        return program.evalAsync(
+            ProtoMessageActivationFactory.fromProto(message, program.options()),
+            EMPTY_FUNCTION_RESOLVER,
+            /* partialVars= */ null,
+            executor,
+            asyncOptions);
       }
     };
   }

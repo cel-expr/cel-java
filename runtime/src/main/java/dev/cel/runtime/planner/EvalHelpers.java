@@ -106,7 +106,7 @@ final class EvalHelpers {
    * adapts any public {@link CelUnknownSet} instances into internal {@link AccumulatedUnknowns} for
    * AST evaluation.
    */
-  private static Object convertAndAdaptResult(CelValueConverter valueConverter, Object result) {
+  static Object convertAndAdaptResult(CelValueConverter valueConverter, Object result) {
     return InterpreterUtil.maybeAdaptToAccumulatedUnknowns(
         valueConverter.maybeUnwrap(valueConverter.toRuntimeValue(result)));
   }

@@ -14,13 +14,20 @@
 
 package dev.cel.runtime.planner;
 
+import static com.google.common.util.concurrent.MoreExecutors.directExecutor;
+
 import com.google.auto.value.AutoValue;
+import com.google.common.util.concurrent.ListenableFuture;
+import com.google.common.util.concurrent.ListeningExecutorService;
+import com.google.common.util.concurrent.SettableFuture;
 import com.google.errorprone.annotations.Immutable;
 import dev.cel.common.CelOptions;
 import dev.cel.common.annotations.Internal;
 import dev.cel.common.exceptions.CelRuntimeException;
 import dev.cel.common.values.ErrorValue;
+import dev.cel.runtime.AccumulatedUnknowns;
 import dev.cel.runtime.Activation;
+import dev.cel.runtime.CelAsyncEvaluationOptions;
 import dev.cel.runtime.CelEvaluationException;
 import dev.cel.runtime.CelEvaluationExceptionBuilder;
 import dev.cel.runtime.CelEvaluationListener;
@@ -31,6 +38,8 @@ import dev.cel.runtime.GlobalResolver;
 import dev.cel.runtime.InterpreterUtil;
 import dev.cel.runtime.PartialVars;
 import dev.cel.runtime.Program;
+import dev.cel.runtime.RuntimeEquality;
+import dev.cel.runtime.RuntimeHelpers;
 import java.util.Collection;
 import java.util.Map;
 import java.util.Optional;
@@ -45,6 +54,8 @@ import org.jspecify.annotations.Nullable;
 @Immutable
 @AutoValue
 public abstract class PlannedProgram implements Program {
+
+  PlannedProgram() {}
 
   private static final CelFunctionResolver EMPTY_FUNCTION_RESOLVER =
       new CelFunctionResolver() {
@@ -160,6 +171,165 @@ public abstract class PlannedProgram implements Program {
     return evalOrThrow(interpretable(), resolver, functionResolver, partialVars, listener);
   }
 
+  @Override
+  public ListenableFuture<Object> evalAsync(
+      GlobalResolver resolver,
+      CelFunctionResolver lateBoundResolver,
+      @Nullable PartialVars partialVars,
+      ListeningExecutorService executor,
+      CelAsyncEvaluationOptions asyncOptions) {
+    SettableFuture<Object> resultFuture = SettableFuture.create();
+    RuntimeEquality runtimeEquality = RuntimeEquality.create(RuntimeHelpers.create(), options());
+    AsyncCallStateTracker tracker = new AsyncCallStateTracker(runtimeEquality);
+    AsyncGate gate = new AsyncGate(asyncOptions.maxConcurrency());
+    AsyncCompletionCoordinator coordinator =
+        new AsyncCompletionCoordinator(asyncOptions, gate, executor);
+
+    resultFuture.addListener(
+        () -> {
+          if (resultFuture.isCancelled()) {
+            gate.cancel();
+            coordinator.cancel();
+            tracker.cancelInFlight();
+          }
+        },
+        directExecutor());
+
+    AsyncDriver driver =
+        new AsyncDriver(
+            interpretable(),
+            resolver,
+            lateBoundResolver,
+            partialVars,
+            asyncOptions,
+            tracker,
+            gate,
+            coordinator,
+            executor,
+            resultFuture);
+    driver.scheduleNextStep();
+    return resultFuture;
+  }
+
+  private final class AsyncDriver {
+    private final PlannedInterpretable interpretable;
+    private final GlobalResolver resolver;
+    private final CelFunctionResolver lateBoundResolver;
+    private final @Nullable PartialVars partialVars;
+    private final CelAsyncEvaluationOptions options;
+    private final AsyncCallStateTracker tracker;
+    private final AsyncGate gate;
+    private final AsyncCompletionCoordinator coordinator;
+    private final ListeningExecutorService executor;
+    private final SettableFuture<Object> resultFuture;
+    private int iterationCount = 0;
+
+    AsyncDriver(
+        PlannedInterpretable interpretable,
+        GlobalResolver resolver,
+        CelFunctionResolver lateBoundResolver,
+        @Nullable PartialVars partialVars,
+        CelAsyncEvaluationOptions options,
+        AsyncCallStateTracker tracker,
+        AsyncGate gate,
+        AsyncCompletionCoordinator coordinator,
+        ListeningExecutorService executor,
+        SettableFuture<Object> resultFuture) {
+      this.interpretable = interpretable;
+      this.resolver = resolver;
+      this.lateBoundResolver = lateBoundResolver;
+      this.partialVars = partialVars;
+      this.options = options;
+      this.tracker = tracker;
+      this.gate = gate;
+      this.coordinator = coordinator;
+      this.executor = executor;
+      this.resultFuture = resultFuture;
+    }
+
+    void scheduleNextStep() {
+      if (resultFuture.isDone()) {
+        return;
+      }
+      executor.execute(this::step);
+    }
+
+    private void step() {
+      if (resultFuture.isDone()) {
+        return;
+      }
+
+      if (options.maxIterations() >= 0 && ++iterationCount > options.maxIterations()) {
+        cancelAll();
+        resultFuture.setException(
+            new CelEvaluationException(
+                "Exceeded maximum async evaluation iterations: " + options.maxIterations()));
+        return;
+      }
+
+      Object evalResult;
+      try {
+        ExecutionFrame frame =
+            ExecutionFrame.createForAsync(
+                lateBoundResolver,
+                options(),
+                partialVars,
+                /* listener= */ null,
+                tracker,
+                gate,
+                coordinator,
+                executor,
+                options.observer().orElse(null));
+        evalResult = interpretable.eval(resolver, frame);
+      } catch (Exception e) {
+        cancelAll();
+        resultFuture.setException(newCelEvaluationException(interpretable.expr().id(), e));
+        return;
+      }
+
+      if (evalResult instanceof ErrorValue) {
+        cancelAll();
+        ErrorValue errorValue = (ErrorValue) evalResult;
+        resultFuture.setException(
+            newCelEvaluationException(errorValue.exprId(), errorValue.value()));
+        return;
+      }
+
+      if (evalResult instanceof AccumulatedUnknowns) {
+        AccumulatedUnknowns unknowns = (AccumulatedUnknowns) evalResult;
+        if (!unknowns.hasCallIds()) {
+          cancelAll();
+          resultFuture.set(InterpreterUtil.maybeAdaptToCelUnknownSet(evalResult));
+          return;
+        }
+
+        // Defensive fail-safe invariant: fail evaluation if unresolved async calls remain but
+        // concurrency tracking indicates zero in-flight or queued work.
+        if (gate.activeCount() == 0
+            && !tracker.hasInFlightCalls()
+            && !coordinator.hasPendingBatch()) {
+          cancelAll();
+          resultFuture.setException(
+              new CelEvaluationException(
+                  "Asynchronous evaluation stalled: unresolved async calls remain but no tasks are"
+                      + " in-flight."));
+          return;
+        }
+
+        coordinator.waitForCompletions(this::scheduleNextStep);
+        return;
+      }
+
+      cancelAll();
+      resultFuture.set(InterpreterUtil.maybeAdaptToCelUnknownSet(evalResult));
+    }
+
+    private void cancelAll() {
+      gate.cancel();
+      tracker.cancelInFlight();
+    }
+  }
+
   private CelEvaluationException newCelEvaluationException(long exprId, Exception e) {
     CelEvaluationExceptionBuilder builder;
     if (e instanceof LocalizedEvaluationException) {
@@ -187,7 +357,7 @@ public abstract class PlannedProgram implements Program {
     return builder.setMetadata(metadata(), exprId).build();
   }
 
-  static Program create(
+  static PlannedProgram create(
       PlannedInterpretable interpretable, ErrorMetadata metadata, CelOptions options) {
     return new AutoValue_PlannedProgram(interpretable, metadata, options);
   }

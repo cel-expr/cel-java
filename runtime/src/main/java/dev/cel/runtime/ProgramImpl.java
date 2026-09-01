@@ -16,12 +16,15 @@ package dev.cel.runtime;
 
 import com.google.auto.value.AutoValue;
 import com.google.common.base.Preconditions;
+import com.google.common.util.concurrent.ListenableFuture;
+import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.errorprone.annotations.Immutable;
 import com.google.protobuf.Message;
 import dev.cel.common.CelOptions;
 import dev.cel.runtime.CelRuntime.Program;
 import java.util.Map;
 import java.util.Optional;
+import org.jspecify.annotations.Nullable;
 
 /** Internal implementation of a {@link CelRuntime.Program} */
 @AutoValue
@@ -122,6 +125,25 @@ abstract class ProgramImpl implements CelRuntime.Program {
   @Override
   public Object advanceEvaluation(UnknownContext context) throws CelEvaluationException {
     return evalInternal(context, Optional.empty(), Optional.empty());
+  }
+
+  @Override
+  public ListenableFuture<Object> evalAsync(
+      GlobalResolver resolver,
+      CelFunctionResolver lateBoundResolver,
+      @Nullable PartialVars partialVars,
+      ListeningExecutorService executor,
+      CelAsyncEvaluationOptions asyncOptions) {
+    throw new UnsupportedOperationException(
+        "evalAsync is not supported by the legacy interpreter. Use"
+            + " CelRuntimeFactory.plannerRuntimeBuilder().");
+  }
+
+  @Override
+  public ListenableFuture<Object> evalAsync(
+      Message message, ListeningExecutorService executor, CelAsyncEvaluationOptions asyncOptions) {
+    throw new UnsupportedOperationException(
+        "evalAsync is not supported by the legacy interpreter. Use CelRuntimeImpl.");
   }
 
   private Object evalInternal(GlobalResolver resolver) throws CelEvaluationException {

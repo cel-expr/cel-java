@@ -47,11 +47,13 @@ import dev.cel.common.types.SimpleType;
 import dev.cel.common.types.TypeType;
 import dev.cel.common.values.CelValueConverter;
 import dev.cel.common.values.CelValueProvider;
+import dev.cel.runtime.CelAsyncFunctionOverload;
 import dev.cel.runtime.CelEvaluationException;
 import dev.cel.runtime.CelEvaluationExceptionBuilder;
 import dev.cel.runtime.CelResolvedOverload;
 import dev.cel.runtime.DefaultDispatcher;
 import dev.cel.runtime.Program;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.NoSuchElementException;
 import java.util.Optional;
@@ -77,7 +79,7 @@ public final class ProgramPlanner {
    * Plans a {@link Program} from the provided parsed-only or type-checked {@link
    * CelAbstractSyntaxTree}.
    */
-  public Program plan(CelAbstractSyntaxTree ast) throws CelEvaluationException {
+  public PlannedProgram plan(CelAbstractSyntaxTree ast) throws CelEvaluationException {
     PlannedInterpretable plannedInterpretable;
     ErrorMetadata errorMetadata =
         ErrorMetadata.create(ast.getSource().getPositionsMap(), ast.getSource().getDescription());
@@ -117,9 +119,8 @@ public final class ProgramPlanner {
         return planComprehension(celExpr, ctx);
       case NOT_SET:
         throw new UnsupportedOperationException("Unsupported kind: " + celExpr.getKind());
-      default:
-        throw new UnsupportedOperationException("Unexpected kind: " + celExpr.getKind());
     }
+    throw new UnsupportedOperationException("Unexpected kind: " + celExpr.getKind());
   }
 
   private PlannedInterpretable planSelect(CelExpr celExpr, PlannerContext ctx) {
@@ -320,6 +321,16 @@ public final class ProgramPlanner {
           expr, functionName, overloadIds, evaluatedArgs, celValueConverter);
     }
 
+    if (resolvedOverload.getDefinition() instanceof CelAsyncFunctionOverload) {
+      return EvalAsyncCall.create(
+          expr,
+          functionName,
+          resolvedOverload.getOverloadId(),
+          (CelAsyncFunctionOverload) resolvedOverload.getDefinition(),
+          evaluatedArgs,
+          celValueConverter);
+    }
+
     switch (argCount) {
       case 0:
         return EvalZeroArity.create(expr, functionName, resolvedOverload, celValueConverter);
@@ -353,9 +364,7 @@ public final class ProgramPlanner {
     ImmutableList<CelExpr> indices = celBlock.indices();
 
     PlannedInterpretable[] slotExprs = new PlannedInterpretable[indices.size()];
-    for (int i = 0; i < slotExprs.length; i++) {
-      slotExprs[i] = plan(indices.get(i), ctx);
-    }
+    Arrays.setAll(slotExprs, i -> plan(indices.get(i), ctx));
     PlannedInterpretable resultExpr = plan(celBlock.result(), ctx);
     return EvalBlock.create(celBlock.expr(), slotExprs, resultExpr);
   }

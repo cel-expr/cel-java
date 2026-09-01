@@ -15,7 +15,10 @@
 package dev.cel.runtime;
 
 import static com.google.common.truth.Truth.assertThat;
+import static com.google.common.util.concurrent.MoreExecutors.newDirectExecutorService;
+import static org.junit.Assert.assertThrows;
 
+import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.protobuf.Message;
 import dev.cel.common.CelException;
 import dev.cel.common.exceptions.CelDivideByZeroException;
@@ -24,7 +27,6 @@ import dev.cel.compiler.CelCompilerFactory;
 import dev.cel.expr.conformance.proto3.TestAllTypes;
 import dev.cel.runtime.CelStandardFunctions.StandardFunction;
 import java.util.function.Function;
-import org.junit.Assert;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
@@ -37,7 +39,7 @@ public final class CelRuntimeLegacyImplTest {
     CelCompiler compiler = CelCompilerFactory.standardCelCompilerBuilder().build();
     CelRuntime runtime = CelRuntimeFactory.standardCelRuntimeBuilder().build();
     CelRuntime.Program program = runtime.createProgram(compiler.compile("1/0").getAst());
-    CelEvaluationException e = Assert.assertThrows(CelEvaluationException.class, program::eval);
+    CelEvaluationException e = assertThrows(CelEvaluationException.class, program::eval);
     assertThat(e).hasCauseThat().isInstanceOf(CelDivideByZeroException.class);
   }
 
@@ -119,5 +121,16 @@ public final class CelRuntimeLegacyImplTest {
     assertThat(newRuntimeBuilder.customTypeFactory).isEqualTo(customTypeFactory);
     assertThat(newRuntimeBuilder.overriddenStandardFunctions)
         .isEqualTo(overriddenStandardFunctions);
+  }
+
+  @Test
+  public void evalAsync_legacyInterpreter_throwsUnsupportedOperationException() throws Exception {
+    CelCompiler compiler = CelCompilerFactory.standardCelCompilerBuilder().build();
+    CelRuntime runtime = CelRuntimeFactory.standardCelRuntimeBuilder().build();
+    CelRuntime.Program program = runtime.createProgram(compiler.compile("1 + 1").getAst());
+
+    ListeningExecutorService executor = newDirectExecutorService();
+
+    assertThrows(UnsupportedOperationException.class, () -> program.evalAsync(executor));
   }
 }

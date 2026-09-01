@@ -1,0 +1,93 @@
+// Copyright 2026 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package dev.cel.runtime;
+
+import static com.google.common.truth.Truth.assertThat;
+import static java.util.concurrent.TimeUnit.SECONDS;
+import static org.junit.Assert.assertThrows;
+
+import com.google.testing.junit.testparameterinjector.TestParameterInjector;
+import java.time.Duration;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.ScheduledExecutorService;
+import org.jspecify.annotations.Nullable;
+import org.junit.Test;
+import org.junit.runner.RunWith;
+
+@RunWith(TestParameterInjector.class)
+public final class CelAsyncEvaluationOptionsTest {
+
+  @Test
+  public void defaultOptions_valuesAndDaemonScheduler() throws Exception {
+    CelAsyncEvaluationOptions options = CelAsyncEvaluationOptions.defaultOptions();
+
+    assertThat(options.maxConcurrency()).isEqualTo(100);
+    assertThat(options.maxIterations()).isEqualTo(1_000);
+    assertThat(options.drainStrategy()).isNotNull();
+    assertThat(options.observer()).isEmpty();
+    assertThat(options.resolveScheduledExecutorService()).isNotNull();
+
+    Future<Boolean> isDaemonFuture =
+        options.resolveScheduledExecutorService().submit(() -> Thread.currentThread().isDaemon());
+    assertThat(isDaemonFuture.get(5, SECONDS)).isTrue();
+  }
+
+  @Test
+  public void builder_validations() {
+    CelAsyncEvaluationOptions.Builder builder = CelAsyncEvaluationOptions.builder();
+
+    assertThrows(NullPointerException.class, () -> builder.setDrainStrategy(null));
+    assertThrows(NullPointerException.class, () -> builder.setObserver(null));
+    assertThrows(NullPointerException.class, () -> builder.setScheduledExecutorService(null));
+  }
+
+  @Test
+  public void builder_customValuesAndRoundTrip() {
+    CelAsyncDrainStrategy drainStrategy = CelAsyncDrainStrategy.drainReady(Duration.ofMillis(25));
+    CelAsyncObserver observer =
+        new CelAsyncObserver() {
+          @Override
+          public void onCallStarted(CelAsyncCall call) {}
+
+          @Override
+          public void onCallFinished(
+              CelAsyncCall call, @Nullable Object result, @Nullable Throwable error) {}
+        };
+    ScheduledExecutorService customScheduler = Executors.newSingleThreadScheduledExecutor();
+
+    try {
+      CelAsyncEvaluationOptions options =
+          CelAsyncEvaluationOptions.builder()
+              .setMaxConcurrency(8)
+              .setMaxIterations(50)
+              .setDrainStrategy(drainStrategy)
+              .setObserver(observer)
+              .setScheduledExecutorService(customScheduler)
+              .build();
+
+      assertThat(options.maxConcurrency()).isEqualTo(8);
+      assertThat(options.maxIterations()).isEqualTo(50);
+      assertThat(options.drainStrategy()).isSameInstanceAs(drainStrategy);
+      assertThat(options.observer()).hasValue(observer);
+      assertThat(options.resolveScheduledExecutorService()).isSameInstanceAs(customScheduler);
+
+      CelAsyncEvaluationOptions copy = options.toBuilder().build();
+      assertThat(copy).isEqualTo(options);
+    } finally {
+      customScheduler.shutdown();
+    }
+  }
+}

@@ -97,6 +97,7 @@ final class EvalFold extends PlannedInterpretable {
 
   private Object evalMap(Map<?, ?> iterRange, Folder folder, ExecutionFrame frame)
       throws CelEvaluationException {
+    AccumulatedUnknowns accumulatedUnknowns = null;
     for (Map.Entry<?, ?> entry : iterRange.entrySet()) {
       frame.incrementIterations();
 
@@ -107,20 +108,31 @@ final class EvalFold extends PlannedInterpretable {
 
       Object condResult = condition.eval(folder, frame);
       if (condResult instanceof AccumulatedUnknowns) {
-        return condResult;
-      }
-      if (!(condResult instanceof Boolean)) {
-        throw new IllegalArgumentException(
-            String.format("Expected boolean value, found :%s", condResult));
-      }
-      boolean cond = (boolean) condResult;
-      if (!cond) {
-        folder.computeResult = true;
-        return result.eval(folder, frame);
+        if (!frame.isAsync()) {
+          return condResult;
+        }
+        accumulatedUnknowns = AccumulatedUnknowns.maybeMerge(accumulatedUnknowns, condResult);
+      } else {
+        if (!(condResult instanceof Boolean)) {
+          throw new IllegalArgumentException(
+              String.format("Expected boolean value, found :%s", condResult));
+        }
+        boolean cond = (boolean) condResult;
+        if (!cond) {
+          folder.computeResult = true;
+          return result.eval(folder, frame);
+        }
       }
 
-      folder.accuVal = loopStep.eval(folder, frame);
+      Object stepResult = loopStep.eval(folder, frame);
+      if (stepResult instanceof AccumulatedUnknowns) {
+        accumulatedUnknowns = AccumulatedUnknowns.maybeMerge(accumulatedUnknowns, stepResult);
+      }
+      folder.accuVal = stepResult;
       folder.initialized = true;
+    }
+    if (frame.isAsync() && accumulatedUnknowns != null) {
+      return accumulatedUnknowns;
     }
     folder.computeResult = true;
     return result.eval(folder, frame);
@@ -129,6 +141,7 @@ final class EvalFold extends PlannedInterpretable {
   private Object evalList(Collection<?> iterRange, Folder folder, ExecutionFrame frame)
       throws CelEvaluationException {
     int index = 0;
+    AccumulatedUnknowns accumulatedUnknowns = null;
     for (Object item : iterRange) {
       frame.incrementIterations();
 
@@ -141,21 +154,32 @@ final class EvalFold extends PlannedInterpretable {
 
       Object condResult = condition.eval(folder, frame);
       if (condResult instanceof AccumulatedUnknowns) {
-        return condResult;
-      }
-      if (!(condResult instanceof Boolean)) {
-        throw new IllegalArgumentException(
-            String.format("Expected boolean value, found :%s", condResult));
-      }
-      boolean cond = (boolean) condResult;
-      if (!cond) {
-        folder.computeResult = true;
-        return maybeUnwrapAccumulator(result.eval(folder, frame));
+        if (!frame.isAsync()) {
+          return condResult;
+        }
+        accumulatedUnknowns = AccumulatedUnknowns.maybeMerge(accumulatedUnknowns, condResult);
+      } else {
+        if (!(condResult instanceof Boolean)) {
+          throw new IllegalArgumentException(
+              String.format("Expected boolean value, found :%s", condResult));
+        }
+        boolean cond = (boolean) condResult;
+        if (!cond) {
+          folder.computeResult = true;
+          return maybeUnwrapAccumulator(result.eval(folder, frame));
+        }
       }
 
-      folder.accuVal = loopStep.eval(folder, frame);
+      Object stepResult = loopStep.eval(folder, frame);
+      if (stepResult instanceof AccumulatedUnknowns) {
+        accumulatedUnknowns = AccumulatedUnknowns.maybeMerge(accumulatedUnknowns, stepResult);
+      }
+      folder.accuVal = stepResult;
       folder.initialized = true;
       index++;
+    }
+    if (frame.isAsync() && accumulatedUnknowns != null) {
+      return accumulatedUnknowns;
     }
     folder.computeResult = true;
     return maybeUnwrapAccumulator(result.eval(folder, frame));

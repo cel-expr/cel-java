@@ -14,8 +14,12 @@
 
 package dev.cel.runtime.planner;
 
+import static com.google.common.base.Preconditions.checkState;
+
+import com.google.common.util.concurrent.ListeningExecutorService;
 import dev.cel.common.CelOptions;
 import dev.cel.common.exceptions.CelIterationLimitExceededException;
+import dev.cel.runtime.CelAsyncObserver;
 import dev.cel.runtime.CelEvaluationException;
 import dev.cel.runtime.CelEvaluationListener;
 import dev.cel.runtime.CelFunctionResolver;
@@ -30,10 +34,15 @@ final class ExecutionFrame {
 
   private final int comprehensionIterationLimit;
   private final CelFunctionResolver functionResolver;
-  private final PartialVars partialVars;
+  private final @Nullable PartialVars partialVars;
   private final @Nullable CelEvaluationListener listener;
+  private final @Nullable AsyncCallStateTracker asyncTracker;
+  private final @Nullable AsyncGate asyncGate;
+  private final @Nullable AsyncCompletionCoordinator asyncCoordinator;
+  private final @Nullable ListeningExecutorService asyncExecutor;
+  private final @Nullable CelAsyncObserver asyncObserver;
   private int iterationCount;
-  private BlockMemoizer blockMemoizer;
+  private @Nullable BlockMemoizer blockMemoizer;
 
   Optional<CelResolvedOverload> findOverload(
       String functionName, Collection<String> overloadIds, Object[] args)
@@ -70,7 +79,65 @@ final class ExecutionFrame {
       @Nullable PartialVars partialVars,
       @Nullable CelEvaluationListener listener) {
     return new ExecutionFrame(
-        functionResolver, celOptions.comprehensionMaxIterations(), partialVars, listener);
+        functionResolver,
+        celOptions.comprehensionMaxIterations(),
+        partialVars,
+        listener,
+        /* asyncTracker= */ null,
+        /* asyncGate= */ null,
+        /* asyncCoordinator= */ null,
+        /* asyncExecutor= */ null,
+        /* asyncObserver= */ null);
+  }
+
+  static ExecutionFrame createForAsync(
+      CelFunctionResolver functionResolver,
+      CelOptions celOptions,
+      @Nullable PartialVars partialVars,
+      @Nullable CelEvaluationListener listener,
+      AsyncCallStateTracker asyncTracker,
+      AsyncGate asyncGate,
+      AsyncCompletionCoordinator asyncCoordinator,
+      ListeningExecutorService asyncExecutor,
+      @Nullable CelAsyncObserver asyncObserver) {
+    return new ExecutionFrame(
+        functionResolver,
+        celOptions.comprehensionMaxIterations(),
+        partialVars,
+        listener,
+        asyncTracker,
+        asyncGate,
+        asyncCoordinator,
+        asyncExecutor,
+        asyncObserver);
+  }
+
+  boolean isAsync() {
+    return asyncTracker != null;
+  }
+
+  AsyncCallStateTracker asyncTracker() {
+    checkState(asyncTracker != null, "Not in async execution mode");
+    return asyncTracker;
+  }
+
+  AsyncGate asyncGate() {
+    checkState(asyncGate != null, "Not in async execution mode");
+    return asyncGate;
+  }
+
+  AsyncCompletionCoordinator asyncCoordinator() {
+    checkState(asyncCoordinator != null, "Not in async execution mode");
+    return asyncCoordinator;
+  }
+
+  ListeningExecutorService asyncExecutor() {
+    checkState(asyncExecutor != null, "Not in async execution mode");
+    return asyncExecutor;
+  }
+
+  Optional<CelAsyncObserver> asyncObserver() {
+    return Optional.ofNullable(asyncObserver);
   }
 
   Optional<PartialVars> partialVars() {
@@ -85,10 +152,20 @@ final class ExecutionFrame {
       CelFunctionResolver functionResolver,
       int limit,
       @Nullable PartialVars partialVars,
-      @Nullable CelEvaluationListener listener) {
+      @Nullable CelEvaluationListener listener,
+      @Nullable AsyncCallStateTracker asyncTracker,
+      @Nullable AsyncGate asyncGate,
+      @Nullable AsyncCompletionCoordinator asyncCoordinator,
+      @Nullable ListeningExecutorService asyncExecutor,
+      @Nullable CelAsyncObserver asyncObserver) {
     this.comprehensionIterationLimit = limit;
     this.functionResolver = functionResolver;
     this.partialVars = partialVars;
     this.listener = listener;
+    this.asyncTracker = asyncTracker;
+    this.asyncGate = asyncGate;
+    this.asyncCoordinator = asyncCoordinator;
+    this.asyncExecutor = asyncExecutor;
+    this.asyncObserver = asyncObserver;
   }
 }

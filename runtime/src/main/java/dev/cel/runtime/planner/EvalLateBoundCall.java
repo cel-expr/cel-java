@@ -17,20 +17,23 @@ package dev.cel.runtime.planner;
 import static dev.cel.runtime.planner.EvalHelpers.evalStrictly;
 
 import com.google.common.collect.ImmutableList;
+import com.google.errorprone.annotations.Immutable;
 import dev.cel.common.ast.CelExpr;
 import dev.cel.common.exceptions.CelOverloadNotFoundException;
 import dev.cel.common.values.CelValueConverter;
 import dev.cel.runtime.AccumulatedUnknowns;
+import dev.cel.runtime.CelAsyncFunctionOverload;
 import dev.cel.runtime.CelEvaluationException;
 import dev.cel.runtime.CelResolvedOverload;
 import dev.cel.runtime.GlobalResolver;
 
+@Immutable
 final class EvalLateBoundCall extends PlannedInterpretable {
 
   private final String functionName;
   private final ImmutableList<String> overloadIds;
 
-  @SuppressWarnings("Immutable")
+  @SuppressWarnings("Immutable") // Array not mutated
   private final PlannedInterpretable[] args;
 
   private final CelValueConverter celValueConverter;
@@ -55,6 +58,29 @@ final class EvalLateBoundCall extends PlannedInterpretable {
         frame
             .findOverload(functionName, overloadIds, argVals)
             .orElseThrow(() -> new CelOverloadNotFoundException(functionName, overloadIds));
+
+    if (resolvedOverload.getDefinition() instanceof CelAsyncFunctionOverload) {
+      if (!frame.isAsync()) {
+        throw new CelEvaluationException(
+            String.format(
+                "Async function '%s' evaluated in synchronous mode. Asynchronous functions are only"
+                    + " supported via evalAsync.",
+                functionName));
+      }
+      return frame
+          .asyncTracker()
+          .recordOrGet(
+              expr().id(),
+              functionName,
+              resolvedOverload.getOverloadId(),
+              argVals,
+              (CelAsyncFunctionOverload) resolvedOverload.getDefinition(),
+              celValueConverter,
+              frame.asyncExecutor(),
+              frame.asyncGate(),
+              frame.asyncCoordinator(),
+              frame.asyncObserver().orElse(null));
+    }
 
     return EvalHelpers.dispatch(functionName, resolvedOverload, celValueConverter, argVals);
   }

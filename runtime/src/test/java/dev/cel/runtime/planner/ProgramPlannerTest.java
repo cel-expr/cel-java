@@ -14,6 +14,7 @@
 
 package dev.cel.runtime.planner;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.truth.Truth.assertThat;
 import static dev.cel.common.CelFunctionDecl.newFunctionDeclaration;
 import static dev.cel.common.CelOverloadDecl.newGlobalOverload;
@@ -92,7 +93,9 @@ public final class ProgramPlannerTest {
   private static final CelTypeProvider TYPE_PROVIDER =
       new CombinedCelTypeProvider(
           DefaultTypeProvider.getInstance(),
-          new ProtoMessageTypeProvider(ImmutableSet.of(TestAllTypes.getDescriptor())));
+          ProtoMessageTypeProvider.newBuilder()
+              .addDescriptors(ImmutableSet.of(TestAllTypes.getDescriptor()))
+              .build());
   private static final RuntimeEquality RUNTIME_EQUALITY =
       RuntimeEquality.create(RuntimeHelpers.create(), CEL_OPTIONS);
   private static final CelDescriptorPool DESCRIPTOR_POOL =
@@ -255,9 +258,7 @@ public final class ProgramPlannerTest {
 
   private static void addBindingsToDispatcher(
       DefaultDispatcher.Builder builder, ImmutableCollection<CelFunctionBinding> overloadBindings) {
-    if (overloadBindings.isEmpty()) {
-      throw new IllegalArgumentException("Invalid bindings");
-    }
+    checkArgument(!overloadBindings.isEmpty(), "Invalid bindings");
 
     overloadBindings.forEach(
         overload ->
@@ -519,7 +520,7 @@ public final class ProgramPlannerTest {
         .hasMessageThat()
         .contains("evaluation error at <input>:5: Function 'error' failed with arg(s) ''");
     assertThat(e).hasCauseThat().isInstanceOf(IllegalArgumentException.class);
-    assertThat(e.getCause()).hasMessageThat().contains("Intentional error");
+    assertThat(e).hasCauseThat().hasMessageThat().contains("Intentional error");
   }
 
   @Test
@@ -1200,6 +1201,64 @@ public final class ProgramPlannerTest {
     assertThat(result)
         .isEqualTo(
             CelUnknownSet.create(ImmutableSet.of(CelAttribute.create("unk")), ImmutableSet.of(7L)));
+  }
+
+  @Test
+  public void plan_foldMap_shortCircuitCondition_resultResolvesOuterScopeVariable()
+      throws Exception {
+    CelExpr comprehensionExpr =
+        CelExpr.ofComprehension(
+            1L,
+            "k",
+            "",
+            CelExpr.ofMap(
+                2L,
+                ImmutableList.of(
+                    CelExpr.ofMapEntry(
+                        3L,
+                        CelExpr.ofConstant(4L, CelConstant.ofValue("inner_k")),
+                        CelExpr.ofConstant(5L, CelConstant.ofValue(1L)),
+                        false))),
+            "acc",
+            CelExpr.ofConstant(6L, CelConstant.ofValue(true)),
+            CelExpr.ofConstant(7L, CelConstant.ofValue(false)),
+            CelExpr.ofIdent(8L, "acc"),
+            CelExpr.ofIdent(9L, "k"));
+    CelAbstractSyntaxTree ast =
+        CelAbstractSyntaxTree.newParsedAst(comprehensionExpr, CelSource.newBuilder().build());
+
+    Program program = PLANNER.plan(ast);
+
+    Object result = program.eval(ImmutableMap.of("k", "outer_k"));
+
+    assertThat(result).isEqualTo("outer_k");
+  }
+
+  @Test
+  public void plan_foldList_shortCircuitCondition_resultResolvesOuterScopeVariable()
+      throws Exception {
+    CelExpr comprehensionExpr =
+        CelExpr.ofComprehension(
+            1L,
+            "x",
+            "",
+            CelExpr.ofList(
+                2L,
+                ImmutableList.of(CelExpr.ofConstant(3L, CelConstant.ofValue("inner_x"))),
+                ImmutableList.of()),
+            "acc",
+            CelExpr.ofConstant(4L, CelConstant.ofValue(true)),
+            CelExpr.ofConstant(5L, CelConstant.ofValue(false)),
+            CelExpr.ofIdent(6L, "acc"),
+            CelExpr.ofIdent(7L, "x"));
+    CelAbstractSyntaxTree ast =
+        CelAbstractSyntaxTree.newParsedAst(comprehensionExpr, CelSource.newBuilder().build());
+
+    Program program = PLANNER.plan(ast);
+
+    Object result = program.eval(ImmutableMap.of("x", "outer_x"));
+
+    assertThat(result).isEqualTo("outer_x");
   }
 
   @Test
