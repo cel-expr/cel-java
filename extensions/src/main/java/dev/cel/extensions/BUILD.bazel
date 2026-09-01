@@ -274,6 +274,7 @@ java_library(
         "//common/ast",
         "//common/internal:comparison_functions",
         "//common/types",
+        "//common/values:cel_byte_string",
         "//compiler:compiler_builder",
         "//extensions:extension_library",
         "//parser:macro",
