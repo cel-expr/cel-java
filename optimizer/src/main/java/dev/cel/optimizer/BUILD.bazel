@@ -28,6 +28,19 @@ java_library(
 )
 
 java_library(
+    name = "optimizer_listener",
+    srcs = ["CelOptimizerListener.java"],
+    tags = [
+    ],
+    deps = [
+        ":ast_optimizer",
+        "//common:cel_ast",
+        "@maven//:com_google_code_findbugs_annotations",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+    ],
+)
+
+java_library(
     name = "optimizer_builder",
     srcs = [
         "CelOptimizer.java",
@@ -38,6 +51,7 @@ java_library(
     deps = [
         ":ast_optimizer",
         ":optimization_exception",
+        ":optimizer_listener",
         "//common:cel_ast",
         "@maven//:com_google_errorprone_error_prone_annotations",
     ],
@@ -54,6 +68,7 @@ java_library(
         ":ast_optimizer",
         ":optimization_exception",
         ":optimizer_builder",
+        ":optimizer_listener",
         "//bundle:cel",
         "//common:cel_ast",
         "//common:compiler_common",

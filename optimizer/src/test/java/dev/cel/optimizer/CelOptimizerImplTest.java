@@ -44,6 +44,41 @@ public class CelOptimizerImplTest {
           .setStandardMacros(CelStandardMacro.STANDARD_MACROS)
           .build();
 
+  private final List<String> events = new ArrayList<>();
+
+  private final CelOptimizerListener listener =
+      new CelOptimizerListener() {
+        @Override
+        public void onOptimizationStart(CelAbstractSyntaxTree ast) {
+          events.add("start");
+        }
+
+        @Override
+        public void onPassStart(CelAstOptimizer optimizer, CelAbstractSyntaxTree ast) {
+          events.add("pass_start");
+        }
+
+        @Override
+        public void onPassEnd(
+            CelAstOptimizer optimizer,
+            CelAbstractSyntaxTree preAst,
+            CelAbstractSyntaxTree optimizedAst) {
+          events.add("pass_end");
+        }
+
+        @Override
+        public void onOptimizationEnd(
+            CelAbstractSyntaxTree initialAst, CelAbstractSyntaxTree finalAst) {
+          events.add("end");
+        }
+
+        @Override
+        public void onPassFailure(
+            CelAstOptimizer optimizer, CelAbstractSyntaxTree ast, Exception failure) {
+          events.add("pass_failure");
+        }
+      };
+
   @Test
   public void constructCelOptimizer_success() {
     CelOptimizer celOptimizer =
@@ -312,5 +347,36 @@ public class CelOptimizerImplTest {
 
     assertThat(optimizedAst).isNotNull();
     assertThat(optimizedAst.getSource().getMacroCalls()).hasSize(1);
+  }
+
+  @Test
+  public void optimize_withListener_invokesListenerMethods() throws Exception {
+    CelOptimizer celOptimizer =
+        CelOptimizerImpl.newBuilder(CEL)
+            .addAstOptimizers((navigableAst, cel) -> OptimizationResult.create(navigableAst))
+            .addOptimizerListeners(listener)
+            .build();
+
+    CelAbstractSyntaxTree ast = CEL.compile("'hello world'").getAst();
+    CelAbstractSyntaxTree unused = celOptimizer.optimize(ast);
+
+    assertThat(events).containsExactly("start", "pass_start", "pass_end", "end").inOrder();
+  }
+
+  @Test
+  public void optimize_withListener_onPassFailure_invokesListenerMethods() throws Exception {
+    CelOptimizer celOptimizer =
+        CelOptimizerImpl.newBuilder(CEL)
+            .addAstOptimizers(
+                (navigableAst, cel) -> {
+                  throw new RuntimeException("Test failure");
+                })
+            .addOptimizerListeners(listener)
+            .build();
+
+    CelAbstractSyntaxTree ast = CEL.compile("'hello world'").getAst();
+    assertThrows(CelOptimizationException.class, () -> celOptimizer.optimize(ast));
+
+    assertThat(events).containsExactly("start", "pass_start", "pass_failure", "end").inOrder();
   }
 }
