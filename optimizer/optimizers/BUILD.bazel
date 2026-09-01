@@ -19,3 +19,8 @@ java_library(
     name = "inlining",
     exports = ["//optimizer/src/main/java/dev/cel/optimizer/optimizers:inlining"],
 )
+
+java_library(
+    name = "select_optimizer",
+    exports = ["//optimizer/src/main/java/dev/cel/optimizer/optimizers:select_optimizer"],
+)
