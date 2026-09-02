@@ -1,0 +1,467 @@
+I: *@a | b
+=====>
+E: ERROR: <input>:1:1: Syntax error: unexpected token
+ | *@a | b
+ | ^
+ERROR: <input>:1:2: Syntax error: unexpected character
+ | *@a | b
+ | .^
+
+I: 1 + $
+=====>
+E: ERROR: <input>:1:5: Syntax error: unexpected character
+ | 1 + $
+ | ....^
+
+I: ó ¢
+»»ó 0 
+»»0"""\""\"""\""\"""\""\"""\""\"""\"\"""\""\"""\""\"""\""\"""\"!\"""\""\"""\""\"
+=====>
+E: ERROR: <input>:1:1: Syntax error: unexpected character
+ | ó ¢
+ | ＾
+ERROR: <input>:1:2: Syntax error: unexpected character
+ | ó ¢
+ | ．＾
+
+I: '\udead' == '\ufffd'
+=====>
+E: ERROR: <input>:1:1: Invalid unicode code point
+ | '\udead' == '\ufffd'
+ | ^
+
+I: a | b
+=====>
+E: ERROR: <input>:1:3: Syntax error: unexpected single '|', expected '||'
+ | a | b
+ | ..^
+
+I: '3# < 10" '& tru ^^
+=====>
+E: ERROR: <input>:1:12: Syntax error: unexpected single '&', expected '&&'
+ | '3# < 10" '& tru ^^
+ | ...........^
+
+I: 1 + +
+=====>
+E: ERROR: <input>:1:5: Syntax error: unexpected token
+ | 1 + +
+ | ....^
+
+I: ?
+=====>
+E: ERROR: <input>:1:1: Syntax error: unexpected token
+ | ?
+ | ^
+
+I: a ? b ((?))
+=====>
+E: ERROR: <input>:1:9: Syntax error: unexpected token
+ | a ? b ((?))
+ | ........^
+ERROR: <input>:1:12: Syntax error: expected ':' in conditional expression
+ | a ? b ((?))
+ | ...........^
+
+I: -[-1--1--1--1---1--1--1--0--1--1--1--1--0--2--1--1--0--1--1--1--1--0--1--1--1
+»»--3-[-1--1--1--1---1--1--1--0--1--1--1--1--0--3--1--1--0--1--1--1--1--0--1--1--1
+»»--3-[-1--1--1--1---1--1--1--0-/1--1--1--1--0--2--1--1--0--1--1--1--1--0--1--1--1
+»»--3-[-1--1--1--1---1--1--1--0--1--1--1--1--0--2--1--1--0--1--1--1--1--0--1--1--1
+»»--3-[-1--1--1--1---1--1--1--0--1--1--1--1--0--2--1--1--0--1--1--1--1--0--1--1--1
+»»--3-[-1--1--1--1---1--1--1--0--1--1--1--1--0--2--1--1--0--1--1--1--1--0--1--1--1
+»»--3-[-1--1--1--1---1--1--1--0--1--1--1--1--0--3--1--1--0--1--1--1--1--0--1--1--1
+»»--3-[-1--1--1--1---1--1--1--0-/1--1--1--1--0--2--1--1--0--1--1--1--1--0--1--1--1
+»»--3-[-1--1--1--1---1-1--1--1--1--0--2--1--1--0--1--1--1--1--0--1--1--1--3-[-1--1
+»»--1--1---1--1--1--0--1--1--1--1--0--2--1--1--0--1--1--1--1--0--1--1--1--3-[-1--1
+»»--1--1---1--1-À1--0--1--1--1--1--0--2--1--1--0--1--1--1--1--0--1--1--1--3-[-1--1
+»»--1--1---1--1--1--0--1--1--1--1--0--2--1--1--0--1--1--1--1--0--1--1--1--3-[-1--1
+»»--1--1---1--1--1--0--1--1--1--1--0--3--1--1--0--1--1--1--1--0--1--1--1--3-[-1--1
+»»--1--1---1--1--1--0-/1--1--1--1--0--2--1--1--0--1--1--1--1--0--1--1--1--3-[-1--1
+»»--1--1---1--1--1--0--1--1--1--1--0--2--1--1--0--1--1--1--1--0--1--1--1--3-[-1--1
+»»--1--1---1--1--1--0--1--1--1--1--0--2--1--1--0--1--1--1--1--0--1--1--1--3-[-1--1
+»»--1--1---1--1--1--0--1--1--1--1--0--2--1--1--0--1--1--1--1--0--1--1--1--3-[-1--1
+»»--1--1---1--1--1--0--1--1--1--1--0--3--1--1--0--1--1--1
+»»--1--0--1--1--1--3-[-1--1--1--1---1--1--1--0-/1--1--1--1--0--2--1--1--0--1--1--1
+»»--1--0--1--1--1--3-[-1--1--1--1---1--1--1--0--1--1--1--1--0--2--1--1--0--1--1--1
+»»--1--0--1--1--1--3-[-1--1--1--1---1--1--1--0--1--1--1--1--0--2--1--1--0--1--1--1
+»»--1--0--1--1--1--3-[-1--1--1--1---1--1--1--0--1--1--1--1--0--2--1--1--0--1--1--1
+»»--1--0--1--1--1--3-[-1--1--1--1---1--1--1--0--1--1--1--1--0--3--1--1--0--1--1--1
+»»--1--0--1--1--1--3-[-1--1--1--1---1--1--1--0-/1--1--1--1--0--2--1--1--0--1--1--1
+»»--1--0--1--1--1--3-[-1--1--1--1---1--1--1--0--1--1--1--1--0--1--1--1--3-[-1--1--1
+»»--1---1--1--1--0--1--1--1--1--0--2--1--1--0--1--1--1--1--0--1--1--1--3-[-1--1--1
+»»--1---1--1--1--0--1--1--1--1--0--2--1--1--0--1--1--1--1--0--1--1--1--3-[-1--1--1
+»»--1---1--1--1--0--1--1--1--1--0--2--1--1--0--1--1--1--1--0--1--1--1--3-[-1--1--1
+»»--1---1--1--1--0--1--1--1--1--0--3--1--1--0--1--1--1--1--0--1--1--1--3-[-1--1--1
+»»--1---1--1--1--0-/1--1--1--1--0--2--1--1--0--1--1--1--1--0--1--1--1--3-[-1--1--1
+»»--1---1--1--1--0--1--1--1--1--0--2--1--1--0--1--1--1--1--0--1--1--1--3-[-1--1--1
+»»--1---1--1--1--0--1--1--1--1--0--2--1--1--0--1--1--1--1--0--1--1--1--3-[-1--1--1
+»»--1---1--1--1--0--1--1--1--1--0--2--1--1--0--1--1--1--1--0--1--1--1--3-[-1--1--1
+»»--1---1--1--1--0--1--1--1--1--0--3--1--1--0--1
+=====>
+E: ERROR: <input>:3:33: Syntax error: unexpected token
+ |   --3-[-1--1--1--1---1--1--1--0-/1--1--1--1--0--2--1--1--0--1--1--1--1--0--1--1--1
+ | ................................^
+ERROR: <input>:3:34: Syntax error: expected ']'
+ |   --3-[-1--1--1--1---1--1--1--0-/1--1--1--1--0--2--1--1--0--1--1--1--1--0--1--1--1
+ | .................................^
+ERROR: <input>:11:17: Syntax error: unexpected character
+ |   --1--1---1--1-À1--0--1--1--1--1--0--2--1--1--0--1--1--1--1--0--1--1--1--3-[-1--1
+ | ................＾
+ERROR: <input>:34:49: Syntax error: expected ']'
+ |   --1---1--1--1--0--1--1--1--1--0--3--1--1--0--1
+ | ................................................^
+ERROR: <input>:34:49: Syntax error: expected ']'
+ |   --1---1--1--1--0--1--1--1--1--0--3--1--1--0--1
+ | ................................................^
+
+I: as break const continue else for function if import in let loop package namespace return var void while
+=====>
+E: ERROR: <input>:1:1: reserved identifier: as
+ | as break const continue else for function if import in let loop package namespace return var void while
+ | ^
+ERROR: <input>:1:4: reserved identifier: break
+ | as break const continue else for function if import in let loop package namespace return var void while
+ | ...^
+ERROR: <input>:1:10: reserved identifier: const
+ | as break const continue else for function if import in let loop package namespace return var void while
+ | .........^
+ERROR: <input>:1:16: reserved identifier: continue
+ | as break const continue else for function if import in let loop package namespace return var void while
+ | ...............^
+ERROR: <input>:1:25: reserved identifier: else
+ | as break const continue else for function if import in let loop package namespace return var void while
+ | ........................^
+ERROR: <input>:1:30: reserved identifier: for
+ | as break const continue else for function if import in let loop package namespace return var void while
+ | .............................^
+ERROR: <input>:1:34: reserved identifier: function
+ | as break const continue else for function if import in let loop package namespace return var void while
+ | .................................^
+ERROR: <input>:1:43: reserved identifier: if
+ | as break const continue else for function if import in let loop package namespace return var void while
+ | ..........................................^
+ERROR: <input>:1:46: reserved identifier: import
+ | as break const continue else for function if import in let loop package namespace return var void while
+ | .............................................^
+ERROR: <input>:1:53: reserved identifier: in
+ | as break const continue else for function if import in let loop package namespace return var void while
+ | ....................................................^
+ERROR: <input>:1:56: reserved identifier: let
+ | as break const continue else for function if import in let loop package namespace return var void while
+ | .......................................................^
+ERROR: <input>:1:60: reserved identifier: loop
+ | as break const continue else for function if import in let loop package namespace return var void while
+ | ...........................................................^
+ERROR: <input>:1:65: reserved identifier: package
+ | as break const continue else for function if import in let loop package namespace return var void while
+ | ................................................................^
+ERROR: <input>:1:73: reserved identifier: namespace
+ | as break const continue else for function if import in let loop package namespace return var void while
+ | ........................................................................^
+ERROR: <input>:1:83: reserved identifier: return
+ | as break const continue else for function if import in let loop package namespace return var void while
+ | ..................................................................................^
+ERROR: <input>:1:90: reserved identifier: var
+ | as break const continue else for function if import in let loop package namespace return var void while
+ | .........................................................................................^
+ERROR: <input>:1:94: reserved identifier: void
+ | as break const continue else for function if import in let loop package namespace return var void while
+ | .............................................................................................^
+ERROR: <input>:1:99: reserved identifier: while
+ | as break const continue else for function if import in let loop package namespace return var void while
+ | ..................................................................................................^
+
+I: [1, 2, 3].map(var, var * var)
+=====>
+E: ERROR: <input>:1:15: reserved identifier: var
+ | [1, 2, 3].map(var, var * var)
+ | ..............^
+ERROR: <input>:1:20: reserved identifier: var
+ | [1, 2, 3].map(var, var * var)
+ | ...................^
+ERROR: <input>:1:26: reserved identifier: var
+ | [1, 2, 3].map(var, var * var)
+ | .........................^
+
+I: 1 +
+=====>
+E: ERROR: <input>:1:4: Syntax error: mismatched input '<EOF>' expecting expression
+ | 1 +
+ | ...^
+
+I: --
+=====>
+E: ERROR: <input>:1:3: Syntax error: mismatched input '<EOF>' expecting expression
+ | --
+ | ..^
+
+I: {
+=====>
+E: ERROR: <input>:1:2: Syntax error: expected '}'
+ | {
+ | .^
+
+I: TestAllTypes(){}
+=====>
+E: ERROR: <input>:1:15: Syntax error: unexpected token after expression
+ | TestAllTypes(){}
+ | ..............^
+
+I: TestAllTypes{}()
+=====>
+E: ERROR: <input>:1:15: Syntax error: unexpected token after expression
+ | TestAllTypes{}()
+ | ..............^
+
+I: 1 + 2
+3 +
+=====>
+E: ERROR: <input>:2:1: Syntax error: unexpected token after expression
+ | 3 +
+ | ^
+
+I: {"a": 1}."a"
+=====>
+E: ERROR: <input>:1:10: Syntax error: expected identifier after '.'
+ | {"a": 1}."a"
+ | .........^
+
+I: self.true == 1
+=====>
+E: ERROR: <input>:1:6: Syntax error: expected identifier after '.'
+ | self.true == 1
+ | .....^
+
+I: {a}
+=====>
+E: ERROR: <input>:1:3: Syntax error: expected ':' in map entry
+ | {a}
+ | ..^
+
+I: {:a}
+=====>
+E: ERROR: <input>:1:2: Syntax error: unexpected token
+ | {:a}
+ | .^
+ERROR: <input>:1:3: Syntax error: expected ':' in map entry
+ | {:a}
+ | ..^
+
+I: func{{a}}
+=====>
+E: ERROR: <input>:1:6: Syntax error: expected struct field name
+ | func{{a}}
+ | .....^
+ERROR: <input>:1:9: Syntax error: unexpected token after expression
+ | func{{a}}
+ | ........^
+
+I: msg{:a}
+=====>
+E: ERROR: <input>:1:5: Syntax error: expected struct field name
+ | msg{:a}
+ | ....^
+
+I: ind[a{b}]
+=====>
+E: ERROR: <input>:1:8: Syntax error: expected ':' in struct field
+ | ind[a{b}]
+ | .......^
+
+I: x{?.
+=====>
+E: ERROR: <input>:1:4: Syntax error: expected struct field name
+ | x{?.
+ | ...^
+ERROR: <input>:1:5: Syntax error: expected '}'
+ | x{?.
+ | ....^
+
+I: x{.
+=====>
+E: ERROR: <input>:1:3: Syntax error: expected struct field name
+ | x{.
+ | ..^
+ERROR: <input>:1:4: Syntax error: expected '}'
+ | x{.
+ | ...^
+
+I: 1.all(2, 3)
+=====>
+E: ERROR: <input>:1:7: The argument must be a simple name
+ | 1.all(2, 3)
+ | ......^
+
+I: a.?b && a[?b]
+=====>
+E: ERROR: <input>:1:2: unsupported syntax '.?'
+ | a.?b && a[?b]
+ | .^
+ERROR: <input>:1:10: unsupported syntax '?'
+ | a.?b && a[?b]
+ | .........^
+
+I: [?a, ?b]
+=====>
+E: ERROR: <input>:1:2: unsupported syntax '?'
+ | [?a, ?b]
+ | .^
+ERROR: <input>:1:6: unsupported syntax '?'
+ | [?a, ?b]
+ | .....^
+
+I: Msg{?field: value} && {?'key': value}
+=====>
+E: ERROR: <input>:1:5: unsupported syntax '?'
+ | Msg{?field: value} && {?'key': value}
+ | ....^
+ERROR: <input>:1:24: unsupported syntax '?'
+ | Msg{?field: value} && {?'key': value}
+ | .......................^
+
+I: a.`b-c`
+=====>
+E: ERROR: <input>:1:3: unsupported syntax '`'
+ | a.`b-c`
+ | ..^
+
+I: a.`b.c`
+=====>
+E: ERROR: <input>:1:3: unsupported syntax '`'
+ | a.`b.c`
+ | ..^
+
+I: a.`in`
+=====>
+E: ERROR: <input>:1:3: unsupported syntax '`'
+ | a.`in`
+ | ..^
+
+I: a.`/foo`
+=====>
+E: ERROR: <input>:1:3: unsupported syntax '`'
+ | a.`/foo`
+ | ..^
+
+I: Message{`in`: true}
+=====>
+E: ERROR: <input>:1:9: unsupported syntax '`'
+ | Message{`in`: true}
+ | ........^
+
+I: `b-c`
+=====>
+E: ERROR: <input>:1:1: unexpected quoted identifier
+ | `b-c`
+ | ^
+
+I: `b-c`()
+=====>
+E: ERROR: <input>:1:1: unexpected quoted identifier
+ | `b-c`()
+ | ^
+
+I: a.`$b`
+=====>
+E: ERROR: <input>:1:3: unexpected quoted identifier
+ | a.`$b`
+ | ..^
+
+I: a.`b.c`()
+=====>
+E: ERROR: <input>:1:3: unexpected quoted identifier
+ | a.`b.c`()
+ | ..^
+
+I: [[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+»»»[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['too many']]]]]]]]]]]]]]]]]]]]]]]]]]]]
+»»»]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]
+=====>
+E: ERROR: <input>:1:33: Expression recursion limit exceeded. limit: 32
+ | [[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+ | ................................^
+ERROR: <input>:1:33: Syntax error: expected ']'
+ | [[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+ | ................................^
+
+I: [[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['not fine']]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]
+=====>
+E: ERROR: <input>:1:33: Expression recursion limit exceeded. limit: 32
+ | [[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['not fine']]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]
+ | ................................^
+ERROR: <input>:1:33: Syntax error: expected ']'
+ | [[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['not fine']]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]
+ | ................................^
+
+I: a.b.c.d.e.f.g.h.i.j.k.l.m.n.o.p.q.r.s.t.u.v.w.x.y.z.A.B.C.D.E.F.G.H
+=====>
+E: ERROR: <input>:1:62: Expression recursion limit exceeded. limit: 32
+ | a.b.c.d.e.f.g.h.i.j.k.l.m.n.o.p.q.r.s.t.u.v.w.x.y.z.A.B.C.D.E.F.G.H
+ | .............................................................^
+
+I: a[1][2][3][4][5][6][7][8][9][10][11][12][13][14][15][16][17][18][19][20]
+»»     [21][22][23][24][25][26][27][28][29][30][31][32][33]
+=====>
+E: ERROR: <input>:2:48: Expression recursion limit exceeded. limit: 32
+ |        [21][22][23][24][25][26][27][28][29][30][31][32][33]
+ | ...............................................^
+
+I: 1 + 2 + 3 + 4 + 5 + 6 + 7 + 8 + 9 + 10
+»»+ 11 + 12 + 13 + 14 + 15 + 16 + 17 + 18 + 19 + 20
+»»+ 21 + 22 + 23 + 24 + 25 + 26 + 27 + 28 + 29 + 30
+»»+ 31 + 32 + 33 + 34
+=====>
+E: ERROR: <input>:4:8: Expression recursion limit exceeded. limit: 32
+ |   + 31 + 32 + 33 + 34
+ | .......^
+
+I: a < 1 < 2 < 3 < 4 < 5 < 6 < 7 < 8 < 9 < 10 < 11
+»»      < 12 < 13 < 14 < 15 < 16 < 17 < 18 < 19 < 20 < 21
+»»»  < 22 < 23 < 24 < 25 < 26 < 27 < 28 < 29 < 30 < 31
+»»»  < 32 < 33
+=====>
+E: ERROR: <input>:3:51: Expression recursion limit exceeded. limit: 32
+ |      < 22 < 23 < 24 < 25 < 26 < 27 < 28 < 29 < 30 < 31
+ | ..................................................^
+
+I: y!=y!=y!=y!=y!=y!=y!=y!=y!=-y!=-y!=-y!=-y-y!=-y!=-y!=-y-y!=-y!=-y!=-y-y!=-y
+»»!=-y!=-y-y!=-y!=-y!=-y-y!=-y!=-y!=-y-y!=-y!=-y!=-y-y!=-y!=-y!=-y-y!=-y!=-y!=-y-y
+»»!=-y!=-y!=-y-y!=-y!=-y!=-y-y!=-y!=-y!=-y-y!=-y!=-y!=-y-y!=-y!=-y!=-y-y!=-y!=-y
+»»!=-y-y!=-y!=-y!=-y-y!=-y!=-y!=-y-y!=-y!=-y!=-y-y!=-y!=-y!=-y-y!=-y!=-y!=-y-y!=-y
+»»!=-y!=-y-y!=-y!=-y!=-y-y!=-y!=-y!=-y-y!=-y!=-y!=-y-y!=-y!=-y!=-y-y!=-y!=-y!=-y-y
+»»!=-y!=-y!=-y-y!=-y!=-y!=-y-y!=-y!=-y!=-y-y!=-y
+=====>
+E: ERROR: <input>:2:55: Expression recursion limit exceeded. limit: 32
+ |   !=-y!=-y-y!=-y!=-y!=-y-y!=-y!=-y!=-y-y!=-y!=-y!=-y-y!=-y!=-y!=-y-y!=-y!=-y!=-y-y
+ | ......................................................^
+
+I: a[1][2][3][4][5][6][7][8][9][10][11][12][13][14][15][16][17][18][19][20] !=
+»»a[1][2][3][4][5][6][7][8][9][10][11][12][13][14][15][16][17][18][19][20] !=
+»»a[1][2][3][4][5][6][7][8][9][10][11][12][13][14][15][16][17][18][19][20] !=
+»»a[1][2][3][4][5][6][7][8][9][10][11][12][13][14][15][16][17][18][19][20] !=
+»»a[1][2][3][4][5][6][7][8][9][10][11][12][13][14][15][16][17][18][19][20] !=
+»»a[1][2][3][4][5][6][7][8][9][10][11][12][13][14][15][16][17][18][19][20] !=
+»»a[1][2][3][4][5][6][7][8][9][10][11][12][13][14][15][16][17][18][19][20] !=
+»»a[1][2][3][4][5][6][7][8][9][10][11][12][13][14][15][16][17][18][19][20] !=
+»»a[1][2][3][4][5][6][7][8][9][10][11][12][13][14][15][16][17][18][19][20] !=
+»»a[1][2][3][4][5][6][7][8][9][10][11][12][13][14][15][16][17][18][19][20] !=
+»»a[1][2][3][4][5][6][7][8][9][10][11][12][13][14][15][16][17][18][19][20] !=
+»»a[1][2][3][4][5][6][7][8][9][10][11][12][13][14][15][16][17][18][19][20] !=
+»»a[1][2][3][4][5][6][7][8][9][10][11][12][13][14][15][16][17][18][19][20] !=
+»»a[1][2][3][4][5][6][7][8][9][10][11][12][13][14][15][16][17][18][19][20]
+=====>
+E: ERROR: <input>:11:76: Expression recursion limit exceeded. limit: 32
+ |   a[1][2][3][4][5][6][7][8][9][10][11][12][13][14][15][16][17][18][19][20] !=
+ | ...........................................................................^
+
+I: true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : 1
+=====>
+E: ERROR: <input>:1:353: Expression recursion limit exceeded. limit: 32
+ | true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : 1
+ | ................................................................................................................................................................................................................................................................................................................................................................^
+
+I: !-!-!-!-!-!-!-!-!-!-!-!-!-!-!-!-!x
+=====>
+E: ERROR: <input>:1:31: Expression recursion limit exceeded. limit: 32
+ | !-!-!-!-!-!-!-!-!-!-!-!-!-!-!-!-!x
+ | ..............................^

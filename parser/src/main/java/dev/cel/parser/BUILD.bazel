@@ -16,6 +16,12 @@ PARSER_SOURCES = [
 ]
 
 # keep sorted
+PRATT_PARSER_SOURCES = [
+    "Lexer.java",
+    "PrattParser.java",
+]
+
+# keep sorted
 PARSER_BUILDER_SOURCES = [
     "CelParser.java",
     "CelParserBuilder.java",
@@ -72,6 +78,26 @@ java_library(
         "@maven//:com_google_errorprone_error_prone_annotations",
         "@maven//:com_google_guava_guava",
         "@maven//:org_antlr_antlr4_runtime",
+    ],
+)
+
+java_library(
+    name = "pratt_parser",
+    srcs = PRATT_PARSER_SOURCES,
+    tags = [
+    ],
+    deps = [
+        ":macro",
+        "//common:cel_ast",
+        "//common:cel_source",
+        "//common:compiler_common",
+        "//common:operator",
+        "//common:options",
+        "//common:source_location",
+        "//common/ast",
+        "//common/internal",
+        "@maven//:com_google_guava_guava",
+        "@maven//:org_jspecify_jspecify",
     ],
 )
 
