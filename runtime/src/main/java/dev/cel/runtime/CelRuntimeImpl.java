@@ -20,6 +20,8 @@ import com.google.auto.value.AutoValue;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.util.concurrent.ListenableFuture;
+import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import com.google.errorprone.annotations.Immutable;
 import com.google.protobuf.DescriptorProtos;
@@ -95,6 +97,16 @@ public abstract class CelRuntimeImpl implements CelRuntime {
   @AutoValue.CopyAnnotations
   abstract @Nullable ExtensionRegistry extensionRegistry();
 
+  // CelAsyncEvaluationOptions is an immutable value object configuring asynchronous evaluation.
+  @SuppressWarnings("Immutable")
+  @AutoValue.CopyAnnotations
+  abstract CelAsyncEvaluationOptions asyncEvaluationOptions();
+
+  // The executor service is an externally managed, thread-safe asynchronous execution pool.
+  @SuppressWarnings("Immutable")
+  @AutoValue.CopyAnnotations
+  abstract Optional<ListeningExecutorService> asyncExecutor();
+
   @Override
   public Program createProgram(CelAbstractSyntaxTree ast) throws CelEvaluationException {
     return toRuntimeProgram(planner().plan(ast));
@@ -160,6 +172,44 @@ public abstract class CelRuntimeImpl implements CelRuntime {
       @Override
       public Object eval(PartialVars partialVars) throws CelEvaluationException {
         return program.eval(partialVars);
+      }
+
+      @Override
+      public ListenableFuture<Object> evalAsync() {
+        return program.evalAsync();
+      }
+
+      @Override
+      public ListenableFuture<Object> evalAsync(Map<String, ?> mapValue) {
+        return program.evalAsync(mapValue);
+      }
+
+      @Override
+      public ListenableFuture<Object> evalAsync(
+          Map<String, ?> mapValue, CelFunctionResolver lateBoundFunctionResolver) {
+        return program.evalAsync(mapValue, lateBoundFunctionResolver);
+      }
+
+      @Override
+      public ListenableFuture<Object> evalAsync(Message message) {
+        throw new UnsupportedOperationException(
+            "evalAsync is not supported by this Program implementation.");
+      }
+
+      @Override
+      public ListenableFuture<Object> evalAsync(CelVariableResolver resolver) {
+        return program.evalAsync(resolver);
+      }
+
+      @Override
+      public ListenableFuture<Object> evalAsync(
+          CelVariableResolver resolver, CelFunctionResolver lateBoundFunctionResolver) {
+        return program.evalAsync(resolver, lateBoundFunctionResolver);
+      }
+
+      @Override
+      public ListenableFuture<Object> evalAsync(PartialVars partialVars) {
+        return program.evalAsync(partialVars);
       }
 
       @Override
@@ -253,7 +303,8 @@ public abstract class CelRuntimeImpl implements CelRuntime {
         .setFunctionBindings(ImmutableMap.of())
         .setStandardFunctions(CelStandardFunctions.newBuilder().build())
         .setContainer(CelContainer.newBuilder().build())
-        .setExtensionRegistry(ExtensionRegistry.getEmptyRegistry());
+        .setExtensionRegistry(ExtensionRegistry.getEmptyRegistry())
+        .setAsyncEvaluationOptions(CelAsyncEvaluationOptions.defaultOptions());
   }
 
   /** Builder for {@link CelRuntimeImpl}. */
@@ -279,6 +330,13 @@ public abstract class CelRuntimeImpl implements CelRuntime {
 
     @Override
     public abstract Builder setContainer(CelContainer container);
+
+    @Override
+    public abstract Builder setAsyncEvaluationOptions(
+        CelAsyncEvaluationOptions asyncEvaluationOptions);
+
+    @Override
+    public abstract Builder setAsyncExecutor(ListeningExecutorService asyncExecutor);
 
     abstract CelOptions options();
 

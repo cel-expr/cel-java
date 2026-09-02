@@ -25,6 +25,22 @@ import java.util.Optional;
 @ThreadSafe
 public interface CelFunctionResolver {
 
+  /** An empty function resolver that resolves no overloads. */
+  CelFunctionResolver EMPTY =
+      new CelFunctionResolver() {
+        @Override
+        public Optional<CelResolvedOverload> findOverloadMatchingArgs(
+            String functionName, Collection<String> overloadIds, Object[] args) {
+          return Optional.empty();
+        }
+
+        @Override
+        public Optional<CelResolvedOverload> findOverloadMatchingArgs(
+            String functionName, Object[] args) {
+          return Optional.empty();
+        }
+      };
+
   /**
    * Finds a specific function overload to invoke based on given parameters.
    *
@@ -33,7 +49,7 @@ public interface CelFunctionResolver {
    *     from this list with matching arguments.
    * @param args The arguments to pass to the function.
    * @return an optional value of the resolved overload.
-   * @throws CelEvaluationException if the overload resolution is ambiguous,
+   * @throws CelEvaluationException if the overload resolution is ambiguous.
    */
   Optional<CelResolvedOverload> findOverloadMatchingArgs(
       String functionName, Collection<String> overloadIds, Object[] args)
