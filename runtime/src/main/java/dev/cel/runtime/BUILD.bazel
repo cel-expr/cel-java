@@ -41,6 +41,7 @@ LITE_RUNTIME_SOURCES = [
 
 # keep sorted
 LITE_RUNTIME_IMPL_SOURCES = [
+    "LiteAttributeStep.java",
     "LiteRuntimeImpl.java",
 ]
 
@@ -989,10 +990,14 @@ java_library(
         "//common:cel_ast",
         "//common:container",
         "//common:options",
+        "//common/annotations",
+        "//common/exceptions:attribute_not_found",
         "//common/types:default_type_provider",
         "//common/types:type_providers",
         "//common/values",
         "//common/values:cel_value_provider",
+        "//common/values:proto_message_lite_value",
+        "//protobuf:cel_lite_descriptor",
         "//runtime:evaluation_exception",
         "//runtime/planner:program_planner",
         "//runtime/standard:standard_function",
@@ -1017,10 +1022,14 @@ cel_android_library(
         "//common:cel_ast_android",
         "//common:container_android",
         "//common:options",
+        "//common/annotations",
+        "//common/exceptions:attribute_not_found",
         "//common/types:default_type_provider_android",
         "//common/types:type_providers_android",
         "//common/values:cel_value_provider_android",
+        "//common/values:proto_message_lite_value_android",
         "//common/values:values_android",
+        "//protobuf:cel_lite_descriptor",
         "//runtime:evaluation_exception",
         "//runtime/planner:program_planner_android",
         "//runtime/standard:standard_function_android",

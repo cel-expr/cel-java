@@ -18,6 +18,7 @@ import static java.lang.Math.ceil;
 
 import com.google.errorprone.annotations.Immutable;
 import com.google.protobuf.MessageLite;
+import com.google.protobuf.WireFormat;
 import dev.cel.common.annotations.Internal;
 import java.util.Collections;
 import java.util.HashMap;
@@ -82,6 +83,10 @@ public abstract class CelLiteDescriptor {
 
     public Optional<FieldLiteDescriptor> findByFieldNumber(int fieldNumber) {
       return Optional.ofNullable(fieldNumberToFieldDescriptors.get(fieldNumber));
+    }
+
+    public Optional<FieldLiteDescriptor> findByFieldName(String fieldName) {
+      return Optional.ofNullable(fieldNameToFieldDescriptors.get(fieldName));
     }
 
     public FieldLiteDescriptor getByFieldNameOrThrow(String fieldName) {
@@ -184,24 +189,65 @@ public abstract class CelLiteDescriptor {
      * <p>This is exactly the same as com.google.protobuf.Descriptors#Type
      */
     public enum Type {
-      DOUBLE,
-      FLOAT,
-      INT64,
-      UINT64,
-      INT32,
-      FIXED64,
-      FIXED32,
-      BOOL,
-      STRING,
-      GROUP,
-      MESSAGE,
-      BYTES,
-      UINT32,
-      ENUM,
-      SFIXED32,
-      SFIXED64,
-      SINT32,
-      SINT64
+      DOUBLE(1, WireFormat.FieldType.DOUBLE),
+      FLOAT(2, WireFormat.FieldType.FLOAT),
+      INT64(3, WireFormat.FieldType.INT64),
+      UINT64(4, WireFormat.FieldType.UINT64),
+      INT32(5, WireFormat.FieldType.INT32),
+      FIXED64(6, WireFormat.FieldType.FIXED64),
+      FIXED32(7, WireFormat.FieldType.FIXED32),
+      BOOL(8, WireFormat.FieldType.BOOL),
+      STRING(9, WireFormat.FieldType.STRING),
+      GROUP(10, WireFormat.FieldType.GROUP),
+      MESSAGE(11, WireFormat.FieldType.MESSAGE),
+      BYTES(12, WireFormat.FieldType.BYTES),
+      UINT32(13, WireFormat.FieldType.UINT32),
+      ENUM(14, WireFormat.FieldType.ENUM),
+      SFIXED32(15, WireFormat.FieldType.SFIXED32),
+      SFIXED64(16, WireFormat.FieldType.SFIXED64),
+      SINT32(17, WireFormat.FieldType.SINT32),
+      SINT64(18, WireFormat.FieldType.SINT64);
+
+      private final int number;
+      private final WireFormat.FieldType wireFormatFieldType;
+
+      Type(int number, WireFormat.FieldType wireFormatFieldType) {
+        this.number = number;
+        this.wireFormatFieldType = wireFormatFieldType;
+      }
+
+      public int getNumber() {
+        return number;
+      }
+
+      public WireFormat.FieldType toWireFormatFieldType() {
+        return wireFormatFieldType;
+      }
+
+      public boolean isPackable() {
+        return wireFormatFieldType.isPackable();
+      }
+
+      private static final Type[] TYPES_BY_NUMBER;
+
+      static {
+        Type[] values = values();
+        TYPES_BY_NUMBER = new Type[values.length + 1];
+        for (Type type : values) {
+          TYPES_BY_NUMBER[type.number] = type;
+        }
+      }
+
+      public static Type forNumber(int number) {
+        if (number < 1 || number >= TYPES_BY_NUMBER.length) {
+          throw new IllegalArgumentException("Unsupported proto type code: " + number);
+        }
+        return TYPES_BY_NUMBER[number];
+      }
+    }
+
+    public int getFieldNumber() {
+      return fieldNumber;
     }
 
     public String getFieldName() {

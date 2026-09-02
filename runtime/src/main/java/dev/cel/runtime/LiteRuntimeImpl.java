@@ -33,6 +33,7 @@ import dev.cel.runtime.planner.ProgramPlanner;
 import dev.cel.runtime.standard.CelStandardFunction;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -196,6 +197,9 @@ final class LiteRuntimeImpl implements CelLiteRuntime {
         }
       }
 
+      CelValueConverter valueConverter = celValueProvider.celValueConverter();
+      registerAttributeBindings(functionBindingsBuilder, valueConverter);
+
       functionBindingsBuilder.putAll(customFunctionBindings);
 
       DefaultDispatcher.Builder dispatcherBuilder = DefaultDispatcher.newBuilder();
@@ -261,6 +265,38 @@ final class LiteRuntimeImpl implements CelLiteRuntime {
       this.runtimeLibrariesBuilder = ImmutableSet.builder();
       this.lateBoundFunctionNamesBuilder = ImmutableSet.builder();
       this.container = CelContainer.newBuilder().build();
+    }
+
+    private void registerAttributeBindings(
+        ImmutableMap.Builder<String, CelFunctionBinding> functionBindingsBuilder,
+        CelValueConverter valueConverter) {
+      CelFunctionBinding attributeBinding =
+          CelFunctionBinding.from(
+              "cel_attribute_list",
+              Object.class,
+              List.class,
+              (target, qualifiers) ->
+                  LiteAttributeStep.qualifyAttribute(target, (List<?>) qualifiers, valueConverter));
+      for (CelFunctionBinding binding :
+          CelFunctionBinding.fromOverloads("cel.@attribute", attributeBinding)) {
+        if (!customFunctionBindings.containsKey(binding.getOverloadId())) {
+          functionBindingsBuilder.put(binding.getOverloadId(), binding);
+        }
+      }
+
+      CelFunctionBinding hasFieldBinding =
+          CelFunctionBinding.from(
+              "cel_has_field_list",
+              Object.class,
+              List.class,
+              (target, qualifiers) ->
+                  LiteAttributeStep.hasField(target, (List<?>) qualifiers, valueConverter));
+      for (CelFunctionBinding binding :
+          CelFunctionBinding.fromOverloads("cel.@hasField", hasFieldBinding)) {
+        if (!customFunctionBindings.containsKey(binding.getOverloadId())) {
+          functionBindingsBuilder.put(binding.getOverloadId(), binding);
+        }
+      }
     }
   }
 
