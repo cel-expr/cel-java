@@ -49,6 +49,7 @@ java_library(
         "//runtime:runtime_helpers",
         "//runtime:standard_functions",
         "//runtime:unknown_attributes",
+        "//runtime/planner:async_gate",
         "//runtime/planner:program_planner",
         "//runtime/standard:type",
         "@cel_spec//proto/cel/expr/conformance/proto3:test_all_types_java_proto",
