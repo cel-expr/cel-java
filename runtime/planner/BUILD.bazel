@@ -21,3 +21,27 @@ java_library(
     visibility = ["//:internal"],
     exports = ["//runtime/src/main/java/dev/cel/runtime/planner:planned_program"],
 )
+
+java_library(
+    name = "async_gate",
+    visibility = ["//:internal"],
+    exports = ["//runtime/src/main/java/dev/cel/runtime/planner:async_gate"],
+)
+
+cel_android_library(
+    name = "async_gate_android",
+    visibility = ["//:internal"],
+    exports = ["//runtime/src/main/java/dev/cel/runtime/planner:async_gate_android"],
+)
+
+java_library(
+    name = "async_completion_coordinator",
+    visibility = ["//:internal"],
+    exports = ["//runtime/src/main/java/dev/cel/runtime/planner:async_completion_coordinator"],
+)
+
+cel_android_library(
+    name = "async_completion_coordinator_android",
+    visibility = ["//:internal"],
+    exports = ["//runtime/src/main/java/dev/cel/runtime/planner:async_completion_coordinator_android"],
+)

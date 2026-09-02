@@ -92,6 +92,7 @@ java_library(
         "//runtime:resolved_overload",
         "//runtime:variable_resolver",
         "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:com_google_guava_guava",
         "@maven//:org_jspecify_jspecify",
     ],
 )
@@ -183,6 +184,32 @@ java_library(
         "//runtime:interpretable",
         "@maven//:com_google_errorprone_error_prone_annotations",
         "@maven//:com_google_guava_guava",
+    ],
+)
+
+java_library(
+    name = "async_gate",
+    srcs = ["AsyncGate.java"],
+    tags = [
+    ],
+    deps = [
+        "@maven//:org_jspecify_jspecify",
+    ],
+)
+
+java_library(
+    name = "async_completion_coordinator",
+    srcs = ["AsyncCompletionCoordinator.java"],
+    tags = [
+    ],
+    deps = [
+        ":async_gate",
+        "//runtime:async_call",
+        "//runtime:async_drain_strategy",
+        "//runtime:async_options",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:com_google_guava_guava",
+        "@maven//:org_jspecify_jspecify",
     ],
 )
 
@@ -622,6 +649,7 @@ cel_android_library(
         "//runtime/src/main/java/dev/cel/runtime:program_android",
         "@maven//:com_google_errorprone_error_prone_annotations",
         "@maven//:org_jspecify_jspecify",
+        "@maven_android//:com_google_guava_guava",
     ],
 )
 
@@ -711,6 +739,32 @@ cel_android_library(
         "//runtime:interpretable_android",
         "//runtime/src/main/java/dev/cel/runtime:accumulated_unknowns_android",
         "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven_android//:com_google_guava_guava",
+    ],
+)
+
+cel_android_library(
+    name = "async_gate_android",
+    srcs = ["AsyncGate.java"],
+    tags = [
+    ],
+    deps = [
+        "@maven//:org_jspecify_jspecify",
+    ],
+)
+
+cel_android_library(
+    name = "async_completion_coordinator_android",
+    srcs = ["AsyncCompletionCoordinator.java"],
+    tags = [
+    ],
+    deps = [
+        ":async_gate_android",
+        "//runtime:async_call_android",
+        "//runtime:async_drain_strategy_android",
+        "//runtime:async_options_android",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:org_jspecify_jspecify",
         "@maven_android//:com_google_guava_guava",
     ],
 )

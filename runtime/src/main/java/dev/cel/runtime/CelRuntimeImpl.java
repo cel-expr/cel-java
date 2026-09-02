@@ -20,6 +20,8 @@ import com.google.auto.value.AutoValue;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.util.concurrent.ListenableFuture;
+import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import com.google.errorprone.annotations.Immutable;
 import com.google.protobuf.DescriptorProtos;
@@ -95,27 +97,22 @@ public abstract class CelRuntimeImpl implements CelRuntime {
   @AutoValue.CopyAnnotations
   abstract @Nullable ExtensionRegistry extensionRegistry();
 
+  // CelAsyncEvaluationOptions is an immutable value object configuring asynchronous evaluation.
+  @SuppressWarnings("Immutable")
+  @AutoValue.CopyAnnotations
+  abstract CelAsyncEvaluationOptions asyncEvaluationOptions();
+
+  // The executor service is an externally managed, thread-safe asynchronous execution pool.
+  @SuppressWarnings("Immutable")
+  @AutoValue.CopyAnnotations
+  abstract Optional<ListeningExecutorService> asyncExecutor();
+
   @Override
   public Program createProgram(CelAbstractSyntaxTree ast) throws CelEvaluationException {
     return toRuntimeProgram(planner().plan(ast));
   }
 
-  private static final CelFunctionResolver EMPTY_FUNCTION_RESOLVER =
-      new CelFunctionResolver() {
-        @Override
-        public Optional<CelResolvedOverload> findOverloadMatchingArgs(
-            String functionName, Collection<String> overloadIds, Object[] args) {
-          return Optional.empty();
-        }
-
-        @Override
-        public Optional<CelResolvedOverload> findOverloadMatchingArgs(
-            String functionName, Object[] args) {
-          return Optional.empty();
-        }
-      };
-
-  public Program toRuntimeProgram(dev.cel.runtime.Program program) {
+  private Program toRuntimeProgram(dev.cel.runtime.Program program) {
     return new Program() {
 
       @Override
@@ -140,7 +137,7 @@ public abstract class CelRuntimeImpl implements CelRuntime {
         return plannedProgram.evalOrThrow(
             plannedProgram.interpretable(),
             ProtoMessageActivationFactory.fromProto(message, plannedProgram.options()),
-            EMPTY_FUNCTION_RESOLVER,
+            CelFunctionResolver.EMPTY,
             /* partialVars= */ null,
             /* listener= */ null);
       }
@@ -163,16 +160,54 @@ public abstract class CelRuntimeImpl implements CelRuntime {
       }
 
       @Override
+      public ListenableFuture<Object> evalAsync() {
+        return program.evalAsync();
+      }
+
+      @Override
+      public ListenableFuture<Object> evalAsync(Map<String, ?> mapValue) {
+        return program.evalAsync(mapValue);
+      }
+
+      @Override
+      public ListenableFuture<Object> evalAsync(
+          Map<String, ?> mapValue, CelFunctionResolver lateBoundFunctionResolver) {
+        return program.evalAsync(mapValue, lateBoundFunctionResolver);
+      }
+
+      @Override
+      public ListenableFuture<Object> evalAsync(Message message) {
+        throw new UnsupportedOperationException(
+            "evalAsync is not supported by this Program implementation.");
+      }
+
+      @Override
+      public ListenableFuture<Object> evalAsync(CelVariableResolver resolver) {
+        return program.evalAsync(resolver);
+      }
+
+      @Override
+      public ListenableFuture<Object> evalAsync(
+          CelVariableResolver resolver, CelFunctionResolver lateBoundFunctionResolver) {
+        return program.evalAsync(resolver, lateBoundFunctionResolver);
+      }
+
+      @Override
+      public ListenableFuture<Object> evalAsync(PartialVars partialVars) {
+        return program.evalAsync(partialVars);
+      }
+
+      @Override
       public Object trace(CelEvaluationListener listener) throws CelEvaluationException {
         return ((PlannedProgram) program)
-            .trace(GlobalResolver.EMPTY, EMPTY_FUNCTION_RESOLVER, null, listener);
+            .trace(GlobalResolver.EMPTY, CelFunctionResolver.EMPTY, null, listener);
       }
 
       @Override
       public Object trace(Map<String, ?> mapValue, CelEvaluationListener listener)
           throws CelEvaluationException {
         return ((PlannedProgram) program)
-            .trace(Activation.copyOf(mapValue), EMPTY_FUNCTION_RESOLVER, null, listener);
+            .trace(Activation.copyOf(mapValue), CelFunctionResolver.EMPTY, null, listener);
       }
 
       @Override
@@ -182,7 +217,7 @@ public abstract class CelRuntimeImpl implements CelRuntime {
         return plannedProgram.evalOrThrow(
             plannedProgram.interpretable(),
             ProtoMessageActivationFactory.fromProto(message, plannedProgram.options()),
-            EMPTY_FUNCTION_RESOLVER,
+            CelFunctionResolver.EMPTY,
             /* partialVars= */ null,
             listener);
       }
@@ -193,7 +228,7 @@ public abstract class CelRuntimeImpl implements CelRuntime {
         return ((PlannedProgram) program)
             .trace(
                 (name) -> resolver.find(name).orElse(null),
-                EMPTY_FUNCTION_RESOLVER,
+                CelFunctionResolver.EMPTY,
                 null,
                 listener);
       }
@@ -228,13 +263,13 @@ public abstract class CelRuntimeImpl implements CelRuntime {
         return ((PlannedProgram) program)
             .trace(
                 (name) -> partialVars.resolver().find(name).orElse(null),
-                EMPTY_FUNCTION_RESOLVER,
+                CelFunctionResolver.EMPTY,
                 partialVars,
                 listener);
       }
 
       @Override
-      public Object advanceEvaluation(UnknownContext context) throws CelEvaluationException {
+      public Object advanceEvaluation(UnknownContext context) {
         throw new UnsupportedOperationException("Unsupported operation.");
       }
     };
@@ -253,7 +288,8 @@ public abstract class CelRuntimeImpl implements CelRuntime {
         .setFunctionBindings(ImmutableMap.of())
         .setStandardFunctions(CelStandardFunctions.newBuilder().build())
         .setContainer(CelContainer.newBuilder().build())
-        .setExtensionRegistry(ExtensionRegistry.getEmptyRegistry());
+        .setExtensionRegistry(ExtensionRegistry.getEmptyRegistry())
+        .setAsyncEvaluationOptions(CelAsyncEvaluationOptions.defaultOptions());
   }
 
   /** Builder for {@link CelRuntimeImpl}. */
@@ -279,6 +315,13 @@ public abstract class CelRuntimeImpl implements CelRuntime {
 
     @Override
     public abstract Builder setContainer(CelContainer container);
+
+    @Override
+    public abstract Builder setAsyncEvaluationOptions(
+        CelAsyncEvaluationOptions asyncEvaluationOptions);
+
+    @Override
+    public abstract Builder setAsyncExecutor(ListeningExecutorService asyncExecutor);
 
     abstract CelOptions options();
 
