@@ -17,6 +17,7 @@ java_library(
         ":attribute",
         ":error_metadata",
         ":eval_and",
+        ":eval_async_call",
         ":eval_attribute",
         ":eval_binary",
         ":eval_block",
@@ -57,6 +58,7 @@ java_library(
         "//runtime:dispatcher",
         "//runtime:evaluation_exception",
         "//runtime:evaluation_exception_builder",
+        "//runtime:function_overload",
         "//runtime:program",
         "//runtime:resolved_overload",
         "@maven//:com_google_code_findbugs_annotations",
@@ -72,6 +74,7 @@ java_library(
     tags = [
     ],
     deps = [
+        ":async_call_state_tracker",
         ":error_metadata",
         ":localized_evaluation_exception",
         ":planned_interpretable",
@@ -80,7 +83,9 @@ java_library(
         "//common/annotations",
         "//common/exceptions:runtime_exception",
         "//common/values",
+        "//runtime:accumulated_unknowns",
         "//runtime:activation",
+        "//runtime:async_options",
         "//runtime:evaluation_exception",
         "//runtime:evaluation_exception_builder",
         "//runtime:evaluation_listener",
@@ -90,8 +95,11 @@ java_library(
         "//runtime:partial_vars",
         "//runtime:program",
         "//runtime:resolved_overload",
+        "//runtime:runtime_equality",
+        "//runtime:runtime_helpers",
         "//runtime:variable_resolver",
         "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:com_google_guava_guava",
         "@maven//:org_jspecify_jspecify",
     ],
 )
@@ -183,6 +191,50 @@ java_library(
         "//runtime:interpretable",
         "@maven//:com_google_errorprone_error_prone_annotations",
         "@maven//:com_google_guava_guava",
+    ],
+)
+
+java_library(
+    name = "async_call_state_tracker",
+    srcs = [
+        "AsyncCallKey.java",
+        "AsyncCallRecord.java",
+        "AsyncCallStateTracker.java",
+        "AsyncCompletionCoordinator.java",
+        "AsyncGate.java",
+    ],
+    tags = [
+    ],
+    deps = [
+        "//common/values",
+        "//runtime:accumulated_unknowns",
+        "//runtime:async_call",
+        "//runtime:async_drain_strategy",
+        "//runtime:async_observer",
+        "//runtime:async_options",
+        "//runtime:evaluation_exception",
+        "//runtime:function_overload",
+        "//runtime:interpreter_util",
+        "//runtime:runtime_equality",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:com_google_guava_guava",
+        "@maven//:org_jspecify_jspecify",
+    ],
+)
+
+java_library(
+    name = "eval_async_call",
+    srcs = ["EvalAsyncCall.java"],
+    deps = [
+        ":eval_helpers",
+        ":planned_interpretable",
+        "//common/ast",
+        "//common/values",
+        "//runtime:accumulated_unknowns",
+        "//runtime:evaluation_exception",
+        "//runtime:function_overload",
+        "//runtime:interpretable",
+        "@maven//:com_google_errorprone_error_prone_annotations",
     ],
 )
 
@@ -380,8 +432,10 @@ java_library(
         "//common/values",
         "//runtime:accumulated_unknowns",
         "//runtime:evaluation_exception",
+        "//runtime:function_overload",
         "//runtime:interpretable",
         "//runtime:resolved_overload",
+        "@maven//:com_google_errorprone_error_prone_annotations",
         "@maven//:com_google_guava_guava",
     ],
 )
@@ -524,10 +578,12 @@ java_library(
         "PlannedInterpretable.java",
     ],
     deps = [
+        ":async_call_state_tracker",
         ":localized_evaluation_exception",
         "//common:options",
         "//common/ast",
         "//common/exceptions:iteration_budget_exceeded",
+        "//runtime:async_observer",
         "//runtime:evaluation_exception",
         "//runtime:evaluation_listener",
         "//runtime:function_resolver",
@@ -536,6 +592,7 @@ java_library(
         "//runtime:partial_vars",
         "//runtime:resolved_overload",
         "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:com_google_guava_guava",
         "@maven//:org_jspecify_jspecify",
     ],
 )
@@ -549,6 +606,7 @@ cel_android_library(
         ":attribute_android",
         ":error_metadata_android",
         ":eval_and_android",
+        ":eval_async_call_android",
         ":eval_attribute_android",
         ":eval_binary_android",
         ":eval_block_android",
@@ -589,8 +647,9 @@ cel_android_library(
         "//runtime:dispatcher_android",
         "//runtime:evaluation_exception",
         "//runtime:evaluation_exception_builder",
+        "//runtime:function_overload_android",
+        "//runtime:program_android",
         "//runtime:resolved_overload_android",
-        "//runtime/src/main/java/dev/cel/runtime:program_android",
         "@maven//:com_google_errorprone_error_prone_annotations",
         "@maven//:org_jspecify_jspecify",
         "@maven_android//:com_google_guava_guava",
@@ -601,6 +660,7 @@ cel_android_library(
     name = "planned_program_android",
     srcs = ["PlannedProgram.java"],
     deps = [
+        ":async_call_state_tracker_android",
         ":error_metadata_android",
         ":localized_evaluation_exception_android",
         ":planned_interpretable_android",
@@ -609,19 +669,24 @@ cel_android_library(
         "//common/annotations",
         "//common/exceptions:runtime_exception",
         "//common/values:values_android",
+        "//runtime:accumulated_unknowns_android",
         "//runtime:activation_android",
+        "//runtime:async_options_android",
         "//runtime:evaluation_exception",
         "//runtime:evaluation_exception_builder",
         "//runtime:interpretable_android",
+        "//runtime:program_android",
         "//runtime:resolved_overload_android",
+        "//runtime:runtime_equality_android",
+        "//runtime:runtime_helpers_android",
         "//runtime:variable_resolver",
         "//runtime/src/main/java/dev/cel/runtime:evaluation_listener_android",
         "//runtime/src/main/java/dev/cel/runtime:function_resolver_android",
         "//runtime/src/main/java/dev/cel/runtime:interpreter_util_android",
         "//runtime/src/main/java/dev/cel/runtime:partial_vars_android",
-        "//runtime/src/main/java/dev/cel/runtime:program_android",
         "@maven//:com_google_errorprone_error_prone_annotations",
         "@maven//:org_jspecify_jspecify",
+        "@maven_android//:com_google_guava_guava",
     ],
 )
 
@@ -712,6 +777,50 @@ cel_android_library(
         "//runtime/src/main/java/dev/cel/runtime:accumulated_unknowns_android",
         "@maven//:com_google_errorprone_error_prone_annotations",
         "@maven_android//:com_google_guava_guava",
+    ],
+)
+
+cel_android_library(
+    name = "async_call_state_tracker_android",
+    srcs = [
+        "AsyncCallKey.java",
+        "AsyncCallRecord.java",
+        "AsyncCallStateTracker.java",
+        "AsyncCompletionCoordinator.java",
+        "AsyncGate.java",
+    ],
+    tags = [
+    ],
+    deps = [
+        "//common/values:values_android",
+        "//runtime:accumulated_unknowns_android",
+        "//runtime:async_call_android",
+        "//runtime:async_drain_strategy_android",
+        "//runtime:async_observer_android",
+        "//runtime:async_options_android",
+        "//runtime:evaluation_exception",
+        "//runtime:function_overload_android",
+        "//runtime:interpreter_util_android",
+        "//runtime:runtime_equality_android",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:org_jspecify_jspecify",
+        "@maven_android//:com_google_guava_guava",
+    ],
+)
+
+cel_android_library(
+    name = "eval_async_call_android",
+    srcs = ["EvalAsyncCall.java"],
+    deps = [
+        ":eval_helpers_android",
+        ":planned_interpretable_android",
+        "//common/ast:ast_android",
+        "//common/values:values_android",
+        "//runtime:accumulated_unknowns_android",
+        "//runtime:evaluation_exception",
+        "//runtime:function_overload_android",
+        "//runtime:interpretable_android",
+        "@maven//:com_google_errorprone_error_prone_annotations",
     ],
 )
 
@@ -907,10 +1016,12 @@ cel_android_library(
         "//common/ast:ast_android",
         "//common/exceptions:overload_not_found",
         "//common/values:values_android",
+        "//runtime:accumulated_unknowns_android",
         "//runtime:evaluation_exception",
+        "//runtime:function_overload_android",
         "//runtime:interpretable_android",
         "//runtime:resolved_overload_android",
-        "//runtime/src/main/java/dev/cel/runtime:accumulated_unknowns_android",
+        "@maven//:com_google_errorprone_error_prone_annotations",
         "@maven_android//:com_google_guava_guava",
     ],
 )
@@ -1048,10 +1159,12 @@ cel_android_library(
         "PlannedInterpretable.java",
     ],
     deps = [
+        ":async_call_state_tracker_android",
         ":localized_evaluation_exception_android",
         "//common:options",
         "//common/ast:ast_android",
         "//common/exceptions:iteration_budget_exceeded",
+        "//runtime:async_observer_android",
         "//runtime:evaluation_exception",
         "//runtime:evaluation_listener_android",
         "//runtime:interpretable_android",
@@ -1061,5 +1174,6 @@ cel_android_library(
         "//runtime/src/main/java/dev/cel/runtime:partial_vars_android",
         "@maven//:com_google_errorprone_error_prone_annotations",
         "@maven//:org_jspecify_jspecify",
+        "@maven_android//:com_google_guava_guava",
     ],
 )

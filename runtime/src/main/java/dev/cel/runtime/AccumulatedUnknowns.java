@@ -19,6 +19,7 @@ import dev.cel.common.annotations.Internal;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
 import org.jspecify.annotations.Nullable;
@@ -35,6 +36,7 @@ public final class AccumulatedUnknowns {
   private static final int MAX_UNKNOWN_ATTRIBUTE_SIZE = 500_000;
   private final Set<Long> exprIds;
   private final Set<CelAttribute> attributes;
+  private final Set<Long> callIds;
 
   Set<Long> exprIds() {
     return exprIds;
@@ -42,6 +44,14 @@ public final class AccumulatedUnknowns {
 
   Set<CelAttribute> attributes() {
     return attributes;
+  }
+
+  public Set<Long> callIds() {
+    return Collections.unmodifiableSet(callIds);
+  }
+
+  public boolean hasCallIds() {
+    return !callIds.isEmpty();
   }
 
   /**
@@ -62,6 +72,7 @@ public final class AccumulatedUnknowns {
     enforceMaxAttributeSize(this.attributes, arg.attributes);
     this.exprIds.addAll(arg.exprIds);
     this.attributes.addAll(arg.attributes);
+    this.callIds.addAll(arg.callIds);
     return this;
   }
 
@@ -75,7 +86,14 @@ public final class AccumulatedUnknowns {
 
   public static AccumulatedUnknowns create(
       Collection<Long> exprIds, Collection<CelAttribute> attributes) {
-    return new AccumulatedUnknowns(new HashSet<>(exprIds), new HashSet<>(attributes));
+    return new AccumulatedUnknowns(
+        new HashSet<>(exprIds), new HashSet<>(attributes), new HashSet<>());
+  }
+
+  public static AccumulatedUnknowns createForAsyncCall(long callId) {
+    HashSet<Long> callIds = new HashSet<>();
+    callIds.add(callId);
+    return new AccumulatedUnknowns(new HashSet<>(), new HashSet<>(), callIds);
   }
 
   private static void enforceMaxAttributeSize(
@@ -88,8 +106,9 @@ public final class AccumulatedUnknowns {
     }
   }
 
-  private AccumulatedUnknowns(Set<Long> exprIds, Set<CelAttribute> attributes) {
+  private AccumulatedUnknowns(Set<Long> exprIds, Set<CelAttribute> attributes, Set<Long> callIds) {
     this.exprIds = exprIds;
     this.attributes = attributes;
+    this.callIds = callIds;
   }
 }

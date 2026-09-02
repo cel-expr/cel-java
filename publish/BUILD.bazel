@@ -29,6 +29,10 @@ COMMON_TARGETS = [
 # keep sorted
 RUNTIME_TARGETS = [
     "//runtime/src/main/java/dev/cel/runtime",
+    "//runtime/src/main/java/dev/cel/runtime:async_call",
+    "//runtime/src/main/java/dev/cel/runtime:async_drain_strategy",
+    "//runtime/src/main/java/dev/cel/runtime:async_observer",
+    "//runtime/src/main/java/dev/cel/runtime:async_options",
     "//runtime/src/main/java/dev/cel/runtime:base",
     "//runtime/src/main/java/dev/cel/runtime:interpreter",
     "//runtime/src/main/java/dev/cel/runtime:late_function_binding",

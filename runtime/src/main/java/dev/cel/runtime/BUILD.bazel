@@ -739,6 +739,7 @@ java_library(
         "//common/exceptions:overload_not_found",
         "@maven//:com_google_errorprone_error_prone_annotations",
         "@maven//:com_google_guava_guava",
+        "@maven//:org_jspecify_jspecify",
     ],
 )
 
@@ -753,6 +754,7 @@ cel_android_library(
         "//common/annotations",
         "//common/exceptions:overload_not_found",
         "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:org_jspecify_jspecify",
         "@maven_android//:com_google_guava_guava",
     ],
 )
@@ -784,6 +786,7 @@ cel_android_library(
 java_library(
     name = "function_overload",
     srcs = [
+        "CelAsyncFunctionOverload.java",
         "CelFunctionOverload.java",
         "OptimizedFunctionOverload.java",
     ],
@@ -800,8 +803,11 @@ java_library(
 cel_android_library(
     name = "function_overload_android",
     srcs = [
+        "CelAsyncFunctionOverload.java",
         "CelFunctionOverload.java",
         "OptimizedFunctionOverload.java",
+    ],
+    tags = [
     ],
     deps = [
         ":evaluation_exception",
@@ -817,6 +823,7 @@ java_library(
     tags = [
     ],
     deps = [
+        ":async_options",
         ":descriptor_type_resolver",
         ":dispatcher",
         ":evaluation_exception",
@@ -824,7 +831,6 @@ java_library(
         ":function_binding",
         ":function_resolver",
         ":partial_vars",
-        ":program",
         ":proto_message_runtime_equality",
         ":runtime",
         ":runtime_equality",
@@ -922,6 +928,7 @@ java_library(
     ],
     deps = [
         ":activation",
+        ":async_options",
         ":evaluation_exception",
         ":evaluation_listener",
         ":function_binding",
@@ -946,6 +953,7 @@ java_library(
         "@maven//:com_google_errorprone_error_prone_annotations",
         "@maven//:com_google_guava_guava",
         "@maven//:com_google_protobuf_protobuf_java",
+        "@maven//:org_jspecify_jspecify",
     ],
 )
 
@@ -1278,16 +1286,129 @@ cel_android_library(
 )
 
 java_library(
+    name = "async_call",
+    srcs = ["CelAsyncCall.java"],
+    tags = [
+    ],
+    deps = [
+        "@maven//:com_google_guava_guava",
+    ],
+)
+
+cel_android_library(
+    name = "async_call_android",
+    srcs = ["CelAsyncCall.java"],
+    tags = [
+    ],
+    deps = [
+        "@maven_android//:com_google_guava_guava",
+    ],
+)
+
+java_library(
+    name = "async_drain_strategy",
+    srcs = [
+        "CelAsyncDrainAction.java",
+        "CelAsyncDrainStrategy.java",
+    ],
+    tags = [
+    ],
+    deps = [
+        ":async_call",
+        "//:auto_value",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:com_google_guava_guava",
+    ],
+)
+
+cel_android_library(
+    name = "async_drain_strategy_android",
+    srcs = [
+        "CelAsyncDrainAction.java",
+        "CelAsyncDrainStrategy.java",
+    ],
+    tags = [
+    ],
+    deps = [
+        ":async_call_android",
+        "//:auto_value",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven_android//:com_google_guava_guava",
+    ],
+)
+
+java_library(
+    name = "async_observer",
+    srcs = ["CelAsyncObserver.java"],
+    tags = [
+    ],
+    deps = [
+        ":async_call",
+        "@maven//:com_google_code_findbugs_annotations",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:org_jspecify_jspecify",
+    ],
+)
+
+cel_android_library(
+    name = "async_observer_android",
+    srcs = ["CelAsyncObserver.java"],
+    tags = [
+    ],
+    deps = [
+        ":async_call_android",
+        "@maven//:com_google_code_findbugs_annotations",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:org_jspecify_jspecify",
+    ],
+)
+
+java_library(
+    name = "async_options",
+    srcs = ["CelAsyncEvaluationOptions.java"],
+    tags = [
+    ],
+    deps = [
+        ":async_drain_strategy",
+        ":async_observer",
+        "//:auto_value",
+        "@maven//:com_google_code_findbugs_annotations",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:org_jspecify_jspecify",
+    ],
+)
+
+cel_android_library(
+    name = "async_options_android",
+    srcs = ["CelAsyncEvaluationOptions.java"],
+    tags = [
+    ],
+    deps = [
+        ":async_drain_strategy_android",
+        ":async_observer_android",
+        "//:auto_value",
+        "@maven//:com_google_code_findbugs_annotations",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:org_jspecify_jspecify",
+    ],
+)
+
+java_library(
     name = "program",
     srcs = ["Program.java"],
     tags = [
     ],
     deps = [
+        ":activation",
+        ":async_options",
         ":evaluation_exception",
         ":function_resolver",
+        ":interpretable",
         ":partial_vars",
         ":variable_resolver",
         "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:com_google_guava_guava",
+        "@maven//:org_jspecify_jspecify",
     ],
 )
 
@@ -1297,11 +1418,16 @@ cel_android_library(
     tags = [
     ],
     deps = [
+        ":activation_android",
+        ":async_options_android",
         ":evaluation_exception",
         ":function_resolver_android",
+        ":interpretable_android",
         ":partial_vars_android",
         ":variable_resolver",
         "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:org_jspecify_jspecify",
+        "@maven_android//:com_google_guava_guava",
     ],
 )
 

@@ -14,6 +14,8 @@
 
 package dev.cel.runtime;
 
+import com.google.common.util.concurrent.ListenableFuture;
+import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import com.google.errorprone.annotations.Immutable;
 import javax.annotation.concurrent.ThreadSafe;
@@ -41,6 +43,26 @@ public interface CelRuntime {
 
     /** Evaluate the expression using {@code message} fields as the source of input variables. */
     Object eval(Message message) throws CelEvaluationException;
+
+    /**
+     * Evaluate the expression asynchronously using {@code message} fields as the source of input
+     * variables.
+     */
+    default ListenableFuture<Object> evalAsync(Message message, ListeningExecutorService executor) {
+      return evalAsync(message, executor, CelAsyncEvaluationOptions.defaultOptions());
+    }
+
+    /**
+     * Evaluate the expression asynchronously using {@code message} fields as the source of input
+     * variables and custom async options.
+     */
+    default ListenableFuture<Object> evalAsync(
+        Message message,
+        ListeningExecutorService executor,
+        CelAsyncEvaluationOptions asyncOptions) {
+      throw new UnsupportedOperationException(
+          "evalAsync is not supported by this Program implementation.");
+    }
 
     /**
      * Trace evaluates a compiled program without any variables and invokes the listener as

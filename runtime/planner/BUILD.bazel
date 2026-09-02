@@ -21,3 +21,15 @@ java_library(
     visibility = ["//:internal"],
     exports = ["//runtime/src/main/java/dev/cel/runtime/planner:planned_program"],
 )
+
+java_library(
+    name = "async_call_state_tracker",
+    visibility = ["//:internal"],
+    exports = ["//runtime/src/main/java/dev/cel/runtime/planner:async_call_state_tracker"],
+)
+
+cel_android_library(
+    name = "async_call_state_tracker_android",
+    visibility = ["//:internal"],
+    exports = ["//runtime/src/main/java/dev/cel/runtime/planner:async_call_state_tracker_android"],
+)
