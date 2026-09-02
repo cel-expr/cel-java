@@ -17,6 +17,7 @@ package dev.cel.compiler.tools;
 import static java.nio.charset.StandardCharsets.UTF_8;
 
 import dev.cel.expr.CheckedExpr;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.io.Files;
 import com.google.protobuf.DescriptorProtos.FileDescriptorSet;
@@ -32,7 +33,16 @@ import dev.cel.common.CelProtoAbstractSyntaxTree;
 import dev.cel.compiler.CelCompiler;
 import dev.cel.compiler.CelCompilerBuilder;
 import dev.cel.compiler.CelCompilerFactory;
+import dev.cel.optimizer.CelAstOptimizer;
+import dev.cel.optimizer.CelOptimizer;
+import dev.cel.optimizer.CelOptimizerFactory;
+import dev.cel.optimizer.optimizers.ConstantFoldingOptimizer;
+import dev.cel.optimizer.optimizers.SelectOptimizer;
+import dev.cel.optimizer.optimizers.SelectOptimizer.SelectOptimizerOptions;
+import dev.cel.optimizer.optimizers.SubexpressionOptimizer;
+import dev.cel.optimizer.optimizers.SubexpressionOptimizer.SubexpressionOptimizerOptions;
 import dev.cel.parser.CelStandardMacro;
+import dev.cel.runtime.CelRuntimeFactory;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -68,6 +78,21 @@ final class CelCompilerTool implements Callable<Integer> {
       names = {"--output"},
       description = "Output path for the compiled binarypb")
   private String output = "";
+
+  @Option(
+      names = {"--constant_folding"},
+      description = "Enable constant folding optimization on the compiled AST")
+  private boolean constantFolding = false;
+
+  @Option(
+      names = {"--subexpression_elimination"},
+      description = "Enable common subexpression elimination on the compiled AST")
+  private boolean subexpressionElimination = false;
+
+  @Option(
+      names = {"--optimize_field_selection"},
+      description = "Optimize field selection for version skew mitigation")
+  private boolean optimizeFieldSelection = false;
 
   private static final CelOptions CEL_OPTIONS = CelOptions.DEFAULT;
 
@@ -140,6 +165,35 @@ final class CelCompilerTool implements Callable<Integer> {
 
     try {
       CelAbstractSyntaxTree ast = celCompiler.compile(celExpression).getAst();
+      ImmutableList.Builder<CelAstOptimizer> optimizers = ImmutableList.builder();
+      if (constantFolding) {
+        optimizers.add(ConstantFoldingOptimizer.getInstance());
+      }
+      if (subexpressionElimination) {
+        optimizers.add(
+            SubexpressionOptimizer.newInstance(
+                SubexpressionOptimizerOptions.newBuilder().populateMacroCalls(true).build()));
+      }
+      if (optimizeFieldSelection) {
+        SelectOptimizerOptions.Builder optionsBuilder = SelectOptimizerOptions.newBuilder();
+        if (!transitiveDescriptorSetPath.isEmpty()) {
+          ImmutableSet<FileDescriptor> transitiveFileDescriptors =
+              CelDescriptorUtil.getFileDescriptorsFromFileDescriptorSet(
+                  load(transitiveDescriptorSetPath));
+          optionsBuilder.addFileDescriptors(transitiveFileDescriptors);
+        }
+        optimizers.add(SelectOptimizer.newInstance(optionsBuilder.build()));
+      }
+
+      ImmutableList<CelAstOptimizer> astOptimizers = optimizers.build();
+      if (!astOptimizers.isEmpty()) {
+        CelOptimizer celOptimizer =
+            CelOptimizerFactory.standardCelOptimizerBuilder(
+                    celCompiler, CelRuntimeFactory.standardCelRuntimeBuilder().build())
+                .addAstOptimizers(astOptimizers)
+                .build();
+        ast = celOptimizer.optimize(ast);
+      }
       writeCheckedExpr(ast, output);
     } catch (Exception e) {
       String errorMessage =

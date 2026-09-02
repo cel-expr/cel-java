@@ -44,6 +44,7 @@ java_library(
     resources = [
         ":compiled_comprehension",
         ":compiled_comprehension_exists",
+        ":compiled_constant_folding",
         ":compiled_custom_functions",
         ":compiled_extended_env",
         ":compiled_extensions",
@@ -57,14 +58,31 @@ java_library(
         ":compiled_proto2_select_primitives_all_ored",
         ":compiled_proto2_select_repeated_fields",
         ":compiled_proto2_select_wrappers",
+        ":compiled_proto3_comprehension_exists_optimized",
+        ":compiled_proto3_comprehension_exists_unoptimized",
         ":compiled_proto3_deep_traversal",
         ":compiled_proto3_select_map_fields",
         ":compiled_proto3_select_primitives",
         ":compiled_proto3_select_primitives_all_ored",
+        ":compiled_proto3_select_primitives_all_ored_optimized",
+        ":compiled_proto3_select_primitives_optimized",
         ":compiled_proto3_select_repeated_fields",
         ":compiled_proto3_select_wrappers",
         ":compiled_proto_message",
+        ":compiled_subexpression_elimination",
     ],
+)
+
+compile_cel(
+    name = "compiled_constant_folding",
+    constant_folding = True,
+    expression = "1 + 2 + 3",
+)
+
+compile_cel(
+    name = "compiled_subexpression_elimination",
+    expression = "size('a') + size('a') == 2",
+    subexpression_elimination = True,
 )
 
 compile_cel(
@@ -173,6 +191,28 @@ compile_cel(
 )
 
 compile_cel(
+    name = "compiled_proto3_select_primitives_all_ored_optimized",
+    environment = "//testing/environment:proto3_message_variables",
+    expression = "proto3.single_int32 == 1 || proto3.single_int64 == 2 || proto3.single_uint32 == 3u || proto3.single_uint64 == 4u ||" +
+                 "proto3.single_sint32 == 5 || proto3.single_sint64 == 6 || proto3.single_fixed32 == 7u || proto3.single_fixed64 == 8u ||" +
+                 "proto3.single_sfixed32 == 9 || proto3.single_sfixed64 == 10 || proto3.single_float == 1.5 || proto3.single_double == 2.5 ||" +
+                 "proto3.single_bool || proto3.single_string == 'hello world' || proto3.single_bytes == b\'abc\'",
+    optimize_field_selection = True,
+    proto_srcs = ["@cel_spec//proto/cel/expr/conformance/proto3:test_all_types_proto"],
+)
+
+compile_cel(
+    name = "compiled_proto3_select_primitives_optimized",
+    environment = "//testing/environment:proto3_message_variables",
+    expression = "proto3.single_int32 == 1 && proto3.single_int64 == 2 && proto3.single_uint32 == 3u && proto3.single_uint64 == 4u &&" +
+                 "proto3.single_sint32 == 5 && proto3.single_sint64 == 6 && proto3.single_fixed32 == 7u && proto3.single_fixed64 == 8u &&" +
+                 "proto3.single_sfixed32 == 9 && proto3.single_sfixed64 == 10 && proto3.single_float == 1.5 && proto3.single_double == 2.5 &&" +
+                 "proto3.single_bool && proto3.single_string == 'hello world' && proto3.single_bytes == b\'abc\'",
+    optimize_field_selection = True,
+    proto_srcs = ["@cel_spec//proto/cel/expr/conformance/proto3:test_all_types_proto"],
+)
+
+compile_cel(
     name = "compiled_proto3_select_wrappers",
     environment = "//testing/environment:proto3_message_variables",
     expression = "proto3.single_int32_wrapper == 1 && proto3.single_int64_wrapper == 2 && proto3.single_float_wrapper == 1.5 &&" +
@@ -228,5 +268,20 @@ compile_cel(
     expression = "[proto3.map_bool_bool, proto3.map_bool_string, proto3.map_bool_bytes, proto3.map_bool_int32, proto3.map_bool_int64, " +
                  "proto3.map_bool_uint32, proto3.map_bool_uint64, proto3.map_bool_float, proto3.map_bool_double, proto3.map_bool_enum, " +
                  "proto3.map_bool_duration, proto3.map_bool_timestamp]",
+    proto_srcs = ["@cel_spec//proto/cel/expr/conformance/proto3:test_all_types_proto"],
+)
+
+compile_cel(
+    name = "compiled_proto3_comprehension_exists_optimized",
+    environment = "//testing/environment:proto3_message_variables",
+    expression = "[proto3].exists(m, m.single_int32 == 1 && m.single_int64 == 2)",
+    optimize_field_selection = True,
+    proto_srcs = ["@cel_spec//proto/cel/expr/conformance/proto3:test_all_types_proto"],
+)
+
+compile_cel(
+    name = "compiled_proto3_comprehension_exists_unoptimized",
+    environment = "//testing/environment:proto3_message_variables",
+    expression = "[proto3].exists(m, m.single_int32 == 1 && m.single_int64 == 2)",
     proto_srcs = ["@cel_spec//proto/cel/expr/conformance/proto3:test_all_types_proto"],
 )

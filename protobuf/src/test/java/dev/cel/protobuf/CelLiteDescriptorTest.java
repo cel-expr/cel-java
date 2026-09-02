@@ -15,7 +15,10 @@
 package dev.cel.protobuf;
 
 import static com.google.common.truth.Truth.assertThat;
+import static org.junit.Assert.assertThrows;
 
+import com.google.protobuf.WireFormat;
+import com.google.testing.junit.testparameterinjector.TestParameter;
 import com.google.testing.junit.testparameterinjector.TestParameterInjector;
 import dev.cel.expr.conformance.proto3.TestAllTypesCelLiteDescriptor;
 import dev.cel.protobuf.CelLiteDescriptor.FieldLiteDescriptor;
@@ -145,5 +148,100 @@ public class CelLiteDescriptorTest {
 
     assertThat(fieldLiteDescriptor.getFieldProtoTypeName())
         .isEqualTo("cel.expr.conformance.proto3.TestAllTypes.NestedMessage");
+  }
+
+  @Test
+  public void protoFieldType_numbersAndWireTypes() {
+    assertThat(FieldLiteDescriptor.Type.DOUBLE.getNumber()).isEqualTo(1);
+    assertThat(FieldLiteDescriptor.Type.DOUBLE.toWireFormatFieldType())
+        .isEqualTo(WireFormat.FieldType.DOUBLE);
+
+    assertThat(FieldLiteDescriptor.Type.FLOAT.getNumber()).isEqualTo(2);
+    assertThat(FieldLiteDescriptor.Type.FLOAT.toWireFormatFieldType())
+        .isEqualTo(WireFormat.FieldType.FLOAT);
+
+    assertThat(FieldLiteDescriptor.Type.INT64.getNumber()).isEqualTo(3);
+    assertThat(FieldLiteDescriptor.Type.INT64.toWireFormatFieldType())
+        .isEqualTo(WireFormat.FieldType.INT64);
+
+    assertThat(FieldLiteDescriptor.Type.UINT64.getNumber()).isEqualTo(4);
+    assertThat(FieldLiteDescriptor.Type.UINT64.toWireFormatFieldType())
+        .isEqualTo(WireFormat.FieldType.UINT64);
+
+    assertThat(FieldLiteDescriptor.Type.INT32.getNumber()).isEqualTo(5);
+    assertThat(FieldLiteDescriptor.Type.INT32.toWireFormatFieldType())
+        .isEqualTo(WireFormat.FieldType.INT32);
+
+    assertThat(FieldLiteDescriptor.Type.FIXED64.getNumber()).isEqualTo(6);
+    assertThat(FieldLiteDescriptor.Type.FIXED64.toWireFormatFieldType())
+        .isEqualTo(WireFormat.FieldType.FIXED64);
+
+    assertThat(FieldLiteDescriptor.Type.FIXED32.getNumber()).isEqualTo(7);
+    assertThat(FieldLiteDescriptor.Type.FIXED32.toWireFormatFieldType())
+        .isEqualTo(WireFormat.FieldType.FIXED32);
+
+    assertThat(FieldLiteDescriptor.Type.BOOL.getNumber()).isEqualTo(8);
+    assertThat(FieldLiteDescriptor.Type.BOOL.toWireFormatFieldType())
+        .isEqualTo(WireFormat.FieldType.BOOL);
+
+    assertThat(FieldLiteDescriptor.Type.STRING.getNumber()).isEqualTo(9);
+    assertThat(FieldLiteDescriptor.Type.STRING.toWireFormatFieldType())
+        .isEqualTo(WireFormat.FieldType.STRING);
+
+    assertThat(FieldLiteDescriptor.Type.GROUP.getNumber()).isEqualTo(10);
+    assertThat(FieldLiteDescriptor.Type.GROUP.toWireFormatFieldType())
+        .isEqualTo(WireFormat.FieldType.GROUP);
+
+    assertThat(FieldLiteDescriptor.Type.MESSAGE.getNumber()).isEqualTo(11);
+    assertThat(FieldLiteDescriptor.Type.MESSAGE.toWireFormatFieldType())
+        .isEqualTo(WireFormat.FieldType.MESSAGE);
+
+    assertThat(FieldLiteDescriptor.Type.BYTES.getNumber()).isEqualTo(12);
+    assertThat(FieldLiteDescriptor.Type.BYTES.toWireFormatFieldType())
+        .isEqualTo(WireFormat.FieldType.BYTES);
+
+    assertThat(FieldLiteDescriptor.Type.UINT32.getNumber()).isEqualTo(13);
+    assertThat(FieldLiteDescriptor.Type.UINT32.toWireFormatFieldType())
+        .isEqualTo(WireFormat.FieldType.UINT32);
+
+    assertThat(FieldLiteDescriptor.Type.ENUM.getNumber()).isEqualTo(14);
+    assertThat(FieldLiteDescriptor.Type.ENUM.toWireFormatFieldType())
+        .isEqualTo(WireFormat.FieldType.ENUM);
+
+    assertThat(FieldLiteDescriptor.Type.SFIXED32.getNumber()).isEqualTo(15);
+    assertThat(FieldLiteDescriptor.Type.SFIXED32.toWireFormatFieldType())
+        .isEqualTo(WireFormat.FieldType.SFIXED32);
+
+    assertThat(FieldLiteDescriptor.Type.SFIXED64.getNumber()).isEqualTo(16);
+    assertThat(FieldLiteDescriptor.Type.SFIXED64.toWireFormatFieldType())
+        .isEqualTo(WireFormat.FieldType.SFIXED64);
+
+    assertThat(FieldLiteDescriptor.Type.SINT32.getNumber()).isEqualTo(17);
+    assertThat(FieldLiteDescriptor.Type.SINT32.toWireFormatFieldType())
+        .isEqualTo(WireFormat.FieldType.SINT32);
+
+    assertThat(FieldLiteDescriptor.Type.SINT64.getNumber()).isEqualTo(18);
+    assertThat(FieldLiteDescriptor.Type.SINT64.toWireFormatFieldType())
+        .isEqualTo(WireFormat.FieldType.SINT64);
+  }
+
+  @Test
+  public void protoFieldType_forNumber_roundTripAllTypes(
+      @TestParameter FieldLiteDescriptor.Type type) {
+    assertThat(FieldLiteDescriptor.Type.forNumber(type.getNumber())).isEqualTo(type);
+  }
+
+  @Test
+  public void protoFieldType_forNumber_outOfRange_throws() {
+    assertThrows(IllegalArgumentException.class, () -> FieldLiteDescriptor.Type.forNumber(0));
+    assertThrows(IllegalArgumentException.class, () -> FieldLiteDescriptor.Type.forNumber(19));
+  }
+
+  @Test
+  public void protoFieldType_isPackable() {
+    assertThat(FieldLiteDescriptor.Type.INT32.isPackable()).isTrue();
+    assertThat(FieldLiteDescriptor.Type.STRING.isPackable()).isFalse();
+    assertThat(FieldLiteDescriptor.Type.MESSAGE.isPackable()).isFalse();
+    assertThat(FieldLiteDescriptor.Type.BYTES.isPackable()).isFalse();
   }
 }

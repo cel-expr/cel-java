@@ -121,6 +121,9 @@ java_library(
         "RelativeAttribute.java",
         "StringQualifier.java",
     ],
+    tags = [
+    ],
+    visibility = ["//:internal"],
     deps = [
         ":activation_wrapper",
         ":eval_helpers",
@@ -650,6 +653,9 @@ cel_android_library(
         "RelativeAttribute.java",
         "StringQualifier.java",
     ],
+    tags = [
+    ],
+    visibility = ["//:internal"],
     deps = [
         ":activation_wrapper_android",
         ":eval_helpers_android",
