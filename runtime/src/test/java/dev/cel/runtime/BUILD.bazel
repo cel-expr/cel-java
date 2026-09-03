@@ -65,6 +65,7 @@ java_library(
         "//parser:macro",
         "//parser:unparser",
         "//runtime",
+        "//runtime:accumulated_unknowns",
         "//runtime:activation",
         "//runtime:dispatcher",
         "//runtime:evaluation_exception_builder",
