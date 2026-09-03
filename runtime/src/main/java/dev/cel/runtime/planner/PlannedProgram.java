@@ -15,6 +15,7 @@
 package dev.cel.runtime.planner;
 
 import com.google.auto.value.AutoValue;
+import com.google.common.util.concurrent.ListenableFuture;
 import com.google.errorprone.annotations.Immutable;
 import dev.cel.common.CelOptions;
 import dev.cel.common.annotations.Internal;
@@ -127,6 +128,38 @@ public abstract class PlannedProgram implements Program {
         EMPTY_FUNCTION_RESOLVER,
         partialVars,
         /* listener= */ null);
+  }
+
+  @Override
+  public ListenableFuture<Object> evalAsync() {
+    throw new UnsupportedOperationException("evalAsync is not supported by PlannedProgram.");
+  }
+
+  @Override
+  public ListenableFuture<Object> evalAsync(Map<String, ?> mapValue) {
+    throw new UnsupportedOperationException("evalAsync is not supported by PlannedProgram.");
+  }
+
+  @Override
+  public ListenableFuture<Object> evalAsync(
+      Map<String, ?> mapValue, CelFunctionResolver lateBoundFunctionResolver) {
+    throw new UnsupportedOperationException("evalAsync is not supported by PlannedProgram.");
+  }
+
+  @Override
+  public ListenableFuture<Object> evalAsync(CelVariableResolver resolver) {
+    throw new UnsupportedOperationException("evalAsync is not supported by PlannedProgram.");
+  }
+
+  @Override
+  public ListenableFuture<Object> evalAsync(
+      CelVariableResolver resolver, CelFunctionResolver lateBoundFunctionResolver) {
+    throw new UnsupportedOperationException("evalAsync is not supported by PlannedProgram.");
+  }
+
+  @Override
+  public ListenableFuture<Object> evalAsync(PartialVars partialVars) {
+    throw new UnsupportedOperationException("evalAsync is not supported by PlannedProgram.");
   }
 
   public Object evalOrThrow(

@@ -15,7 +15,11 @@
 package dev.cel.runtime;
 
 import static com.google.common.truth.Truth.assertThat;
+import static com.google.common.util.concurrent.MoreExecutors.newDirectExecutorService;
+import static org.junit.Assert.assertThrows;
 
+import com.google.common.collect.ImmutableMap;
+import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.protobuf.Message;
 import dev.cel.common.CelException;
 import dev.cel.common.exceptions.CelDivideByZeroException;
@@ -23,8 +27,8 @@ import dev.cel.compiler.CelCompiler;
 import dev.cel.compiler.CelCompilerFactory;
 import dev.cel.expr.conformance.proto3.TestAllTypes;
 import dev.cel.runtime.CelStandardFunctions.StandardFunction;
+import java.util.Optional;
 import java.util.function.Function;
-import org.junit.Assert;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
@@ -37,7 +41,7 @@ public final class CelRuntimeLegacyImplTest {
     CelCompiler compiler = CelCompilerFactory.standardCelCompilerBuilder().build();
     CelRuntime runtime = CelRuntimeFactory.standardCelRuntimeBuilder().build();
     CelRuntime.Program program = runtime.createProgram(compiler.compile("1/0").getAst());
-    CelEvaluationException e = Assert.assertThrows(CelEvaluationException.class, program::eval);
+    CelEvaluationException e = assertThrows(CelEvaluationException.class, program::eval);
     assertThat(e).hasCauseThat().isInstanceOf(CelDivideByZeroException.class);
   }
 
@@ -102,6 +106,8 @@ public final class CelRuntimeLegacyImplTest {
   }
 
   @Test
+  @SuppressWarnings(
+      "deprecation") // Tests deprecated setStandardEnvironmentEnabled on legacy builder
   public void toRuntimeBuilder_optionalProperties() {
     Function<String, Message.Builder> customTypeFactory = (typeName) -> TestAllTypes.newBuilder();
     CelStandardFunctions overriddenStandardFunctions =
@@ -119,5 +125,45 @@ public final class CelRuntimeLegacyImplTest {
     assertThat(newRuntimeBuilder.customTypeFactory).isEqualTo(customTypeFactory);
     assertThat(newRuntimeBuilder.overriddenStandardFunctions)
         .isEqualTo(overriddenStandardFunctions);
+  }
+
+  @Test
+  public void toRuntimeBuilder_asyncProperties_copied() {
+    ListeningExecutorService executor = newDirectExecutorService();
+    CelAsyncEvaluationOptions options =
+        CelAsyncEvaluationOptions.newBuilder().setMaxConcurrency(5).build();
+    CelRuntimeBuilder celRuntimeBuilder =
+        CelRuntimeFactory.standardCelRuntimeBuilder()
+            .setAsyncEvaluationOptions(options)
+            .setAsyncExecutor(executor);
+    CelRuntime celRuntime = celRuntimeBuilder.build();
+
+    CelRuntimeLegacyImpl.Builder newRuntimeBuilder =
+        (CelRuntimeLegacyImpl.Builder) celRuntime.toRuntimeBuilder();
+
+    assertThat(newRuntimeBuilder.asyncEvaluationOptions).isEqualTo(options);
+    assertThat(newRuntimeBuilder.asyncExecutor).isEqualTo(executor);
+  }
+
+  @Test
+  public void evalAsync_legacyInterpreter_throwsUnsupportedOperationException() throws Exception {
+    CelCompiler compiler = CelCompilerFactory.standardCelCompilerBuilder().build();
+    CelRuntime runtime = CelRuntimeFactory.standardCelRuntimeBuilder().build();
+    CelRuntime.Program program = runtime.createProgram(compiler.compile("1 + 1").getAst());
+    CelVariableResolver resolver = name -> Optional.of(1L);
+
+    assertThrows(UnsupportedOperationException.class, program::evalAsync);
+    assertThrows(UnsupportedOperationException.class, () -> program.evalAsync(ImmutableMap.of()));
+    assertThrows(
+        UnsupportedOperationException.class,
+        () -> program.evalAsync(ImmutableMap.of(), CelFunctionResolver.EMPTY));
+    assertThrows(
+        UnsupportedOperationException.class,
+        () -> program.evalAsync(TestAllTypes.getDefaultInstance()));
+    assertThrows(UnsupportedOperationException.class, () -> program.evalAsync(resolver));
+    assertThrows(
+        UnsupportedOperationException.class,
+        () -> program.evalAsync(resolver, CelFunctionResolver.EMPTY));
+    assertThrows(UnsupportedOperationException.class, () -> program.evalAsync((PartialVars) null));
   }
 }
