@@ -22,6 +22,7 @@ import com.google.common.collect.ImmutableSortedSet;
 import com.google.testing.junit.testparameterinjector.TestParameterInjector;
 import com.google.testing.junit.testparameterinjector.TestParameters;
 import dev.cel.bundle.Cel;
+import dev.cel.common.CelAbstractSyntaxTree;
 import dev.cel.common.CelContainer;
 import dev.cel.common.CelValidationException;
 import dev.cel.common.CelValidationResult;
@@ -30,6 +31,9 @@ import dev.cel.expr.conformance.test.SimpleTest;
 import dev.cel.parser.CelStandardMacro;
 import dev.cel.runtime.CelEvaluationException;
 import dev.cel.testing.CelRuntimeFlavor;
+import dev.cel.validator.CelValidator;
+import dev.cel.validator.CelValidatorFactory;
+import dev.cel.validator.validators.HomogeneousLiteralValidator;
 import org.junit.Assume;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -64,7 +68,7 @@ public class CelListsExtensionsTest extends CelExtensionTestBase {
             "distinct",
             "reverse",
             "sort",
-            "lists.@sortByAssociatedKeys");
+            "@sortByAssociatedKeys");
   }
 
   @Test
@@ -257,6 +261,9 @@ public class CelListsExtensionsTest extends CelExtensionTestBase {
   @TestParameters(
       "{expression: '[SimpleTest{name: \"a\"}, SimpleTest{name: \"b\"}].sort()', "
           + "expectedError: 'List elements must be comparable'}")
+  @TestParameters(
+      "{expression: '[SimpleTest{name: \"a\"}].sort()', "
+          + "expectedError: 'List elements must be comparable'}")
   public void sort_throws(String expression, String expectedError) throws Exception {
     assertThat(assertThrows(CelEvaluationException.class, () -> eval(cel, expression)))
         .hasCauseThat()
@@ -283,6 +290,11 @@ public class CelListsExtensionsTest extends CelExtensionTestBase {
           + "expected: '[SimpleTest{name: \"bar\"},"
           + " SimpleTest{name: \"baz\"},"
           + " SimpleTest{name: \"foo\"}]'}")
+  @TestParameters(
+      "{expression: '[SimpleTest{name: \"baz\"},"
+          + " SimpleTest{name: \"foo\"},"
+          + " SimpleTest{name: \"bar\"}].sortBy(e, e.name)[0].name', "
+          + "expected: '\"bar\"'}")
   public void sortBy_success(String expression, String expected) throws Exception {
     Object result = eval(cel, expression);
 
@@ -311,6 +323,9 @@ public class CelListsExtensionsTest extends CelExtensionTestBase {
   @TestParameters(
       "{expression: '[SimpleTest{name: \"a\"}, SimpleTest{name: \"b\"}].sortBy(e, e)', "
           + "expectedError: 'List elements must be comparable'}")
+  @TestParameters(
+      "{expression: '[SimpleTest{name: \"a\"}].sortBy(e, e)', "
+          + "expectedError: 'List elements must be comparable'}")
   public void sortBy_throws_evaluationException(String expression, String expectedError)
       throws Exception {
     assertThat(assertThrows(CelEvaluationException.class, () -> eval(cel, expression)))
@@ -319,5 +334,21 @@ public class CelListsExtensionsTest extends CelExtensionTestBase {
         .contains(expectedError);
   }
 
+  @Test
+  public void sortBy_withHomogeneousLiteralValidator_success() throws Exception {
+    CelValidator validator =
+        CelValidatorFactory.standardCelValidatorBuilder(cel)
+            .addAstValidators(HomogeneousLiteralValidator.newInstance())
+            .build();
 
+    CelAbstractSyntaxTree ast =
+        cel.compile(
+                "[SimpleTest{name: 'baz'}, SimpleTest{name: 'foo'}, SimpleTest{name: 'bar'}]"
+                    + ".sortBy(e, e.name)[0].name")
+            .getAst();
+    CelValidationResult result = validator.validate(ast);
+
+    assertThat(result.hasError()).isFalse();
+    assertThat(cel.createProgram(ast).eval()).isEqualTo("bar");
+  }
 }
