@@ -82,7 +82,8 @@ public final class ConformanceTest extends Statement {
           CelExtensions.bindings(),
           CelExtensions.comprehensions(),
           CelExtensions.encoders(OPTIONS),
-          CelExtensions.math(OPTIONS),
+          CelExtensions.lists(),
+          CelExtensions.math(),
           CelExtensions.protos(),
           CelExtensions.sets(OPTIONS),
           CelExtensions.strings(),
@@ -93,7 +94,8 @@ public final class ConformanceTest extends Statement {
       ImmutableList.of(
           CelExtensions.comprehensions(),
           CelExtensions.encoders(OPTIONS),
-          CelExtensions.math(OPTIONS),
+          CelExtensions.lists(),
+          CelExtensions.math(),
           CelExtensions.sets(OPTIONS),
           CelExtensions.strings(),
           CelOptionalLibrary.INSTANCE);
