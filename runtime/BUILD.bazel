@@ -9,6 +9,9 @@ package(
 java_library(
     name = "runtime",
     exports = [
+        ":async_call",
+        ":async_drain_strategy",
+        ":async_observer",
         ":descriptor_message_provider",
         ":evaluation_exception",
         ":function_overload",
@@ -340,6 +343,11 @@ java_library(
     exports = ["//runtime/src/main/java/dev/cel/runtime:function_overload"],
 )
 
+cel_android_library(
+    name = "function_overload_android",
+    exports = ["//runtime/src/main/java/dev/cel/runtime:function_overload_android"],
+)
+
 java_library(
     name = "descriptor_message_provider",
     visibility = ["//:internal"],
@@ -378,4 +386,34 @@ java_library(
 cel_android_library(
     name = "partial_vars_android",
     exports = ["//runtime/src/main/java/dev/cel/runtime:partial_vars_android"],
+)
+
+java_library(
+    name = "async_call",
+    exports = ["//runtime/src/main/java/dev/cel/runtime:async_call"],
+)
+
+cel_android_library(
+    name = "async_call_android",
+    exports = ["//runtime/src/main/java/dev/cel/runtime:async_call_android"],
+)
+
+java_library(
+    name = "async_drain_strategy",
+    exports = ["//runtime/src/main/java/dev/cel/runtime:async_drain_strategy"],
+)
+
+cel_android_library(
+    name = "async_drain_strategy_android",
+    exports = ["//runtime/src/main/java/dev/cel/runtime:async_drain_strategy_android"],
+)
+
+java_library(
+    name = "async_observer",
+    exports = ["//runtime/src/main/java/dev/cel/runtime:async_observer"],
+)
+
+cel_android_library(
+    name = "async_observer_android",
+    exports = ["//runtime/src/main/java/dev/cel/runtime:async_observer_android"],
 )
