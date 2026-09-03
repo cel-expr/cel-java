@@ -92,6 +92,7 @@ java_library(
         "//runtime:resolved_overload",
         "//runtime:variable_resolver",
         "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:com_google_guava_guava",
         "@maven//:org_jspecify_jspecify",
     ],
 )
@@ -622,6 +623,7 @@ cel_android_library(
         "//runtime/src/main/java/dev/cel/runtime:program_android",
         "@maven//:com_google_errorprone_error_prone_annotations",
         "@maven//:org_jspecify_jspecify",
+        "@maven_android//:com_google_guava_guava",
     ],
 )
 

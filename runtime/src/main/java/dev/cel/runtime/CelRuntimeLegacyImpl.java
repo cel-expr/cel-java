@@ -20,6 +20,7 @@ import static com.google.common.base.Preconditions.checkState;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import javax.annotation.concurrent.ThreadSafe;
 import com.google.protobuf.DescriptorProtos.FileDescriptorSet;
@@ -84,6 +85,8 @@ public final class CelRuntimeLegacyImpl implements CelRuntime {
   private final ImmutableSet<CelRuntimeLibrary> celRuntimeLibraries;
 
   private final ImmutableList<CelFunctionBinding> celFunctionBindings;
+  private final CelAsyncEvaluationOptions asyncEvaluationOptions;
+  private final @Nullable ListeningExecutorService asyncExecutor;
 
   @Override
   public CelRuntime.Program createProgram(CelAbstractSyntaxTree ast) {
@@ -101,7 +104,8 @@ public final class CelRuntimeLegacyImpl implements CelRuntime {
             .setExtensionRegistry(extensionRegistry)
             .addFileTypes(fileDescriptors)
             .addLibraries(celRuntimeLibraries)
-            .addFunctionBindings(celFunctionBindings);
+            .addFunctionBindings(celFunctionBindings)
+            .setAsyncEvaluationOptions(asyncEvaluationOptions);
 
     if (customTypeFactory != null) {
       builder.setTypeFactory(customTypeFactory);
@@ -111,6 +115,9 @@ public final class CelRuntimeLegacyImpl implements CelRuntime {
       builder.setStandardFunctions(overriddenStandardFunctions);
     }
 
+    if (asyncExecutor != null) {
+      builder.setAsyncExecutor(asyncExecutor);
+    }
 
     return builder;
   }
@@ -132,6 +139,8 @@ public final class CelRuntimeLegacyImpl implements CelRuntime {
 
     @VisibleForTesting Function<String, Message.Builder> customTypeFactory;
     @VisibleForTesting CelStandardFunctions overriddenStandardFunctions;
+    @VisibleForTesting CelAsyncEvaluationOptions asyncEvaluationOptions;
+    @VisibleForTesting @Nullable ListeningExecutorService asyncExecutor;
 
     private CelOptions options;
 
@@ -257,6 +266,19 @@ public final class CelRuntimeLegacyImpl implements CelRuntime {
           "This method is not supported for the legacy runtime");
     }
 
+    @Override
+    public CelRuntimeBuilder setAsyncEvaluationOptions(
+        CelAsyncEvaluationOptions asyncEvaluationOptions) {
+      this.asyncEvaluationOptions = checkNotNull(asyncEvaluationOptions);
+      return this;
+    }
+
+    @Override
+    public CelRuntimeBuilder setAsyncExecutor(ListeningExecutorService asyncExecutor) {
+      this.asyncExecutor = checkNotNull(asyncExecutor);
+      return this;
+    }
+
     /** Build a new {@code CelRuntimeLegacyImpl} instance from the builder config. */
     @Override
     public CelRuntimeLegacyImpl build() {
@@ -357,7 +379,9 @@ public final class CelRuntimeLegacyImpl implements CelRuntime {
           overriddenStandardFunctions,
           fileDescriptors,
           runtimeLibraries,
-          ImmutableList.copyOf(customFunctionBindings.values()));
+          ImmutableList.copyOf(customFunctionBindings.values()),
+          asyncEvaluationOptions,
+          asyncExecutor);
     }
 
     private ImmutableSet<CelFunctionBinding> newStandardFunctionBindings(
@@ -432,6 +456,8 @@ public final class CelRuntimeLegacyImpl implements CelRuntime {
       this.celRuntimeLibraries = ImmutableSet.builder();
       this.extensionRegistry = ExtensionRegistry.getEmptyRegistry();
       this.customTypeFactory = null;
+      this.asyncEvaluationOptions = CelAsyncEvaluationOptions.defaultOptions();
+      this.asyncExecutor = null;
     }
   }
 
@@ -444,7 +470,9 @@ public final class CelRuntimeLegacyImpl implements CelRuntime {
       @Nullable CelStandardFunctions overriddenStandardFunctions,
       ImmutableSet<FileDescriptor> fileDescriptors,
       ImmutableSet<CelRuntimeLibrary> celRuntimeLibraries,
-      ImmutableList<CelFunctionBinding> celFunctionBindings) {
+      ImmutableList<CelFunctionBinding> celFunctionBindings,
+      CelAsyncEvaluationOptions asyncEvaluationOptions,
+      @Nullable ListeningExecutorService asyncExecutor) {
     this.interpreter = interpreter;
     this.options = options;
     this.standardEnvironmentEnabled = standardEnvironmentEnabled;
@@ -454,5 +482,7 @@ public final class CelRuntimeLegacyImpl implements CelRuntime {
     this.fileDescriptors = fileDescriptors;
     this.celRuntimeLibraries = celRuntimeLibraries;
     this.celFunctionBindings = celFunctionBindings;
+    this.asyncEvaluationOptions = asyncEvaluationOptions;
+    this.asyncExecutor = asyncExecutor;
   }
 }
