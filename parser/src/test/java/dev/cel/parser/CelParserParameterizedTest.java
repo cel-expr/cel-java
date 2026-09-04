@@ -14,24 +14,10 @@
 
 package dev.cel.parser;
 
-import static java.util.Collections.reverseOrder;
-import static java.util.Map.Entry.comparingByKey;
-import static java.util.stream.Collectors.joining;
 
-import dev.cel.expr.Constant;
-import dev.cel.expr.Expr;
-import dev.cel.expr.ExprOrBuilder;
 import dev.cel.expr.ParsedExpr;
 import dev.cel.expr.SourceInfo;
-import com.google.auto.value.AutoValue;
-import com.google.common.base.Ascii;
-import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableSet;
-import com.google.errorprone.annotations.Immutable;
-import com.google.protobuf.Descriptors.Descriptor;
-import com.google.protobuf.Descriptors.EnumDescriptor;
-import com.google.protobuf.Descriptors.FieldDescriptor;
-import com.google.protobuf.Descriptors.OneofDescriptor;
 import com.google.protobuf.TextFormat;
 import com.google.testing.junit.testparameterinjector.TestParameterInjector;
 import dev.cel.common.CelAbstractSyntaxTree;
@@ -44,11 +30,9 @@ import dev.cel.common.ast.CelConstant;
 import dev.cel.common.ast.CelExpr;
 import dev.cel.extensions.CelOptionalLibrary;
 import dev.cel.testing.BaselineTestCase;
-import dev.cel.testing.CelAdorner;
 import dev.cel.testing.CelDebug;
-import java.util.ArrayDeque;
-import java.util.Deque;
-import java.util.Map;
+import dev.cel.testing.CelExprKindAndIdAdorner;
+import dev.cel.testing.CelLocationAdorner;
 import java.util.Optional;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -349,16 +333,18 @@ public final class CelParserParameterizedTest extends BaselineTestCase {
         testOutput()
             .println(
                 "P: "
-                    + CelDebug.toAdornedDebugString(parsedExpr.getExpr(), new KindAndIdAdorner()));
+                    + CelDebug.toAdornedDebugString(
+                        parsedExpr.getExpr(), new CelExprKindAndIdAdorner()));
         String locationOutput =
             CelDebug.toAdornedDebugString(
-                parsedExpr.getExpr(), new LocationAdorner(parsedExpr.getSourceInfo()));
+                parsedExpr.getExpr(), new CelLocationAdorner(parsedExpr.getSourceInfo()));
         if (!locationOutput.isEmpty()) {
           testOutput().println("L: " + locationOutput);
         }
       }
 
-      String macroOutput = convertMacroCallsToString(parsedExpr.getSourceInfo());
+      String macroOutput =
+          CelExprKindAndIdAdorner.convertMacroCallsToString(parsedExpr.getSourceInfo());
       if (!macroOutput.isEmpty()) {
         testOutput().println("M: " + macroOutput);
       }
@@ -376,153 +362,5 @@ public final class CelParserParameterizedTest extends BaselineTestCase {
     testOutput().println("I: " + expression);
     testOutput().println("=====>");
     testOutput().println("S: " + TextFormat.printer().printToString(sourceInfo));
-  }
-
-  private String convertMacroCallsToString(SourceInfo sourceInfo) {
-    KindAndIdAdorner macroCallsAdorner = new KindAndIdAdorner(sourceInfo);
-    // Sort in ascending order so that nested macro calls are always in the same order for tests
-    // output debug string. Ascending order keeps the macro calls map in order from outermost/first
-    // macro to the innermost/last macro for readability.
-    return sourceInfo.getMacroCallsMap().entrySet().stream()
-        .sorted(reverseOrder(comparingByKey()))
-        .map((entry) -> CelDebug.toAdornedDebugString(entry.getValue(), macroCallsAdorner))
-        .collect(joining(",\n"));
-  }
-
-  private static final class KindAndIdAdorner implements CelAdorner {
-
-    private final SourceInfo sourceInfo;
-
-    KindAndIdAdorner() {
-      this(SourceInfo.getDefaultInstance());
-    }
-
-    KindAndIdAdorner(SourceInfo sourceInfo) {
-      this.sourceInfo = sourceInfo;
-    }
-
-    @Override
-    public String adorn(ExprOrBuilder expr) {
-      if (this.sourceInfo != null && this.sourceInfo.containsMacroCalls(expr.getId())) {
-        return String.format(
-            "^#%d:%s#",
-            expr.getId(),
-            this.sourceInfo.getMacroCallsOrThrow(expr.getId()).getCallExpr().getFunction());
-      }
-
-      if (expr.hasConstExpr()) {
-        Constant constExpr = expr.getConstExpr();
-        Descriptor descriptor = Constant.getDescriptor();
-        OneofDescriptor oneof = findOneofByName(descriptor, "constant_kind");
-        FieldDescriptor field = constExpr.getOneofFieldDescriptor(oneof);
-        if (field.getType() == FieldDescriptor.Type.ENUM) {
-          return String.format("^#%d:%s#", expr.getId(), getContainedName(field.getEnumType()));
-        } else {
-          return String.format(
-              "^#%d:%s#", expr.getId(), Ascii.toLowerCase(field.getType().toString()));
-        }
-      }
-      Descriptor descriptor = Expr.getDescriptor();
-      OneofDescriptor oneof = findOneofByName(descriptor, "expr_kind");
-      FieldDescriptor field = expr.getOneofFieldDescriptor(oneof);
-      return String.format("^#%d:%s#", expr.getId(), getContainedName(field.getMessageType()));
-    }
-
-    @Override
-    public String adorn(Expr.CreateStruct.EntryOrBuilder entry) {
-      return String.format("^#%d:Expr.CreateStruct.Entry#", entry.getId());
-    }
-  }
-
-  @AutoValue
-  @Immutable
-  abstract static class LineAndColumn {
-
-    public abstract int getLine();
-
-    public abstract int getColumn();
-  }
-
-  private static final class LocationAdorner implements CelAdorner {
-
-    private final SourceInfo sourceInfo;
-
-    LocationAdorner(SourceInfo sourceInfo) {
-      this.sourceInfo = sourceInfo;
-    }
-
-    @Override
-    public String adorn(ExprOrBuilder expr) {
-      return getLocation(expr.getId())
-          .map(
-              location ->
-                  String.format(
-                      "^#%d[%d,%d]#", expr.getId(), location.getLine(), location.getColumn()))
-          .orElseGet(() -> String.format("^#%d[NO_POS]#", expr.getId()));
-    }
-
-    @Override
-    public String adorn(Expr.CreateStruct.EntryOrBuilder entry) {
-      return getLocation(entry.getId())
-          .map(
-              location ->
-                  String.format(
-                      "^#%d[%d,%d]#", entry.getId(), location.getLine(), location.getColumn()))
-          .orElseGet(() -> String.format("^#%d[NO_POS]#", entry.getId()));
-    }
-
-    private Optional<LineAndColumn> getLocation(long exprId) {
-      Map<Long, Integer> positions = sourceInfo.getPositionsMap();
-      Integer position = positions.get(exprId);
-      if (position == null) {
-        return Optional.empty();
-      }
-      int line = 1;
-      for (int index = 0; index < sourceInfo.getLineOffsetsCount(); index++) {
-        if (sourceInfo.getLineOffsets(index) > position) {
-          break;
-        } else {
-          line++;
-        }
-      }
-      int column = position;
-      if (line > 1) {
-        column = position - sourceInfo.getLineOffsets(line - 2);
-      }
-      return Optional.of(new AutoValue_CelParserParameterizedTest_LineAndColumn(line, column));
-    }
-  }
-
-  private static OneofDescriptor findOneofByName(Descriptor descriptor, String name) {
-    for (OneofDescriptor oneof : descriptor.getOneofs()) {
-      if (oneof.getName().equals(name)) {
-        return oneof;
-      }
-    }
-    return null;
-  }
-
-  private static final Joiner JOINER = Joiner.on('.');
-
-  private static String getContainedName(Descriptor descriptor) {
-    Deque<String> parts = new ArrayDeque<>();
-    parts.addFirst(descriptor.getName());
-    Descriptor containing = descriptor.getContainingType();
-    while (containing != null) {
-      parts.addFirst(containing.getName());
-      containing = containing.getContainingType();
-    }
-    return JOINER.join(parts);
-  }
-
-  private static String getContainedName(EnumDescriptor descriptor) {
-    Deque<String> parts = new ArrayDeque<>();
-    parts.addFirst(descriptor.getName());
-    Descriptor containing = descriptor.getContainingType();
-    while (containing != null) {
-      parts.addFirst(containing.getName());
-      containing = containing.getContainingType();
-    }
-    return JOINER.join(parts);
   }
 }

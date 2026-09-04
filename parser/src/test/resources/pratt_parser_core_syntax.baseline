@@ -1,0 +1,1158 @@
+I: a
+=====>
+P: a^#1:Expr.Ident#
+L: a^#1[1,0]#
+
+I: foo
+=====>
+P: foo^#1:Expr.Ident#
+L: foo^#1[1,0]#
+
+I: (a)
+=====>
+P: a^#1:Expr.Ident#
+L: a^#1[1,1]#
+
+I: ((a))
+=====>
+P: a^#1:Expr.Ident#
+L: a^#1[1,2]#
+
+I: (((1 + 2))) * 3
+=====>
+P: _*_(
+  _+_(
+    1^#1:int64#,
+    2^#3:int64#
+  )^#2:Expr.Call#,
+  3^#5:int64#
+)^#4:Expr.Call#
+L: _*_(
+  _+_(
+    1^#1[1,3]#,
+    2^#3[1,7]#
+  )^#2[1,5]#,
+  3^#5[1,14]#
+)^#4[1,12]#
+
+I: []
+=====>
+P: []^#1:Expr.CreateList#
+L: []^#1[1,0]#
+
+I: [a]
+=====>
+P: [
+  a^#2:Expr.Ident#
+]^#1:Expr.CreateList#
+L: [
+  a^#2[1,1]#
+]^#1[1,0]#
+
+I: [a, b, c]
+=====>
+P: [
+  a^#2:Expr.Ident#,
+  b^#3:Expr.Ident#,
+  c^#4:Expr.Ident#
+]^#1:Expr.CreateList#
+L: [
+  a^#2[1,1]#,
+  b^#3[1,4]#,
+  c^#4[1,7]#
+]^#1[1,0]#
+
+I: [1, 2, 3]
+=====>
+P: [
+  1^#2:int64#,
+  2^#3:int64#,
+  3^#4:int64#
+]^#1:Expr.CreateList#
+L: [
+  1^#2[1,1]#,
+  2^#3[1,4]#,
+  3^#4[1,7]#
+]^#1[1,0]#
+
+I: [3, 4, 5]
+=====>
+P: [
+  3^#2:int64#,
+  4^#3:int64#,
+  5^#4:int64#
+]^#1:Expr.CreateList#
+L: [
+  3^#2[1,1]#,
+  4^#3[1,4]#,
+  5^#4[1,7]#
+]^#1[1,0]#
+
+I: [3, 4, 5,]
+=====>
+P: [
+  3^#2:int64#,
+  4^#3:int64#,
+  5^#4:int64#
+]^#1:Expr.CreateList#
+L: [
+  3^#2[1,1]#,
+  4^#3[1,4]#,
+  5^#4[1,7]#
+]^#1[1,0]#
+
+I: [?a, b]
+=====>
+P: [
+  ?a^#2:Expr.Ident#,
+  b^#3:Expr.Ident#
+]^#1:Expr.CreateList#
+L: [
+  ?a^#2[1,2]#,
+  b^#3[1,5]#
+]^#1[1,0]#
+
+I: [?a, ?b]
+=====>
+P: [
+  ?a^#2:Expr.Ident#,
+  ?b^#3:Expr.Ident#
+]^#1:Expr.CreateList#
+L: [
+  ?a^#2[1,2]#,
+  ?b^#3[1,6]#
+]^#1[1,0]#
+
+I: [?a[?b]]
+=====>
+P: [
+  ?_[?_](
+    a^#2:Expr.Ident#,
+    b^#4:Expr.Ident#
+  )^#3:Expr.Call#
+]^#1:Expr.CreateList#
+L: [
+  ?_[?_](
+    a^#2[1,2]#,
+    b^#4[1,5]#
+  )^#3[1,3]#
+]^#1[1,0]#
+
+I: {}
+=====>
+P: {}^#1:Expr.CreateStruct#
+L: {}^#1[1,0]#
+
+I: {a:b, c:d}
+=====>
+P: {
+  a^#3:Expr.Ident#:b^#4:Expr.Ident#^#2:Expr.CreateStruct.Entry#,
+  c^#6:Expr.Ident#:d^#7:Expr.Ident#^#5:Expr.CreateStruct.Entry#
+}^#1:Expr.CreateStruct#
+L: {
+  a^#3[1,1]#:b^#4[1,3]#^#2[1,2]#,
+  c^#6[1,6]#:d^#7[1,8]#^#5[1,7]#
+}^#1[1,0]#
+
+I: {foo: 5, bar: "xyz"}
+=====>
+P: {
+  foo^#3:Expr.Ident#:5^#4:int64#^#2:Expr.CreateStruct.Entry#,
+  bar^#6:Expr.Ident#:"xyz"^#7:string#^#5:Expr.CreateStruct.Entry#
+}^#1:Expr.CreateStruct#
+L: {
+  foo^#3[1,1]#:5^#4[1,6]#^#2[1,4]#,
+  bar^#6[1,9]#:"xyz"^#7[1,14]#^#5[1,12]#
+}^#1[1,0]#
+
+I: {foo: 5, bar: "xyz", }
+=====>
+P: {
+  foo^#3:Expr.Ident#:5^#4:int64#^#2:Expr.CreateStruct.Entry#,
+  bar^#6:Expr.Ident#:"xyz"^#7:string#^#5:Expr.CreateStruct.Entry#
+}^#1:Expr.CreateStruct#
+L: {
+  foo^#3[1,1]#:5^#4[1,6]#^#2[1,4]#,
+  bar^#6[1,9]#:"xyz"^#7[1,14]#^#5[1,12]#
+}^#1[1,0]#
+
+I: {"a": 1, "b": 2}
+=====>
+P: {
+  "a"^#3:string#:1^#4:int64#^#2:Expr.CreateStruct.Entry#,
+  "b"^#6:string#:2^#7:int64#^#5:Expr.CreateStruct.Entry#
+}^#1:Expr.CreateStruct#
+L: {
+  "a"^#3[1,1]#:1^#4[1,6]#^#2[1,4]#,
+  "b"^#6[1,9]#:2^#7[1,14]#^#5[1,12]#
+}^#1[1,0]#
+
+I: {1:2u, 2:3u}
+=====>
+P: {
+  1^#3:int64#:2u^#4:uint64#^#2:Expr.CreateStruct.Entry#,
+  2^#6:int64#:3u^#7:uint64#^#5:Expr.CreateStruct.Entry#
+}^#1:Expr.CreateStruct#
+L: {
+  1^#3[1,1]#:2u^#4[1,3]#^#2[1,2]#,
+  2^#6[1,7]#:3u^#7[1,9]#^#5[1,8]#
+}^#1[1,0]#
+
+I: {?a: b}
+=====>
+P: {
+  ?a^#3:Expr.Ident#:b^#4:Expr.Ident#^#2:Expr.CreateStruct.Entry#
+}^#1:Expr.CreateStruct#
+L: {
+  ?a^#3[1,2]#:b^#4[1,5]#^#2[1,3]#
+}^#1[1,0]#
+
+I: {?'key': value}
+=====>
+P: {
+  ?"key"^#3:string#:value^#4:Expr.Ident#^#2:Expr.CreateStruct.Entry#
+}^#1:Expr.CreateStruct#
+L: {
+  ?"key"^#3[1,2]#:value^#4[1,9]#^#2[1,7]#
+}^#1[1,0]#
+
+I: foo{ }
+=====>
+P: foo{}^#1:Expr.CreateStruct#
+L: foo{}^#1[1,0]#
+
+I: foo{ a:b }
+=====>
+P: foo{
+  a:b^#3:Expr.Ident#^#2:Expr.CreateStruct.Entry#
+}^#1:Expr.CreateStruct#
+L: foo{
+  a:b^#3[1,7]#^#2[1,6]#
+}^#1[1,0]#
+
+I: foo{ a:b, c:d }
+=====>
+P: foo{
+  a:b^#3:Expr.Ident#^#2:Expr.CreateStruct.Entry#,
+  c:d^#5:Expr.Ident#^#4:Expr.CreateStruct.Entry#
+}^#1:Expr.CreateStruct#
+L: foo{
+  a:b^#3[1,7]#^#2[1,6]#,
+  c:d^#5[1,12]#^#4[1,11]#
+}^#1[1,0]#
+
+I: SomeMessage{foo: 5, bar: "xyz"}
+=====>
+P: SomeMessage{
+  foo:5^#3:int64#^#2:Expr.CreateStruct.Entry#,
+  bar:"xyz"^#5:string#^#4:Expr.CreateStruct.Entry#
+}^#1:Expr.CreateStruct#
+L: SomeMessage{
+  foo:5^#3[1,17]#^#2[1,15]#,
+  bar:"xyz"^#5[1,25]#^#4[1,23]#
+}^#1[1,0]#
+
+I: TestAllTypes{single_int32: 1, single_int64: 2}
+=====>
+P: TestAllTypes{
+  single_int32:1^#3:int64#^#2:Expr.CreateStruct.Entry#,
+  single_int64:2^#5:int64#^#4:Expr.CreateStruct.Entry#
+}^#1:Expr.CreateStruct#
+L: TestAllTypes{
+  single_int32:1^#3[1,27]#^#2[1,25]#,
+  single_int64:2^#5[1,44]#^#4[1,42]#
+}^#1[1,0]#
+
+I: MyType{foo: 1, bar: 'baz'}
+=====>
+P: MyType{
+  foo:1^#3:int64#^#2:Expr.CreateStruct.Entry#,
+  bar:"baz"^#5:string#^#4:Expr.CreateStruct.Entry#
+}^#1:Expr.CreateStruct#
+L: MyType{
+  foo:1^#3[1,12]#^#2[1,10]#,
+  bar:"baz"^#5[1,20]#^#4[1,18]#
+}^#1[1,0]#
+
+I: Message{`in`: true}
+=====>
+P: Message{
+  in:true^#3:bool#^#2:Expr.CreateStruct.Entry#
+}^#1:Expr.CreateStruct#
+L: Message{
+  in:true^#3[1,14]#^#2[1,12]#
+}^#1[1,0]#
+
+I: Msg{?field: value}
+=====>
+P: Msg{
+  ?field:value^#3:Expr.Ident#^#2:Expr.CreateStruct.Entry#
+}^#1:Expr.CreateStruct#
+L: Msg{
+  ?field:value^#3[1,12]#^#2[1,10]#
+}^#1[1,0]#
+
+I: a.b
+=====>
+P: a^#1:Expr.Ident#.b^#2:Expr.Select#
+L: a^#1[1,0]#.b^#2[1,1]#
+
+I: a.b.c
+=====>
+P: a^#1:Expr.Ident#.b^#2:Expr.Select#.c^#3:Expr.Select#
+L: a^#1[1,0]#.b^#2[1,1]#.c^#3[1,3]#
+
+I: a.?b
+=====>
+P: _?._(
+  a^#1:Expr.Ident#,
+  "b"^#3:string#
+)^#2:Expr.Call#
+L: _?._(
+  a^#1[1,0]#,
+  "b"^#3[1,3]#
+)^#2[1,1]#
+
+I: a.`b-c`
+=====>
+P: a^#1:Expr.Ident#.b-c^#2:Expr.Select#
+L: a^#1[1,0]#.b-c^#2[1,1]#
+
+I: a.`b c`
+=====>
+P: a^#1:Expr.Ident#.b c^#2:Expr.Select#
+L: a^#1[1,0]#.b c^#2[1,1]#
+
+I: a.`b.c`
+=====>
+P: a^#1:Expr.Ident#.b.c^#2:Expr.Select#
+L: a^#1[1,0]#.b.c^#2[1,1]#
+
+I: a.`in`
+=====>
+P: a^#1:Expr.Ident#.in^#2:Expr.Select#
+L: a^#1[1,0]#.in^#2[1,1]#
+
+I: a.`/foo`
+=====>
+P: a^#1:Expr.Ident#./foo^#2:Expr.Select#
+L: a^#1[1,0]#./foo^#2[1,1]#
+
+I: a.`my-var`
+=====>
+P: a^#1:Expr.Ident#.my-var^#2:Expr.Select#
+L: a^#1[1,0]#.my-var^#2[1,1]#
+
+I: a[b]
+=====>
+P: _[_](
+  a^#1:Expr.Ident#,
+  b^#3:Expr.Ident#
+)^#2:Expr.Call#
+L: _[_](
+  a^#1[1,0]#,
+  b^#3[1,2]#
+)^#2[1,1]#
+
+I: a[0]
+=====>
+P: _[_](
+  a^#1:Expr.Ident#,
+  0^#3:int64#
+)^#2:Expr.Call#
+L: _[_](
+  a^#1[1,0]#,
+  0^#3[1,2]#
+)^#2[1,1]#
+
+I: a[3]
+=====>
+P: _[_](
+  a^#1:Expr.Ident#,
+  3^#3:int64#
+)^#2:Expr.Call#
+L: _[_](
+  a^#1[1,0]#,
+  3^#3[1,2]#
+)^#2[1,1]#
+
+I: [1,3,4][0]
+=====>
+P: _[_](
+  [
+    1^#2:int64#,
+    3^#3:int64#,
+    4^#4:int64#
+  ]^#1:Expr.CreateList#,
+  0^#6:int64#
+)^#5:Expr.Call#
+L: _[_](
+  [
+    1^#2[1,1]#,
+    3^#3[1,3]#,
+    4^#4[1,5]#
+  ]^#1[1,0]#,
+  0^#6[1,8]#
+)^#5[1,7]#
+
+I: a[?0]
+=====>
+P: _[?_](
+  a^#1:Expr.Ident#,
+  0^#3:int64#
+)^#2:Expr.Call#
+L: _[?_](
+  a^#1[1,0]#,
+  0^#3[1,3]#
+)^#2[1,1]#
+
+I: a()
+=====>
+P: a()^#1:Expr.Call#
+L: a()^#1[1,1]#
+
+I: a(b)
+=====>
+P: a(
+  b^#2:Expr.Ident#
+)^#1:Expr.Call#
+L: a(
+  b^#2[1,2]#
+)^#1[1,1]#
+
+I: a(b, c)
+=====>
+P: a(
+  b^#2:Expr.Ident#,
+  c^#3:Expr.Ident#
+)^#1:Expr.Call#
+L: a(
+  b^#2[1,2]#,
+  c^#3[1,5]#
+)^#1[1,1]#
+
+I: a.b()
+=====>
+P: a^#1:Expr.Ident#.b()^#2:Expr.Call#
+L: a^#1[1,0]#.b()^#2[1,3]#
+
+I: a.b(c)
+=====>
+P: a^#1:Expr.Ident#.b(
+  c^#3:Expr.Ident#
+)^#2:Expr.Call#
+L: a^#1[1,0]#.b(
+  c^#3[1,4]#
+)^#2[1,3]#
+
+I: a.b(5)
+=====>
+P: a^#1:Expr.Ident#.b(
+  5^#3:int64#
+)^#2:Expr.Call#
+L: a^#1[1,0]#.b(
+  5^#3[1,4]#
+)^#2[1,3]#
+
+I: a.foo(1, 2)
+=====>
+P: a^#1:Expr.Ident#.foo(
+  1^#3:int64#,
+  2^#4:int64#
+)^#2:Expr.Call#
+L: a^#1[1,0]#.foo(
+  1^#3[1,6]#,
+  2^#4[1,9]#
+)^#2[1,5]#
+
+I: !a
+=====>
+P: !_(
+  a^#2:Expr.Ident#
+)^#1:Expr.Call#
+L: !_(
+  a^#2[1,1]#
+)^#1[1,0]#
+
+I: !x
+=====>
+P: !_(
+  x^#2:Expr.Ident#
+)^#1:Expr.Call#
+L: !_(
+  x^#2[1,1]#
+)^#1[1,0]#
+
+I: ! false
+=====>
+P: !_(
+  false^#2:bool#
+)^#1:Expr.Call#
+L: !_(
+  false^#2[1,2]#
+)^#1[1,0]#
+
+I: -a
+=====>
+P: -_(
+  a^#2:Expr.Ident#
+)^#1:Expr.Call#
+L: -_(
+  a^#2[1,1]#
+)^#1[1,0]#
+
+I: x * 2
+=====>
+P: _*_(
+  x^#1:Expr.Ident#,
+  2^#3:int64#
+)^#2:Expr.Call#
+L: _*_(
+  x^#1[1,0]#,
+  2^#3[1,4]#
+)^#2[1,2]#
+
+I: x * 2u
+=====>
+P: _*_(
+  x^#1:Expr.Ident#,
+  2u^#3:uint64#
+)^#2:Expr.Call#
+L: _*_(
+  x^#1[1,0]#,
+  2u^#3[1,4]#
+)^#2[1,2]#
+
+I: x * 2.0
+=====>
+P: _*_(
+  x^#1:Expr.Ident#,
+  2.0^#3:double#
+)^#2:Expr.Call#
+L: _*_(
+  x^#1[1,0]#,
+  2.0^#3[1,4]#
+)^#2[1,2]#
+
+I: a * b
+=====>
+P: _*_(
+  a^#1:Expr.Ident#,
+  b^#3:Expr.Ident#
+)^#2:Expr.Call#
+L: _*_(
+  a^#1[1,0]#,
+  b^#3[1,4]#
+)^#2[1,2]#
+
+I: a / b
+=====>
+P: _/_(
+  a^#1:Expr.Ident#,
+  b^#3:Expr.Ident#
+)^#2:Expr.Call#
+L: _/_(
+  a^#1[1,0]#,
+  b^#3[1,4]#
+)^#2[1,2]#
+
+I: a % b
+=====>
+P: _%_(
+  a^#1:Expr.Ident#,
+  b^#3:Expr.Ident#
+)^#2:Expr.Call#
+L: _%_(
+  a^#1[1,0]#,
+  b^#3[1,4]#
+)^#2[1,2]#
+
+I: a + b
+=====>
+P: _+_(
+  a^#1:Expr.Ident#,
+  b^#3:Expr.Ident#
+)^#2:Expr.Call#
+L: _+_(
+  a^#1[1,0]#,
+  b^#3[1,4]#
+)^#2[1,2]#
+
+I: a - b
+=====>
+P: _-_(
+  a^#1:Expr.Ident#,
+  b^#3:Expr.Ident#
+)^#2:Expr.Call#
+L: _-_(
+  a^#1[1,0]#,
+  b^#3[1,4]#
+)^#2[1,2]#
+
+I: 4--4
+=====>
+P: _-_(
+  4^#1:int64#,
+  -4^#3:int64#
+)^#2:Expr.Call#
+L: _-_(
+  4^#1[1,0]#,
+  -4^#3[1,2]#
+)^#2[1,1]#
+
+I: 4--4.1
+=====>
+P: _-_(
+  4^#1:int64#,
+  -4.1^#3:double#
+)^#2:Expr.Call#
+L: _-_(
+  4^#1[1,0]#,
+  -4.1^#3[1,2]#
+)^#2[1,1]#
+
+I: "abc" + "def"
+=====>
+P: _+_(
+  "abc"^#1:string#,
+  "def"^#3:string#
+)^#2:Expr.Call#
+L: _+_(
+  "abc"^#1[1,0]#,
+  "def"^#3[1,8]#
+)^#2[1,6]#
+
+I: b"abc" + B"def"
+=====>
+P: _+_(
+  b"abc"^#1:bytes#,
+  b"def"^#3:bytes#
+)^#2:Expr.Call#
+L: _+_(
+  b"abc"^#1[1,0]#,
+  b"def"^#3[1,9]#
+)^#2[1,7]#
+
+I: [] + [1,2,3,] + [4]
+=====>
+P: _+_(
+  _+_(
+    []^#1:Expr.CreateList#,
+    [
+      1^#4:int64#,
+      2^#5:int64#,
+      3^#6:int64#
+    ]^#3:Expr.CreateList#
+  )^#2:Expr.Call#,
+  [
+    4^#9:int64#
+  ]^#8:Expr.CreateList#
+)^#7:Expr.Call#
+L: _+_(
+  _+_(
+    []^#1[1,0]#,
+    [
+      1^#4[1,6]#,
+      2^#5[1,8]#,
+      3^#6[1,10]#
+    ]^#3[1,5]#
+  )^#2[1,3]#,
+  [
+    4^#9[1,17]#
+  ]^#8[1,16]#
+)^#7[1,14]#
+
+I: 1 + 2 * 3
+=====>
+P: _+_(
+  1^#1:int64#,
+  _*_(
+    2^#3:int64#,
+    3^#5:int64#
+  )^#4:Expr.Call#
+)^#2:Expr.Call#
+L: _+_(
+  1^#1[1,0]#,
+  _*_(
+    2^#3[1,4]#,
+    3^#5[1,8]#
+  )^#4[1,6]#
+)^#2[1,2]#
+
+I: a == b
+=====>
+P: _==_(
+  a^#1:Expr.Ident#,
+  b^#3:Expr.Ident#
+)^#2:Expr.Call#
+L: _==_(
+  a^#1[1,0]#,
+  b^#3[1,5]#
+)^#2[1,2]#
+
+I: a != b
+=====>
+P: _!=_(
+  a^#1:Expr.Ident#,
+  b^#3:Expr.Ident#
+)^#2:Expr.Call#
+L: _!=_(
+  a^#1[1,0]#,
+  b^#3[1,5]#
+)^#2[1,2]#
+
+I: a < b
+=====>
+P: _<_(
+  a^#1:Expr.Ident#,
+  b^#3:Expr.Ident#
+)^#2:Expr.Call#
+L: _<_(
+  a^#1[1,0]#,
+  b^#3[1,4]#
+)^#2[1,2]#
+
+I: a <= b
+=====>
+P: _<=_(
+  a^#1:Expr.Ident#,
+  b^#3:Expr.Ident#
+)^#2:Expr.Call#
+L: _<=_(
+  a^#1[1,0]#,
+  b^#3[1,5]#
+)^#2[1,2]#
+
+I: a > b
+=====>
+P: _>_(
+  a^#1:Expr.Ident#,
+  b^#3:Expr.Ident#
+)^#2:Expr.Call#
+L: _>_(
+  a^#1[1,0]#,
+  b^#3[1,4]#
+)^#2[1,2]#
+
+I: a >= b
+=====>
+P: _>=_(
+  a^#1:Expr.Ident#,
+  b^#3:Expr.Ident#
+)^#2:Expr.Call#
+L: _>=_(
+  a^#1[1,0]#,
+  b^#3[1,5]#
+)^#2[1,2]#
+
+I: a in b
+=====>
+P: @in(
+  a^#1:Expr.Ident#,
+  b^#3:Expr.Ident#
+)^#2:Expr.Call#
+L: @in(
+  a^#1[1,0]#,
+  b^#3[1,5]#
+)^#2[1,2]#
+
+I: "😁" in ["😁", "😑", "😦"]
+=====>
+P: @in(
+  "😁"^#1:string#,
+  [
+    "😁"^#4:string#,
+    "😑"^#5:string#,
+    "😦"^#6:string#
+  ]^#3:Expr.CreateList#
+)^#2:Expr.Call#
+L: @in(
+  "😁"^#1[1,0]#,
+  [
+    "😁"^#4[1,8]#,
+    "😑"^#5[1,13]#,
+    "😦"^#6[1,18]#
+  ]^#3[1,7]#
+)^#2[1,4]#
+
+I: size(x) == x.size()
+=====>
+P: _==_(
+  size(
+    x^#2:Expr.Ident#
+  )^#1:Expr.Call#,
+  x^#4:Expr.Ident#.size()^#5:Expr.Call#
+)^#3:Expr.Call#
+L: _==_(
+  size(
+    x^#2[1,5]#
+  )^#1[1,4]#,
+  x^#4[1,11]#.size()^#5[1,17]#
+)^#3[1,8]#
+
+I: x.single_nested_message != null
+=====>
+P: _!=_(
+  x^#1:Expr.Ident#.single_nested_message^#2:Expr.Select#,
+  null^#4:NullValue#
+)^#3:Expr.Call#
+L: _!=_(
+  x^#1[1,0]#.single_nested_message^#2[1,1]#,
+  null^#4[1,27]#
+)^#3[1,24]#
+
+I: a && b
+=====>
+P: _&&_(
+  a^#1:Expr.Ident#,
+  b^#2:Expr.Ident#
+)^#3:Expr.Call#
+L: _&&_(
+  a^#1[1,0]#,
+  b^#2[1,5]#
+)^#3[1,2]#
+
+I: a && b && c
+=====>
+P: _&&_(
+  _&&_(
+    a^#1:Expr.Ident#,
+    b^#2:Expr.Ident#
+  )^#3:Expr.Call#,
+  c^#4:Expr.Ident#
+)^#5:Expr.Call#
+L: _&&_(
+  _&&_(
+    a^#1[1,0]#,
+    b^#2[1,5]#
+  )^#3[1,2]#,
+  c^#4[1,10]#
+)^#5[1,7]#
+
+I: a && b && c && d && e && f && g
+=====>
+P: _&&_(
+  _&&_(
+    _&&_(
+      a^#1:Expr.Ident#,
+      b^#2:Expr.Ident#
+    )^#3:Expr.Call#,
+    _&&_(
+      c^#4:Expr.Ident#,
+      d^#6:Expr.Ident#
+    )^#7:Expr.Call#
+  )^#5:Expr.Call#,
+  _&&_(
+    _&&_(
+      e^#8:Expr.Ident#,
+      f^#10:Expr.Ident#
+    )^#11:Expr.Call#,
+    g^#12:Expr.Ident#
+  )^#13:Expr.Call#
+)^#9:Expr.Call#
+L: _&&_(
+  _&&_(
+    _&&_(
+      a^#1[1,0]#,
+      b^#2[1,5]#
+    )^#3[1,2]#,
+    _&&_(
+      c^#4[1,10]#,
+      d^#6[1,15]#
+    )^#7[1,12]#
+  )^#5[1,7]#,
+  _&&_(
+    _&&_(
+      e^#8[1,20]#,
+      f^#10[1,25]#
+    )^#11[1,22]#,
+    g^#12[1,30]#
+  )^#13[1,27]#
+)^#9[1,17]#
+
+I: a > 5 && a < 10
+=====>
+P: _&&_(
+  _>_(
+    a^#1:Expr.Ident#,
+    5^#3:int64#
+  )^#2:Expr.Call#,
+  _<_(
+    a^#4:Expr.Ident#,
+    10^#6:int64#
+  )^#5:Expr.Call#
+)^#7:Expr.Call#
+L: _&&_(
+  _>_(
+    a^#1[1,0]#,
+    5^#3[1,4]#
+  )^#2[1,2]#,
+  _<_(
+    a^#4[1,9]#,
+    10^#6[1,13]#
+  )^#5[1,11]#
+)^#7[1,6]#
+
+I: a || b
+=====>
+P: _||_(
+  a^#1:Expr.Ident#,
+  b^#2:Expr.Ident#
+)^#3:Expr.Call#
+L: _||_(
+  a^#1[1,0]#,
+  b^#2[1,5]#
+)^#3[1,2]#
+
+I: a || b || c || d || e || f
+=====>
+P: _||_(
+  _||_(
+    _||_(
+      a^#1:Expr.Ident#,
+      b^#2:Expr.Ident#
+    )^#3:Expr.Call#,
+    c^#4:Expr.Ident#
+  )^#5:Expr.Call#,
+  _||_(
+    _||_(
+      d^#6:Expr.Ident#,
+      e^#8:Expr.Ident#
+    )^#9:Expr.Call#,
+    f^#10:Expr.Ident#
+  )^#11:Expr.Call#
+)^#7:Expr.Call#
+L: _||_(
+  _||_(
+    _||_(
+      a^#1[1,0]#,
+      b^#2[1,5]#
+    )^#3[1,2]#,
+    c^#4[1,10]#
+  )^#5[1,7]#,
+  _||_(
+    _||_(
+      d^#6[1,15]#,
+      e^#8[1,20]#
+    )^#9[1,17]#,
+    f^#10[1,25]#
+  )^#11[1,22]#
+)^#7[1,12]#
+
+I: a < 5 || a > 10
+=====>
+P: _||_(
+  _<_(
+    a^#1:Expr.Ident#,
+    5^#3:int64#
+  )^#2:Expr.Call#,
+  _>_(
+    a^#4:Expr.Ident#,
+    10^#6:int64#
+  )^#5:Expr.Call#
+)^#7:Expr.Call#
+L: _||_(
+  _<_(
+    a^#1[1,0]#,
+    5^#3[1,4]#
+  )^#2[1,2]#,
+  _>_(
+    a^#4[1,9]#,
+    10^#6[1,13]#
+  )^#5[1,11]#
+)^#7[1,6]#
+
+I: a && b && c && d || e && f && g && h
+=====>
+P: _||_(
+  _&&_(
+    _&&_(
+      a^#1:Expr.Ident#,
+      b^#2:Expr.Ident#
+    )^#3:Expr.Call#,
+    _&&_(
+      c^#4:Expr.Ident#,
+      d^#6:Expr.Ident#
+    )^#7:Expr.Call#
+  )^#5:Expr.Call#,
+  _&&_(
+    _&&_(
+      e^#8:Expr.Ident#,
+      f^#9:Expr.Ident#
+    )^#10:Expr.Call#,
+    _&&_(
+      g^#11:Expr.Ident#,
+      h^#13:Expr.Ident#
+    )^#14:Expr.Call#
+  )^#12:Expr.Call#
+)^#15:Expr.Call#
+L: _||_(
+  _&&_(
+    _&&_(
+      a^#1[1,0]#,
+      b^#2[1,5]#
+    )^#3[1,2]#,
+    _&&_(
+      c^#4[1,10]#,
+      d^#6[1,15]#
+    )^#7[1,12]#
+  )^#5[1,7]#,
+  _&&_(
+    _&&_(
+      e^#8[1,20]#,
+      f^#9[1,25]#
+    )^#10[1,22]#,
+    _&&_(
+      g^#11[1,30]#,
+      h^#13[1,35]#
+    )^#14[1,32]#
+  )^#12[1,27]#
+)^#15[1,17]#
+
+I: a?b:c
+=====>
+P: _?_:_(
+  a^#1:Expr.Ident#,
+  b^#3:Expr.Ident#,
+  c^#4:Expr.Ident#
+)^#2:Expr.Call#
+L: _?_:_(
+  a^#1[1,0]#,
+  b^#3[1,2]#,
+  c^#4[1,4]#
+)^#2[1,1]#
+
+I: cond ? 1 : 2
+=====>
+P: _?_:_(
+  cond^#1:Expr.Ident#,
+  1^#3:int64#,
+  2^#4:int64#
+)^#2:Expr.Call#
+L: _?_:_(
+  cond^#1[1,0]#,
+  1^#3[1,7]#,
+  2^#4[1,11]#
+)^#2[1,5]#
+
+I: false && !true || false ? 2 : 3
+=====>
+P: _?_:_(
+  _||_(
+    _&&_(
+      false^#1:bool#,
+      !_(
+        true^#3:bool#
+      )^#2:Expr.Call#
+    )^#4:Expr.Call#,
+    false^#5:bool#
+  )^#6:Expr.Call#,
+  2^#8:int64#,
+  3^#9:int64#
+)^#7:Expr.Call#
+L: _?_:_(
+  _||_(
+    _&&_(
+      false^#1[1,0]#,
+      !_(
+        true^#3[1,10]#
+      )^#2[1,9]#
+    )^#4[1,6]#,
+    false^#5[1,18]#
+  )^#6[1,15]#,
+  2^#8[1,26]#,
+  3^#9[1,30]#
+)^#7[1,24]#
+
+I: true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : 1
+=====>
+
+I: !-!-!-!-!-!-!-!-!-!-!-!-!-!-!-x
+=====>
+
+I: 1 + 2 * 3 - 1 / 2 == 6 % 1
+=====>
+P: _==_(
+  _-_(
+    _+_(
+      1^#1:int64#,
+      _*_(
+        2^#3:int64#,
+        3^#5:int64#
+      )^#4:Expr.Call#
+    )^#2:Expr.Call#,
+    _/_(
+      1^#7:int64#,
+      2^#9:int64#
+    )^#8:Expr.Call#
+  )^#6:Expr.Call#,
+  _%_(
+    6^#11:int64#,
+    1^#13:int64#
+  )^#12:Expr.Call#
+)^#10:Expr.Call#
+L: _==_(
+  _-_(
+    _+_(
+      1^#1[1,0]#,
+      _*_(
+        2^#3[1,4]#,
+        3^#5[1,8]#
+      )^#4[1,6]#
+    )^#2[1,2]#,
+    _/_(
+      1^#7[1,12]#,
+      2^#9[1,16]#
+    )^#8[1,14]#
+  )^#6[1,10]#,
+  _%_(
+    6^#11[1,21]#,
+    1^#13[1,25]#
+  )^#12[1,23]#
+)^#10[1,18]#
+
+I: x["a"].single_int32 == 23
+=====>
+P: _==_(
+  _[_](
+    x^#1:Expr.Ident#,
+    "a"^#3:string#
+  )^#2:Expr.Call#.single_int32^#4:Expr.Select#,
+  23^#6:int64#
+)^#5:Expr.Call#
+L: _==_(
+  _[_](
+    x^#1[1,0]#,
+    "a"^#3[1,2]#
+  )^#2[1,1]#.single_int32^#4[1,6]#,
+  23^#6[1,23]#
+)^#5[1,20]#
+
+I: a.?b[?0] && a[?c]
+=====>
+P: _&&_(
+  _[?_](
+    _?._(
+      a^#1:Expr.Ident#,
+      "b"^#3:string#
+    )^#2:Expr.Call#,
+    0^#5:int64#
+  )^#4:Expr.Call#,
+  _[?_](
+    a^#6:Expr.Ident#,
+    c^#8:Expr.Ident#
+  )^#7:Expr.Call#
+)^#9:Expr.Call#
+L: _&&_(
+  _[?_](
+    _?._(
+      a^#1[1,0]#,
+      "b"^#3[1,3]#
+    )^#2[1,1]#,
+    0^#5[1,6]#
+  )^#4[1,4]#,
+  _[?_](
+    a^#6[1,12]#,
+    c^#8[1,15]#
+  )^#7[1,13]#
+)^#9[1,9]#

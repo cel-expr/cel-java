@@ -10,10 +10,12 @@ package(
 java_library(
     name = "tests",
     testonly = True,
-    srcs = glob(["*Test.java"]),
+    srcs = glob(
+        ["*Test.java"],
+        exclude = ["TmpPrattParserTest.java"],
+    ),
     resources = ["//parser/src/test/resources:baselines"],
     deps = [
-        "//:auto_value",
         "//:java_truth",
         "//common:cel_ast",
         "//common:cel_source",
@@ -30,12 +32,12 @@ java_library(
         "//parser:macro",
         "//parser:parser_builder",
         "//parser:parser_factory",
+        "//parser:pratt_parser",
         "//parser:unparser",
         "//parser:unparser_visitor",
         "//testing:adorner",
         "//testing:baseline_test_case",
         "@cel_spec//proto/cel/expr:syntax_java_proto",
-        "@maven//:com_google_errorprone_error_prone_annotations",
         "@maven//:com_google_guava_guava",
         "@maven//:com_google_guava_guava_testlib",
         "@maven//:com_google_protobuf_protobuf_java",
