@@ -121,6 +121,7 @@ public final class ConstantFoldingOptimizer implements CelAstOptimizer {
   }
 
   @Override
+  @SuppressWarnings("ReferenceEquality")
   public OptimizationResult optimize(CelAbstractSyntaxTree ast, Cel cel)
       throws CelOptimizationException {
     CelBuilder builder = cel.toCelBuilder();
@@ -134,11 +135,16 @@ public final class ConstantFoldingOptimizer implements CelAstOptimizer {
     // Override the environment's expected type to generally allow all subtrees to be folded.
     Cel optimizerEnv = builder.setResultType(SimpleType.DYN).build();
 
-    CelMutableAst mutableAst = CelMutableAst.fromCelAst(ast);
-    ImmutableMap<String, CelType> identTypes = precomputeIdentTypes(mutableAst);
+    CelMutableAst initialMutableAst = CelMutableAst.fromCelAst(ast);
+    ImmutableMap<String, CelType> identTypes = precomputeIdentTypes(initialMutableAst);
 
-    mutableAst = foldConstants(optimizerEnv, valueProvider, identTypes, mutableAst);
+    CelMutableAst mutableAst =
+        foldConstants(optimizerEnv, valueProvider, identTypes, initialMutableAst);
     mutableAst = pruneOptionalElements(mutableAst);
+
+    if (mutableAst == initialMutableAst) {
+      return OptimizationResult.create(ast);
+    }
 
     return OptimizationResult.create(astMutator.renumberIdsConsecutively(mutableAst).toParsedAst());
   }
@@ -735,10 +741,21 @@ public final class ConstantFoldingOptimizer implements CelAstOptimizer {
       updatedIndicesBuilder.add(newOptIndex);
     }
 
+    // An optional list is modified if:
+    // 1. An optional.none() was dropped - it this case, the updatedElements.size() decreases.
+    // 2. An optional.of(literal) was unwrapped into a regular element - in this case,
+    // updatedIndices.size() decreases.
+    // If both counts are unchanged, neither case occurred, and we can return the original AST.
+    ImmutableList<CelMutableExpr> updatedElements = updatedElemBuilder.build();
+    ImmutableList<Integer> updatedIndices = updatedIndicesBuilder.build();
+    if (updatedElements.size() == list.elements().size()
+        && updatedIndices.size() == list.optionalIndices().size()) {
+      return mutableAst;
+    }
+
     return astMutator.replaceSubtree(
         mutableAst,
-        CelMutableExpr.ofList(
-            CelMutableList.create(updatedElemBuilder.build(), updatedIndicesBuilder.build())),
+        CelMutableExpr.ofList(CelMutableList.create(updatedElements, updatedIndices)),
         expr.id());
   }
 

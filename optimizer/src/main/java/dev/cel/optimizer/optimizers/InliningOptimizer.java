@@ -101,8 +101,10 @@ public final class InliningOptimizer implements CelAstOptimizer {
   }
 
   @Override
+  @SuppressWarnings("ReferenceEquality")
   public OptimizationResult optimize(CelAbstractSyntaxTree ast, Cel cel) {
-    CelMutableAst mutableAst = CelMutableAst.fromCelAst(ast);
+    CelMutableAst initialMutableAst = CelMutableAst.fromCelAst(ast);
+    CelMutableAst mutableAst = initialMutableAst;
     for (InlineVariable inlineVariable : inlineVariables) {
       mutableAst =
           astMutator.mutateUntilFixedPoint(
@@ -123,6 +125,10 @@ public final class InliningOptimizer implements CelAstOptimizer {
                     SubtreeReplacement.of(
                         node.id(), CelMutableAst.of(replacementExpr, inlineVariableAst.source())));
               });
+    }
+
+    if (mutableAst == initialMutableAst) {
+      return OptimizationResult.create(ast);
     }
 
     return OptimizationResult.create(astMutator.renumberIdsConsecutively(mutableAst).toParsedAst());

@@ -702,6 +702,31 @@ public class SubexpressionOptimizerTest {
     assertThat(e).hasMessageThat().doesNotContain("Cycle detected");
   }
 
+  @Test
+  public void cse_nestedMacro_noOp_assertAstIdCorrectness() throws Exception {
+    Cel cel =
+        runtimeFlavor
+            .builder()
+            .addVar("x", SimpleType.DYN)
+            .setStandardMacros(CelStandardMacro.STANDARD_MACROS)
+            .setOptions(CelOptions.current().populateMacroCalls(true).build())
+            .addCompilerLibraries(CelExtensions.comprehensions())
+            .addRuntimeLibraries(CelExtensions.comprehensions())
+            .build();
+    CelOptimizer celOptimizer =
+        CelOptimizerFactory.standardCelOptimizerBuilder(cel)
+            .addAstOptimizers(SubexpressionOptimizer.getInstance())
+            .build();
+    CelAbstractSyntaxTree ast =
+        cel.compile("[{}, {\"a\": 1}, {\"b\": 2}].filter(m, has(x.a))").getAst();
+
+    CelAbstractSyntaxTree optimizedAst = celOptimizer.optimize(ast);
+
+    assertThat(CEL_UNPARSER.unparse(optimizedAst))
+        .isEqualTo("[{}, {\"a\": 1}, {\"b\": 2}].filter(m, has(x.a))");
+    assertThat(optimizedAst).isSameInstanceAs(ast);
+  }
+
   /**
    * Converts AST containing cel.block related test functions to internal functions (e.g: cel.block
    * -> cel.@block)

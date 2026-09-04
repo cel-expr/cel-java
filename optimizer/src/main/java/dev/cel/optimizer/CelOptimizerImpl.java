@@ -39,6 +39,7 @@ final class CelOptimizerImpl implements CelOptimizer {
   }
 
   @Override
+  @SuppressWarnings("ReferenceEquality")
   public CelAbstractSyntaxTree optimize(CelAbstractSyntaxTree ast) throws CelOptimizationException {
     if (!ast.isChecked()) {
       throw new IllegalArgumentException("AST must be type-checked.");
@@ -49,16 +50,18 @@ final class CelOptimizerImpl implements CelOptimizer {
     try {
       for (CelAstOptimizer optimizer : astOptimizers) {
         OptimizationResult result = optimizer.optimize(optimizedAst, celOptimizerEnv);
-        if (!result.newFunctionDecls().isEmpty() || !result.newVarDecls().isEmpty()) {
-          celOptimizerEnv =
-              celOptimizerEnv
-                  .toCelBuilder()
-                  .addVarDeclarations(result.newVarDecls())
-                  .addFunctionDeclarations(result.newFunctionDecls())
-                  .build();
+        if (result.optimizedAst() != optimizedAst) {
+          if (!result.newFunctionDecls().isEmpty() || !result.newVarDecls().isEmpty()) {
+            celOptimizerEnv =
+                celOptimizerEnv
+                    .toCelBuilder()
+                    .addVarDeclarations(result.newVarDecls())
+                    .addFunctionDeclarations(result.newFunctionDecls())
+                    .build();
+          }
+          optimizedAst = celOptimizerEnv.check(result.optimizedAst()).getAst();
+          assertAstIdCorrectness(optimizedAst);
         }
-        optimizedAst = celOptimizerEnv.check(result.optimizedAst()).getAst();
-        assertAstIdCorrectness(optimizedAst);
       }
     } catch (CelValidationException e) {
       throw new CelOptimizationException(
