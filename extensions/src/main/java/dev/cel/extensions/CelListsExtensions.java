@@ -132,14 +132,16 @@ public final class CelListsExtensions
         CelFunctionBinding.from("list_sort", Collection.class, CelListsExtensions::sort)),
     SORT_BY(
         CelFunctionDecl.newFunctionDeclaration(
-            "lists.@sortByAssociatedKeys",
-            CelOverloadDecl.newGlobalOverload(
+            "@sortByAssociatedKeys",
+            CelOverloadDecl.newMemberOverload(
                 "list_sortByAssociatedKeys",
-                "Sorts a list by a key value. Used by the 'sortBy' macro",
+                "Sorts a list by an associated list of keys. Used by the 'sortBy' macro",
                 ListType.create(TypeParamType.create("T")),
-                ListType.create(TypeParamType.create("T")))),
+                ListType.create(TypeParamType.create("T")),
+                ListType.create(TypeParamType.create("U")))),
         CelFunctionBinding.from(
             "list_sortByAssociatedKeys",
+            Collection.class,
             Collection.class,
             CelListsExtensions::sortByAssociatedKeys));
 
@@ -358,8 +360,18 @@ public final class CelListsExtensions
     }
   }
 
+  private static final CelObjectComparator OBJECT_COMPARATOR = new CelObjectComparator();
+
   private static ImmutableList<Object> sort(Collection<Object> objects) {
-    return ImmutableList.sortedCopyOf(new CelObjectComparator(), objects);
+    if (objects.isEmpty()) {
+      return ImmutableList.of();
+    }
+    if (objects.size() == 1) {
+      Object single = objects.iterator().next();
+      OBJECT_COMPARATOR.compare(single, single);
+      return ImmutableList.copyOf(objects);
+    }
+    return ImmutableList.sortedCopyOf(OBJECT_COMPARATOR, objects);
   }
 
   private static class CelObjectComparator implements Comparator<Object> {
@@ -383,6 +395,37 @@ public final class CelListsExtensions
     }
   }
 
+  private static final String UNUSED_ITER_VAR = "#unused";
+  private static final String SORT_BY_INPUT_VAR = "@__sortBy_input__";
+
+  /**
+   * Expands the {@code list.sortBy(var, expr)} receiver macro into a binding expression that sorts
+   * the target list using keys evaluated by mapping {@code expr} over each element.
+   *
+   * <p>For example, given:
+   *
+   * <pre>{@code
+   * myList.sortBy(item, -item.field)
+   * }</pre>
+   *
+   * <p>The macro expands into:
+   *
+   * <pre>{@code
+   * cel.bind(@__sortBy_input__, myList,
+   *     @__sortBy_input__.@sortByAssociatedKeys(
+   *         @__sortBy_input__.map(item, -item.field)
+   *     )
+   * )
+   * }</pre>
+   *
+   * <p>Where:
+   *
+   * <ul>
+   *   <li>{@code @__sortBy_input__.map(item, -item.field)} evaluates the sort key for each element.
+   *   <li>{@code @sortByAssociatedKeys} stably sorts the input list elements based on their
+   *       corresponding sort keys.
+   * </ul>
+   */
   private static Optional<CelExpr> sortByMacro(
       CelMacroExprFactory exprFactory, CelExpr target, ImmutableList<CelExpr> arguments) {
     checkNotNull(exprFactory);
@@ -400,56 +443,86 @@ public final class CelListsExtensions
     String varName = varIdent.ident().name();
     CelExpr sortKeyExpr = checkNotNull(arguments.get(1));
 
-    // Compute the key using the second argument of the `sortBy(e, key)` macro.
-    // Combine the key and the value in a two-element list
-    CelExpr step = exprFactory.newList(sortKeyExpr, varIdent);
-    // Wrap the pair in another list in order to be able to use the `list+list` operator
-    step = exprFactory.newList(step);
-    // Append the key-value pair to the i
-    step =
+    // Build map comprehension: @__sortBy_input__.map(varName, sortKeyExpr)
+    CelExpr targetIdent = exprFactory.newIdentifier(SORT_BY_INPUT_VAR);
+    CelExpr mapStep =
         exprFactory.newGlobalCall(
             Operator.ADD.getFunction(),
             exprFactory.newIdentifier(exprFactory.getAccumulatorVarName()),
-            step);
-    // Create an intermediate list and populate it with key-value pairs
-    step =
+            exprFactory.newList(sortKeyExpr));
+    CelExpr mapCompr =
         exprFactory.fold(
             varName,
-            target,
+            targetIdent,
             exprFactory.getAccumulatorVarName(),
             exprFactory.newList(),
-            exprFactory.newBoolLiteral(true), // Include all elements
-            step,
+            exprFactory.newBoolLiteral(true),
+            mapStep,
             exprFactory.newIdentifier(exprFactory.getAccumulatorVarName()));
-    // Finally, sort the list of key-value pairs and map it to a list of values
-    step = exprFactory.newGlobalCall(Function.SORT_BY.getFunction(), step);
 
-    return Optional.of(step);
+    // Build call: @__sortBy_input__.@sortByAssociatedKeys(mapCompr)
+    CelExpr callExpr =
+        exprFactory.newReceiverCall(
+            Function.SORT_BY.getFunction(), exprFactory.newIdentifier(SORT_BY_INPUT_VAR), mapCompr);
+
+    // Build bind: cel.bind(@__sortBy_input__, target, callExpr)
+    CelExpr bindExpr =
+        exprFactory.fold(
+            UNUSED_ITER_VAR,
+            exprFactory.newList(),
+            SORT_BY_INPUT_VAR,
+            target,
+            exprFactory.newBoolLiteral(false),
+            exprFactory.newIdentifier(SORT_BY_INPUT_VAR),
+            callExpr);
+
+    return Optional.of(bindExpr);
   }
 
-  @SuppressWarnings({"unchecked", "rawtypes"})
+  /**
+   * Sorts elements of {@code list} based on the natural order of corresponding elements in {@code
+   * keys}.
+   *
+   * <p>Both {@code list} and {@code keys} must have the exact same size. The sorting is stable
+   * (i.e., preserves the relative order of elements with equal keys).
+   *
+   * @param list The input list to sort
+   * @param keys The associated keys evaluated for each element in {@code list}
+   * @return A new {@link ImmutableList} containing the elements of {@code list} sorted by {@code
+   *     keys}
+   */
   private static ImmutableList<Object> sortByAssociatedKeys(
-      Collection<List<Object>> keyValuePairs) {
-    List<Object>[] array = keyValuePairs.toArray(new List[0]);
-    Arrays.sort(array, new CelObjectByKeyComparator(new CelObjectComparator()));
-    ImmutableList.Builder<Object> builder = ImmutableList.builderWithExpectedSize(array.length);
-    for (List<Object> pair : array) {
-      builder.add(pair.get(1));
+      Collection<Object> list, Collection<Object> keys) {
+    checkArgument(
+        list.size() == keys.size(),
+        "@sortByAssociatedKeys() expected a list of the same size as the associated keys"
+            + " list, but got %s in list and %s in keys",
+        list.size(),
+        keys.size());
+
+    int listSize = list.size();
+    if (listSize == 0) {
+      return ImmutableList.of();
+    }
+
+    Object[] listArray = list.toArray();
+    Object[] keysArray = keys.toArray();
+    if (listSize == 1) {
+      OBJECT_COMPARATOR.compare(keysArray[0], keysArray[0]);
+      return ImmutableList.copyOf(list);
+    }
+
+    Integer[] indices = new Integer[listSize];
+    for (int i = 0; i < listSize; i++) {
+      indices[i] = i;
+    }
+
+    Arrays.sort(indices, (i1, i2) -> OBJECT_COMPARATOR.compare(keysArray[i1], keysArray[i2]));
+
+    ImmutableList.Builder<Object> builder = ImmutableList.builderWithExpectedSize(listSize);
+    for (int index : indices) {
+      builder.add(listArray[index]);
     }
     return builder.build();
-  }
-
-  private static class CelObjectByKeyComparator implements Comparator<Object> {
-    private final CelObjectComparator keyComparator;
-
-    CelObjectByKeyComparator(CelObjectComparator keyComparator) {
-      this.keyComparator = keyComparator;
-    }
-
-    @SuppressWarnings({"unchecked"})
-    @Override
-    public int compare(Object o1, Object o2) {
-      return keyComparator.compare(((List<Object>) o1).get(0), ((List<Object>) o2).get(0));
-    }
   }
 }
