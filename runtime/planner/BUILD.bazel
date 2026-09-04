@@ -21,3 +21,13 @@ java_library(
     visibility = ["//:internal"],
     exports = ["//runtime/src/main/java/dev/cel/runtime/planner:planned_program"],
 )
+
+java_library(
+    name = "attribute",
+    exports = ["//runtime/src/main/java/dev/cel/runtime/planner:attribute"],
+)
+
+cel_android_library(
+    name = "attribute_android",
+    exports = ["//runtime/src/main/java/dev/cel/runtime/planner:attribute_android"],
+)

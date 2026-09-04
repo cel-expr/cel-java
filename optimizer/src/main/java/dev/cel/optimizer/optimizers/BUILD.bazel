@@ -112,6 +112,43 @@ java_library(
 )
 
 java_library(
+    name = "select_optimizer",
+    srcs = [
+        "SelectOptimizer.java",
+    ],
+    tags = [
+    ],
+    deps = [
+        "//:auto_value",
+        "//bundle:cel",
+        "//checker:standard_decl",
+        "//common:cel_ast",
+        "//common:cel_descriptor_util",
+        "//common:cel_descriptors",
+        "//common:cel_source",
+        "//common:compiler_common",
+        "//common:mutable_ast",
+        "//common/ast",
+        "//common/ast:expr_factory",
+        "//common/ast:mutable_expr",
+        "//common/internal:cel_descriptor_pools",
+        "//common/navigation:common",
+        "//common/navigation:mutable_navigation",
+        "//common/types",
+        "//common/types:cel_types",
+        "//common/types:type_providers",
+        "//common/values",
+        "//common/values:cel_byte_string",
+        "//optimizer:ast_optimizer",
+        "//optimizer:mutable_ast",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_protobuf_protobuf_java",
+        "@maven//:org_jspecify_jspecify",
+    ],
+)
+
+java_library(
     name = "default_optimizer_constants",
     srcs = [
         "DefaultOptimizerConstants.java",
