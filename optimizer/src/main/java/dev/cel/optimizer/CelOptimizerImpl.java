@@ -32,10 +32,15 @@ import java.util.Map;
 final class CelOptimizerImpl implements CelOptimizer {
   private final Cel cel;
   private final ImmutableSet<CelAstOptimizer> astOptimizers;
+  private final ImmutableSet<CelOptimizerListener> listeners;
 
-  CelOptimizerImpl(Cel cel, ImmutableSet<CelAstOptimizer> astOptimizers) {
+  CelOptimizerImpl(
+      Cel cel,
+      ImmutableSet<CelAstOptimizer> astOptimizers,
+      ImmutableSet<CelOptimizerListener> listeners) {
     this.cel = cel;
     this.astOptimizers = astOptimizers;
+    this.listeners = listeners;
   }
 
   @Override
@@ -44,27 +49,51 @@ final class CelOptimizerImpl implements CelOptimizer {
       throw new IllegalArgumentException("AST must be type-checked.");
     }
 
+    listeners.forEach(listener -> listener.onOptimizationStart(ast));
+
     Cel celOptimizerEnv = cel;
     CelAbstractSyntaxTree optimizedAst = ast;
+
     try {
       for (CelAstOptimizer optimizer : astOptimizers) {
-        OptimizationResult result = optimizer.optimize(optimizedAst, celOptimizerEnv);
-        if (!result.newFunctionDecls().isEmpty() || !result.newVarDecls().isEmpty()) {
-          celOptimizerEnv =
-              celOptimizerEnv
-                  .toCelBuilder()
-                  .addVarDeclarations(result.newVarDecls())
-                  .addFunctionDeclarations(result.newFunctionDecls())
-                  .build();
+        CelAbstractSyntaxTree preAst = optimizedAst;
+        try {
+          for (CelOptimizerListener listener : listeners) {
+            listener.onPassStart(optimizer, preAst);
+          }
+
+          OptimizationResult result = optimizer.optimize(optimizedAst, celOptimizerEnv);
+
+          if (!result.newFunctionDecls().isEmpty() || !result.newVarDecls().isEmpty()) {
+            celOptimizerEnv =
+                celOptimizerEnv
+                    .toCelBuilder()
+                    .addVarDeclarations(result.newVarDecls())
+                    .addFunctionDeclarations(result.newFunctionDecls())
+                    .build();
+          }
+          optimizedAst = celOptimizerEnv.check(result.optimizedAst()).getAst();
+          assertAstIdCorrectness(optimizedAst);
+
+          for (CelOptimizerListener listener : listeners) {
+            listener.onPassEnd(optimizer, preAst, optimizedAst);
+          }
+        } catch (CelValidationException e) {
+          notifyPassFailure(optimizer, preAst, e);
+          throw new CelOptimizationException(
+              "Optimized AST failed to type-check: " + e.getMessage(), e);
+        } catch (CelOptimizationException e) {
+          notifyPassFailure(optimizer, preAst, e);
+          throw e;
+        } catch (RuntimeException e) {
+          notifyPassFailure(optimizer, preAst, e);
+          throw new CelOptimizationException("Optimization failure: " + e.getMessage(), e);
         }
-        optimizedAst = celOptimizerEnv.check(result.optimizedAst()).getAst();
-        assertAstIdCorrectness(optimizedAst);
       }
-    } catch (CelValidationException e) {
-      throw new CelOptimizationException(
-          "Optimized AST failed to type-check: " + e.getMessage(), e);
-    } catch (RuntimeException e) {
-      throw new CelOptimizationException("Optimization failure: " + e.getMessage(), e);
+    } finally {
+      for (CelOptimizerListener listener : listeners) {
+        listener.onOptimizationEnd(ast, optimizedAst);
+      }
     }
 
     return optimizedAst;
@@ -123,6 +152,13 @@ final class CelOptimizerImpl implements CelOptimizer {
     }
   }
 
+  private void notifyPassFailure(
+      CelAstOptimizer optimizer, CelAbstractSyntaxTree ast, Exception failure) {
+    for (CelOptimizerListener listener : listeners) {
+      listener.onPassFailure(optimizer, ast, failure);
+    }
+  }
+
   /** Create a new builder for constructing a {@link CelOptimizer} instance. */
   static CelOptimizerImpl.Builder newBuilder(Cel cel) {
     return new CelOptimizerImpl.Builder(cel);
@@ -132,10 +168,12 @@ final class CelOptimizerImpl implements CelOptimizer {
   static final class Builder implements CelOptimizerBuilder {
     private final Cel cel;
     private final ImmutableSet.Builder<CelAstOptimizer> astOptimizers;
+    private final ImmutableSet.Builder<CelOptimizerListener> listeners;
 
     private Builder(Cel cel) {
       this.cel = cel;
       this.astOptimizers = ImmutableSet.builder();
+      this.listeners = ImmutableSet.builder();
     }
 
     @Override
@@ -152,8 +190,21 @@ final class CelOptimizerImpl implements CelOptimizer {
     }
 
     @Override
+    public CelOptimizerBuilder addOptimizerListeners(CelOptimizerListener... listeners) {
+      checkNotNull(listeners);
+      return addOptimizerListeners(Arrays.asList(listeners));
+    }
+
+    @Override
+    public CelOptimizerBuilder addOptimizerListeners(Iterable<CelOptimizerListener> listeners) {
+      checkNotNull(listeners);
+      this.listeners.addAll(listeners);
+      return this;
+    }
+
+    @Override
     public CelOptimizer build() {
-      return new CelOptimizerImpl(cel, astOptimizers.build());
+      return new CelOptimizerImpl(cel, astOptimizers.build(), listeners.build());
     }
   }
 }
