@@ -14,6 +14,7 @@
 
 package dev.cel.runtime.planner;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.truth.Truth.assertThat;
 import static dev.cel.common.CelFunctionDecl.newFunctionDeclaration;
 import static dev.cel.common.CelOverloadDecl.newGlobalOverload;
@@ -37,6 +38,7 @@ import dev.cel.common.CelOptions;
 import dev.cel.common.CelSource;
 import dev.cel.common.ast.CelConstant;
 import dev.cel.common.ast.CelExpr;
+import dev.cel.common.exceptions.CelAttributeNotFoundException;
 import dev.cel.common.exceptions.CelDivideByZeroException;
 import dev.cel.common.internal.CelDescriptorPool;
 import dev.cel.common.internal.DefaultDescriptorPool;
@@ -57,6 +59,7 @@ import dev.cel.common.values.CelByteString;
 import dev.cel.common.values.CelValueConverter;
 import dev.cel.common.values.CelValueProvider;
 import dev.cel.common.values.NullValue;
+import dev.cel.common.values.OptionalValue;
 import dev.cel.common.values.ProtoCelValueConverter;
 import dev.cel.common.values.ProtoMessageValueProvider;
 import dev.cel.compiler.CelCompiler;
@@ -82,6 +85,10 @@ import dev.cel.runtime.Program;
 import dev.cel.runtime.RuntimeEquality;
 import dev.cel.runtime.RuntimeHelpers;
 import dev.cel.runtime.standard.TypeFunction;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.HashMap;
+import java.util.Map;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
@@ -92,7 +99,9 @@ public final class ProgramPlannerTest {
   private static final CelTypeProvider TYPE_PROVIDER =
       new CombinedCelTypeProvider(
           DefaultTypeProvider.getInstance(),
-          new ProtoMessageTypeProvider(ImmutableSet.of(TestAllTypes.getDescriptor())));
+          ProtoMessageTypeProvider.newBuilder()
+              .addDescriptors(ImmutableSet.of(TestAllTypes.getDescriptor()))
+              .build());
   private static final RuntimeEquality RUNTIME_EQUALITY =
       RuntimeEquality.create(RuntimeHelpers.create(), CEL_OPTIONS);
   private static final CelDescriptorPool DESCRIPTOR_POOL =
@@ -255,9 +264,7 @@ public final class ProgramPlannerTest {
 
   private static void addBindingsToDispatcher(
       DefaultDispatcher.Builder builder, ImmutableCollection<CelFunctionBinding> overloadBindings) {
-    if (overloadBindings.isEmpty()) {
-      throw new IllegalArgumentException("Invalid bindings");
-    }
+    checkArgument(!overloadBindings.isEmpty(), "Invalid bindings");
 
     overloadBindings.forEach(
         overload ->
@@ -1461,6 +1468,305 @@ public final class ProgramPlannerTest {
         .isEqualTo(CelUnknownSet.create(CelAttribute.create("custom_x")));
     assertThat(planner.plan(ast2).eval(vars))
         .isEqualTo(CelUnknownSet.create(CelAttribute.create("custom_msg")));
+  }
+
+  @Test
+  public void plan_celAttribute_4TupleDefaults_evaluatesDefault(
+      @TestParameter Default4TupleTestCase testCase) throws Exception {
+    ImmutableMap<String, Object> vars = ImmutableMap.of("msg", TestAllTypes.getDefaultInstance());
+    CelAbstractSyntaxTree ast = parseSelectAst(testCase.expression);
+
+    Object result = PLANNER.plan(ast).eval(vars);
+
+    assertThat(result).isEqualTo(testCase.expected);
+  }
+
+  @Test
+  public void plan_celAttribute_unboundRootVariable_throwsCelAttributeNotFoundException()
+      throws Exception {
+    CelAbstractSyntaxTree ast =
+        parseSelectAst("cel.@attribute(unbound_var, [[1, 'single_int32', 5, 0]], int)");
+    Program program = PLANNER.plan(ast);
+
+    CelEvaluationException e =
+        assertThrows(CelEvaluationException.class, () -> program.eval(ImmutableMap.of()));
+
+    assertThat(e).hasCauseThat().isInstanceOf(CelAttributeNotFoundException.class);
+    assertThat(e).hasMessageThat().contains("unbound_var");
+  }
+
+  @Test
+  public void plan_celAttribute_javaMapWithIntegerValue_normalizesToLong() throws Exception {
+    ImmutableMap<String, Object> innerMap = ImmutableMap.of("int_key", 42);
+    ImmutableMap<String, Object> vars =
+        ImmutableMap.of("map_var", innerMap, "outer_map", ImmutableMap.of("inner", innerMap));
+    CelAbstractSyntaxTree leafScalarAst =
+        parseSelectAst("cel.@attribute(map_var, [[1, 'int_key', 5, 0]], int)");
+    CelAbstractSyntaxTree leafMapAst =
+        parseSelectAst("cel.@attribute(outer_map, [[1, 'inner', -1, {}]], map)");
+
+    Object scalarResult = PLANNER.plan(leafScalarAst).eval(vars);
+    Object mapResult = PLANNER.plan(leafMapAst).eval(vars);
+
+    assertThat(scalarResult).isEqualTo(42L);
+    assertThat(mapResult).isEqualTo(ImmutableMap.of("int_key", 42L));
+  }
+
+  @Test
+  public void plan_celHasField_nullRootOperand_throwsCelAttributeNotFoundException()
+      throws Exception {
+    CelAbstractSyntaxTree ast = parseSelectAst("cel.@hasField(null, [[1, 'single_int32']])");
+    Program program = PLANNER.plan(ast);
+
+    CelEvaluationException e = assertThrows(CelEvaluationException.class, program::eval);
+
+    assertThat(e).hasCauseThat().isInstanceOf(CelAttributeNotFoundException.class);
+    assertThat(e).hasMessageThat().contains("single_int32");
+  }
+
+  @Test
+  public void plan_celHasField_optionalRootOperand_throwsUnsupportedOperationException()
+      throws Exception {
+    CelAbstractSyntaxTree ast =
+        parseSelectAst("cel.@hasField(optional_var, [[1, 'single_int32']])");
+    Program program = PLANNER.plan(ast);
+    ImmutableMap<String, Object> input =
+        ImmutableMap.of("optional_var", OptionalValue.create(TestAllTypes.getDefaultInstance()));
+
+    CelEvaluationException e =
+        assertThrows(CelEvaluationException.class, () -> program.eval(input));
+
+    assertThat(e).hasCauseThat().isInstanceOf(UnsupportedOperationException.class);
+  }
+
+  @Test
+  public void plan_celHasField_nonSelectableIntermediate_throwsCelAttributeNotFoundException()
+      throws Exception {
+    CelAbstractSyntaxTree ast =
+        parseSelectAst("cel.@hasField(msg, [[1, 'single_int32'], [2, 'nested_field']])");
+    Program program = PLANNER.plan(ast);
+    ImmutableMap<String, Object> input =
+        ImmutableMap.of("msg", TestAllTypes.newBuilder().setSingleInt32(42).build());
+
+    CelEvaluationException e =
+        assertThrows(CelEvaluationException.class, () -> program.eval(input));
+
+    assertThat(e).hasCauseThat().isInstanceOf(CelAttributeNotFoundException.class);
+  }
+
+  @Test
+  public void plan_celHasField_javaMapWithNullValueLeaf_returnsTrue() throws Exception {
+    Map<String, Object> mapWithNull = new HashMap<>();
+    mapWithNull.put("null_leaf", null);
+    CelAbstractSyntaxTree leafAst = parseSelectAst("cel.@hasField(map_var, [[1, 'null_leaf']])");
+    Program program = PLANNER.plan(leafAst);
+
+    Object result = program.eval(ImmutableMap.of("map_var", mapWithNull));
+
+    assertThat(result).isEqualTo(true);
+  }
+
+  @Test
+  public void plan_celHasField_javaMapWithAbsentKey_returnsFalse() throws Exception {
+    Map<String, Object> mapWithNull = new HashMap<>();
+    mapWithNull.put("null_leaf", null);
+    CelAbstractSyntaxTree absentAst = parseSelectAst("cel.@hasField(map_var, [[1, 'absent_key']])");
+    Program program = PLANNER.plan(absentAst);
+
+    Object result = program.eval(ImmutableMap.of("map_var", mapWithNull));
+
+    assertThat(result).isEqualTo(false);
+  }
+
+  @Test
+  public void plan_celHasField_javaMapWithNullIntermediate_throwsCelAttributeNotFoundException()
+      throws Exception {
+    Map<String, Object> mapWithNull = new HashMap<>();
+    mapWithNull.put("null_leaf", null);
+    CelAbstractSyntaxTree nestedThroughNullAst =
+        parseSelectAst("cel.@hasField(map_var, [[1, 'null_leaf'], [2, 'child']])");
+    Program program = PLANNER.plan(nestedThroughNullAst);
+    ImmutableMap<String, Object> input = ImmutableMap.of("map_var", mapWithNull);
+
+    CelEvaluationException e =
+        assertThrows(CelEvaluationException.class, () -> program.eval(input));
+
+    assertThat(e).hasCauseThat().isInstanceOf(CelAttributeNotFoundException.class);
+  }
+
+  @Test
+  public void plan_celHasField_maybeAttributeCandidatePrecedence_knownHigherPriorityWins()
+      throws Exception {
+    CelAbstractSyntaxTree ast = parseSelectAst("cel.@hasField(b, [[1, 'single_int32']])");
+    Program program = PLANNER.plan(ast);
+    TestAllTypes knownMsg = TestAllTypes.newBuilder().setSingleInt32(99).build();
+    PartialVars partialVars =
+        PartialVars.of(
+            ImmutableMap.of("cel.expr.conformance.proto3.b", knownMsg),
+            CelAttributePattern.create("b")
+                .qualify(CelAttribute.Qualifier.ofString("single_int32")));
+
+    Object result = program.eval(partialVars);
+
+    assertThat(result).isEqualTo(true);
+  }
+
+  @Test
+  public void plan_celHasField_maybeAttributeCandidatePrecedence_unknownReturnedWhenHigherAbsent()
+      throws Exception {
+    CelAbstractSyntaxTree ast = parseSelectAst("cel.@hasField(b, [[1, 'single_int32']])");
+    Program program = PLANNER.plan(ast);
+    PartialVars partialVars =
+        PartialVars.of(
+            CelAttributePattern.create("b")
+                .qualify(CelAttribute.Qualifier.ofString("single_int32")));
+
+    Object result = program.eval(partialVars);
+
+    assertThat(result).isInstanceOf(CelUnknownSet.class);
+  }
+
+  @Test
+  public void plan_celHasField_protoMessagePresenceUnset_returnsFalse() throws Exception {
+    CelAbstractSyntaxTree ast =
+        parseSelectAst("cel.@hasField(msg, [[21, 'single_nested_message'], [1, 'bb']])");
+    Program program = PLANNER.plan(ast);
+
+    Object result = program.eval(ImmutableMap.of("msg", TestAllTypes.getDefaultInstance()));
+
+    assertThat(result).isEqualTo(false);
+  }
+
+  @Test
+  public void plan_celHasField_protoMessagePresenceSet_returnsTrue() throws Exception {
+    CelAbstractSyntaxTree ast =
+        parseSelectAst("cel.@hasField(msg, [[21, 'single_nested_message'], [1, 'bb']])");
+    Program program = PLANNER.plan(ast);
+    TestAllTypes populatedMsg =
+        TestAllTypes.newBuilder()
+            .setSingleNestedMessage(NestedMessage.newBuilder().setBb(10).build())
+            .build();
+
+    Object result = program.eval(ImmutableMap.of("msg", populatedMsg));
+
+    assertThat(result).isEqualTo(true);
+  }
+
+  @Test
+  public void plan_celAttribute_invalidAstIntegrity_throwsIllegalArgumentException(
+      @TestParameter InvalidSelectAstTestCase testCase) throws Exception {
+    CelAbstractSyntaxTree ast = parseSelectAst(testCase.expression);
+
+    CelEvaluationException e = assertThrows(CelEvaluationException.class, () -> PLANNER.plan(ast));
+
+    assertThat(e).hasCauseThat().isInstanceOf(IllegalArgumentException.class);
+    assertThat(e).hasMessageThat().contains(testCase.expectedErrorSubstring);
+  }
+
+  private static CelAbstractSyntaxTree parseSelectAst(String expression) throws Exception {
+    String parseable =
+        expression
+            .replace("cel.@attribute", "cel_attribute")
+            .replace("cel.@hasField", "cel_has_field");
+    CelAbstractSyntaxTree parsed = CEL_COMPILER.parse(parseable).getAst();
+    CelExpr root = parsed.getExpr();
+    String targetFn =
+        root.call().function().equals("cel_attribute") ? "cel.@attribute" : "cel.@hasField";
+    CelExpr rewrittenRoot =
+        root.toBuilder().setCall(root.call().toBuilder().setFunction(targetFn).build()).build();
+    return CelAbstractSyntaxTree.newParsedAst(rewrittenRoot, parsed.getSource());
+  }
+
+  @SuppressWarnings("ImmutableEnumChecker") // Test only
+  private enum Default4TupleTestCase {
+    SCALAR_INT(
+        "cel.@attribute(msg, [[21, 'single_nested_message', 11], [1, 'bb', 5, 42]], int)", 42L),
+    SCALAR_UINT(
+        "cel.@attribute(msg, [[4, 'single_uint64', 4, 42u]], uint)", UnsignedLong.valueOf(42)),
+    SCALAR_DOUBLE("cel.@attribute(msg, [[12, 'single_double', 1, 1.5]], double)", 1.5d),
+    SCALAR_BOOL("cel.@attribute(msg, [[13, 'single_bool', 8, true]], bool)", true),
+    SCALAR_STRING("cel.@attribute(msg, [[14, 'single_string', 9, 'abc']], string)", "abc"),
+    SCALAR_BYTES(
+        "cel.@attribute(msg, [[15, 'single_bytes', 12, b'abc']], bytes)",
+        CelByteString.of("abc".getBytes(UTF_8))),
+    MAP("cel.@attribute(msg, [[61, 'map_string_string', -1, {}]], map)", ImmutableMap.of()),
+    LIST("cel.@attribute(msg, [[31, 'repeated_int32', 5, []]], list)", ImmutableList.of()),
+    DURATION(
+        "cel.@attribute(msg, [[101, 'single_duration', 11, duration('0s')]],"
+            + " google_protobuf_Duration)",
+        Duration.ZERO),
+    TIMESTAMP(
+        "cel.@attribute(msg, [[102, 'single_timestamp', 11, timestamp(0)]],"
+            + " google_protobuf_Timestamp)",
+        Instant.EPOCH);
+
+    private final String expression;
+    private final Object expected;
+
+    Default4TupleTestCase(String expression, Object expected) {
+      this.expression = expression;
+      this.expected = expected;
+    }
+  }
+
+  private enum InvalidSelectAstTestCase {
+    WRONG_ARG_COUNT_ATTRIBUTE(
+        "cel.@attribute(msg, [[1, 'single_int32', 5]])",
+        "Expected 3 arguments for cel.@attribute, found 2"),
+    WRONG_ARG_COUNT_HAS_FIELD(
+        "cel.@hasField(msg, [[1, 'single_int32']], int)",
+        "Expected 2 arguments for cel.@hasField, found 3"),
+    QUALIFIERS_NOT_LIST("cel.@hasField(msg, 123)", "Expected qualifiers argument to be a list"),
+    HOP_NOT_LIST("cel.@hasField(msg, [123])", "Expected qualifier hop to be a list"),
+    EMPTY_QUALIFIERS_ATTRIBUTE(
+        "cel.@attribute(msg, [], int)", "Expected qualifiers list to be non-empty"),
+    EMPTY_QUALIFIERS_HAS_FIELD(
+        "cel.@hasField(msg, [])", "Expected qualifiers list to be non-empty"),
+    ATTRIBUTE_TUPLE_TOO_SMALL(
+        "cel.@attribute(msg, [[1, 'single_int32']], int)",
+        "Expected qualifier hop for cel.@attribute to contain 3 or 4 elements"),
+    ATTRIBUTE_TUPLE_TOO_LARGE(
+        "cel.@attribute(msg, [[1, 'single_int32', 5, 0, 99]], int)",
+        "Expected qualifier hop for cel.@attribute to contain 3 or 4 elements"),
+    HAS_FIELD_TUPLE_WRONG_SIZE(
+        "cel.@hasField(msg, [[1, 'single_int32', 5]])",
+        "Expected qualifier hop for cel.@hasField to contain 2 elements"),
+    NON_LEAF_WITH_DEFAULT(
+        "cel.@attribute(msg, [[21, 'single_nested_message', 11, {}], [1, 'bb', 5, 0]], int)",
+        "Non-leaf qualifier hop must not contain a default value"),
+    NON_LEAF_NON_MESSAGE_TYPE_CODE(
+        "cel.@attribute(msg, [[21, 'single_nested_message', 5], [1, 'bb', 5, 0]], int)",
+        "Non-leaf qualifier hop must have MESSAGE type code (11)"),
+    INVALID_TYPE_CODE_GROUP(
+        "cel.@attribute(msg, [[1, 'single_int32', 10, 0]], int)", "Invalid protobuf type code: 10"),
+    INVALID_TYPE_CODE_ZERO(
+        "cel.@attribute(msg, [[1, 'single_int32', 0, 0]], int)", "Invalid protobuf type code: 0"),
+    MAP_TYPE_CODE_WITH_SCALAR_IDENT(
+        "cel.@attribute(msg, [[61, 'map_string_string', -1, {}]], int)",
+        "Leaf type code -1 is incompatible with typeIdent 'int'"),
+    MAP_IDENT_WITH_NON_MAP_TYPE_CODE(
+        "cel.@attribute(msg, [[61, 'map_string_string', 11, {}]], map)",
+        "Leaf type code 11 is incompatible with typeIdent 'map'"),
+    MESSAGE_TYPE_CODE_WITH_SCALAR_IDENT(
+        "cel.@attribute(msg, [[21, 'single_nested_message', 11]], int)",
+        "Leaf MESSAGE type code (11) is incompatible with scalar typeIdent 'int'"),
+    SCALAR_TYPE_CODE_MISMATCHED_WITH_SCALAR_IDENT(
+        "cel.@attribute(msg, [[1, 'single_int32', 5, 0]], string)",
+        "Leaf type code 5 (expected 'int') is incompatible with typeIdent 'string'"),
+    THIRD_ARG_NOT_IDENT(
+        "cel.@attribute(msg, [[1, 'single_int32', 5, 0]], 'int')",
+        "Expected type identifier argument to be an IDENT"),
+    UNSUPPORTED_DEFAULT_EXPR(
+        "cel.@attribute(msg, [[1, 'single_int32', 5, 1 + 2]], int)",
+        "Unsupported default value expression");
+
+    private final String expression;
+    private final String expectedErrorSubstring;
+
+    InvalidSelectAstTestCase(String expression, String expectedErrorSubstring) {
+      this.expression = expression;
+      this.expectedErrorSubstring = expectedErrorSubstring;
+    }
   }
 
   private CelAbstractSyntaxTree compile(String expression) throws Exception {

@@ -23,6 +23,7 @@ java_library(
         "//common:error_codes",
         "//common:options",
         "//common/ast",
+        "//common/exceptions:attribute_not_found",
         "//common/exceptions:divide_by_zero",
         "//common/internal:cel_descriptor_pools",
         "//common/internal:default_message_factory",

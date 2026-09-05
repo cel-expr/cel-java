@@ -187,12 +187,16 @@ final class NamespacedAttribute implements Attribute {
     if (value instanceof AccumulatedUnknowns) {
       return value;
     }
-    Object obj = celValueConverter.toRuntimeValue(value);
+    Object obj = (value instanceof Map) ? value : celValueConverter.toRuntimeValue(value);
 
     // Avoid enhanced for loop to prevent UnmodifiableIterator from being allocated
     for (int i = 0; i < qualifiers.size(); i++) {
       Qualifier element = qualifiers.get(i);
       obj = element.qualify(obj);
+      obj = (obj instanceof Map) ? obj : celValueConverter.toRuntimeValue(obj);
+    }
+
+    if (obj instanceof Map) {
       obj = celValueConverter.toRuntimeValue(obj);
     }
 

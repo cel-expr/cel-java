@@ -16,6 +16,7 @@ package dev.cel.runtime.planner;
 
 import com.google.common.collect.ImmutableList;
 import com.google.errorprone.annotations.Immutable;
+import dev.cel.runtime.AccumulatedUnknowns;
 import dev.cel.runtime.GlobalResolver;
 
 /**
@@ -30,6 +31,7 @@ final class MaybeAttribute implements Attribute {
   @Override
   public Object resolve(long exprId, GlobalResolver ctx, ExecutionFrame frame) {
     MissingAttribute maybeError = null;
+    AccumulatedUnknowns maybeUnknown = null;
     for (NamespacedAttribute attr : attributes) {
       Object value = attr.resolve(exprId, ctx, frame);
       if (value == null) {
@@ -43,10 +45,17 @@ final class MaybeAttribute implements Attribute {
         continue;
       }
 
+      if (value instanceof AccumulatedUnknowns) {
+        if (maybeUnknown == null) {
+          maybeUnknown = (AccumulatedUnknowns) value;
+        }
+        continue;
+      }
+
       return value;
     }
 
-    return maybeError;
+    return maybeUnknown != null ? maybeUnknown : maybeError;
   }
 
   @Override

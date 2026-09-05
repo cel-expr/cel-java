@@ -19,6 +19,7 @@ import com.google.errorprone.annotations.Immutable;
 import dev.cel.common.values.CelValueConverter;
 import dev.cel.runtime.AccumulatedUnknowns;
 import dev.cel.runtime.GlobalResolver;
+import java.util.Map;
 
 /**
  * An attribute resolved relative to a base expression (operand) by applying a sequence of
@@ -38,12 +39,16 @@ final class RelativeAttribute implements Attribute {
       return obj;
     }
 
-    obj = celValueConverter.toRuntimeValue(obj);
+    obj = (obj instanceof Map) ? obj : celValueConverter.toRuntimeValue(obj);
 
     // Avoid enhanced for loop to prevent UnmodifiableIterator from being allocated
     for (int i = 0; i < qualifiers.size(); i++) {
       Qualifier element = qualifiers.get(i);
       obj = element.qualify(obj);
+      obj = (obj instanceof Map) ? obj : celValueConverter.toRuntimeValue(obj);
+    }
+
+    if (obj instanceof Map) {
       obj = celValueConverter.toRuntimeValue(obj);
     }
 
