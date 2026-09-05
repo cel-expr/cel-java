@@ -27,10 +27,12 @@ import dev.cel.common.CelAbstractSyntaxTree;
 import dev.cel.common.CelFunctionDecl;
 import dev.cel.common.CelOptions;
 import dev.cel.common.CelOverloadDecl;
+import dev.cel.common.CelSourceLocation;
 import dev.cel.common.types.SimpleType;
 import dev.cel.common.types.StructTypeReference;
 import dev.cel.expr.conformance.proto3.TestAllTypes;
 import dev.cel.extensions.CelExtensions;
+import dev.cel.extensions.CelOptionalLibrary;
 import dev.cel.optimizer.CelOptimizer;
 import dev.cel.optimizer.CelOptimizerFactory;
 import dev.cel.optimizer.optimizers.SubexpressionOptimizer;
@@ -62,7 +64,7 @@ public final class CelPolicyVerifierImplTest {
                   .enableHeterogeneousNumericComparisons(true)
                   .build())
           .setStandardMacros(CelStandardMacro.STANDARD_MACROS)
-          .addCompilerLibraries(CelExtensions.bindings())
+          .addCompilerLibraries(CelExtensions.bindings(), CelOptionalLibrary.INSTANCE)
           .addMessageTypes(TestAllTypes.getDescriptor())
           .addVar("x", SimpleType.INT)
           .addVar("y", SimpleType.INT)
@@ -80,7 +82,7 @@ public final class CelPolicyVerifierImplTest {
   private static final CelPolicyCompiler POLICY_COMPILER =
       CelPolicyCompilerFactory.newPolicyCompiler(CEL).build();
 
-  private static final CelVerifier AST_VERIFIER = CelVerifierFactory.newVerifier().build();
+  private static final CelVerifier AST_VERIFIER = CelVerifierFactory.newVerifier(CEL).build();
   private static final CelPolicyVerifier VERIFIER =
       CelPolicyVerifierFactory.newVerifier(POLICY_COMPILER, AST_VERIFIER).build();
 
@@ -696,5 +698,688 @@ public final class CelPolicyVerifierImplTest {
 
     assertThat(results).containsKey("check_approx");
     assertThat(results.get("check_approx").status()).isEqualTo(VerificationStatus.INCONCLUSIVE);
+  }
+
+  @Test
+  public void verifyInvariants_violation_populatesPolicyDiagnosticWithSnippet() throws Exception {
+    String yamlPolicy =
+        "name: secure_access_policy\n"
+            + "rule:\n"
+            + "  match:\n"
+            + "    - condition: 'port == 80'\n"
+            + "      output: 'true'\n"
+            + "    - output: 'false'\n"
+            + "verification:\n"
+            + "  invariants:\n"
+            + "    - id: always_secure\n"
+            + "      assert:\n"
+            + "        - 'rule.result == false'\n";
+    CelPolicy policy = PARSER.parse(yamlPolicy);
+
+    ImmutableMap<String, CelVerificationResult> results = VERIFIER.verifyInvariants(policy);
+
+    assertThat(results).containsKey("always_secure");
+    CelVerificationResult result = results.get("always_secure");
+    assertThat(result.status()).isEqualTo(VerificationStatus.VIOLATED);
+    assertThat(result.policyDiagnostic()).isPresent();
+
+    CelPolicyDiagnostic diagnostic = result.policyDiagnostic().get();
+    assertThat(diagnostic.invariantId()).isEqualTo("always_secure");
+    assertThat(diagnostic.offendingRuleIndex()).isEqualTo(0);
+    assertThat(diagnostic.issue().getSourceLocation().getLine()).isEqualTo(4);
+    assertThat(diagnostic.issue().getMessage())
+        .isEqualTo(
+            "Invariant 'always_secure' violated because match[0] matched and evaluated to output:"
+                + " true");
+
+    String snippet = diagnostic.toDisplayString(policy.policySource());
+    assertThat(snippet).contains("ERROR: <input>:4:7:");
+    assertThat(snippet).contains("- condition: 'port == 80'");
+  }
+
+  @Test
+  public void verifyInvariants_shadowedRuleViolation_tracesFiringBranch() throws Exception {
+    String yamlPolicy =
+        "name: shadowed_policy\n"
+            + "rule:\n"
+            + "  match:\n"
+            + "    - condition: 'role == \"admin\"'\n"
+            + "      output: 'false'\n"
+            + "    - condition: 'port == 22'\n"
+            + "      output: 'true'\n"
+            + "    - output: 'false'\n"
+            + "verification:\n"
+            + "  invariants:\n"
+            + "    - id: require_port_22_true\n"
+            + "      assume:\n"
+            + "        - 'port == 22'\n"
+            + "      assert:\n"
+            + "        - 'rule.result == true'\n";
+    CelPolicy policy = PARSER.parse(yamlPolicy);
+
+    ImmutableMap<String, CelVerificationResult> results = VERIFIER.verifyInvariants(policy);
+
+    assertThat(results).containsKey("require_port_22_true");
+    CelVerificationResult result = results.get("require_port_22_true");
+    assertThat(result.status()).isEqualTo(VerificationStatus.VIOLATED);
+    assertThat(result.policyDiagnostic()).isPresent();
+
+    CelPolicyDiagnostic diagnostic = result.policyDiagnostic().get();
+    // Rule 0 fires first under role == "admin" and port == 22, shadowing Rule 1
+    assertThat(diagnostic.offendingRuleIndex()).isEqualTo(0);
+    assertThat(diagnostic.issue().getSourceLocation().getLine()).isEqualTo(4);
+  }
+
+  @Test
+  public void verifyInvariants_nestedRuleViolation_tracesNestedLocation() throws Exception {
+    String yamlPolicy =
+        "name: nested_policy\n"
+            + "rule:\n"
+            + "  match:\n"
+            + "    - condition: 'country == \"US\"'\n"
+            + "      rule:\n"
+            + "        match:\n"
+            + "          - condition: 'port == 80'\n"
+            + "            output: 'true'\n"
+            + "          - output: 'false'\n"
+            + "    - output: 'false'\n"
+            + "verification:\n"
+            + "  invariants:\n"
+            + "    - id: us_port_never_true\n"
+            + "      assume:\n"
+            + "        - 'country == \"US\"'\n"
+            + "      assert:\n"
+            + "        - 'rule.result == false'\n";
+    CelPolicy policy = PARSER.parse(yamlPolicy);
+
+    ImmutableMap<String, CelVerificationResult> results = VERIFIER.verifyInvariants(policy);
+
+    assertThat(results).containsKey("us_port_never_true");
+    CelVerificationResult result = results.get("us_port_never_true");
+    assertThat(result.status()).isEqualTo(VerificationStatus.VIOLATED);
+    assertThat(result.policyDiagnostic()).isPresent();
+
+    CelPolicyDiagnostic diagnostic = result.policyDiagnostic().get();
+    assertThat(diagnostic.issue().getSourceLocation().getLine()).isEqualTo(7);
+  }
+
+  @Test
+  public void verifyInvariants_aggregatePolicy_tracesMatchingBranches() throws Exception {
+    String yamlPolicy =
+        "name: aggregate_policy\n"
+            + "rule:\n"
+            + "  aggregate:\n"
+            + "    - condition: 'port == 80'\n"
+            + "      output: '\"allow\"'\n"
+            + "    - condition: 'role == \"guest\"'\n"
+            + "      output: '\"log\"'\n"
+            + "verification:\n"
+            + "  invariants:\n"
+            + "    - id: no_log_when_allow\n"
+            + "      assume:\n"
+            + "        - 'port == 80'\n"
+            + "      assert:\n"
+            + "        - '!(\"log\" in rule.result)'\n";
+    CelPolicy policy = PARSER.parse(yamlPolicy);
+
+    ImmutableMap<String, CelVerificationResult> results = VERIFIER.verifyInvariants(policy);
+
+    assertThat(results).containsKey("no_log_when_allow");
+    CelVerificationResult result = results.get("no_log_when_allow");
+    assertThat(result.status()).isEqualTo(VerificationStatus.VIOLATED);
+    assertThat(result.policyDiagnostic()).isPresent();
+
+    CelPolicyDiagnostic diagnostic = result.policyDiagnostic().get();
+    assertThat(diagnostic.offendingRuleIndex()).isEqualTo(0);
+    assertThat(diagnostic.issue().getMessage())
+        .contains("because match[0] matched and evaluated to output: [allow, log]");
+    assertThat(result.counterexampleModel()).isPresent();
+    assertThat(result.counterexampleModel().get().bindings().get("port").celString())
+        .isEqualTo("80");
+    assertThat(result.counterexampleModel().get().bindings().get("role").celString())
+        .isEqualTo("\"guest\"");
+  }
+
+  @Test
+  public void verifyInvariants_namedAggregatePolicy_diagnosticIncludesRuleNameAndAggregatedOutputs()
+      throws Exception {
+    String yamlPolicy =
+        "name: named_aggregate_policy\n"
+            + "rule:\n"
+            + "  id: egress_rules\n"
+            + "  aggregate:\n"
+            + "    - condition: 'port == 80'\n"
+            + "      output: '\"allow\"'\n"
+            + "    - condition: 'role == \"guest\"'\n"
+            + "      output: '\"rate_limit\"'\n"
+            + "verification:\n"
+            + "  invariants:\n"
+            + "    - id: no_rate_limit_on_http\n"
+            + "      assume:\n"
+            + "        - 'port == 80'\n"
+            + "      assert:\n"
+            + "        - '!(\"rate_limit\" in rule.result)'\n";
+    CelPolicy policy = PARSER.parse(yamlPolicy);
+
+    ImmutableMap<String, CelVerificationResult> results = VERIFIER.verifyInvariants(policy);
+
+    assertThat(results).containsKey("no_rate_limit_on_http");
+    CelVerificationResult result = results.get("no_rate_limit_on_http");
+    assertThat(result.status()).isEqualTo(VerificationStatus.VIOLATED);
+    assertThat(result.policyDiagnostic()).isPresent();
+
+    CelPolicyDiagnostic diagnostic = result.policyDiagnostic().get();
+    assertThat(diagnostic.offendingRuleName()).hasValue("egress_rules");
+    assertThat(diagnostic.offendingRuleIndex()).isEqualTo(0);
+    assertThat(diagnostic.issue().getMessage())
+        .contains(
+            "because rule 'egress_rules' matched and evaluated to output: [allow, rate_limit]");
+
+    String snippet = diagnostic.toDisplayString(policy.policySource());
+    assertThat(snippet).contains("ERROR: <input>:5:7:");
+    assertThat(snippet).contains("- condition: 'port == 80'");
+  }
+
+  @Test
+  public void verifyInvariants_aggregatePolicy_noMatchingBranches_omitsDiagnostic()
+      throws Exception {
+    String yamlPolicy =
+        "name: empty_aggregate_policy\n"
+            + "rule:\n"
+            + "  aggregate:\n"
+            + "    - condition: 'port == 80'\n"
+            + "      output: '\"allow\"'\n"
+            + "verification:\n"
+            + "  invariants:\n"
+            + "    - id: must_match_something\n"
+            + "      assume:\n"
+            + "        - 'port == 443'\n"
+            + "      assert:\n"
+            + "        - 'size(rule.result) > 0'\n";
+    CelPolicy policy = PARSER.parse(yamlPolicy);
+
+    ImmutableMap<String, CelVerificationResult> results = VERIFIER.verifyInvariants(policy);
+
+    assertThat(results).containsKey("must_match_something");
+    CelVerificationResult result = results.get("must_match_something");
+    assertThat(result.status()).isEqualTo(VerificationStatus.VIOLATED);
+    assertThat(result.policyDiagnostic()).isEmpty();
+  }
+
+  @Test
+  public void verifyEquivalence_divergence_populatesDualSourceDiagnostic() throws Exception {
+    String yamlPolicyA =
+        "name: workload_v1\n"
+            + "rule:\n"
+            + "  match:\n"
+            + "    - condition: 'port == 80 && role == \"admin\"'\n"
+            + "      output: 'true'\n"
+            + "    - output: 'false'\n";
+    String yamlPolicyB =
+        "name: workload_v2\n"
+            + "rule:\n"
+            + "  match:\n"
+            + "    - condition: 'port == 80'\n"
+            + "      output: 'false'\n"
+            + "    - output: 'true'\n";
+
+    CelPolicy policyA = PARSER.parse(yamlPolicyA);
+    CelPolicy policyB = PARSER.parse(yamlPolicyB);
+
+    CelVerificationResult result = VERIFIER.verifyEquivalence(policyA, policyB);
+
+    assertThat(result.status()).isEqualTo(VerificationStatus.VIOLATED);
+    assertThat(result.policyEquivalenceDiagnostic()).isPresent();
+
+    CelPolicyEquivalenceDiagnostic equivDiag = result.policyEquivalenceDiagnostic().get();
+    assertThat(equivDiag.policyABranch().policyName()).isEqualTo("workload_v1");
+    assertThat(equivDiag.policyABranch().issue().getSourceLocation().getLine()).isAtLeast(4);
+
+    assertThat(equivDiag.policyBBranch().policyName()).isEqualTo("workload_v2");
+    assertThat(equivDiag.policyBBranch().issue().getSourceLocation().getLine()).isAtLeast(4);
+    assertThat(equivDiag.policyABranch().evaluatedOutput())
+        .isNotEqualTo(equivDiag.policyBBranch().evaluatedOutput());
+
+    String display = equivDiag.toDisplayString(policyA.policySource(), policyB.policySource());
+    assertThat(display).contains("[Policy A: workload_v1]");
+    assertThat(display).contains("[Policy B: workload_v2]");
+  }
+
+  @Test
+  public void verifyEquivalence_ruleOrderDivergence_tracesDifferentRuleIndices() throws Exception {
+    String yamlPolicyA =
+        "name: order_v1\n"
+            + "rule:\n"
+            + "  match:\n"
+            + "    - condition: 'role == \"admin\"'\n"
+            + "      output: '\"ADMIN\"'\n"
+            + "    - condition: 'port == 80'\n"
+            + "      output: '\"HTTP\"'\n"
+            + "    - output: '\"UNKNOWN\"'\n";
+    String yamlPolicyB =
+        "name: order_v2\n"
+            + "rule:\n"
+            + "  match:\n"
+            + "    - condition: 'port == 80'\n"
+            + "      output: '\"HTTP\"'\n"
+            + "    - condition: 'role == \"admin\"'\n"
+            + "      output: '\"ADMIN\"'\n"
+            + "    - output: '\"UNKNOWN\"'\n";
+
+    CelPolicy policyA = PARSER.parse(yamlPolicyA);
+    CelPolicy policyB = PARSER.parse(yamlPolicyB);
+
+    CelVerificationResult result = VERIFIER.verifyEquivalence(policyA, policyB);
+
+    assertThat(result.status()).isEqualTo(VerificationStatus.VIOLATED);
+    assertThat(result.policyEquivalenceDiagnostic()).isPresent();
+
+    CelPolicyEquivalenceDiagnostic equivDiag = result.policyEquivalenceDiagnostic().get();
+    // Under role == "admin" && port == 80: Policy A fires rule 0, Policy B fires rule 0 (with
+    // different outputs)
+    assertThat(equivDiag.policyABranch().evaluatedOutput()).isEqualTo("ADMIN");
+    assertThat(equivDiag.policyBBranch().evaluatedOutput()).isEqualTo("HTTP");
+  }
+
+  @Test
+  public void verifyInvariants_namedRule_diagnosticIncludesRuleName() throws Exception {
+    String yamlPolicy =
+        "name: named_rule_policy\n"
+            + "rule:\n"
+            + "  id: authz_gate\n"
+            + "  match:\n"
+            + "    - condition: 'port == 80'\n"
+            + "      output: 'true'\n"
+            + "    - output: 'false'\n"
+            + "verification:\n"
+            + "  invariants:\n"
+            + "    - id: always_deny\n"
+            + "      assert:\n"
+            + "        - 'rule.result == false'\n";
+
+    CelPolicy policy = PARSER.parse(yamlPolicy);
+    ImmutableMap<String, CelVerificationResult> results = VERIFIER.verifyInvariants(policy);
+
+    assertThat(results).containsKey("always_deny");
+    CelVerificationResult result = results.get("always_deny");
+    assertThat(result.status()).isEqualTo(VerificationStatus.VIOLATED);
+    assertThat(result.policyDiagnostic()).isPresent();
+
+    CelPolicyDiagnostic diagnostic = result.policyDiagnostic().get();
+    assertThat(diagnostic.offendingRuleName()).hasValue("authz_gate");
+    assertThat(diagnostic.offendingRuleIndex()).isEqualTo(0);
+    assertThat(diagnostic.issue().getMessage())
+        .contains("because rule 'authz_gate' matched and evaluated to output: true");
+  }
+
+  @Test
+  public void verifyEquivalence_namedRules_diagnosticIncludesRuleNames() throws Exception {
+    String yamlPolicyA =
+        "name: named_v1\n"
+            + "rule:\n"
+            + "  id: v1_gate\n"
+            + "  match:\n"
+            + "    - condition: 'port == 80'\n"
+            + "      output: 'true'\n"
+            + "    - output: 'false'\n";
+    String yamlPolicyB =
+        "name: named_v2\n"
+            + "rule:\n"
+            + "  id: v2_gate\n"
+            + "  match:\n"
+            + "    - condition: 'port == 80'\n"
+            + "      output: 'false'\n"
+            + "    - output: 'true'\n";
+
+    CelPolicy policyA = PARSER.parse(yamlPolicyA);
+    CelPolicy policyB = PARSER.parse(yamlPolicyB);
+
+    CelVerificationResult result = VERIFIER.verifyEquivalence(policyA, policyB);
+
+    assertThat(result.status()).isEqualTo(VerificationStatus.VIOLATED);
+    assertThat(result.policyEquivalenceDiagnostic()).isPresent();
+
+    CelPolicyEquivalenceDiagnostic equivDiag = result.policyEquivalenceDiagnostic().get();
+    assertThat(equivDiag.policyABranch().ruleName()).hasValue("v1_gate");
+    assertThat(equivDiag.policyBBranch().ruleName()).hasValue("v2_gate");
+    assertThat(equivDiag.toCelIssues()).hasSize(2);
+  }
+
+  @Test
+  public void verifyInvariants_ruleWithVariables_tracesWithVariableResolution() throws Exception {
+    String yamlPolicy =
+        "name: var_policy\n"
+            + "rule:\n"
+            + "  variables:\n"
+            + "    - is_http: 'port == 80'\n"
+            + "  match:\n"
+            + "    - condition: 'variables.is_http'\n"
+            + "      output: 'true'\n"
+            + "    - output: 'false'\n"
+            + "verification:\n"
+            + "  invariants:\n"
+            + "    - id: never_http\n"
+            + "      assume:\n"
+            + "        - 'port == 80'\n"
+            + "      assert:\n"
+            + "        - 'rule.result == false'\n";
+
+    CelPolicy policy = PARSER.parse(yamlPolicy);
+    ImmutableMap<String, CelVerificationResult> results = VERIFIER.verifyInvariants(policy);
+
+    assertThat(results).containsKey("never_http");
+    CelVerificationResult result = results.get("never_http");
+    assertThat(result.status()).isEqualTo(VerificationStatus.VIOLATED);
+    assertThat(result.policyDiagnostic()).isPresent();
+    assertThat(result.policyDiagnostic().get().offendingRuleIndex()).isEqualTo(0);
+    assertThat(result.policyDiagnostic().get().issue().getMessage())
+        .contains("matched and evaluated to output: true");
+  }
+
+  @Test
+  public void verifyInvariants_outputEvaluationError_diagnosticCapturesErrorString()
+      throws Exception {
+    String yamlPolicy =
+        "name: error_policy\n"
+            + "rule:\n"
+            + "  match:\n"
+            + "    - condition: 'port == 80'\n"
+            + "      output: '10 / (port - 80)'\n"
+            + "    - output: '0'\n"
+            + "verification:\n"
+            + "  invariants:\n"
+            + "    - id: never_error\n"
+            + "      assume:\n"
+            + "        - 'port == 80'\n"
+            + "      assert:\n"
+            + "        - 'rule.result == 0'\n";
+
+    CelPolicy policy = PARSER.parse(yamlPolicy);
+    ImmutableMap<String, CelVerificationResult> results = VERIFIER.verifyInvariants(policy);
+
+    assertThat(results).containsKey("never_error");
+    CelVerificationResult result = results.get("never_error");
+    assertThat(result.status()).isEqualTo(VerificationStatus.VIOLATED);
+    assertThat(result.policyDiagnostic()).isPresent();
+    assertThat(result.policyDiagnostic().get().issue().getMessage()).contains("<error:");
+  }
+
+  @Test
+  public void verifyInvariants_nonZ3Verifier_throwsUnsupportedOperationException()
+      throws Exception {
+    CelVerifier dummyVerifier =
+        new CelVerifier() {
+          @Override
+          public CelVerificationResult isSatisfiable(CelAbstractSyntaxTree ast) {
+            return CelVerificationResult.verified();
+          }
+
+          @Override
+          public CelVerificationResult isAlwaysTrue(CelAbstractSyntaxTree ast) {
+            return CelVerificationResult.verified();
+          }
+
+          @Override
+          public CelVerificationResult verifyEquivalence(
+              CelAbstractSyntaxTree astA, CelAbstractSyntaxTree astB) {
+            return CelVerificationResult.verified();
+          }
+        };
+
+    CelPolicyVerifier policyVerifier =
+        CelPolicyVerifierFactory.newVerifier(POLICY_COMPILER, dummyVerifier).build();
+
+    String yamlPolicy =
+        "name: p\n"
+            + "rule:\n"
+            + "  match:\n"
+            + "    - output: 'true'\n"
+            + "verification:\n"
+            + "  invariants:\n"
+            + "    - id: inv\n"
+            + "      assert:\n"
+            + "        - 'rule.result == true'\n";
+
+    CelPolicy policy = PARSER.parse(yamlPolicy);
+
+    assertThrows(
+        UnsupportedOperationException.class, () -> policyVerifier.verifyInvariants(policy));
+  }
+
+  @Test
+  public void verifyInvariants_conditionEvaluationError_fallsThroughToNextRule() throws Exception {
+    String yamlPolicy =
+        "name: cond_error_policy\n"
+            + "rule:\n"
+            + "  match:\n"
+            + "    - condition: '10 / port == 1'\n" // Division by zero when port == 0
+            + "      output: 'true'\n"
+            + "    - output: 'false'\n"
+            + "verification:\n"
+            + "  invariants:\n"
+            + "    - id: never_true_on_zero\n"
+            + "      assume:\n"
+            + "        - 'port == 0'\n"
+            + "      assert:\n"
+            + "        - 'rule.result == true'\n";
+
+    CelPolicy policy = PARSER.parse(yamlPolicy);
+    ImmutableMap<String, CelVerificationResult> results = VERIFIER.verifyInvariants(policy);
+
+    assertThat(results).containsKey("never_true_on_zero");
+    CelVerificationResult result = results.get("never_true_on_zero");
+    assertThat(result.status()).isEqualTo(VerificationStatus.VIOLATED);
+    assertThat(result.policyDiagnostic()).isPresent();
+    // Rule 0 errored on evaluation, so Rule 1 (index 1) fired with false
+    assertThat(result.policyDiagnostic().get().offendingRuleIndex()).isEqualTo(1);
+  }
+
+  @Test
+  public void verifyInvariants_variableEvaluationError_fallsThroughGracefully() throws Exception {
+    String yamlPolicy =
+        "name: var_error_policy\n"
+            + "rule:\n"
+            + "  variables:\n"
+            + "    - err_var: '10 / port'\n"
+            + "  match:\n"
+            + "    - condition: 'port == 80'\n"
+            + "      output: 'true'\n"
+            + "    - output: 'false'\n"
+            + "verification:\n"
+            + "  invariants:\n"
+            + "    - id: deny_on_zero\n"
+            + "      assume:\n"
+            + "        - 'port == 80'\n"
+            + "      assert:\n"
+            + "        - 'rule.result == false'\n";
+
+    CelPolicy policy = PARSER.parse(yamlPolicy);
+    ImmutableMap<String, CelVerificationResult> results = VERIFIER.verifyInvariants(policy);
+
+    assertThat(results).containsKey("deny_on_zero");
+    CelVerificationResult result = results.get("deny_on_zero");
+    assertThat(result.status()).isEqualTo(VerificationStatus.VIOLATED);
+    assertThat(result.policyDiagnostic()).isPresent();
+    assertThat(result.policyDiagnostic().get().offendingRuleIndex()).isEqualTo(0);
+  }
+
+  @Test
+  public void verifyInvariants_nestedRuleFallthrough_continuesOuterRules() throws Exception {
+    String yamlPolicy =
+        "name: nested_fallthrough_policy\n"
+            + "rule:\n"
+            + "  match:\n"
+            + "    - condition: 'port == 80'\n"
+            + "      rule:\n"
+            + "        match:\n"
+            + "          - condition: 'role == \"admin\"'\n"
+            + "            output: '\"ADMIN\"'\n"
+            + "    - output: '\"FALLTHROUGH\"'\n"
+            + "verification:\n"
+            + "  invariants:\n"
+            + "    - id: port_443_never_fallthrough\n"
+            + "      assume:\n"
+            + "        - 'port == 443'\n"
+            + "      assert:\n"
+            + "        - 'rule.result != optional.of(\"FALLTHROUGH\")'\n";
+
+    CelPolicy policy = PARSER.parse(yamlPolicy);
+    ImmutableMap<String, CelVerificationResult> results = VERIFIER.verifyInvariants(policy);
+
+    assertThat(results).containsKey("port_443_never_fallthrough");
+    CelVerificationResult result = results.get("port_443_never_fallthrough");
+    assertThat(result.status()).isEqualTo(VerificationStatus.VIOLATED);
+    assertThat(result.policyDiagnostic()).isPresent();
+    assertThat(result.policyDiagnostic().get().offendingRuleIndex()).isEqualTo(1);
+    assertThat(result.policyDiagnostic().get().issue().getMessage())
+        .contains("output: FALLTHROUGH");
+  }
+
+  @Test
+  public void verifyInvariants_aggregateOutputEvaluationError_capturesErrorInAggregateList()
+      throws Exception {
+    String yamlPolicy =
+        "name: aggregate_error_policy\n"
+            + "rule:\n"
+            + "  aggregate:\n"
+            + "    - condition: 'port == 0'\n"
+            + "      output: '10 / port'\n"
+            + "verification:\n"
+            + "  invariants:\n"
+            + "    - id: never_error\n"
+            + "      assume:\n"
+            + "        - 'port == 0'\n"
+            + "      assert:\n"
+            + "        - 'size(rule.result) == 0'\n";
+
+    CelPolicy policy = PARSER.parse(yamlPolicy);
+    ImmutableMap<String, CelVerificationResult> results = VERIFIER.verifyInvariants(policy);
+
+    assertThat(results).containsKey("never_error");
+    CelVerificationResult result = results.get("never_error");
+    assertThat(result.status()).isEqualTo(VerificationStatus.VIOLATED);
+    assertThat(result.policyDiagnostic()).isPresent();
+    assertThat(result.policyDiagnostic().get().issue().getMessage()).contains("<error:");
+  }
+
+  @Test
+  public void verifyInvariants_aggregateConditionEvaluationError_skipsErrorMatch()
+      throws Exception {
+    String yamlPolicy =
+        "name: aggregate_cond_error_policy\n"
+            + "rule:\n"
+            + "  aggregate:\n"
+            + "    - condition: '10 / port == 1'\n" // Division by zero when port == 0
+            + "      output: '\"first\"'\n"
+            + "    - condition: 'port == 0'\n"
+            + "      output: '\"second\"'\n"
+            + "verification:\n"
+            + "  invariants:\n"
+            + "    - id: no_second_on_zero\n"
+            + "      assume:\n"
+            + "        - 'port == 0'\n"
+            + "      assert:\n"
+            + "        - '!(\"second\" in rule.result)'\n";
+
+    CelPolicy policy = PARSER.parse(yamlPolicy);
+    ImmutableMap<String, CelVerificationResult> results = VERIFIER.verifyInvariants(policy);
+
+    assertThat(results).containsKey("no_second_on_zero");
+    CelVerificationResult result = results.get("no_second_on_zero");
+    assertThat(result.status()).isEqualTo(VerificationStatus.VIOLATED);
+    assertThat(result.policyDiagnostic()).isPresent();
+    assertThat(result.policyDiagnostic().get().issue().getMessage()).contains("[second]");
+  }
+
+  @Test
+  public void verifyInvariants_firstMatchConditionError_fallsThroughToFiringMatch()
+      throws Exception {
+    String yamlPolicy =
+        "name: first_match_cond_error_policy\n"
+            + "rule:\n"
+            + "  match:\n"
+            + "    - condition: '10 / port == 1'\n" // Division by zero when port == 0
+            + "      output: '\"first\"'\n"
+            + "    - condition: 'port == 0'\n"
+            + "      output: '\"second\"'\n"
+            + "    - output: '\"fallback\"'\n"
+            + "verification:\n"
+            + "  invariants:\n"
+            + "    - id: no_second_on_zero\n"
+            + "      assume:\n"
+            + "        - 'port == 0'\n"
+            + "      assert:\n"
+            + "        - 'rule.result != \"second\"'\n";
+
+    CelPolicy policy = PARSER.parse(yamlPolicy);
+    ImmutableMap<String, CelVerificationResult> results = VERIFIER.verifyInvariants(policy);
+
+    assertThat(results).containsKey("no_second_on_zero");
+    CelVerificationResult result = results.get("no_second_on_zero");
+    assertThat(result.status()).isEqualTo(VerificationStatus.VIOLATED);
+    assertThat(result.policyDiagnostic()).isPresent();
+    // Primary match (match[1]) matched, so it attributes to match[1] rather than condition error
+    assertThat(result.policyDiagnostic().get().offendingRuleIndex()).isEqualTo(1);
+    assertThat(result.policyDiagnostic().get().issue().getMessage()).contains("second");
+  }
+
+  @Test
+  public void
+      verifyInvariants_conditionEvaluationError_noSubsequentMatch_attributesToErroredCondition()
+          throws Exception {
+    String yamlPolicy =
+        "name: cond_error_no_match_policy\n"
+            + "rule:\n"
+            + "  match:\n"
+            + "    - condition: '10 / port == 1'\n" // Division by zero when port == 0
+            + "      output: '\"first\"'\n"
+            + "verification:\n"
+            + "  invariants:\n"
+            + "    - id: must_match_something\n"
+            + "      assume:\n"
+            + "        - 'port == 0'\n"
+            + "      assert:\n"
+            + "        - 'rule.result == optional.of(\"first\")'\n";
+
+    CelPolicy policy = PARSER.parse(yamlPolicy);
+    ImmutableMap<String, CelVerificationResult> results = VERIFIER.verifyInvariants(policy);
+
+    assertThat(results).containsKey("must_match_something");
+    CelVerificationResult result = results.get("must_match_something");
+    assertThat(result.status()).isEqualTo(VerificationStatus.VIOLATED);
+    assertThat(result.policyDiagnostic()).isPresent();
+    // No subsequent match fires, so diagnostic pinpoints match[0] condition failure
+    assertThat(result.policyDiagnostic().get().offendingRuleIndex()).isEqualTo(0);
+    assertThat(result.policyDiagnostic().get().issue().getMessage()).contains("<condition error:");
+  }
+
+  @Test
+  public void computeLocation_sourceIdZero_returnsNone() throws Exception {
+    CelPolicy policy = PARSER.parse("name: p\nrule:\n  match:\n    - output: 'true'\n");
+
+    CelSourceLocation location = CelPolicyPathTracer.computeLocation(0L, policy.policySource());
+
+    assertThat(location).isEqualTo(CelSourceLocation.NONE);
+  }
+
+  @Test
+  public void computeLocation_nonExistentSourceId_returnsNone() throws Exception {
+    CelPolicy policy = PARSER.parse("name: p\nrule:\n  match:\n    - output: 'true'\n");
+
+    CelSourceLocation location =
+        CelPolicyPathTracer.computeLocation(999999L, policy.policySource());
+
+    assertThat(location).isEqualTo(CelSourceLocation.NONE);
+  }
+
+  @Test
+  public void computeLocation_validSourceId_returnsValidLocation() throws Exception {
+    CelPolicy policy = PARSER.parse("name: p\nrule:\n  match:\n    - output: 'true'\n");
+    long validSourceId = policy.policySource().getPositionsMap().keySet().iterator().next();
+
+    CelSourceLocation location =
+        CelPolicyPathTracer.computeLocation(validSourceId, policy.policySource());
+
+    assertThat(location).isNotEqualTo(CelSourceLocation.NONE);
   }
 }
