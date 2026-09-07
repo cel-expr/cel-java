@@ -16,6 +16,11 @@ java_library(
 )
 
 java_library(
+    name = "optimizer_listener",
+    exports = ["//optimizer/src/main/java/dev/cel/optimizer:optimizer_listener"],
+)
+
+java_library(
     name = "ast_optimizer",
     exports = ["//optimizer/src/main/java/dev/cel/optimizer:ast_optimizer"],
 )

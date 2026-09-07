@@ -28,6 +28,14 @@ public interface CelOptimizerBuilder {
   @CanIgnoreReturnValue
   CelOptimizerBuilder addAstOptimizers(Iterable<CelAstOptimizer> astOptimizers);
 
+  /** Adds one or more listeners to observe optimization lifecycle. */
+  @CanIgnoreReturnValue
+  CelOptimizerBuilder addOptimizerListeners(CelOptimizerListener... listeners);
+
+  /** Adds one or more listeners to observe optimization lifecycle. */
+  @CanIgnoreReturnValue
+  CelOptimizerBuilder addOptimizerListeners(Iterable<CelOptimizerListener> listeners);
+
   /** Build a new instance of the {@link CelOptimizer}. */
   @CheckReturnValue
   CelOptimizer build();

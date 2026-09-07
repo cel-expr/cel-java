@@ -32,6 +32,7 @@ java_library(
         "//optimizer:optimization_exception",
         "//optimizer:optimizer_builder",
         "//optimizer:optimizer_impl",
+        "//optimizer:optimizer_listener",
         "//parser:macro",
         "//parser:parser_factory",
         "//parser:unparser",
