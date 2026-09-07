@@ -1,0 +1,11 @@
+package(
+    default_applicable_licenses = ["//:license"],
+    default_visibility = ["//visibility:public"],
+)
+
+exports_files(["compile_cel_policy.bzl"])
+
+alias(
+    name = "cel_policy_compiler_tool",
+    actual = "//policy/src/main/java/dev/cel/policy/tools:cel_policy_compiler_tool",
+)

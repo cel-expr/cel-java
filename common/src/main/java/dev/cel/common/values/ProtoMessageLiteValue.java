@@ -17,11 +17,14 @@ package dev.cel.common.values;
 import com.google.auto.value.AutoValue;
 import com.google.auto.value.extension.memoized.Memoized;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.ImmutableMap;
 import com.google.errorprone.annotations.Immutable;
 import com.google.protobuf.MessageLite;
+import dev.cel.common.annotations.Internal;
 import dev.cel.common.types.CelType;
 import dev.cel.common.types.StructTypeReference;
+import dev.cel.common.values.ProtoLiteCelValueConverter.MessageFields;
 import java.io.IOException;
 import java.util.Optional;
 
@@ -43,15 +46,25 @@ public abstract class ProtoMessageLiteValue extends StructValue<String, MessageL
   @Override
   public abstract CelType celType();
 
-  abstract ProtoLiteCelValueConverter protoLiteCelValueConverter();
+  @Internal
+  public abstract ProtoLiteCelValueConverter protoLiteCelValueConverter();
 
   @Memoized
-  ImmutableMap<String, Object> fieldValues() {
+  MessageFields messageFields() {
     try {
-      return protoLiteCelValueConverter().readAllFields(value(), celType().name());
+      return protoLiteCelValueConverter().readMessageFields(value(), celType().name());
     } catch (IOException e) {
       throw new IllegalStateException("Unable to read message fields for " + celType().name(), e);
     }
+  }
+
+  @Internal
+  public ImmutableMap<String, Object> fieldValues() {
+    return messageFields().values();
+  }
+
+  public ImmutableListMultimap<Integer, Object> unknownFields() {
+    return messageFields().unknowns();
   }
 
   @Override

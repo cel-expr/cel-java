@@ -1,29 +1,48 @@
 load("@rules_java//java:defs.bzl", "java_library")
+load("@rules_proto//proto:defs.bzl", "proto_descriptor_set")
 load("//:testing.bzl", "junit4_test_suites")
+load("//policy/tools:compile_cel_policy.bzl", "compile_cel_policy")
 
 package(
     default_applicable_licenses = ["//:license"],
     default_testonly = True,
 )
 
+proto_descriptor_set(
+    name = "test_all_types_fds",
+    deps = ["@cel_spec//proto/cel/expr/conformance/proto3:test_all_types_proto"],
+)
+
+compile_cel_policy(
+    name = "macro_compiled_policy",
+    config = "//testing/environment:proto3_message_variables",
+    optimize_field_selection = True,
+    policy = ":test_policy.yaml",
+    proto_srcs = ["@cel_spec//proto/cel/expr/conformance/proto3:test_all_types_proto"],
+)
+
 java_library(
     name = "tests",
     testonly = True,
     srcs = glob(["*Test.java"]),
+    data = [
+        ":macro_compiled_policy.binarypb",
+        ":test_all_types_fds",
+        ":test_policy.yaml",
+        "//testing/environment:proto3_message_variables",
+    ],
     deps = [
         "//:java_truth",
         "//common:cel_ast",
         "//common:cel_source",
-        "//common:options",
         "//common:proto_ast",
-        "//compiler/src/main/java/dev/cel/compiler/tools",
-        "//extensions",
         "//extensions:optional_library",
+        "//policy/src/main/java/dev/cel/policy/tools",
         "//runtime",
-        "//runtime:function_binding",
-        "//testing/compiled:compiled_expr_utils",
+        "@bazel_tools//tools/java/runfiles",
         "@cel_spec//proto/cel/expr:checked_java_proto",
         "@cel_spec//proto/cel/expr/conformance/proto3:test_all_types_java_proto",
+        "@com_google_googleapis//google/api/expr/v1alpha1:expr_java_proto",
         "@maven//:com_google_guava_guava",
         "@maven//:com_google_protobuf_protobuf_java",
         "@maven//:info_picocli_picocli",

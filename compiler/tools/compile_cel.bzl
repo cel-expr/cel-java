@@ -21,7 +21,11 @@ def compile_cel(
         expression,
         proto_srcs = [],
         environment = None,
-        output = None):
+        output = None,
+        optimize_field_selection = False,
+        constant_folding = False,
+        subexpression_elimination = False,
+        visibility = None):
     """Compiles a CEL expression, generating a cel.expr.CheckedExpr proto. This proto is written to a `.binarypb` file.
 
     Args:
@@ -30,6 +34,10 @@ def compile_cel(
           proto_srcs: (optional) list of str label(s) pointing to a proto_library rule (important: NOT java_proto_library). This must be provided when compiling a CEL expression containing protobuf messages.
           environment: (optional) str label or filename pointing to a YAML file that describes a CEL environment.
           output: (optional) str file name for the output checked expression. `.binarypb` extension is automatically appended in the filename.
+          optimize_field_selection: (optional) bool whether to optimize field selection for version skew mitigation.
+          constant_folding: (optional) bool whether to enable constant folding on the compiled AST.
+          subexpression_elimination: (optional) bool whether to enable common subexpression elimination on the compiled AST.
+          visibility: (optional) visibility to use on the genrule macro.
     """
 
     args = []
@@ -56,6 +64,15 @@ def compile_cel(
         args.append("--environment_path=$(location {})".format(environment))
         genrule_srcs.append(environment)
 
+    if optimize_field_selection:
+        args.append("--optimize_field_selection")
+
+    if constant_folding:
+        args.append("--constant_folding")
+
+    if subexpression_elimination:
+        args.append("--subexpression_elimination")
+
     arg_str = " ".join(args)
     cmd = (
         "$(location //compiler/tools:cel_compiler_tool) " +
@@ -68,4 +85,5 @@ def compile_cel(
         srcs = genrule_srcs,
         outs = [output],
         tools = ["//compiler/tools:cel_compiler_tool"],
+        visibility = visibility,
     )

@@ -1,0 +1,6 @@
+# Copyright 2026 Google LLC
+name: "test_policy"
+rule:
+  match:
+    - condition: proto3.single_int32 == 1
+      output: '"MATCHED"'

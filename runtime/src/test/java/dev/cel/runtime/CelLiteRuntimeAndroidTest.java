@@ -47,6 +47,8 @@ import dev.cel.expr.conformance.proto3.TestAllTypes;
 import dev.cel.expr.conformance.proto3.TestAllTypesCelLiteDescriptor;
 import dev.cel.extensions.CelLiteExtensions;
 import dev.cel.extensions.SetsFunction;
+import dev.cel.protobuf.CelLiteDescriptor;
+import dev.cel.protobuf.CelLiteDescriptor.MessageLiteDescriptor;
 import dev.cel.runtime.standard.EqualsOperator;
 import dev.cel.runtime.standard.IntFunction;
 import dev.cel.runtime.standard.IntFunction.IntOverload;
@@ -124,7 +126,7 @@ public class CelLiteRuntimeAndroidTest {
 
   @Test
   public void toRuntimeBuilder_propertiesCopied() {
-    CelOptions celOptions = CelOptions.current().enableCelValue(true).build();
+    CelOptions celOptions = CelOptions.current().build();
     CelLiteRuntimeLibrary runtimeExtension =
         CelLiteExtensions.sets(celOptions, SetsFunction.INTERSECTS);
     CelValueProvider celValueProvider = ProtoMessageLiteValueProvider.newInstance();
@@ -157,10 +159,8 @@ public class CelLiteRuntimeAndroidTest {
 
   @Test
   public void setCelOptions_unallowedOptionsSet_throws(@TestParameter CelOptionsTestCase testCase) {
-    assertThrows(
-        IllegalArgumentException.class,
-        () ->
-            CelLiteRuntimeFactory.newLiteRuntimeBuilder().setOptions(testCase.celOptions).build());
+    CelLiteRuntimeBuilder builder = CelLiteRuntimeFactory.newLiteRuntimeBuilder();
+    assertThrows(IllegalArgumentException.class, () -> builder.setOptions(testCase.celOptions));
   }
 
   @Test
@@ -170,7 +170,7 @@ public class CelLiteRuntimeAndroidTest {
     CelAbstractSyntaxTree ast = readCheckedExpr("compiled_one_plus_two");
 
     CelEvaluationException e =
-        assertThrows(CelEvaluationException.class, () -> runtime.createProgram(ast).eval());
+        assertThrows(CelEvaluationException.class, () -> runtime.createProgram(ast));
     assertThat(e)
         .hasMessageThat()
         .contains(
@@ -206,6 +206,7 @@ public class CelLiteRuntimeAndroidTest {
   }
 
   @Test
+  // CEL evaluation returns untyped Object which must be cast to List<Object>.
   @SuppressWarnings("unchecked")
   public void eval_listLiteral() throws Exception {
     CelLiteRuntime runtime =
@@ -268,6 +269,7 @@ public class CelLiteRuntimeAndroidTest {
   }
 
   @Test
+  // CelFunctionBinding for List.class requires raw type binding.
   @SuppressWarnings("rawtypes")
   public void eval_customFunctions() throws Exception {
     CelLiteRuntime runtime =
@@ -287,6 +289,7 @@ public class CelLiteRuntimeAndroidTest {
   }
 
   @Test
+  // CelFunctionBinding for List.class requires raw type binding.
   @SuppressWarnings("rawtypes")
   public void eval_customFunctions_asLateBoundFunctions() throws Exception {
     CelLiteRuntime runtime =
@@ -333,6 +336,7 @@ public class CelLiteRuntimeAndroidTest {
   @Test
   @TestParameters("{checkedExpr: 'compiled_proto2_select_primitives_all_ored'}")
   @TestParameters("{checkedExpr: 'compiled_proto3_select_primitives_all_ored'}")
+  @TestParameters("{checkedExpr: 'compiled_proto3_select_primitives_all_ored_optimized'}")
   public void eval_protoMessage_primitiveWithDefaults(String checkedExpr) throws Exception {
     CelLiteRuntime runtime =
         CelLiteRuntimeFactory.newLiteRuntimeBuilder()
@@ -363,6 +367,7 @@ public class CelLiteRuntimeAndroidTest {
   @Test
   @TestParameters("{checkedExpr: 'compiled_proto2_select_primitives'}")
   @TestParameters("{checkedExpr: 'compiled_proto3_select_primitives'}")
+  @TestParameters("{checkedExpr: 'compiled_proto3_select_primitives_optimized'}")
   public void eval_protoMessage_primitives(String checkedExpr) throws Exception {
     CelLiteRuntime runtime =
         CelLiteRuntimeFactory.newLiteRuntimeBuilder()
@@ -420,6 +425,128 @@ public class CelLiteRuntimeAndroidTest {
   }
 
   @Test
+  public void eval_protoMessage_selectOptimized_withRestrictedDescriptor_success()
+      throws Exception {
+    MessageLiteDescriptor restrictedMsgDesc =
+        new MessageLiteDescriptor(
+            "cel.expr.conformance.proto3.TestAllTypes",
+            ImmutableList.of(),
+            TestAllTypes::newBuilder);
+    CelLiteDescriptor restrictedDescriptor =
+        new CelLiteDescriptor("restricted", ImmutableList.of(restrictedMsgDesc)) {};
+
+    CelLiteRuntime runtime =
+        CelLiteRuntimeFactory.newLiteRuntimeBuilder()
+            .setStandardFunctions(CelStandardFunctions.ALL_STANDARD_FUNCTIONS)
+            .setValueProvider(ProtoMessageLiteValueProvider.newInstance(restrictedDescriptor))
+            .build();
+
+    TestAllTypes proto3Msg =
+        TestAllTypes.newBuilder()
+            .setSingleInt32(1)
+            .setSingleInt64(2L)
+            .setSingleUint32(3)
+            .setSingleUint64(4L)
+            .setSingleSint32(5)
+            .setSingleSint64(6L)
+            .setSingleFixed32(7)
+            .setSingleFixed64(8L)
+            .setSingleSfixed32(9)
+            .setSingleSfixed64(10L)
+            .setSingleFloat(1.5f)
+            .setSingleDouble(2.5d)
+            .setSingleBool(true)
+            .setSingleString("hello world")
+            .setSingleBytes(ByteString.copyFromUtf8("abc"))
+            .build();
+
+    // Optimized expression succeeds via wire-byte decoding of unknown fields:
+    CelAbstractSyntaxTree optimizedAst =
+        readCheckedExpr("compiled_proto3_select_primitives_optimized");
+    Program optimizedProgram = runtime.createProgram(optimizedAst);
+    boolean optimizedResult = (boolean) optimizedProgram.eval(ImmutableMap.of("proto3", proto3Msg));
+    assertThat(optimizedResult).isTrue();
+
+    // Unoptimized expression fails because fields are missing from descriptor:
+    CelAbstractSyntaxTree unoptimizedAst = readCheckedExpr("compiled_proto3_select_primitives");
+    Program unoptimizedProgram = runtime.createProgram(unoptimizedAst);
+    assertThrows(
+        CelEvaluationException.class,
+        () -> unoptimizedProgram.eval(ImmutableMap.of("proto3", proto3Msg)));
+  }
+
+  @Test
+  public void eval_protoMessage_selectOptimized_withRestrictedDescriptor_returnsDefaults()
+      throws Exception {
+    MessageLiteDescriptor restrictedMsgDesc =
+        new MessageLiteDescriptor(
+            "cel.expr.conformance.proto3.TestAllTypes",
+            ImmutableList.of(),
+            TestAllTypes::newBuilder);
+    CelLiteDescriptor restrictedDescriptor =
+        new CelLiteDescriptor("restricted", ImmutableList.of(restrictedMsgDesc)) {};
+
+    CelLiteRuntime runtime =
+        CelLiteRuntimeFactory.newLiteRuntimeBuilder()
+            .setStandardFunctions(CelStandardFunctions.ALL_STANDARD_FUNCTIONS)
+            .setValueProvider(ProtoMessageLiteValueProvider.newInstance(restrictedDescriptor))
+            .build();
+
+    // Optimized expression evaluates without exception, falling back to embedded default values:
+    CelAbstractSyntaxTree optimizedAst =
+        readCheckedExpr("compiled_proto3_select_primitives_all_ored_optimized");
+    Program optimizedProgram = runtime.createProgram(optimizedAst);
+    boolean optimizedResult =
+        (boolean)
+            optimizedProgram.eval(ImmutableMap.of("proto3", TestAllTypes.getDefaultInstance()));
+    assertThat(optimizedResult).isFalse();
+
+    // Unoptimized expression fails because fields are missing from descriptor:
+    CelAbstractSyntaxTree unoptimizedAst =
+        readCheckedExpr("compiled_proto3_select_primitives_all_ored");
+    Program unoptimizedProgram = runtime.createProgram(unoptimizedAst);
+    assertThrows(
+        CelEvaluationException.class,
+        () ->
+            unoptimizedProgram.eval(ImmutableMap.of("proto3", TestAllTypes.getDefaultInstance())));
+  }
+
+  @Test
+  public void eval_protoMessage_comprehension_withRestrictedDescriptor_success() throws Exception {
+    MessageLiteDescriptor restrictedMsgDesc =
+        new MessageLiteDescriptor(
+            "cel.expr.conformance.proto3.TestAllTypes",
+            ImmutableList.of(),
+            TestAllTypes::newBuilder);
+    CelLiteDescriptor restrictedDescriptor =
+        new CelLiteDescriptor("restricted", ImmutableList.of(restrictedMsgDesc)) {};
+
+    CelLiteRuntime runtime =
+        CelLiteRuntimeFactory.newLiteRuntimeBuilder()
+            .setStandardFunctions(CelStandardFunctions.ALL_STANDARD_FUNCTIONS)
+            .setValueProvider(ProtoMessageLiteValueProvider.newInstance(restrictedDescriptor))
+            .build();
+
+    TestAllTypes proto3Msg = TestAllTypes.newBuilder().setSingleInt32(1).setSingleInt64(2L).build();
+
+    // Optimized expression succeeds via wire-byte decoding of unknown fields inside comprehension
+    // loop:
+    CelAbstractSyntaxTree optimizedAst =
+        readCheckedExpr("compiled_proto3_comprehension_exists_optimized");
+    Program optimizedProgram = runtime.createProgram(optimizedAst);
+    boolean optimizedResult = (boolean) optimizedProgram.eval(ImmutableMap.of("proto3", proto3Msg));
+    assertThat(optimizedResult).isTrue();
+
+    // Unoptimized expression fails because fields on the loop variable are missing from descriptor:
+    CelAbstractSyntaxTree unoptimizedAst =
+        readCheckedExpr("compiled_proto3_comprehension_exists_unoptimized");
+    Program unoptimizedProgram = runtime.createProgram(unoptimizedAst);
+    assertThrows(
+        CelEvaluationException.class,
+        () -> unoptimizedProgram.eval(ImmutableMap.of("proto3", proto3Msg)));
+  }
+
+  @Test
   @TestParameters("{checkedExpr: 'compiled_proto2_select_wrappers'}")
   @TestParameters("{checkedExpr: 'compiled_proto3_select_wrappers'}")
   public void eval_protoMessage_wrappers(String checkedExpr) throws Exception {
@@ -467,6 +594,7 @@ public class CelLiteRuntimeAndroidTest {
   }
 
   @Test
+  // CEL evaluation returns untyped Object which must be cast to List<String>.
   @SuppressWarnings("unchecked")
   @TestParameters("{checkedExpr: 'compiled_proto2_deep_traversal'}")
   @TestParameters("{checkedExpr: 'compiled_proto3_deep_traversal'}")
@@ -498,6 +626,7 @@ public class CelLiteRuntimeAndroidTest {
   }
 
   @Test
+  // CEL evaluation returns untyped Object which must be cast to List<String>.
   @SuppressWarnings("unchecked")
   @TestParameters("{checkedExpr: 'compiled_proto2_deep_traversal'}")
   @TestParameters("{checkedExpr: 'compiled_proto3_deep_traversal'}")
@@ -546,6 +675,7 @@ public class CelLiteRuntimeAndroidTest {
   }
 
   @Test
+  // CEL evaluation returns untyped Object which must be cast to List<String>.
   @SuppressWarnings("unchecked")
   @TestParameters("{checkedExpr: 'compiled_proto2_select_repeated_fields'}")
   @TestParameters("{checkedExpr: 'compiled_proto3_select_repeated_fields'}")
@@ -728,6 +858,8 @@ public class CelLiteRuntimeAndroidTest {
         .inOrder();
   }
 
+  // Testing rejection of deprecated configuration options.
+  @SuppressWarnings("deprecation")
   private enum CelOptionsTestCase {
     UNSIGNED_LONG_DISABLED(newBaseTestOptions().enableUnsignedLongs(false).build()),
     UNWRAP_WKT_DISABLED(newBaseTestOptions().unwrapWellKnownTypesOnFunctionDispatch(false).build()),
@@ -736,7 +868,7 @@ public class CelLiteRuntimeAndroidTest {
     private final CelOptions celOptions;
 
     private static CelOptions.Builder newBaseTestOptions() {
-      return CelOptions.current().enableCelValue(true);
+      return CelOptions.current();
     }
 
     CelOptionsTestCase(CelOptions celOptions) {

@@ -16,6 +16,7 @@ java_test(
         "@cel_spec//proto/cel/expr/conformance/proto3:test_all_types_java_proto_lite",
         "@maven//:com_google_testparameterinjector_test_parameter_injector",
         "@maven//:junit_junit",
+        "@maven_android//:com_google_protobuf_protobuf_javalite",
     ],
 )
 
