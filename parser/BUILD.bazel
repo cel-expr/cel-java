@@ -12,6 +12,12 @@ java_library(
 )
 
 java_library(
+    name = "pratt_parser",
+    visibility = ["//:internal"],
+    exports = ["//parser/src/main/java/dev/cel/parser:pratt_parser"],
+)
+
+java_library(
     name = "parser_factory",
     exports = ["//parser/src/main/java/dev/cel/parser:parser_factory"],
 )

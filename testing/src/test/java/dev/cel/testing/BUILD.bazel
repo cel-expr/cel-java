@@ -11,8 +11,12 @@ java_library(
     srcs = glob(["*.java"]),
     deps = [
         "//:java_truth",
+        "//common:source_location",
+        "//testing:adorner",
         "//testing:line_differ",
+        "@cel_spec//proto/cel/expr:syntax_java_proto",
         "@maven//:com_google_guava_guava",
+        "@maven//:com_google_protobuf_protobuf_java",
         "@maven//:junit_junit",
     ],
 )
