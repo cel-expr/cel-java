@@ -185,7 +185,7 @@ public class CelExtensionsTest {
             "distinct",
             "reverse",
             "sort",
-            "lists.@sortByAssociatedKeys",
+            "@sortByAssociatedKeys",
             "regex.replace",
             "regex.extract",
             "regex.extractAll",
