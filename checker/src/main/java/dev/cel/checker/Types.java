@@ -205,6 +205,19 @@ public final class Types {
     return type.kind().equals(CelKind.TYPE_PARAM);
   }
 
+  /** Tests whether the {@code type} contains any type params directly or transitively. */
+  private static boolean hasTypeParam(CelType type) {
+    if (isTypeParam(type)) {
+      return true;
+    }
+    for (CelType param : type.parameters()) {
+      if (hasTypeParam(param)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   /** Returns the more general of two types which are known to unify. */
   public static CelType mostGeneral(CelType type1, CelType type2) {
     return isEqualOrLessSpecific(type1, type2) ? type1 : type2;
@@ -332,8 +345,21 @@ public final class Types {
 
     switch (type1.kind()) {
       case TYPE:
-        // A type is a type is a type, any additional parameterization of the type cannot affect
-        // method resolution or assignability.
+        if (!(type1 instanceof TypeType) || !(type2 instanceof TypeType)) {
+          return type2.isAssignableFrom(type1);
+        }
+        TypeType fromType = (TypeType) type1;
+        TypeType toType = (TypeType) type2;
+        // If either type contains a type parameter (e.g., type(T) in foo(data, type(T)) -> T),
+        // delegate to inner type unification to bind or validate type parameter substitutions.
+        // Returns true if the inner types structurally match, unify with an unbound type param,
+        // or conform to an existing binding in 'subs'. Returns false on structural/kind mismatches
+        // (e.g., int vs list(T)), occurs-check cycles, or conflicting type param bindings.
+
+        if (hasTypeParam(fromType.type()) || hasTypeParam(toType.type())) {
+          return internalIsAssignable(subs, fromType.type(), toType.type());
+        }
+        // Concrete types are coassignable in CEL (e.g., type(1) == type("a"), type([1]) == list).
         return true;
       case OPAQUE:
       case LIST:
