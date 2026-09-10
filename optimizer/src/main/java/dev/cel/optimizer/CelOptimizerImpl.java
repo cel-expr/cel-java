@@ -15,6 +15,7 @@
 package dev.cel.optimizer;
 
 import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.Preconditions.checkState;
 
 import com.google.common.collect.ImmutableSet;
 import dev.cel.bundle.Cel;
@@ -44,6 +45,9 @@ final class CelOptimizerImpl implements CelOptimizer {
   }
 
   @Override
+  // AstOptimizers return the same AST instance if no changes are made. Using != avoids deep
+  // .equals() comparison.
+  @SuppressWarnings("ReferenceEquality")
   public CelAbstractSyntaxTree optimize(CelAbstractSyntaxTree ast) throws CelOptimizationException {
     if (!ast.isChecked()) {
       throw new IllegalArgumentException("AST must be type-checked.");
@@ -64,16 +68,18 @@ final class CelOptimizerImpl implements CelOptimizer {
 
           OptimizationResult result = optimizer.optimize(optimizedAst, celOptimizerEnv);
 
-          if (!result.newFunctionDecls().isEmpty() || !result.newVarDecls().isEmpty()) {
-            celOptimizerEnv =
-                celOptimizerEnv
-                    .toCelBuilder()
-                    .addVarDeclarations(result.newVarDecls())
-                    .addFunctionDeclarations(result.newFunctionDecls())
-                    .build();
+          if (result.optimizedAst() != optimizedAst) {
+            if (!result.newFunctionDecls().isEmpty() || !result.newVarDecls().isEmpty()) {
+              celOptimizerEnv =
+                  celOptimizerEnv
+                      .toCelBuilder()
+                      .addVarDeclarations(result.newVarDecls())
+                      .addFunctionDeclarations(result.newFunctionDecls())
+                      .build();
+            }
+            optimizedAst = celOptimizerEnv.check(result.optimizedAst()).getAst();
+            assertAstIdCorrectness(optimizedAst);
           }
-          optimizedAst = celOptimizerEnv.check(result.optimizedAst()).getAst();
-          assertAstIdCorrectness(optimizedAst);
 
           for (CelOptimizerListener listener : listeners) {
             listener.onPassEnd(optimizer, preAst, optimizedAst);
@@ -131,19 +137,26 @@ final class CelOptimizerImpl implements CelOptimizer {
                   return;
                 }
 
-                if (astExpr.exprKind().getKind().equals(Kind.COMPREHENSION)) {
-                  if (!macroExpr.exprKind().getKind().equals(Kind.NOT_SET)) {
-                    throw new IllegalStateException(
-                        String.format(
-                            "Expected macro call node %d to be NOT_SET for comprehension, but"
-                                + " was %s.",
-                            macroExpr.id(), macroExpr.exprKind().getKind()));
-                  }
-                } else if (!macroExpr.exprKind().getKind().equals(astExpr.exprKind().getKind())) {
+                if (macroExpr.exprKind().getKind().equals(Kind.NOT_SET)) {
+                  // If a macro node is NOT_SET, its ID must be present in the main AST.
+                  checkState(
+                      ast.getSource().getMacroCalls().containsKey(macroExpr.id()),
+                      "Expected macro call node %s to be present in macro calls map, but was not.",
+                      macroExpr.id());
+                } else if (astExpr.exprKind().getKind().equals(Kind.COMPREHENSION)) {
+                  // We encountered something other than NOT_SET in macro source for comprehension
+                  // node. This is an error.
                   throw new IllegalStateException(
                       String.format(
-                          "Macro call node %d kind mismatch: expected %s (from AST), but was %s"
-                              + " (in macro call).",
+                          "Expected macro call node %d to be NOT_SET for comprehension, but was"
+                              + " %s.",
+                          macroExpr.id(), macroExpr.exprKind().getKind()));
+                } else if (!macroExpr.exprKind().getKind().equals(astExpr.exprKind().getKind())) {
+                  // Otherwise for all cases, the AST node should match exactly.
+                  throw new IllegalStateException(
+                      String.format(
+                          "Macro call node %d kind mismatch: expected %s (from AST), but was %s (in"
+                              + " macro call).",
                           macroExpr.id(),
                           astExpr.exprKind().getKind(),
                           macroExpr.exprKind().getKind()));
