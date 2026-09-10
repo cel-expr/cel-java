@@ -1,7 +1,12 @@
+load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
+load(":cel_verifier.bzl", "cel_verifier_test")
+
 package(
     default_applicable_licenses = ["//:license"],
     default_visibility = ["//verifier:verifier_internal"],
 )
+
+exports_files(["run_verifier.sh"])
 
 alias(
     name = "tools",
@@ -16,4 +21,61 @@ alias(
 alias(
     name = "cel_verifier_tool",
     actual = "//verifier/src/main/java/dev/cel/verifier/tools:cel_verifier_tool",
+)
+
+cel_verifier_test(
+    name = "test_sat_simple_test",
+    command = "check-sat",
+    expected_status = [
+        "VERIFIED",
+        "INCONCLUSIVE",
+    ],  # Pass if verified OR inconclusive
+    expression = "x > 10",
+    variables = {"x": "int"},
+)
+
+cel_verifier_test(
+    name = "test_sat_unsatisfiable_test",
+    command = "check-sat",
+    expected_status = ["VIOLATED"],
+    expression = "x > 10 && x < 5",
+    variables = {"x": "int"},
+)
+
+cel_verifier_test(
+    name = "test_equiv_simple_test",
+    command = "verify-equiv",
+    expression = "x > 10",
+    expression_b = "10 < x",
+    variables = {"x": "int"},
+)
+
+cel_verifier_test(
+    name = "test_policy_simple_test",
+    command = "verify-policy",
+    policy_file = "testdata/simple_policy.yaml",
+    variables = {"role": "string"},
+)
+
+cel_verifier_test(
+    name = "test_equiv_negative_test",
+    command = "verify-equiv",
+    expected_status = ["VIOLATED"],
+    expression = "x > 10",
+    expression_b = "x < 5",
+    variables = {"x": "int"},
+)
+
+cel_verifier_test(
+    name = "test_policy_violated_test",
+    command = "verify-policy",
+    expected_status = ["VIOLATED"],
+    policy_file = "testdata/violated_policy.yaml",
+    variables = {"role": "string"},
+)
+
+bzl_library(
+    name = "cel_verifier_bzl",
+    srcs = ["cel_verifier.bzl"],
+    visibility = ["//visibility:private"],
 )

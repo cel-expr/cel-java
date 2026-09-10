@@ -1,0 +1,11 @@
+name: violated_policy
+rule:
+  match:
+    - condition: role == 'admin'
+      output: 'true'
+    - output: 'false'
+verification:
+  invariants:
+    - id: viewer_always_true
+      assume: role == 'viewer'
+      assert: rule.result == true

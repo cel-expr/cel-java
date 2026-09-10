@@ -1,0 +1,11 @@
+name: simple_policy
+rule:
+  match:
+    - condition: role == 'admin'
+      output: 'true'
+    - output: 'false'
+verification:
+  invariants:
+    - id: admin_always_true
+      assume: role == 'admin'
+      assert: rule.result == true
