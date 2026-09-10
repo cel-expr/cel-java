@@ -257,6 +257,66 @@ public class TypesTest {
   }
 
   @Test
+  public void isAssignable_typeType_occursCheck_mapTypeParam_to_typeParam() {
+    Map<CelType, CelType> subs = new HashMap<>();
+    TypeParamType typeParamT = TypeParamType.create("T");
+    CelType fromType = TypeType.create(MapType.create(SimpleType.STRING, typeParamT));
+    CelType toType = TypeType.create(typeParamT);
+
+    Map<CelType, CelType> result = Types.isAssignable(subs, fromType, toType);
+
+    assertThat(result).isNull();
+  }
+
+  @Test
+  public void isAssignable_typeType_occursCheck_typeParam_to_mapTypeParam() {
+    Map<CelType, CelType> subs = new HashMap<>();
+    TypeParamType typeParamT = TypeParamType.create("T");
+    CelType fromType = TypeType.create(typeParamT);
+    CelType toType = TypeType.create(MapType.create(SimpleType.STRING, typeParamT));
+
+    Map<CelType, CelType> result = Types.isAssignable(subs, fromType, toType);
+
+    assertThat(result).isNull();
+  }
+
+  @Test
+  public void isAssignable_typeType_occursCheck_mapTypeParamInKey_to_typeParam() {
+    Map<CelType, CelType> subs = new HashMap<>();
+    TypeParamType typeParamT = TypeParamType.create("T");
+    CelType fromType = TypeType.create(MapType.create(typeParamT, SimpleType.STRING));
+    CelType toType = TypeType.create(typeParamT);
+
+    Map<CelType, CelType> result = Types.isAssignable(subs, fromType, toType);
+
+    assertThat(result).isNull();
+  }
+
+  @Test
+  public void isAssignable_typeType_occursCheck_listTypeParam_to_typeParam() {
+    Map<CelType, CelType> subs = new HashMap<>();
+    TypeParamType typeParamT = TypeParamType.create("T");
+    CelType fromType = TypeType.create(ListType.create(typeParamT));
+    CelType toType = TypeType.create(typeParamT);
+
+    Map<CelType, CelType> result = Types.isAssignable(subs, fromType, toType);
+
+    assertThat(result).isNull();
+  }
+
+  @Test
+  public void isAssignable_typeType_occursCheck_optionalTypeParam_to_typeParam() {
+    Map<CelType, CelType> subs = new HashMap<>();
+    TypeParamType typeParamT = TypeParamType.create("T");
+    CelType fromType = TypeType.create(OptionalType.create(typeParamT));
+    CelType toType = TypeType.create(typeParamT);
+
+    Map<CelType, CelType> result = Types.isAssignable(subs, fromType, toType);
+
+    assertThat(result).isNull();
+  }
+
+  @Test
   public void compiler_typeParamInTypeType_resolvesReturnTypeInt() throws Exception {
     TypeParamType typeParamT = TypeParamType.create("T");
     CelCompiler celCompiler =

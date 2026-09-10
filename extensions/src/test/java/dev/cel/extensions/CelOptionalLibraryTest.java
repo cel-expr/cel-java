@@ -14,8 +14,10 @@
 
 package dev.cel.extensions;
 
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.truth.Truth.assertThat;
 import static org.junit.Assert.assertThrows;
+import static org.junit.Assume.assumeFalse;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -35,6 +37,8 @@ import dev.cel.common.CelOverloadDecl;
 import dev.cel.common.CelValidationException;
 import dev.cel.common.CelVarDecl;
 import dev.cel.common.ast.CelExpr;
+import dev.cel.common.ast.CelExpr.CelList;
+import dev.cel.common.types.CelKind;
 import dev.cel.common.types.CelType;
 import dev.cel.common.types.ListType;
 import dev.cel.common.types.MapType;
@@ -1797,6 +1801,32 @@ public class CelOptionalLibraryTest {
         .hasMessageThat()
         .contains(
             "Cannot initialize optional entry 'single_double_wrapper' from non-optional value foo");
+  }
+
+  @Test
+  @TestParameters("{expression: '[type([]), int, type(optional.none())]'}")
+  @TestParameters("{expression: '[type([]), type(optional.none()), int]'}")
+  @TestParameters("{expression: '[int, type([]), type(optional.none())]'}")
+  @TestParameters("{expression: '[int, type(optional.none()), type([])]'}")
+  @TestParameters("{expression: '[type(optional.none()), type([]), int]'}")
+  @TestParameters("{expression: '[type(optional.none()), int, type([])]'}")
+  public void listType_heterogeneousTypePermutations_resolvesToListDyn(String expression)
+      throws Exception {
+    assumeFalse(testMode.equals(TestMode.PLANNER_PARSE_ONLY));
+
+    Cel cel = newCelBuilder().build();
+
+    CelAbstractSyntaxTree ast = compile(cel, expression);
+    CelList list = ast.getExpr().listOrDefault();
+
+    assertThat(ast.getResultType()).isEqualTo(ListType.create(SimpleType.DYN));
+    assertThat(
+            list.elements().stream()
+                .map(elem -> ast.getType(elem.id()).map(CelType::kind))
+                .collect(toImmutableList()))
+        .containsExactly(
+            Optional.of(CelKind.TYPE), Optional.of(CelKind.TYPE), Optional.of(CelKind.TYPE));
+    assertThat((List<?>) cel.createProgram(ast).eval()).hasSize(3);
   }
 
   private CelAbstractSyntaxTree compile(CelCompiler compiler, String expression)
