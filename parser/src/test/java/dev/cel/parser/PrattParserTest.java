@@ -220,6 +220,10 @@ public final class PrattParserTest extends BaselineTestCase {
     runTest("MyType{foo: 1, bar: 'baz'}");
     runTest("Message{`in`: true}");
     runTest("Msg{?field: value}");
+    runTest("foo.bar.MyType{ }");
+    runTest("foo.bar.MyType{ a:b }");
+    runTest(".foo.bar.MyType{ a:b }");
+    runTest("a.b.c.d.Message{ foo: 1, bar: 'baz' }");
 
     // Field selection
     runTest("a.b");
@@ -544,7 +548,7 @@ public final class PrattParserTest extends BaselineTestCase {
       Map<String, CelMacro> macros,
       String expression,
       boolean validateParseOutput) {
-    testOutput().println("I: " + expression.replace("\t", "»"));
+    testOutput().println("I: " + sanitizeForBaseline(expression));
     testOutput().println("=====>");
 
     CelSource source = CelSource.newBuilder(expression).setDescription("<input>").build();
@@ -574,9 +578,16 @@ public final class PrattParserTest extends BaselineTestCase {
         testOutput().println("M: " + macroOutput);
       }
     } catch (CelValidationException e) {
-      testOutput().println("E: " + e.getMessage());
+      testOutput().println("E: " + sanitizeForBaseline(e.getMessage()));
     }
 
     testOutput().println();
+  }
+
+  private static String sanitizeForBaseline(String text) {
+    if (text == null) {
+      return null;
+    }
+    return text.replace("\t", "»").replace("\u007f", "\\u007f");
   }
 }

@@ -368,7 +368,7 @@ final class PrattParser {
   }
 
   private boolean checkRecursion(int chainDepth, Lexer.Token token) {
-    if (recursionDepth + chainDepth >= options.maxParseRecursionDepth()) {
+    if (recursionDepth + chainDepth > options.maxParseRecursionDepth()) {
       if (!recursionLimitExceeded) {
         recursionLimitExceeded = true;
         reportError(
@@ -386,10 +386,11 @@ final class PrattParser {
     if (recursionLimitExceeded || isRecoveryLimitExceeded()) {
       return ERROR;
     }
+    recursionDepth++;
     if (checkRecursion(0, peekToken)) {
+      recursionDepth--;
       return ERROR;
     }
-    recursionDepth++;
     CelExpr expr = parseBinaryAndTernary(0);
     recursionDepth--;
     return expr;
@@ -416,10 +417,10 @@ final class PrattParser {
       }
 
       Lexer.Token opTok = nextToken();
-      chainDepth++;
       if (checkRecursion(chainDepth, opTok)) {
         return ERROR;
       }
+      chainDepth++;
       long opId = nextId(opTok);
       CelExpr rhs = parseBinaryAndTernary(opInfo.precedence + 1);
       lhs = buildBinaryCall(opId, opInfo.name, lhs, rhs);
@@ -461,8 +462,9 @@ final class PrattParser {
     terms.add(lhs);
     while (peekToken.type == opInfo.type) {
       Lexer.Token opTok = nextToken();
+      long opId = nextId(opTok);
       CelExpr rhs = parseBinaryAndTernary(opInfo.precedence + 1);
-      ops.add(nextId(opTok));
+      ops.add(opId);
       terms.add(rhs);
     }
     return balancedTree(opInfo.name, terms, ops, 0, ops.size() - 1);
@@ -506,10 +508,10 @@ final class PrattParser {
     while (true) {
       Lexer.TokenType tok = peekToken.type;
       if (tok == Lexer.TokenType.DOT) {
-        chainDepth++;
         if (checkRecursion(chainDepth, peekToken)) {
           return ERROR;
         }
+        chainDepth++;
         Lexer.Token dotTok = nextToken();
         boolean optional = false;
         if (peekToken.type == Lexer.TokenType.QUESTION) {
@@ -537,7 +539,7 @@ final class PrattParser {
           CelExpr arg1 = lhs;
           CelExpr arg2 =
               CelExpr.newBuilder()
-                  .setId(nextId(idTok))
+                  .setId(nextId(getLeftmostPosition(lhs)))
                   .setConstant(CelConstant.ofValue(idText))
                   .build();
           lhs =
@@ -578,10 +580,10 @@ final class PrattParser {
                   .build();
         }
       } else if (tok == Lexer.TokenType.LEFT_BRACKET) {
-        chainDepth++;
         if (checkRecursion(chainDepth, peekToken)) {
           return ERROR;
         }
+        chainDepth++;
         Lexer.Token bracketTok = nextToken();
         long opId = nextId(bracketTok);
         boolean optional = false;
@@ -607,13 +609,11 @@ final class PrattParser {
                         .build())
                 .build();
       } else if (tok == Lexer.TokenType.LEFT_BRACE) {
-        // Position must be retrieved before extractStructName erases the expression IDs.
-        int structPos = getLeftmostPosition(lhs);
         String structName = extractStructName(lhs).orElse(null);
         if (structName == null) {
           break;
         }
-        lhs = parseStruct(nextId(structPos), structName);
+        lhs = parseStruct(nextId(peekToken.start), structName);
       } else {
         break;
       }
@@ -639,14 +639,14 @@ final class PrattParser {
 
     if (opType == Lexer.TokenType.MINUS) {
       if (peekToken.type == Lexer.TokenType.INT) {
-        return parseIntLiteral(nextId(op), /* isNegative= */ true);
+        return parseIntLiteral(nextId(peekToken), /* isNegative= */ true);
       }
       if (peekToken.type == Lexer.TokenType.FLOAT) {
-        return parseDoubleLiteral(nextId(op), /* isNegative= */ true);
+        return parseDoubleLiteral(nextId(peekToken), /* isNegative= */ true);
       }
     }
 
-    if (checkRecursion(1, op)) {
+    if (checkRecursion(0, op)) {
       return ERROR;
     }
 
@@ -711,10 +711,10 @@ final class PrattParser {
 
     int chainDepth = 0;
     for (UnaryOp op : ops) {
-      chainDepth++;
       if (checkRecursion(chainDepth, op.token)) {
         return ERROR;
       }
+      chainDepth++;
     }
 
     recursionDepth += ops.size();
@@ -794,6 +794,9 @@ final class PrattParser {
       case LEFT_PAREN:
         {
           int groupingParenCount = countGroupingParentheses();
+          if (checkRecursion(groupingParenCount, peekToken)) {
+            return ERROR;
+          }
           for (int i = 0; i < groupingParenCount; ++i) {
             nextToken();
           }
@@ -989,7 +992,7 @@ final class PrattParser {
       CelConstant constExpr = Constants.parseInt(text);
       return CelExpr.newBuilder().setId(id).setConstant(constExpr).build();
     } catch (ParseException e) {
-      reportSyntaxError(tok, "invalid int literal");
+      reportSyntaxError(tok, "invalid int literal: " + text);
       return CelExpr.newBuilder().setId(nextId(tok)).build();
     }
   }
@@ -1001,7 +1004,7 @@ final class PrattParser {
       CelConstant constExpr = Constants.parseUint(value);
       return CelExpr.newBuilder().setId(nextId(tok)).setConstant(constExpr).build();
     } catch (ParseException e) {
-      reportSyntaxError(tok, "invalid uint literal");
+      reportSyntaxError(tok, "invalid uint literal: " + value);
       return CelExpr.newBuilder().setId(nextId(tok)).build();
     }
   }
@@ -1012,13 +1015,9 @@ final class PrattParser {
     long id = nodeId == -1 ? nextId(tok) : nodeId;
     try {
       CelConstant constExpr = Constants.parseDouble(text);
-      if (Double.isInfinite(constExpr.doubleValue())) {
-        reportSyntaxError(tok, "invalid double literal");
-        return CelExpr.newBuilder().setId(id).build();
-      }
       return CelExpr.newBuilder().setId(id).setConstant(constExpr).build();
     } catch (ParseException e) {
-      reportSyntaxError(tok, "invalid double literal");
+      reportSyntaxError(tok, "invalid double literal: " + text);
       return CelExpr.newBuilder().setId(nextId(tok)).build();
     }
   }
@@ -1097,8 +1096,7 @@ final class PrattParser {
       }
       CelExpr operand = expr.select().operand();
       eraseId(expr.id());
-      return extractStructName(operand)
-          .map(prefix -> prefix + "." + expr.select().field());
+      return extractStructName(operand).map(prefix -> prefix + "." + expr.select().field());
     }
     return Optional.empty();
   }
@@ -1178,7 +1176,7 @@ final class PrattParser {
       if (macroCalls.containsKey(target.id())) {
         callExpr.setTarget(CelExpr.newBuilder().setId(target.id()).build());
       } else {
-        callExpr.setTarget(buildMacroCallArgs(target));
+        callExpr.setTarget(target);
       }
     }
     for (CelExpr arg : args) {

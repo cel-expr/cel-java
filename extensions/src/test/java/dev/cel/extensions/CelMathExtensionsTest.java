@@ -827,7 +827,7 @@ public class CelMathExtensionsTest {
 
     assertThat(e)
         .hasMessageThat()
-        .contains("ERROR: <input>:1:10: For input string: \"-9223372036854775809\"");
+        .contains("ERROR: <input>:1:10: invalid int literal: -9223372036854775809");
   }
 
   @Test
@@ -917,7 +917,7 @@ public class CelMathExtensionsTest {
 
     assertThat(e)
         .hasMessageThat()
-        .contains("ERROR: <input>:1:33: For input string: \"9223372036854775809\"");
+        .contains("ERROR: <input>:1:33: invalid int literal: 9223372036854775809");
   }
 
   @Test

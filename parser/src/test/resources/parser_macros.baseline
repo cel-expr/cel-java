@@ -16,7 +16,10 @@ M: has(
 
 I: has(m)
 =====>
-E: ERROR: <input>:1:4: invalid argument to has() macro
+E/A: ERROR: <input>:1:4: invalid argument to has() macro
+ | has(m)
+ | ...^
+E/P: ERROR: <input>:1:4: invalid argument to has() macro
  | has(m)
  | ...^
 
@@ -183,6 +186,63 @@ M: m^#1:Expr.Ident#.exists(
   f^#4:Expr.Ident#
 )^#0:Expr.Call#
 
+I: m.exists_one(v, f)
+=====>
+P: __comprehension__(
+  // Variable
+  v,
+  // Target
+  m^#1:Expr.Ident#,
+  // Accumulator
+  @result,
+  // Init
+  0^#5:int64#,
+  // LoopCondition
+  true^#6:bool#,
+  // LoopStep
+  _?_:_(
+    f^#4:Expr.Ident#,
+    _+_(
+      @result^#7:Expr.Ident#,
+      1^#8:int64#
+    )^#9:Expr.Call#,
+    @result^#10:Expr.Ident#
+  )^#11:Expr.Call#,
+  // Result
+  _==_(
+    @result^#12:Expr.Ident#,
+    1^#13:int64#
+  )^#14:Expr.Call#)^#15:Expr.Comprehension#
+L: __comprehension__(
+  // Variable
+  v,
+  // Target
+  m^#1[1,0]#,
+  // Accumulator
+  @result,
+  // Init
+  0^#5[1,12]#,
+  // LoopCondition
+  true^#6[1,12]#,
+  // LoopStep
+  _?_:_(
+    f^#4[1,16]#,
+    _+_(
+      @result^#7[1,12]#,
+      1^#8[1,12]#
+    )^#9[1,12]#,
+    @result^#10[1,12]#
+  )^#11[1,12]#,
+  // Result
+  _==_(
+    @result^#12[1,12]#,
+    1^#13[1,12]#
+  )^#14[1,12]#)^#15[1,12]#
+M: m^#1:Expr.Ident#.exists_one(
+  v^#3:Expr.Ident#,
+  f^#4:Expr.Ident#
+)^#0:Expr.Call#
+
 I: m.existsOne(v, f)
 =====>
 P: __comprehension__(
@@ -242,7 +302,10 @@ M: m^#1:Expr.Ident#.existsOne(
 
 I: [].existsOne(__result__, __result__)
 =====>
-E: ERROR: <input>:1:14: The iteration variable __result__ overwrites accumulator variable
+E/A: ERROR: <input>:1:14: The iteration variable __result__ overwrites accumulator variable
+ | [].existsOne(__result__, __result__)
+ | .............^
+E/P: ERROR: <input>:1:14: The iteration variable __result__ overwrites accumulator variable
  | [].existsOne(__result__, __result__)
  | .............^
 
@@ -351,7 +414,10 @@ M: m^#1:Expr.Ident#.map(
 
 I: m.map(__result__, __result__)
 =====>
-E: ERROR: <input>:1:7: The iteration variable __result__ overwrites accumulator variable
+E/A: ERROR: <input>:1:7: The iteration variable __result__ overwrites accumulator variable
+ | m.map(__result__, __result__)
+ | ......^
+E/P: ERROR: <input>:1:7: The iteration variable __result__ overwrites accumulator variable
  | m.map(__result__, __result__)
  | ......^
 
@@ -412,13 +478,19 @@ M: m^#1:Expr.Ident#.filter(
 
 I: m.filter(__result__, false)
 =====>
-E: ERROR: <input>:1:10: The iteration variable __result__ overwrites accumulator variable
+E/A: ERROR: <input>:1:10: The iteration variable __result__ overwrites accumulator variable
+ | m.filter(__result__, false)
+ | .........^
+E/P: ERROR: <input>:1:10: The iteration variable __result__ overwrites accumulator variable
  | m.filter(__result__, false)
  | .........^
 
 I: m.filter(a.b, false)
 =====>
-E: ERROR: <input>:1:11: The argument must be a simple name
+E/A: ERROR: <input>:1:11: The argument must be a simple name
+ | m.filter(a.b, false)
+ | ..........^
+E/P: ERROR: <input>:1:11: The argument must be a simple name
  | m.filter(a.b, false)
  | ..........^
 
@@ -901,3 +973,9 @@ P: noop_macro(
 L: noop_macro(
   123^#2[1,11]#
 )^#1[1,10]#
+
+I: get_constant_macro()
+=====>
+P: 10^#1:int64#
+L: 10^#1[NO_POS]#
+M: get_constant_macro()^#0:Expr.Call#

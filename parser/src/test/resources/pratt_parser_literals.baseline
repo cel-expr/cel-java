@@ -36,16 +36,16 @@ L: 42^#1[1,0]#
 I: -1
 =====>
 P: -1^#1:int64#
-L: -1^#1[1,0]#
+L: -1^#1[1,1]#
 
 I: -42
 =====>
 P: -42^#1:int64#
-L: -42^#1[1,0]#
+L: -42^#1[1,1]#
 
 I: 0xFFFFFFFFFFFFFFFFF
 =====>
-E: ERROR: <input>:1:1: Syntax error: invalid int literal
+E: ERROR: <input>:1:1: Syntax error: invalid int literal: 0xFFFFFFFFFFFFFFFFF
  | 0xFFFFFFFFFFFFFFFFF
  | ^
 
@@ -57,11 +57,11 @@ L: 9223372036854775807^#1[1,0]#
 I: -9223372036854775808
 =====>
 P: -9223372036854775808^#1:int64#
-L: -9223372036854775808^#1[1,0]#
+L: -9223372036854775808^#1[1,1]#
 
 I: -(9223372036854775808)
 =====>
-E: ERROR: <input>:1:3: Syntax error: invalid int literal
+E: ERROR: <input>:1:3: Syntax error: invalid int literal: 9223372036854775808
  | -(9223372036854775808)
  | ..^
 
@@ -88,7 +88,7 @@ L: 15u^#1[1,0]#
 
 I: 0xFFFFFFFFFFFFFFFFFu
 =====>
-E: ERROR: <input>:1:1: Syntax error: invalid uint literal
+E: ERROR: <input>:1:1: Syntax error: invalid uint literal: 0xFFFFFFFFFFFFFFFFFu
  | 0xFFFFFFFFFFFFFFFFFu
  | ^
 
@@ -136,9 +136,8 @@ L: 0.0^#1[1,0]#
 
 I: 1.99e90000009
 =====>
-E: ERROR: <input>:1:1: Syntax error: invalid double literal
- | 1.99e90000009
- | ^
+P: Infinity^#1:double#
+L: Infinity^#1[1,0]#
 
 I: 1e
 =====>

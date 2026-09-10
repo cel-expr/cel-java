@@ -72,6 +72,8 @@ public abstract class CelOptions {
 
   public abstract boolean enableQuotedIdentifierSyntax();
 
+  public abstract boolean enablePrattParser();
+
   // Type-Checker related options
 
   public abstract boolean enableCompileTimeOverloadResolution();
@@ -144,6 +146,7 @@ public abstract class CelOptions {
         .retainUnbalancedLogicalExpressions(false)
         .enableHiddenAccumulatorVar(true)
         .enableQuotedIdentifierSyntax(true)
+        .enablePrattParser(false)
         // Type-Checker options
         .enableCompileTimeOverloadResolution(false)
         .enableHomogeneousLiterals(false)
@@ -278,6 +281,9 @@ public abstract class CelOptions {
      * over a limited character set.
      */
     public abstract Builder enableQuotedIdentifierSyntax(boolean value);
+
+    /** Enables Pratt parser implementation over ANTLR parser. */
+    public abstract Builder enablePrattParser(boolean value);
 
     // Type-Checker related options
 

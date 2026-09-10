@@ -100,6 +100,10 @@ public final class CelParserImpl implements CelParser, EnvVisitable {
     return Optional.ofNullable(macros.get(key));
   }
 
+  ImmutableMap<String, CelMacro> getMacros() {
+    return macros;
+  }
+
   /** Return the options the {@link CelParser} was originally created with. */
   public CelOptions getOptions() {
     return options;
