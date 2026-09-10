@@ -101,8 +101,12 @@ public final class InliningOptimizer implements CelAstOptimizer {
   }
 
   @Override
+  // Internal optimization steps preserve the initial mutable AST instance if no mutations occur.
+  // Using == avoids deep .equals() comparison.
+  @SuppressWarnings("ReferenceEquality")
   public OptimizationResult optimize(CelAbstractSyntaxTree ast, Cel cel) {
-    CelMutableAst mutableAst = CelMutableAst.fromCelAst(ast);
+    CelMutableAst initialMutableAst = CelMutableAst.fromCelAst(ast);
+    CelMutableAst mutableAst = initialMutableAst;
     for (InlineVariable inlineVariable : inlineVariables) {
       mutableAst =
           astMutator.mutateUntilFixedPoint(
@@ -123,6 +127,10 @@ public final class InliningOptimizer implements CelAstOptimizer {
                     SubtreeReplacement.of(
                         node.id(), CelMutableAst.of(replacementExpr, inlineVariableAst.source())));
               });
+    }
+
+    if (mutableAst == initialMutableAst) {
+      return OptimizationResult.create(ast);
     }
 
     return OptimizationResult.create(astMutator.renumberIdsConsecutively(mutableAst).toParsedAst());
