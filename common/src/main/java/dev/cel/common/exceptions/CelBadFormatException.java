@@ -28,4 +28,8 @@ public final class CelBadFormatException extends CelRuntimeException {
   public CelBadFormatException(String errorMessage) {
     super(errorMessage, CelErrorCode.BAD_FORMAT);
   }
+
+  public CelBadFormatException(String errorMessage, Throwable cause) {
+    super(errorMessage, cause, CelErrorCode.BAD_FORMAT);
+  }
 }

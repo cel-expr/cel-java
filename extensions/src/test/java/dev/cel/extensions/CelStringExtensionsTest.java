@@ -27,13 +27,18 @@ import dev.cel.common.CelFunctionDecl;
 import dev.cel.common.CelOptions;
 import dev.cel.common.CelValidationException;
 import dev.cel.common.CelValidationResult;
+import dev.cel.common.types.ListType;
+import dev.cel.common.types.MapType;
 import dev.cel.common.types.SimpleType;
 import dev.cel.compiler.CelCompiler;
 import dev.cel.compiler.CelCompilerFactory;
 import dev.cel.extensions.CelStringExtensions.Function;
 import dev.cel.runtime.CelEvaluationException;
 import dev.cel.runtime.CelRuntime;
+import dev.cel.runtime.CelRuntime.Program;
+import dev.cel.testing.CelRuntimeFlavor;
 import java.util.List;
+import java.util.Locale;
 import org.junit.Assume;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -55,6 +60,8 @@ public final class CelStringExtensionsTest extends CelExtensionTestBase {
         .addVar("beginIndex", SimpleType.INT)
         .addVar("endIndex", SimpleType.INT)
         .addVar("limit", SimpleType.INT)
+        .addVar("dynMap", MapType.create(SimpleType.DYN, SimpleType.DYN))
+        .addVar("dynList", ListType.create(SimpleType.DYN))
         .build();
   }
 
@@ -62,11 +69,13 @@ public final class CelStringExtensionsTest extends CelExtensionTestBase {
   public void library() {
     CelExtensionLibrary<?> library =
         CelExtensions.getExtensionLibrary("strings", CelOptions.DEFAULT);
+
     assertThat(library.name()).isEqualTo("strings");
     assertThat(library.latest().version()).isEqualTo(0);
     assertThat(library.version(0).functions().stream().map(CelFunctionDecl::name))
         .containsExactly(
             "charAt",
+            "format",
             "indexOf",
             "join",
             "lastIndexOf",
@@ -1469,9 +1478,402 @@ public final class CelStringExtensionsTest extends CelExtensionTestBase {
         isParseOnly
             ? customCompilerCel.parse("'test'.substring(2) == 'st'").getAst()
             : customCompilerCel.compile("'test'.substring(2) == 'st'").getAst();
-
-    assertThrows(CelEvaluationException.class, () -> customRuntimeCel.createProgram(ast).eval());
+    if (runtimeFlavor == CelRuntimeFlavor.PLANNER && !isParseOnly) {
+      assertThrows(CelEvaluationException.class, () -> customRuntimeCel.createProgram(ast));
+    } else {
+      Program program = customRuntimeCel.createProgram(ast);
+      assertThrows(CelEvaluationException.class, program::eval);
+    }
   }
 
+  @Test
+  @TestParameters(
+      "{expr: \"'Percent sign %%!'.format(['hello', 'world'])\", expectedResult: 'Percent sign"
+          + " %!'}")
+  public void format_escaped_success(String expr, String expectedResult) throws Exception {
+    Object evaluatedResult = eval(expr);
 
+    assertThat(evaluatedResult).isEqualTo(expectedResult);
+  }
+
+  @Test
+  @TestParameters("{expr: \"'%s'.format(['foo'])\", expectedResult: 'foo'}")
+  @TestParameters("{expr: \"'%s'.format([b'foo'])\", expectedResult: 'foo'}")
+  @TestParameters(
+      "{expr: \"'%s'.format([[double('NaN'), double('Infinity'), double('-Infinity')]])\","
+          + " expectedResult: '[NaN, Infinity, -Infinity]'}")
+  @TestParameters(
+      "{expr: \"'str is %s and some more'.format(['filler'])\", expectedResult: 'str is filler and"
+          + " some more'}")
+  @TestParameters("{expr: \"'%%%s%%'.format(['text'])\", expectedResult: '%text%'}")
+  @TestParameters(
+      "{expr: \"'%s%%'.format(['percent on the right'])\", expectedResult: 'percent on the"
+          + " right%'}")
+  @TestParameters(
+      "{expr: \"'%%%s'.format(['percent on the left'])\", expectedResult: '%percent on the left'}")
+  @TestParameters("{expr: \"'null: %s'.format([null])\", expectedResult: 'null: null'}")
+  @TestParameters("{expr: \"'%s'.format([999999999999])\", expectedResult: '999999999999'}")
+  @TestParameters(
+      "{expr: \"'some bytes: %s'.format([b'xyz'])\", expectedResult: 'some bytes: xyz'}")
+  @TestParameters("{expr: \"'%s'.format([b'\\\\xff'])\", expectedResult: '\uFFFD'}")
+  @TestParameters("{expr: \"'%s'.format([b'\\\\xff\\\\xff'])\", expectedResult: '\uFFFD'}")
+  @TestParameters("{expr: \"'%s'.format([b'\\\\xc2'])\", expectedResult: '\uFFFD'}")
+  @TestParameters("{expr: \"'%s'.format([b'\\\\xc2a'])\", expectedResult: '\uFFFDa'}")
+  @TestParameters(
+      "{expr: \"'%s'.format([b'\\\\xe0\\\\x80\\\\x80'])\", expectedResult: '\uFFFD'}") // Overlong
+  // 3-byte
+  @TestParameters(
+      "{expr: \"'%s'.format([b'\\\\xed\\\\xa0\\\\x80'])\", expectedResult: '\uFFFD'}") // Surrogate
+  // 3-byte
+  @TestParameters(
+      "{expr: \"'%s'.format([b'\\\\xf0\\\\x80\\\\x80\\\\x80'])\","
+          + " expectedResult: '\uFFFD'}") // Overlong 4-byte
+  @TestParameters(
+      "{expr: \"'%s'.format([b'\\\\xf4\\\\x90\\\\x80\\\\x80'])\","
+          + " expectedResult: '\uFFFD'}") // Beyond Max 4-byte
+  @TestParameters(
+      "{expr: \"'%s'.format([b'hello\\\\xff\\\\xfe\\\\xfdworld'])\", expectedResult:"
+          + " 'hello\uFFFDworld'}")
+  @TestParameters(
+      "{expr: \"'%s'.format([b'a\\\\xff\\\\xffb\\\\xfe\\\\xfec'])\", expectedResult:"
+          + " 'a\uFFFDb\uFFFDc'}")
+  @TestParameters(
+      "{expr: \"'%s'.format([b'\\\\xef\\\\xbf\\\\xbd\\\\xff\\\\xff'])\", expectedResult:"
+          + " '\uFFFD\uFFFD'}")
+  @TestParameters("{expr: \"'%s'.format([b'\\\\xc3\\\\xa9\\\\xff'])\", expectedResult: 'é\uFFFD'}")
+  @TestParameters(
+      "{expr: \"'%s'.format([b'\\\\xe4\\\\xb8\\\\x96\\\\xff'])\", expectedResult: '世\uFFFD'}")
+  @TestParameters(
+      "{expr: \"'%s'.format([b'\\\\xf0\\\\x9f\\\\x98\\\\x80\\\\xff'])\", expectedResult:"
+          + " '😀\uFFFD'}")
+  @TestParameters(
+      "{expr: \"'type is %s'.format([type('test string')])\", expectedResult: 'type is string'}")
+  @TestParameters(
+      "{expr: \"'%s'.format([timestamp('2023-02-03T23:31:20+00:00')])\", expectedResult:"
+          + " '2023-02-03T23:31:20Z'}")
+  @TestParameters("{expr: \"'%s'.format([duration('1h45m47s')])\", expectedResult: '6347s'}")
+  @TestParameters(
+      "{expr: \"'%s'.format([['abc', 3.14, null, [9, 8, 7, 6],"
+          + " timestamp('2023-02-03T23:31:20Z')]])\", expectedResult: '[abc, 3.14, null, [9, 8, 7,"
+          + " 6], 2023-02-03T23:31:20Z]'}")
+  @TestParameters(
+      "{expr: \"'%s'.format([{'key1': b'xyz', 'key5': null, 'key2': duration('7200s'), 'key4':"
+          + " true, 'key3': 2.71828}])\", expectedResult: '{key1: xyz, key2: 7200s, key3: 2.71828,"
+          + " key4: true, key5: null}'}")
+  @TestParameters(
+      "{expr: \"'%s'.format([{'z': 1, '\uFFFD': 2, '😀': 3}])\", expectedResult: '{z: 1, \uFFFD: 2,"
+          + " 😀: 3}'}")
+  @TestParameters(
+      "{expr: \"'map with multiple key types: %s'.format([{1: 'value1', 2u: 'value2', true:"
+          + " double('NaN')}])\", expectedResult: 'map with multiple key types: {1: value1, 2:"
+          + " value2, true: NaN}'}")
+  @TestParameters(
+      "{expr: \"'true bool: %s, false bool: %s'.format([true, false])\", expectedResult: 'true"
+          + " bool: true, false bool: false'}")
+  @TestParameters(
+      "{expr: \"'Durations with subseconds: %s'.format([[duration('422s'), duration('2s123ms'),"
+          + " duration('1us'), duration('1ns'), duration('-1000000ns')]])\", expectedResult:"
+          + " 'Durations with subseconds: [422s, 2.123s, 0.000001s, 0.000000001s, -0.001s]'}")
+  @TestParameters("{expr: \"'%s'.format([2.71])\", expectedResult: '2.71'}")
+  @TestParameters("{expr: \"'%s'.format([[2.71]])\", expectedResult: '[2.71]'}")
+  @TestParameters("{expr: \"'%s'.format([1.0])\", expectedResult: '1'}")
+  @TestParameters("{expr: \"'%s'.format([[1.0]])\", expectedResult: '[1]'}")
+  @TestParameters("{expr: \"'%s'.format([10.0])\", expectedResult: '10'}")
+  @TestParameters("{expr: \"'%s'.format([10000000.0])\", expectedResult: '10000000'}")
+  @TestParameters("{expr: \"'%s'.format([10002.71])\", expectedResult: '10002.71'}")
+  @TestParameters("{expr: \"'%s'.format([0.000000002])\", expectedResult: '0.000000002'}")
+  @TestParameters("{expr: \"'%s'.format([[0.000000002]])\", expectedResult: '[0.000000002]'}")
+  @TestParameters("{expr: \"'%s'.format([-0.0])\", expectedResult: '-0'}")
+  @TestParameters("{expr: \"'%s'.format([1.0e20])\", expectedResult: '100000000000000000000'}")
+  @TestParameters("{expr: \"'%s'.format([1.0e-20])\", expectedResult: '0.00000000000000000001'}")
+  @TestParameters("{expr: \"'%.5s'.format(['foobar'])\", expectedResult: 'foobar'}")
+  @TestParameters("{expr: \"'%.3s'.format(['foobar'])\", expectedResult: 'foobar'}")
+  @TestParameters("{expr: \"'%.0s'.format(['foobar'])\", expectedResult: 'foobar'}")
+  @TestParameters("{expr: \"'%.10s'.format(['foobar'])\", expectedResult: 'foobar'}")
+  public void format_verbS_success(String expr, String expectedResult) throws Exception {
+    Object evaluatedResult = eval(expr);
+
+    assertThat(evaluatedResult).isEqualTo(expectedResult);
+  }
+
+  @Test
+  @TestParameters("{expr: \"'%d'.format([1])\", expectedResult: '1'}")
+  @TestParameters("{expr: \"'%d'.format([1u])\", expectedResult: '1'}")
+  @TestParameters("{expr: \"'%d'.format([3.14])\", expectedResult: '3.14'}")
+  @TestParameters("{expr: \"'%d'.format([10.0])\", expectedResult: '10'}")
+  @TestParameters("{expr: \"'%d'.format([10000000.0])\", expectedResult: '10000000'}")
+  @TestParameters("{expr: \"'%d'.format([1.0e20])\", expectedResult: '100000000000000000000'}")
+  @TestParameters("{expr: \"'%d'.format([1.0e-20])\", expectedResult: '0.00000000000000000001'}")
+  @TestParameters(
+      "{expr: \"'int %d, uint %d'.format([-1, 2u])\", expectedResult: 'int -1, uint 2'}")
+  public void format_verbD_success(String expr, String expectedResult) throws Exception {
+    Object evaluatedResult = eval(expr);
+
+    assertThat(evaluatedResult).isEqualTo(expectedResult);
+  }
+
+  @Test
+  @TestParameters("{expr: \"'%f'.format([1])\", expectedResult: '1.000000'}")
+  @TestParameters("{expr: \"'%f'.format([1u])\", expectedResult: '1.000000'}")
+  @TestParameters("{expr: \"'%f'.format([3.14])\", expectedResult: '3.140000'}")
+  @TestParameters("{expr: \"'%.1f'.format([3.14])\", expectedResult: '3.1'}")
+  @TestParameters("{expr: \"'%.1f'.format([0.05])\", expectedResult: '0.1'}")
+  @TestParameters("{expr: \"'%.1f'.format([0.15])\", expectedResult: '0.1'}")
+  @TestParameters("{expr: \"'%.1f'.format([0.25])\", expectedResult: '0.2'}")
+  @TestParameters("{expr: \"'%.1f'.format([0.35])\", expectedResult: '0.3'}")
+  @TestParameters("{expr: \"'%.1f'.format([0.45])\", expectedResult: '0.5'}")
+  @TestParameters("{expr: \"'%.1f'.format([0.55])\", expectedResult: '0.6'}")
+  @TestParameters("{expr: \"'%.1f'.format([0.65])\", expectedResult: '0.7'}")
+  @TestParameters("{expr: \"'%.1f'.format([0.75])\", expectedResult: '0.8'}")
+  @TestParameters("{expr: \"'%.1f'.format([0.85])\", expectedResult: '0.8'}")
+  @TestParameters("{expr: \"'%.1f'.format([0.95])\", expectedResult: '0.9'}")
+  @TestParameters("{expr: \"'%.3f'.format([1.2345])\", expectedResult: '1.234'}")
+  @TestParameters("{expr: \"'%.3f'.format([1.2355])\", expectedResult: '1.236'}")
+  @TestParameters("{expr: \"'%.3f'.format([123.4999])\", expectedResult: '123.500'}")
+  @TestParameters("{expr: \"'%.3f'.format([123.4994])\", expectedResult: '123.499'}")
+  @TestParameters("{expr: \"'%f'.format([10000.1234])\", expectedResult: '10000.123400'}")
+  @TestParameters("{expr: \"'%.2f'.format([10000.1234])\", expectedResult: '10000.12'}")
+  @TestParameters("{expr: \"'%f'.format([2.71828])\", expectedResult: '2.718280'}")
+  @TestParameters("{expr: \"'%.6f'.format([-0.0])\", expectedResult: '-0.000000'}")
+  @TestParameters("{expr: \"'%f'.format([-0.0])\", expectedResult: '-0.000000'}")
+  @TestParameters("{expr: \"'%.0f'.format([-0.0])\", expectedResult: '-0'}")
+  @TestParameters("{expr: \"'%.1f'.format([-0.01])\", expectedResult: '-0.0'}")
+  @TestParameters("{expr: \"'%.0f'.format([-0.4])\", expectedResult: '-0'}")
+  @TestParameters("{expr: \"'%.16f'.format([0.15])\", expectedResult: '0.1500000000000000'}")
+  @TestParameters("{expr: \"'%f'.format([double('4.9e-324')])\", expectedResult: '0.000000'}")
+  @TestParameters(
+      "{expr: \"'%.100f'.format([double('4.9e-324')])\", expectedResult:"
+          + " '0.0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000'}")
+  @TestParameters(
+      "{expr: \"'%f'.format([9223372036854775807])\", expectedResult:"
+          + " '9223372036854775808.000000'}")
+  @TestParameters(
+      "{expr: \"'%f'.format([-9223372036854775808])\", expectedResult:"
+          + " '-9223372036854775808.000000'}")
+  @TestParameters(
+      "{expr: \"'%f'.format([18446744073709551615u])\", expectedResult:"
+          + " '18446744073709551616.000000'}")
+  @TestParameters("{expr: \"'%f'.format([double('NaN')])\", expectedResult: 'NaN'}")
+  @TestParameters("{expr: \"'%f'.format([double('Infinity')])\", expectedResult: 'Infinity'}")
+  @TestParameters("{expr: \"'%f'.format([double('-Infinity')])\", expectedResult: '-Infinity'}")
+  public void format_verbF_success(String expr, String expectedResult) throws Exception {
+    Object evaluatedResult = eval(expr);
+
+    assertThat(evaluatedResult).isEqualTo(expectedResult);
+  }
+
+  @Test
+  @TestParameters("{expr: \"'%e'.format([1])\", expectedResult: '1.000000e+00'}")
+  @TestParameters("{expr: \"'%e'.format([1u])\", expectedResult: '1.000000e+00'}")
+  @TestParameters("{expr: \"'%e'.format([3.14])\", expectedResult: '3.140000e+00'}")
+  @TestParameters("{expr: \"'%e'.format([-0.0])\", expectedResult: '-0.000000e+00'}")
+  @TestParameters("{expr: \"'%.2e'.format([-0.0])\", expectedResult: '-0.00e+00'}")
+  @TestParameters("{expr: \"'%.0e'.format([-0.0])\", expectedResult: '-0e+00'}")
+  @TestParameters("{expr: \"'%.1e'.format([3.14])\", expectedResult: '3.1e+00'}")
+  @TestParameters("{expr: \"'%.1e'.format([-3.14])\", expectedResult: '-3.1e+00'}")
+  @TestParameters("{expr: \"'%.6e'.format([1052.032911275])\", expectedResult: '1.052033e+03'}")
+  @TestParameters("{expr: \"'%e'.format([1234.0])\", expectedResult: '1.234000e+03'}")
+  @TestParameters("{expr: \"'%e'.format([2.71828])\", expectedResult: '2.718280e+00'}")
+  @TestParameters("{expr: \"'%e'.format([3u])\", expectedResult: '3.000000e+00'}")
+  @TestParameters("{expr: \"'%e'.format([9223372036854775807])\", expectedResult: '9.223372e+18'}")
+  @TestParameters("{expr: \"'%.3e'.format([1.2345])\", expectedResult: '1.234e+00'}")
+  @TestParameters("{expr: \"'%.3e'.format([1.2355])\", expectedResult: '1.236e+00'}")
+  @TestParameters("{expr: \"'%.0e'.format([2.5])\", expectedResult: '2e+00'}")
+  @TestParameters("{expr: \"'%.0e'.format([3.5])\", expectedResult: '4e+00'}")
+  @TestParameters(
+      "{expr: \"'%.18e'.format([9223372036854775807])\", expectedResult:"
+          + " '9.223372036854775808e+18'}")
+  @TestParameters(
+      "{expr: \"'%e'.format([-9223372036854775808])\", expectedResult:" + " '-9.223372e+18'}")
+  @TestParameters(
+      "{expr: \"'%e'.format([18446744073709551615u])\", expectedResult: '1.844674e+19'}")
+  @TestParameters(
+      "{expr: \"'%.19e'.format([18446744073709551615u])\", expectedResult:"
+          + " '1.8446744073709551616e+19'}")
+  @TestParameters("{expr: \"'%e'.format([double('4.9e-324')])\", expectedResult: '4.940656e-324'}")
+  @TestParameters("{expr: \"'%.1e'.format([double('4.9e-324')])\", expectedResult: '4.9e-324'}")
+  @TestParameters("{expr: \"'%e'.format([double('NaN')])\", expectedResult: 'NaN'}")
+  @TestParameters("{expr: \"'%e'.format([double('Infinity')])\", expectedResult: 'Infinity'}")
+  @TestParameters("{expr: \"'%e'.format([double('-Infinity')])\", expectedResult: '-Infinity'}")
+  public void format_verbE_success(String expr, String expectedResult) throws Exception {
+    Object evaluatedResult = eval(expr);
+
+    assertThat(evaluatedResult).isEqualTo(expectedResult);
+  }
+
+  @Test
+  @TestParameters("{expr: \"'%x'.format([255])\", expectedResult: 'ff'}")
+  @TestParameters("{expr: \"'%X'.format([255u])\", expectedResult: 'FF'}")
+  @TestParameters(
+      "{expr: \"'int %x, uint %X, string %x, bytes %X'.format([-10, 255u, 'hello', b'world'])\","
+          + " expectedResult: 'int -a, uint FF, string 68656c6c6f, bytes 776F726C64'}")
+  @TestParameters(
+      "{expr: \"'string: %x'.format([b'\\x00\\x00hello\\x00'])\", expectedResult: 'string:"
+          + " 000068656c6c6f00'}")
+  @TestParameters(
+      "{expr: \"'%x is -30 in hexadecimal'.format([-30])\", expectedResult: '-1e is -30 in"
+          + " hexadecimal'}")
+  @TestParameters(
+      "{expr: \"'%x'.format([-9223372036854775808])\", expectedResult: '-8000000000000000'}")
+  @TestParameters(
+      "{expr: \"'%X'.format([-9223372036854775808])\", expectedResult: '-8000000000000000'}")
+  public void format_verbX_success(String expr, String expectedResult) throws Exception {
+    Object evaluatedResult = eval(expr);
+
+    assertThat(evaluatedResult).isEqualTo(expectedResult);
+  }
+
+  @Test
+  @TestParameters("{expr: \"'%o'.format([8])\", expectedResult: '10'}")
+  @TestParameters(
+      "{expr: \"'int %o, uint %o'.format([-10, 20u])\", expectedResult: 'int -12, uint 24'}")
+  @TestParameters("{expr: \"'%o'.format([-11])\", expectedResult: '-13'}")
+  @TestParameters(
+      "{expr: \"'%o'.format([-9223372036854775808])\", expectedResult: '-1000000000000000000000'}")
+  public void format_verbO_success(String expr, String expectedResult) throws Exception {
+    Object evaluatedResult = eval(expr);
+
+    assertThat(evaluatedResult).isEqualTo(expectedResult);
+  }
+
+  @Test
+  @TestParameters("{expr: \"'%b'.format([5])\", expectedResult: '101'}")
+  @TestParameters("{expr: \"'%b'.format([true])\", expectedResult: '1'}")
+  @TestParameters(
+      "{expr: \"'int %b, uint %b, bool %b, bool %b'.format([-32, 20u, false, true])\","
+          + " expectedResult: 'int -100000, uint 10100, bool 0, bool 1'}")
+  @TestParameters("{expr: \"'zero %b'.format([0])\", expectedResult: 'zero 0'}")
+  @TestParameters(
+      "{expr: \"'this is -5 in binary: %b'.format([-5])\", expectedResult: 'this is -5 in binary:"
+          + " -101'}")
+  @TestParameters(
+      "{expr: \"'%b'.format([-9223372036854775808])\", expectedResult:"
+          + " '-1000000000000000000000000000000000000000000000000000000000000000'}")
+  public void format_verbB_success(String expr, String expectedResult) throws Exception {
+    Object evaluatedResult = eval(expr);
+
+    assertThat(evaluatedResult).isEqualTo(expectedResult);
+  }
+
+  @Test
+  @TestParameters(
+      "{expr: \"'%d %d %d, %s %s %s, %d %d %d, %s %s %s'.format([1, 2, 3, 'A', 'B', 'C', 4, 5, 6,"
+          + " 'D', 'E', 'F'])\", expectedResult: '1 2 3, A B C, 4 5 6, D E F'}")
+  @TestParameters("{expr: \"'%s'.format([{1: 'a', '1': 'b'}])\", expectedResult: '{1: a, 1: b}'}")
+  public void format_mixed_success(String expr, String expectedResult) throws Exception {
+    Object evaluatedResult = eval(expr);
+
+    assertThat(evaluatedResult).isEqualTo(expectedResult);
+  }
+
+  @Test
+  @TestParameters("{expr: \"'%'.format([1])\", expectedMessage: 'unexpected end of string'}")
+  @TestParameters("{expr: \"'%.' .format([1])\", expectedMessage: 'unexpected end of string'}")
+  @TestParameters("{expr: \"'%.6'.format([1])\", expectedMessage: 'unexpected end of string'}")
+  @TestParameters(
+      "{expr: \"'%.f'.format([3.14])\", expectedMessage: 'empty precision is not allowed'}")
+  @TestParameters(
+      "{expr: \"'%.e'.format([3.14])\", expectedMessage: 'empty precision is not allowed'}")
+  @TestParameters(
+      "{expr: \"'%.9999999999999999f'.format([3.14])\", expectedMessage: 'invalid precision"
+          + " format'}")
+  public void format_syntaxFailure_throwsException(String expr, String expectedMessage)
+      throws Exception {
+    CelEvaluationException exception = assertThrows(CelEvaluationException.class, () -> eval(expr));
+
+    assertThat(exception).hasCauseThat().isNotNull();
+    assertThat(exception).hasCauseThat().hasMessageThat().contains(expectedMessage);
+  }
+
+  @Test
+  @TestParameters(
+      "{expr: \"'%s'.format([])\", expectedMessage: 'too few arguments provided for format'}")
+  public void format_argumentCountFailure_throwsException(String expr, String expectedMessage)
+      throws Exception {
+    CelEvaluationException exception = assertThrows(CelEvaluationException.class, () -> eval(expr));
+
+    assertThat(exception).hasCauseThat().isNotNull();
+    assertThat(exception).hasCauseThat().hasMessageThat().contains(expectedMessage);
+  }
+
+  @Test
+  @TestParameters(
+      "{expr: \"'%a'.format(['foo'])\", expectedMessage: 'unrecognized formatting clause \"a\"'}")
+  @TestParameters(
+      "{expr: \"'%10s'.format(['foo'])\", expectedMessage: 'unrecognized formatting clause \"1\"'}")
+  public void format_unrecognizedVerbFailure_throwsException(String expr, String expectedMessage)
+      throws Exception {
+    CelEvaluationException exception = assertThrows(CelEvaluationException.class, () -> eval(expr));
+
+    assertThat(exception).hasCauseThat().isNotNull();
+    assertThat(exception).hasCauseThat().hasMessageThat().contains(expectedMessage);
+  }
+
+  @Test
+  @TestParameters(
+      "{expr: \"'%b'.format(['foo'])\", expectedMessage: 'binary clause can only be used on"
+          + " integers and bools'}")
+  @TestParameters(
+      "{expr: \"'%d'.format(['foo'])\", expectedMessage: 'decimal clause can only be used on"
+          + " numbers'}")
+  @TestParameters(
+      "{expr: \"'%o'.format(['foo'])\", expectedMessage: 'octal clause can only be used on"
+          + " integers'}")
+  @TestParameters(
+      "{expr: \"'%x'.format([3.14])\", expectedMessage: 'hex clause can only be used on integers,"
+          + " byte buffers, and strings'}")
+  @TestParameters(
+      "{expr: \"'%f'.format(['foo'])\", expectedMessage: 'fixed point clause can only be used on"
+          + " doubles, integers, and unsigned integers'}")
+  @TestParameters(
+      "{expr: \"'%e'.format(['foo'])\", expectedMessage: 'scientific clause can only be used on"
+          + " doubles, integers, and unsigned integers'}")
+  public void format_typeMismatchFailure_throwsException(String expr, String expectedMessage)
+      throws Exception {
+    CelEvaluationException exception = assertThrows(CelEvaluationException.class, () -> eval(expr));
+
+    assertThat(exception).hasCauseThat().isNotNull();
+    assertThat(exception).hasCauseThat().hasMessageThat().contains(expectedMessage);
+  }
+
+  @Test
+  public void format_precisionLimit_exceeded() throws Exception {
+    CelEvaluationException e =
+        assertThrows(CelEvaluationException.class, () -> eval("'%.101f'.format([3.14])"));
+
+    assertThat(e).hasMessageThat().contains("precision 101 exceeds maximum allowed (100)");
+  }
+
+  @Test
+  public void format_precisionLimit_success() throws Exception {
+    Object result = eval("'%.10f'.format([3.14])");
+
+    assertThat(result).isEqualTo("3.1400000000");
+  }
+
+  @Test
+  public void format_localeIndependent_success() throws Exception {
+    Locale originalLocale = Locale.getDefault();
+    try {
+      // Verify with Germany locale (uses ',' as decimal separator)
+      Locale.setDefault(Locale.GERMANY);
+      assertThat(eval("'%f'.format([3.14])")).isEqualTo("3.140000");
+      assertThat(eval("'%e'.format([3.14])")).isEqualTo("3.140000e+00");
+      assertThat(eval("'%d'.format([3.14])")).isEqualTo("3.14");
+
+      // Verify with Turkish locale (strict locale-immunity tests for case mapping 'i'/'I')
+      Locale.setDefault(Locale.forLanguageTag("tr-TR"));
+      assertThat(eval("'%X'.format([255])")).isEqualTo("FF");
+      assertThat(eval("'%X'.format([b'title'])")).isEqualTo("7469746C65");
+      assertThat(eval("'%s'.format([double('Infinity')])")).isEqualTo("Infinity");
+
+      // Verify with Arabic locale (uses Eastern Arabic numerals)
+      Locale.setDefault(Locale.forLanguageTag("ar-SA"));
+      assertThat(eval("'%d'.format([12345])")).isEqualTo("12345");
+      assertThat(eval("'%b'.format([5])")).isEqualTo("101");
+      assertThat(eval("'%o'.format([11])")).isEqualTo("13");
+    } finally {
+      Locale.setDefault(originalLocale);
+    }
+  }
 }
