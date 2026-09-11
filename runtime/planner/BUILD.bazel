@@ -21,3 +21,17 @@ java_library(
     visibility = ["//:internal"],
     exports = ["//runtime/src/main/java/dev/cel/runtime/planner:planned_program"],
 )
+
+java_library(
+    name = "async_gate",
+    testonly = 1,
+    visibility = ["//:internal"],
+    exports = ["//runtime/src/main/java/dev/cel/runtime/planner:async_gate"],
+)
+
+java_library(
+    name = "async_completion_coordinator",
+    testonly = 1,
+    visibility = ["//:internal"],
+    exports = ["//runtime/src/main/java/dev/cel/runtime/planner:async_completion_coordinator"],
+)

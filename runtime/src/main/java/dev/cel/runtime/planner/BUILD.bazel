@@ -188,6 +188,36 @@ java_library(
 )
 
 java_library(
+    name = "async_gate",
+    srcs = ["AsyncGate.java"],
+    tags = [
+    ],
+    deps = [
+        "@maven//:com_google_code_findbugs_annotations",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:com_google_guava_guava",
+        "@maven//:org_jspecify_jspecify",
+    ],
+)
+
+java_library(
+    name = "async_completion_coordinator",
+    srcs = ["AsyncCompletionCoordinator.java"],
+    tags = [
+    ],
+    deps = [
+        ":async_gate",
+        "//runtime:async_call",
+        "//runtime:async_drain_strategy",
+        "//runtime:async_options",
+        "@maven//:com_google_code_findbugs_annotations",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:com_google_guava_guava",
+        "@maven//:org_jspecify_jspecify",
+    ],
+)
+
+java_library(
     name = "activation_wrapper",
     srcs = ["ActivationWrapper.java"],
     deps = ["//runtime:interpretable"],
