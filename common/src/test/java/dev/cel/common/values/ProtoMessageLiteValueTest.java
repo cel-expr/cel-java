@@ -21,11 +21,17 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.primitives.UnsignedLong;
 import com.google.protobuf.Any;
+import com.google.protobuf.BoolValue;
 import com.google.protobuf.ByteString;
+import com.google.protobuf.BytesValue;
+import com.google.protobuf.CodedOutputStream;
+import com.google.protobuf.DoubleValue;
 import com.google.protobuf.DynamicMessage;
+import com.google.protobuf.ExtensionRegistryLite;
 import com.google.protobuf.FloatValue;
 import com.google.protobuf.Int32Value;
 import com.google.protobuf.Int64Value;
+import com.google.protobuf.StringValue;
 import com.google.protobuf.Timestamp;
 import com.google.protobuf.UInt32Value;
 import com.google.protobuf.UInt64Value;
@@ -37,6 +43,7 @@ import dev.cel.expr.conformance.proto3.TestAllTypes;
 import dev.cel.expr.conformance.proto3.TestAllTypes.NestedEnum;
 import dev.cel.expr.conformance.proto3.TestAllTypes.NestedMessage;
 import dev.cel.expr.conformance.proto3.TestAllTypesCelDescriptor;
+import java.io.ByteArrayOutputStream;
 import java.time.Duration;
 import java.time.Instant;
 import org.junit.Test;
@@ -153,19 +160,17 @@ public class ProtoMessageLiteValueTest {
             .setSingleDouble(2.5d)
             .setSingleString("test")
             .setSingleBytes(ByteString.copyFrom(new byte[] {0x01}))
-            .setSingleAny(
-                Any.pack(DynamicMessage.newBuilder(com.google.protobuf.BoolValue.of(true)).build()))
+            .setSingleAny(Any.pack(DynamicMessage.newBuilder(BoolValue.of(true)).build()))
             .setSingleDuration(com.google.protobuf.Duration.newBuilder().setSeconds(100))
             .setSingleTimestamp(Timestamp.newBuilder().setSeconds(100))
             .setSingleInt32Wrapper(Int32Value.of(5))
             .setSingleInt64Wrapper(Int64Value.of(10L))
             .setSingleUint32Wrapper(UInt32Value.of(1))
             .setSingleUint64Wrapper(UInt64Value.of(UnsignedLong.MAX_VALUE.longValue()))
-            .setSingleStringWrapper(com.google.protobuf.StringValue.of("hello"))
+            .setSingleStringWrapper(StringValue.of("hello"))
             .setSingleFloatWrapper(FloatValue.of(7.5f))
-            .setSingleDoubleWrapper(com.google.protobuf.DoubleValue.of(8.5d))
-            .setSingleBytesWrapper(
-                com.google.protobuf.BytesValue.of(ByteString.copyFrom(new byte[] {0x02})))
+            .setSingleDoubleWrapper(DoubleValue.of(8.5d))
+            .setSingleBytesWrapper(BytesValue.of(ByteString.copyFrom(new byte[] {0x02})))
             .addRepeatedInt64(5L)
             .addRepeatedInt64(6L)
             .addRepeatedUint64(7L)
@@ -252,5 +257,27 @@ public class ProtoMessageLiteValueTest {
     Object selectedValue = protoMessageValue.select(testCase.fieldName);
 
     assertThat(selectedValue).isEqualTo(testCase.value);
+  }
+
+  @Test
+  public void unknownFields_retainsUnknownWireFields() throws Exception {
+    ByteArrayOutputStream baos = new ByteArrayOutputStream();
+    CodedOutputStream cos = CodedOutputStream.newInstance(baos);
+    cos.writeInt64(999, 12345L);
+    cos.writeString(1000, "hello unknown");
+    cos.flush();
+
+    TestAllTypes msgWithUnknown =
+        TestAllTypes.parseFrom(baos.toByteArray(), ExtensionRegistryLite.getEmptyRegistry());
+    ProtoMessageLiteValue messageLiteValue =
+        ProtoMessageLiteValue.create(
+            msgWithUnknown,
+            "cel.expr.conformance.proto3.TestAllTypes",
+            PROTO_LITE_CEL_VALUE_CONVERTER);
+
+    assertThat(messageLiteValue.unknownFields()).valuesForKey(999).containsExactly(12345L);
+    assertThat(messageLiteValue.unknownFields())
+        .valuesForKey(1000)
+        .containsExactly(ByteString.copyFromUtf8("hello unknown"));
   }
 }
