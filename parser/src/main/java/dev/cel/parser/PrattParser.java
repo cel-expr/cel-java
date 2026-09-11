@@ -30,6 +30,7 @@ import dev.cel.common.internal.Constants;
 import java.text.ParseException;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -41,6 +42,9 @@ final class PrattParser {
 
   private static final String ACCUMULATOR_NAME = "@result";
   private static final CelExpr ERROR = CelExpr.newBuilder().setConstant(Constants.ERROR).build();
+  private static final Lexer.Token END_TOKEN = new Lexer.Token(Lexer.TokenType.END, 0, 0);
+  /** Most logical chains are short; 8 avoids resizing for the overwhelming majority. */
+  private static final int INITIAL_CHAIN_CAPACITY = 8;
 
   private static final class BinaryOpInfo {
     final int precedence;
@@ -56,72 +60,49 @@ final class PrattParser {
     }
   }
 
-  private static final BinaryOpInfo LOGICAL_OR_OP =
-      new BinaryOpInfo(1, Operator.LOGICAL_OR.getFunction(), true, Lexer.TokenType.LOGICAL_OR);
-  private static final BinaryOpInfo LOGICAL_AND_OP =
-      new BinaryOpInfo(2, Operator.LOGICAL_AND.getFunction(), true, Lexer.TokenType.LOGICAL_AND);
-  private static final BinaryOpInfo LESS_OP =
-      new BinaryOpInfo(3, Operator.LESS.getFunction(), false, Lexer.TokenType.LESS);
-  private static final BinaryOpInfo LESS_EQUAL_OP =
-      new BinaryOpInfo(3, Operator.LESS_EQUALS.getFunction(), false, Lexer.TokenType.LESS_EQUAL);
-  private static final BinaryOpInfo GREATER_OP =
-      new BinaryOpInfo(3, Operator.GREATER.getFunction(), false, Lexer.TokenType.GREATER);
-  private static final BinaryOpInfo GREATER_EQUAL_OP =
-      new BinaryOpInfo(
-          3, Operator.GREATER_EQUALS.getFunction(), false, Lexer.TokenType.GREATER_EQUAL);
-  private static final BinaryOpInfo EQUAL_EQUAL_OP =
-      new BinaryOpInfo(3, Operator.EQUALS.getFunction(), false, Lexer.TokenType.EQUAL_EQUAL);
-  private static final BinaryOpInfo EXCLAMATION_EQUAL_OP =
-      new BinaryOpInfo(
-          3, Operator.NOT_EQUALS.getFunction(), false, Lexer.TokenType.EXCLAMATION_EQUAL);
-  private static final BinaryOpInfo IN_OP =
-      new BinaryOpInfo(3, Operator.IN.getFunction(), false, Lexer.TokenType.IN);
-  private static final BinaryOpInfo PLUS_OP =
-      new BinaryOpInfo(4, Operator.ADD.getFunction(), false, Lexer.TokenType.PLUS);
-  private static final BinaryOpInfo MINUS_OP =
-      new BinaryOpInfo(4, Operator.SUBTRACT.getFunction(), false, Lexer.TokenType.MINUS);
-  private static final BinaryOpInfo ASTERISK_OP =
-      new BinaryOpInfo(5, Operator.MULTIPLY.getFunction(), false, Lexer.TokenType.ASTERISK);
-  private static final BinaryOpInfo SLASH_OP =
-      new BinaryOpInfo(5, Operator.DIVIDE.getFunction(), false, Lexer.TokenType.SLASH);
-  private static final BinaryOpInfo PERCENT_OP =
-      new BinaryOpInfo(5, Operator.MODULO.getFunction(), false, Lexer.TokenType.PERCENT);
-  private static final BinaryOpInfo DEFAULT_OP =
-      new BinaryOpInfo(0, "", false, Lexer.TokenType.ERROR);
+  private static final BinaryOpInfo[] binaryOps = initBinaryOps();
 
-  private static BinaryOpInfo getBinaryOpInfo(Lexer.TokenType type) {
-    switch (type) {
-      case LOGICAL_OR:
-        return LOGICAL_OR_OP;
-      case LOGICAL_AND:
-        return LOGICAL_AND_OP;
-      case LESS:
-        return LESS_OP;
-      case LESS_EQUAL:
-        return LESS_EQUAL_OP;
-      case GREATER:
-        return GREATER_OP;
-      case GREATER_EQUAL:
-        return GREATER_EQUAL_OP;
-      case EQUAL_EQUAL:
-        return EQUAL_EQUAL_OP;
-      case EXCLAMATION_EQUAL:
-        return EXCLAMATION_EQUAL_OP;
-      case IN:
-        return IN_OP;
-      case PLUS:
-        return PLUS_OP;
-      case MINUS:
-        return MINUS_OP;
-      case ASTERISK:
-        return ASTERISK_OP;
-      case SLASH:
-        return SLASH_OP;
-      case PERCENT:
-        return PERCENT_OP;
-      default:
-        return DEFAULT_OP;
-    }
+  // Safe and desirable to use .ordinal() here:
+  // 1. Safe: This lookup table is strictly private and internal to PrattParser, never serialized or
+  //    persisted. The array is sized to TokenType.values().length, so indexing by ordinal is
+  //    guaranteed to be within bounds even if enum members change.
+  // 2. Desirable: Expression parsing checks binary operator info on every token in the input;
+  //    direct array indexing by ordinal provides O(1) lookup with zero hashing, indirection,
+  //    or boxing overhead on this critical hot path.
+  @SuppressWarnings("EnumOrdinal")
+  private static BinaryOpInfo[] initBinaryOps() {
+    BinaryOpInfo[] ops = new BinaryOpInfo[Lexer.TokenType.values().length];
+    ops[Lexer.TokenType.LOGICAL_OR.ordinal()] =
+        new BinaryOpInfo(1, Operator.LOGICAL_OR.getFunction(), true, Lexer.TokenType.LOGICAL_OR);
+    ops[Lexer.TokenType.LOGICAL_AND.ordinal()] =
+        new BinaryOpInfo(2, Operator.LOGICAL_AND.getFunction(), true, Lexer.TokenType.LOGICAL_AND);
+    ops[Lexer.TokenType.LESS.ordinal()] =
+        new BinaryOpInfo(3, Operator.LESS.getFunction(), false, Lexer.TokenType.LESS);
+    ops[Lexer.TokenType.LESS_EQUAL.ordinal()] =
+        new BinaryOpInfo(3, Operator.LESS_EQUALS.getFunction(), false, Lexer.TokenType.LESS_EQUAL);
+    ops[Lexer.TokenType.GREATER.ordinal()] =
+        new BinaryOpInfo(3, Operator.GREATER.getFunction(), false, Lexer.TokenType.GREATER);
+    ops[Lexer.TokenType.GREATER_EQUAL.ordinal()] =
+        new BinaryOpInfo(
+            3, Operator.GREATER_EQUALS.getFunction(), false, Lexer.TokenType.GREATER_EQUAL);
+    ops[Lexer.TokenType.EQUAL_EQUAL.ordinal()] =
+        new BinaryOpInfo(3, Operator.EQUALS.getFunction(), false, Lexer.TokenType.EQUAL_EQUAL);
+    ops[Lexer.TokenType.EXCLAMATION_EQUAL.ordinal()] =
+        new BinaryOpInfo(
+            3, Operator.NOT_EQUALS.getFunction(), false, Lexer.TokenType.EXCLAMATION_EQUAL);
+    ops[Lexer.TokenType.IN.ordinal()] =
+        new BinaryOpInfo(3, Operator.IN.getFunction(), false, Lexer.TokenType.IN);
+    ops[Lexer.TokenType.PLUS.ordinal()] =
+        new BinaryOpInfo(4, Operator.ADD.getFunction(), false, Lexer.TokenType.PLUS);
+    ops[Lexer.TokenType.MINUS.ordinal()] =
+        new BinaryOpInfo(4, Operator.SUBTRACT.getFunction(), false, Lexer.TokenType.MINUS);
+    ops[Lexer.TokenType.ASTERISK.ordinal()] =
+        new BinaryOpInfo(5, Operator.MULTIPLY.getFunction(), false, Lexer.TokenType.ASTERISK);
+    ops[Lexer.TokenType.SLASH.ordinal()] =
+        new BinaryOpInfo(5, Operator.DIVIDE.getFunction(), false, Lexer.TokenType.SLASH);
+    ops[Lexer.TokenType.PERCENT.ordinal()] =
+        new BinaryOpInfo(5, Operator.MODULO.getFunction(), false, Lexer.TokenType.PERCENT);
+    return ops;
   }
 
   private static final class UnaryOp {
@@ -138,10 +119,9 @@ final class PrattParser {
   private final ImmutableMap<String, CelMacro> macros;
   private final Lexer lexer;
   private final Map<Long, Integer> positions;
-  private final Map<Long, CelExpr> macroCalls;
+  private Map<Long, CelExpr> macroCalls = ImmutableMap.of();
+  private PrattMacroExprFactory macroExprFactory;
   private final List<CelIssue> issues;
-  private final PrattMacroExprFactory macroExprFactory;
-
   private Lexer.Token currentToken;
   private Lexer.Token peekToken;
   private int recursionDepth;
@@ -184,11 +164,9 @@ final class PrattParser {
     this.macros = ImmutableMap.copyOf(macros);
     this.lexer = new Lexer(source.getContent());
     this.positions = new HashMap<>();
-    this.macroCalls = new HashMap<>();
     this.issues = new ArrayList<>();
-    this.macroExprFactory = new PrattMacroExprFactory();
     this.nextId = 1;
-    initTokenStream();
+    peekToken = nextSignificantToken(true);
   }
 
   CelExpr run() {
@@ -215,40 +193,31 @@ final class PrattParser {
     return errorCount > options.maxParseErrorRecoveryLimit();
   }
 
-  private void initTokenStream() {
-    peekToken = nextSignificantToken(true);
-  }
-
   private String getTokenText(Lexer.Token tok) {
+    if (tok.text != null) {
+      return tok.text;
+    }
     if (tok.start >= 0 && tok.end >= tok.start && tok.end <= source.getContent().size()) {
-      return source.getContent().slice(tok.start, tok.end).toString();
+      return source.getContent().substring(tok.start, tok.end);
     }
     return "";
   }
 
   private Lexer.Token nextSignificantToken(boolean reportError) {
-    if (isRecoveryLimitExceeded()) {
-      return new Lexer.Token(Lexer.TokenType.END, 0, 0);
-    }
-    while (true) {
-      Lexer.Token tok = lexer.lex();
-      if (tok.type == Lexer.TokenType.WHITESPACE || tok.type == Lexer.TokenType.COMMENT) {
-        continue;
+    Lexer.Token tok = lexer.lex();
+    if (tok.type == Lexer.TokenType.ERROR && reportError) {
+      reportSyntaxError(tok, lexer.getError().message);
+      if (isRecoveryLimitExceeded()) {
+        return END_TOKEN;
       }
-      if (tok.type == Lexer.TokenType.ERROR && reportError) {
-        reportSyntaxError(tok, lexer.getError().message);
-        if (isRecoveryLimitExceeded()) {
-          return new Lexer.Token(Lexer.TokenType.END, 0, 0);
-        }
-      }
-      return tok;
     }
+    return tok;
   }
 
   private Lexer.Token nextToken() {
     currentToken = peekToken;
     if (isRecoveryLimitExceeded()) {
-      peekToken = new Lexer.Token(Lexer.TokenType.END, 0, 0);
+      peekToken = END_TOKEN;
       return currentToken;
     }
     if (peekToken.type != Lexer.TokenType.END) {
@@ -283,7 +252,7 @@ final class PrattParser {
 
   private void synchronizeOnDelimiter() {
     if (isRecoveryLimitExceeded()) {
-      peekToken = new Lexer.Token(Lexer.TokenType.END, 0, 0);
+      peekToken = END_TOKEN;
       return;
     }
     while (peekToken.type != Lexer.TokenType.END) {
@@ -356,7 +325,7 @@ final class PrattParser {
           CelIssue.formatError(
               CelSourceLocation.NONE,
               String.format("More than %d parse errors.", options.maxParseErrorRecoveryLimit())));
-      peekToken = new Lexer.Token(Lexer.TokenType.END, 0, 0);
+      peekToken = END_TOKEN;
     }
     if (errorCount <= options.maxParseErrorRecoveryLimit()) {
       issues.add(CelIssue.formatError(loc, msg));
@@ -369,33 +338,37 @@ final class PrattParser {
 
   private boolean checkRecursion(int chainDepth, Lexer.Token token) {
     if (recursionDepth + chainDepth > options.maxParseRecursionDepth()) {
-      if (!recursionLimitExceeded) {
-        recursionLimitExceeded = true;
-        reportError(
-            token.start,
-            String.format(
-                "Expression recursion limit exceeded. limit: %d",
-                options.maxParseRecursionDepth()));
-      }
+      reportRecursionLimit(token.start);
       return true;
     }
     return false;
   }
 
+  private void reportRecursionLimit(int position) {
+    if (!recursionLimitExceeded) {
+      recursionLimitExceeded = true;
+      reportError(
+          position,
+          String.format(
+              "Expression recursion limit exceeded. limit: %d", options.maxParseRecursionDepth()));
+    }
+  }
+
   private CelExpr parseExpr() {
-    if (recursionLimitExceeded || isRecoveryLimitExceeded()) {
+    if (recursionLimitExceeded || errorCount > options.maxParseErrorRecoveryLimit()) {
+      return ERROR;
+    }
+    if (recursionDepth >= options.maxParseRecursionDepth()) {
+      reportRecursionLimit(peekToken.start);
       return ERROR;
     }
     recursionDepth++;
-    if (checkRecursion(0, peekToken)) {
-      recursionDepth--;
-      return ERROR;
-    }
     CelExpr expr = parseBinaryAndTernary(0);
     recursionDepth--;
     return expr;
   }
 
+  @SuppressWarnings("EnumOrdinal") // Using ordinal for O(1) binary operator lookup table
   private CelExpr parseBinaryAndTernary(int minPrec) {
     CelExpr lhs = parseSelectorChain();
     int chainDepth = currentLhsDepth;
@@ -406,8 +379,8 @@ final class PrattParser {
         continue;
       }
 
-      BinaryOpInfo opInfo = getBinaryOpInfo(tok);
-      if (opInfo.precedence < minPrec || opInfo.precedence == 0) {
+      BinaryOpInfo opInfo = binaryOps[tok.ordinal()];
+      if (opInfo == null || opInfo.precedence < minPrec) {
         break;
       }
 
@@ -417,7 +390,8 @@ final class PrattParser {
       }
 
       Lexer.Token opTok = nextToken();
-      if (checkRecursion(chainDepth, opTok)) {
+      if (recursionDepth + chainDepth > options.maxParseRecursionDepth()) {
+        reportRecursionLimit(opTok.start);
         return ERROR;
       }
       chainDepth++;
@@ -449,51 +423,60 @@ final class PrattParser {
         .build();
   }
 
-  private CelExpr buildBinaryCall(long opId, String opName, CelExpr lhs, CelExpr rhs) {
-    return CelExpr.newBuilder()
-        .setId(opId)
-        .setCall(CelExpr.CelCall.newBuilder().setFunction(opName).addArgs(lhs).addArgs(rhs).build())
-        .build();
-  }
-
   private CelExpr parseBalancedLogicalChain(CelExpr lhs, BinaryOpInfo opInfo) {
-    List<CelExpr> terms = new ArrayList<>();
-    List<Long> ops = new ArrayList<>();
-    terms.add(lhs);
-    while (peekToken.type == opInfo.type) {
-      Lexer.Token opTok = nextToken();
-      long opId = nextId(opTok);
-      CelExpr rhs = parseBinaryAndTernary(opInfo.precedence + 1);
-      ops.add(opId);
-      terms.add(rhs);
+    Lexer.Token opTok = nextToken();
+    long opId = nextId(opTok.start);
+    CelExpr rhs = parseBinaryAndTernary(opInfo.precedence + 1);
+    if (peekToken.type != opInfo.type) {
+      return buildBinaryCall(opId, opInfo.name, lhs, rhs);
     }
-    return balancedTree(opInfo.name, terms, ops, 0, ops.size() - 1);
+
+    CelExpr[] terms = new CelExpr[INITIAL_CHAIN_CAPACITY];
+    long[] ops = new long[INITIAL_CHAIN_CAPACITY];
+    terms[0] = lhs;
+    terms[1] = rhs;
+    ops[0] = opId;
+    int opsCount = 1;
+    int termsCount = 2;
+
+    while (peekToken.type == opInfo.type) {
+      opTok = nextToken();
+      opId = nextId(opTok.start);
+      rhs = parseBinaryAndTernary(opInfo.precedence + 1);
+      if (termsCount == terms.length) {
+        int newCapacity = terms.length * 2;
+        ops = Arrays.copyOf(ops, newCapacity);
+        terms = Arrays.copyOf(terms, newCapacity);
+      }
+      ops[opsCount++] = opId;
+      terms[termsCount++] = rhs;
+    }
+    return balancedTree(opInfo.name, terms, ops, 0, opsCount - 1);
   }
 
-  private CelExpr balancedTree(String op, List<CelExpr> terms, List<Long> ops, int lo, int hi) {
+  private CelExpr balancedTree(String op, CelExpr[] terms, long[] ops, int lo, int hi) {
     int mid = (lo + hi + 1) / 2;
-    CelExpr left;
-    if (mid == lo) {
-      left = terms.get(mid);
-    } else {
-      left = balancedTree(op, terms, ops, lo, mid - 1);
-    }
-    CelExpr right;
-    if (mid == hi) {
-      right = terms.get(mid + 1);
-    } else {
-      right = balancedTree(op, terms, ops, mid + 1, hi);
-    }
+    CelExpr left = (mid == lo) ? terms[mid] : balancedTree(op, terms, ops, lo, mid - 1);
+    CelExpr right = (mid == hi) ? terms[mid + 1] : balancedTree(op, terms, ops, mid + 1, hi);
+    return buildBinaryCall(ops[mid], op, left, right);
+  }
+
+  private static CelExpr buildBinaryCall(long id, String function, CelExpr lhs, CelExpr rhs) {
     return CelExpr.newBuilder()
-        .setId(ops.get(mid))
-        .setCall(CelExpr.CelCall.newBuilder().setFunction(op).addArgs(left).addArgs(right).build())
+        .setId(id)
+        .setCall(
+            CelExpr.CelCall.newBuilder().setFunction(function).addArgs(lhs).addArgs(rhs).build())
         .build();
   }
 
   private CelExpr parseSelectorChain() {
-    CelExpr lhs = parseUnary();
-    currentLhsDepth = 0;
     Lexer.TokenType tok = peekToken.type;
+    CelExpr lhs =
+        (tok == Lexer.TokenType.EXCLAMATION || tok == Lexer.TokenType.MINUS)
+            ? parseUnaryOps()
+            : parsePrimary();
+    currentLhsDepth = 0;
+    tok = peekToken.type;
     if (tok == Lexer.TokenType.DOT
         || tok == Lexer.TokenType.LEFT_BRACKET
         || tok == Lexer.TokenType.LEFT_BRACE) {
@@ -538,10 +521,7 @@ final class PrattParser {
           long opId = nextId(dotTok);
           CelExpr arg1 = lhs;
           CelExpr arg2 =
-              CelExpr.newBuilder()
-                  .setId(nextId(getLeftmostPosition(lhs)))
-                  .setConstant(CelConstant.ofValue(idText))
-                  .build();
+              CelExpr.ofConstant(nextId(getLeftmostPosition(lhs)), CelConstant.ofValue(idText));
           lhs =
               CelExpr.newBuilder()
                   .setId(opId)
@@ -572,12 +552,7 @@ final class PrattParser {
                     .build();
           }
         } else {
-          lhs =
-              CelExpr.newBuilder()
-                  .setId(nextId(dotTok))
-                  .setSelect(
-                      CelExpr.CelSelect.newBuilder().setOperand(lhs).setField(idText).build())
-                  .build();
+          lhs = CelExpr.ofSelect(nextId(dotTok), lhs, idText, /* isTestOnly= */ false);
         }
       } else if (tok == Lexer.TokenType.LEFT_BRACKET) {
         if (checkRecursion(chainDepth, peekToken)) {
@@ -609,7 +584,7 @@ final class PrattParser {
                         .build())
                 .build();
       } else if (tok == Lexer.TokenType.LEFT_BRACE) {
-        String structName = extractStructName(lhs).orElse(null);
+        String structName = extractStructName(lhs);
         if (structName == null) {
           break;
         }
@@ -620,14 +595,6 @@ final class PrattParser {
     }
     currentLhsDepth = chainDepth;
     return lhs;
-  }
-
-  private CelExpr parseUnary() {
-    Lexer.TokenType tok = peekToken.type;
-    if (tok == Lexer.TokenType.EXCLAMATION || tok == Lexer.TokenType.MINUS) {
-      return parseUnaryOps();
-    }
-    return parsePrimary();
   }
 
   private CelExpr parseUnaryOps() {
@@ -783,10 +750,7 @@ final class PrattParser {
           .build();
     }
     long id = nextId(leadingDot ? firstTok : idTok);
-    return CelExpr.newBuilder()
-        .setId(id)
-        .setIdent(CelExpr.CelIdent.newBuilder().setName(name).build())
-        .build();
+    return CelExpr.ofIdent(id, name);
   }
 
   private CelExpr parsePrimary() {
@@ -807,15 +771,13 @@ final class PrattParser {
           return expr;
         }
       case NULL:
-        return CelExpr.newBuilder().setId(nextId(nextToken())).setConstant(Constants.NULL).build();
+        return CelExpr.ofConstant(nextId(nextToken()), Constants.NULL);
       case TRUE:
       case FALSE:
         {
           Lexer.Token tok = nextToken();
-          return CelExpr.newBuilder()
-              .setId(nextId(tok))
-              .setConstant(tok.type == Lexer.TokenType.TRUE ? Constants.TRUE : Constants.FALSE)
-              .build();
+          return CelExpr.ofConstant(
+              nextId(tok), tok.type == Lexer.TokenType.TRUE ? Constants.TRUE : Constants.FALSE);
         }
       case INT:
         return parseIntLiteral(/* nodeId= */ -1, /* isNegative= */ false);
@@ -990,7 +952,7 @@ final class PrattParser {
     long id = nodeId == -1 ? nextId(tok) : nodeId;
     try {
       CelConstant constExpr = Constants.parseInt(text);
-      return CelExpr.newBuilder().setId(id).setConstant(constExpr).build();
+      return CelExpr.ofConstant(id, constExpr);
     } catch (ParseException e) {
       reportSyntaxError(tok, "invalid int literal: " + text);
       return CelExpr.newBuilder().setId(nextId(tok)).build();
@@ -1002,7 +964,7 @@ final class PrattParser {
     String value = getTokenText(tok);
     try {
       CelConstant constExpr = Constants.parseUint(value);
-      return CelExpr.newBuilder().setId(nextId(tok)).setConstant(constExpr).build();
+      return CelExpr.ofConstant(nextId(tok), constExpr);
     } catch (ParseException e) {
       reportSyntaxError(tok, "invalid uint literal: " + value);
       return CelExpr.newBuilder().setId(nextId(tok)).build();
@@ -1015,7 +977,7 @@ final class PrattParser {
     long id = nodeId == -1 ? nextId(tok) : nodeId;
     try {
       CelConstant constExpr = Constants.parseDouble(text);
-      return CelExpr.newBuilder().setId(id).setConstant(constExpr).build();
+      return CelExpr.ofConstant(id, constExpr);
     } catch (ParseException e) {
       reportSyntaxError(tok, "invalid double literal: " + text);
       return CelExpr.newBuilder().setId(nextId(tok)).build();
@@ -1027,7 +989,7 @@ final class PrattParser {
     String value = getTokenText(tok);
     try {
       CelConstant constExpr = Constants.parseString(value);
-      return CelExpr.newBuilder().setId(nextId(tok)).setConstant(constExpr).build();
+      return CelExpr.ofConstant(nextId(tok), constExpr);
     } catch (ParseException e) {
       reportError(tok.start, e.getMessage());
       return CelExpr.newBuilder().setId(nextId(tok)).build();
@@ -1039,7 +1001,7 @@ final class PrattParser {
     String value = getTokenText(tok);
     try {
       CelConstant constExpr = Constants.parseBytes(value);
-      return CelExpr.newBuilder().setId(nextId(tok)).setConstant(constExpr).build();
+      return CelExpr.ofConstant(nextId(tok), constExpr);
     } catch (ParseException e) {
       reportError(tok.start, e.getMessage());
       return CelExpr.newBuilder().setId(nextId(tok)).build();
@@ -1084,52 +1046,53 @@ final class PrattParser {
     return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9');
   }
 
-  private Optional<String> extractStructName(CelExpr expr) {
+  private @Nullable String extractStructName(CelExpr expr) {
     if (expr.exprKind().getKind() == CelExpr.ExprKind.Kind.IDENT) {
       String name = expr.ident().name();
       eraseId(expr.id());
-      return Optional.of(name);
+      return name;
     }
     if (expr.exprKind().getKind() == CelExpr.ExprKind.Kind.SELECT) {
       if (expr.select().testOnly()) {
-        return Optional.empty();
+        return null;
       }
       CelExpr operand = expr.select().operand();
       eraseId(expr.id());
-      return extractStructName(operand).map(prefix -> prefix + "." + expr.select().field());
+      String prefix = extractStructName(operand);
+      return prefix != null ? prefix + "." + expr.select().field() : null;
     }
-    return Optional.empty();
+    return null;
   }
 
   private int getLeftmostPosition(CelExpr expr) {
-    if (expr.exprKind().getKind() == CelExpr.ExprKind.Kind.IDENT) {
-      return positions.getOrDefault(expr.id(), 0);
-    }
-    if (expr.exprKind().getKind() == CelExpr.ExprKind.Kind.SELECT) {
-      return getLeftmostPosition(expr.select().operand());
+    while (expr.exprKind().getKind() == CelExpr.ExprKind.Kind.SELECT) {
+      expr = expr.select().operand();
     }
     return positions.getOrDefault(expr.id(), 0);
   }
 
-  private Optional<CelMacro> lookupMacro(String id, int argCount, boolean receiverStyle) {
+  private @Nullable CelMacro lookupMacro(String id, int argCount, boolean receiverStyle) {
+    if (macros.isEmpty()) {
+      return null;
+    }
     String key = CelMacro.formatKey(id, argCount, receiverStyle);
     CelMacro macro = macros.get(key);
     if (macro != null) {
-      return Optional.of(macro);
+      return macro;
     }
     key = CelMacro.formatVarArgKey(id, receiverStyle);
-    return Optional.ofNullable(macros.get(key));
+    return macros.get(key);
   }
 
   private Optional<CelExpr> tryExpandMacro(
       long exprId, String function, @Nullable CelExpr target, ImmutableList<CelExpr> args) {
-    if (function.isEmpty()) {
+    if (function.isEmpty() || macros.isEmpty()) {
       return Optional.empty();
     }
     boolean isReceiver = (target != null);
     int argCount = args.size();
-    Optional<CelMacro> macro = lookupMacro(function, argCount, isReceiver);
-    if (!macro.isPresent()) {
+    CelMacro macro = lookupMacro(function, argCount, isReceiver);
+    if (macro == null) {
       return Optional.empty();
     }
     if (nodeLimitExceeded) {
@@ -1139,15 +1102,14 @@ final class PrattParser {
       return Optional.empty();
     }
 
-    Optional<CelExpr> errorArg = args.stream().filter(ERROR::equals).findAny();
-    if (errorArg.isPresent() || (target != null && target.equals(ERROR))) {
+    if ((target != null && target.equals(ERROR)) || hasError(args)) {
       eraseId(exprId);
       return Optional.of(ERROR);
     }
 
     int macroPosition = positions.getOrDefault(exprId, 0);
     CelExpr targetExpr = (target != null ? target : CelExpr.newBuilder().build());
-    Optional<CelExpr> expandedExpr = expandMacro(macroPosition, macro.get(), targetExpr, args);
+    Optional<CelExpr> expandedExpr = expandMacro(macroPosition, macro, targetExpr, args);
 
     if (expandedExpr.isPresent()) {
       if (options.populateMacroCalls()) {
@@ -1159,8 +1121,20 @@ final class PrattParser {
     return Optional.empty();
   }
 
+  private static boolean hasError(List<CelExpr> args) {
+    for (int i = 0; i < args.size(); i++) {
+      if (args.get(i).equals(ERROR)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   private Optional<CelExpr> expandMacro(
       int position, CelMacro macro, CelExpr target, ImmutableList<CelExpr> arguments) {
+    if (macroExprFactory == null) {
+      macroExprFactory = new PrattMacroExprFactory();
+    }
     macroExprFactory.pushPosition(position);
     try {
       return macro.getExpander().expandMacro(macroExprFactory, target, arguments);
@@ -1171,6 +1145,9 @@ final class PrattParser {
 
   private void recordMacroCall(
       long macroId, String function, CelExpr target, ImmutableList<CelExpr> args) {
+    if (!(macroCalls instanceof HashMap)) {
+      macroCalls = new HashMap<>();
+    }
     CelExpr.CelCall.Builder callExpr = CelExpr.CelCall.newBuilder().setFunction(function);
     if (target != null) {
       if (macroCalls.containsKey(target.id())) {
@@ -1203,6 +1180,24 @@ final class PrattParser {
   private int countGroupingParentheses() {
     if (peekToken.type != Lexer.TokenType.LEFT_PAREN) {
       return 0;
+    }
+
+    // Fast path: if the next non-whitespace character is not '(', leading open parens is 1.
+    int pos = peekToken.end;
+    while (pos < source.getContent().size()) {
+      int c = source.getContent().get(pos);
+      if (c != ' ' && c != '\t' && c != '\n' && c != '\r' && c != '\f' && c != 11) {
+        if (c == '/') {
+          // A comment might precede another '('.
+          break;
+        }
+        if (c == '(') {
+          break;
+        }
+        // Next significant token is definitely not '('.
+        return 1;
+      }
+      pos++;
     }
 
     int savedPos = lexer.savePosition();
