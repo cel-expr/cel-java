@@ -488,6 +488,15 @@ L: a^#1[1,0]#.b(
   5^#3[1,4]#
 )^#2[1,3]#
 
+I: aaa.bbb(ccc)
+=====>
+P: aaa^#1:Expr.Ident#.bbb(
+  ccc^#3:Expr.Ident#
+)^#2:Expr.Call#
+L: aaa^#1[1,0]#.bbb(
+  ccc^#3[1,8]#
+)^#2[1,7]#
+
 I: a.foo(1, 2)
 =====>
 P: a^#1:Expr.Ident#.foo(
@@ -533,6 +542,15 @@ P: -_(
 )^#1:Expr.Call#
 L: -_(
   a^#2[1,1]#
+)^#1[1,0]#
+
+I: ---a
+=====>
+P: -_(
+  a^#2:Expr.Ident#
+)^#1:Expr.Call#
+L: -_(
+  a^#2[1,3]#
 )^#1[1,0]#
 
 I: x * 2
@@ -1103,6 +1121,51 @@ I: true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : true ? 1 : 
 
 I: !-!-!-!-!-!-!-!-!-!-!-!-!-!-!-x
 =====>
+E/A: ERROR: <input>:1:3: no viable alternative at input '-!'
+ | !-!-!-!-!-!-!-!-!-!-!-!-!-!-!-x
+ | ..^
+ERROR: <input>:1:5: no viable alternative at input '-!'
+ | !-!-!-!-!-!-!-!-!-!-!-!-!-!-!-x
+ | ....^
+ERROR: <input>:1:7: no viable alternative at input '-!'
+ | !-!-!-!-!-!-!-!-!-!-!-!-!-!-!-x
+ | ......^
+ERROR: <input>:1:9: no viable alternative at input '-!'
+ | !-!-!-!-!-!-!-!-!-!-!-!-!-!-!-x
+ | ........^
+ERROR: <input>:1:11: no viable alternative at input '-!'
+ | !-!-!-!-!-!-!-!-!-!-!-!-!-!-!-x
+ | ..........^
+ERROR: <input>:1:13: no viable alternative at input '-!'
+ | !-!-!-!-!-!-!-!-!-!-!-!-!-!-!-x
+ | ............^
+ERROR: <input>:1:15: no viable alternative at input '-!'
+ | !-!-!-!-!-!-!-!-!-!-!-!-!-!-!-x
+ | ..............^
+ERROR: <input>:1:17: no viable alternative at input '-!'
+ | !-!-!-!-!-!-!-!-!-!-!-!-!-!-!-x
+ | ................^
+ERROR: <input>:1:19: no viable alternative at input '-!'
+ | !-!-!-!-!-!-!-!-!-!-!-!-!-!-!-x
+ | ..................^
+ERROR: <input>:1:21: no viable alternative at input '-!'
+ | !-!-!-!-!-!-!-!-!-!-!-!-!-!-!-x
+ | ....................^
+ERROR: <input>:1:23: no viable alternative at input '-!'
+ | !-!-!-!-!-!-!-!-!-!-!-!-!-!-!-x
+ | ......................^
+ERROR: <input>:1:25: no viable alternative at input '-!'
+ | !-!-!-!-!-!-!-!-!-!-!-!-!-!-!-x
+ | ........................^
+ERROR: <input>:1:27: no viable alternative at input '-!'
+ | !-!-!-!-!-!-!-!-!-!-!-!-!-!-!-x
+ | ..........................^
+ERROR: <input>:1:29: no viable alternative at input '-!'
+ | !-!-!-!-!-!-!-!-!-!-!-!-!-!-!-x
+ | ............................^
+ERROR: <input>:1:31: no viable alternative at input '-x'
+ | !-!-!-!-!-!-!-!-!-!-!-!-!-!-!-x
+ | ..............................^
 
 I: 1 + 2 * 3 - 1 / 2 == 6 % 1
 =====>
@@ -1191,6 +1254,15 @@ L: _&&_(
   )^#8[1,13]#
 )^#6[1,9]#
 
+I: [[[[[[[[[[[[[[[[[[[[[[[[[[[[[['just fine'],[1],[2],[3],[4],[5]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]
+=====>
+E/A: ERROR: <input>:1:92: mismatched input ']' expecting {<EOF>, '==', '!=', 'in', '<', '<=', '>=', '>', '&&', '||', '[', '.', '-', '?', '+', '*', '/', '%%'}
+ | [[[[[[[[[[[[[[[[[[[[[[[[[[[[[['just fine'],[1],[2],[3],[4],[5]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]
+ | ...........................................................................................^
+E/P: ERROR: <input>:1:92: Syntax error: unexpected token after expression
+ | [[[[[[[[[[[[[[[[[[[[[[[[[[[[[['just fine'],[1],[2],[3],[4],[5]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]
+ | ...........................................................................................^
+
 I: // comment
 a
 =====>
@@ -1240,3 +1312,52 @@ L: [
   1^#2[2,2]#,
   2^#3[3,2]#
 ]^#1[1,0]#
+
+I: while
+=====>
+P: while^#1:Expr.Ident#
+L: while^#1[1,0]#
+
+I: foo.`bar`
+=====>
+P: foo^#1:Expr.Ident#.bar^#2:Expr.Select#
+L: foo^#1[1,0]#.bar^#2[1,3]#
+
+I: foo.`bar-baz`
+=====>
+P: foo^#1:Expr.Ident#.bar-baz^#2:Expr.Select#
+L: foo^#1[1,0]#.bar-baz^#2[1,3]#
+
+I: foo.`bar baz`
+=====>
+P: foo^#1:Expr.Ident#.bar baz^#2:Expr.Select#
+L: foo^#1[1,0]#.bar baz^#2[1,3]#
+
+I: foo.`bar.baz`
+=====>
+P: foo^#1:Expr.Ident#.bar.baz^#2:Expr.Select#
+L: foo^#1[1,0]#.bar.baz^#2[1,3]#
+
+I: foo.`bar/baz`
+=====>
+P: foo^#1:Expr.Ident#.bar/baz^#2:Expr.Select#
+L: foo^#1[1,0]#.bar/baz^#2[1,3]#
+
+I: foo.`bar_baz`
+=====>
+P: foo^#1:Expr.Ident#.bar_baz^#2:Expr.Select#
+L: foo^#1[1,0]#.bar_baz^#2[1,3]#
+
+I: foo.`in`
+=====>
+P: foo^#1:Expr.Ident#.in^#2:Expr.Select#
+L: foo^#1[1,0]#.in^#2[1,3]#
+
+I: Struct{`in`: false}
+=====>
+P: Struct{
+  in:false^#3:bool#^#2:Expr.CreateStruct.Entry#
+}^#1:Expr.CreateStruct#
+L: Struct{
+  in:false^#3[1,13]#^#2[1,11]#
+}^#1[1,6]#

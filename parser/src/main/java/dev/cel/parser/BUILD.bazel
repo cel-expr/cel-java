@@ -11,8 +11,13 @@ package(
 # keep sorted
 PARSER_SOURCES = [
     "CelParserImpl.java",
-    "ExpressionBalancer.java",
     "Parser.java",
+]
+
+# keep sorted
+ANTLR_PARSER_SOURCES = [
+    "AntlrParser.java",
+    "ExpressionBalancer.java",
 ]
 
 # keep sorted
@@ -61,19 +66,36 @@ java_library(
     tags = [
     ],
     deps = [
+        ":antlr_parser",
         ":macro",
         ":parser_builder",
+        ":pratt_parser",
+        "//common:cel_source",
+        "//common:compiler_common",
+        "//common:options",
+        "//common/annotations",
+        "//common/internal:env_visitor",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:com_google_guava_guava",
+    ],
+)
+
+java_library(
+    name = "antlr_parser",
+    srcs = ANTLR_PARSER_SOURCES,
+    tags = [
+    ],
+    deps = [
+        ":macro",
         "//common:cel_ast",
         "//common:cel_source",
         "//common:compiler_common",
         "//common:operator",
         "//common:options",
         "//common:source_location",
-        "//common/annotations",
         "//common/ast",
         "//common/internal",
         "//common/internal:code_point_stream",
-        "//common/internal:env_visitor",
         "//parser:cel_g4_visitors",
         "@maven//:com_google_errorprone_error_prone_annotations",
         "@maven//:com_google_guava_guava",
