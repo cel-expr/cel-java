@@ -317,6 +317,7 @@ java_library(
     srcs = [
         "ProtoLiteCelValueConverter.java",
         "ProtoMessageLiteValue.java",
+        "RawProtoMessageLiteValue.java",
     ],
     tags = [
     ],
@@ -325,6 +326,7 @@ java_library(
         ":values",
         "//:auto_value",
         "//common/annotations",
+        "//common/exceptions:attribute_not_found",
         "//common/internal:cel_lite_descriptor_pool",
         "//common/internal:well_known_proto",
         "//common/types",
@@ -333,6 +335,7 @@ java_library(
         "//protobuf:cel_lite_descriptor",
         "@maven//:com_google_errorprone_error_prone_annotations",
         "@maven//:com_google_guava_guava",
+        "@maven//:org_jspecify_jspecify",
         "@maven_android//:com_google_protobuf_protobuf_javalite",
     ],
 )
@@ -342,6 +345,7 @@ cel_android_library(
     srcs = [
         "ProtoLiteCelValueConverter.java",
         "ProtoMessageLiteValue.java",
+        "RawProtoMessageLiteValue.java",
     ],
     tags = [
     ],
@@ -350,6 +354,7 @@ cel_android_library(
         ":values_android",
         "//:auto_value",
         "//common/annotations",
+        "//common/exceptions:attribute_not_found",
         "//common/internal:cel_lite_descriptor_pool_android",
         "//common/internal:well_known_proto_android",
         "//common/types:type_providers_android",
@@ -358,6 +363,7 @@ cel_android_library(
         "//protobuf:cel_lite_descriptor",
         "@maven//:com_google_errorprone_error_prone_annotations",
         "@maven//:com_google_guava_guava",
+        "@maven//:org_jspecify_jspecify",
         "@maven_android//:com_google_guava_guava",
         "@maven_android//:com_google_protobuf_protobuf_javalite",
     ],
