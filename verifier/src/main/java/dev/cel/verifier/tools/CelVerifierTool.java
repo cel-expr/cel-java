@@ -307,6 +307,9 @@ public final class CelVerifierTool implements Runnable {
   }
 
   public static void main(String[] args) {
+    if (System.getProperty("z3.skipLibraryLoad") == null) {
+      System.setProperty("z3.skipLibraryLoad", "true");
+    }
     int exitCode = new CommandLine(new CelVerifierTool()).execute(args);
     System.exit(exitCode);
   }
