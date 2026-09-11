@@ -18,6 +18,7 @@ import static java.lang.Math.ceil;
 
 import com.google.errorprone.annotations.Immutable;
 import com.google.protobuf.MessageLite;
+import com.google.protobuf.WireFormat;
 import dev.cel.common.annotations.Internal;
 import java.util.Collections;
 import java.util.HashMap;
@@ -184,24 +185,95 @@ public abstract class CelLiteDescriptor {
      * <p>This is exactly the same as com.google.protobuf.Descriptors#Type
      */
     public enum Type {
-      DOUBLE,
-      FLOAT,
-      INT64,
-      UINT64,
-      INT32,
-      FIXED64,
-      FIXED32,
-      BOOL,
-      STRING,
-      GROUP,
-      MESSAGE,
-      BYTES,
-      UINT32,
-      ENUM,
-      SFIXED32,
-      SFIXED64,
-      SINT32,
-      SINT64
+      DOUBLE(1, WireFormat.FieldType.DOUBLE),
+      FLOAT(2, WireFormat.FieldType.FLOAT),
+      INT64(3, WireFormat.FieldType.INT64),
+      UINT64(4, WireFormat.FieldType.UINT64),
+      INT32(5, WireFormat.FieldType.INT32),
+      FIXED64(6, WireFormat.FieldType.FIXED64),
+      FIXED32(7, WireFormat.FieldType.FIXED32),
+      BOOL(8, WireFormat.FieldType.BOOL),
+      STRING(9, WireFormat.FieldType.STRING),
+      GROUP(10, WireFormat.FieldType.GROUP),
+      MESSAGE(11, WireFormat.FieldType.MESSAGE),
+      BYTES(12, WireFormat.FieldType.BYTES),
+      UINT32(13, WireFormat.FieldType.UINT32),
+      ENUM(14, WireFormat.FieldType.ENUM),
+      SFIXED32(15, WireFormat.FieldType.SFIXED32),
+      SFIXED64(16, WireFormat.FieldType.SFIXED64),
+      SINT32(17, WireFormat.FieldType.SINT32),
+      SINT64(18, WireFormat.FieldType.SINT64);
+
+      private final int number;
+      private final WireFormat.FieldType wireFormatFieldType;
+
+      /** Gets the type number corresponding to {@code FieldDescriptorProto.Type#getNumber()}. */
+      public int getNumber() {
+        return number;
+      }
+
+      /** Converts this type to the corresponding {@link WireFormat.FieldType}. */
+      public WireFormat.FieldType toWireFormatFieldType() {
+        return wireFormatFieldType;
+      }
+
+      /**
+       * Returns the {@link Type} for the specified protobuf type number.
+       *
+       * @throws IllegalArgumentException if the number does not correspond to a valid protobuf
+       *     type.
+       */
+      public static Type forNumber(int number) {
+        switch (number) {
+          case 1:
+            return DOUBLE;
+          case 2:
+            return FLOAT;
+          case 3:
+            return INT64;
+          case 4:
+            return UINT64;
+          case 5:
+            return INT32;
+          case 6:
+            return FIXED64;
+          case 7:
+            return FIXED32;
+          case 8:
+            return BOOL;
+          case 9:
+            return STRING;
+          case 10:
+            return GROUP;
+          case 11:
+            return MESSAGE;
+          case 12:
+            return BYTES;
+          case 13:
+            return UINT32;
+          case 14:
+            return ENUM;
+          case 15:
+            return SFIXED32;
+          case 16:
+            return SFIXED64;
+          case 17:
+            return SINT32;
+          case 18:
+            return SINT64;
+          default:
+            throw new IllegalArgumentException("Unsupported proto type code: " + number);
+        }
+      }
+
+      private Type(int number, WireFormat.FieldType wireFormatFieldType) {
+        this.number = number;
+        this.wireFormatFieldType = Objects.requireNonNull(wireFormatFieldType);
+      }
+    }
+
+    public int getFieldNumber() {
+      return fieldNumber;
     }
 
     public String getFieldName() {
@@ -269,9 +341,9 @@ public abstract class CelLiteDescriptor {
         String fieldProtoTypeName) {
       this.fieldNumber = fieldNumber;
       this.fieldName = Objects.requireNonNull(fieldName);
-      this.javaType = javaType;
-      this.encodingType = encodingType;
-      this.protoFieldType = protoFieldType;
+      this.javaType = Objects.requireNonNull(javaType);
+      this.encodingType = Objects.requireNonNull(encodingType);
+      this.protoFieldType = Objects.requireNonNull(protoFieldType);
       this.isPacked = isPacked;
       this.fieldProtoTypeName = Objects.requireNonNull(fieldProtoTypeName);
     }

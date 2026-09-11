@@ -17,13 +17,17 @@ package dev.cel.common.values;
 import com.google.auto.value.AutoValue;
 import com.google.auto.value.extension.memoized.Memoized;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.ImmutableMap;
 import com.google.errorprone.annotations.Immutable;
 import com.google.protobuf.MessageLite;
 import dev.cel.common.types.CelType;
 import dev.cel.common.types.StructTypeReference;
+import dev.cel.common.values.ProtoLiteCelValueConverter.MessageFields;
+import dev.cel.protobuf.CelLiteDescriptor.FieldLiteDescriptor;
 import java.io.IOException;
 import java.util.Optional;
+import org.jspecify.annotations.Nullable;
 
 /**
  * ProtoMessageLiteValue is a struct value with protobuf support for {@link MessageLite}.
@@ -35,7 +39,8 @@ import java.util.Optional;
  */
 @AutoValue
 @Immutable
-public abstract class ProtoMessageLiteValue extends StructValue<String, MessageLite> {
+public abstract class ProtoMessageLiteValue extends StructValue<String, MessageLite>
+    implements OptimizedSelectable {
 
   @Override
   public abstract MessageLite value();
@@ -46,12 +51,20 @@ public abstract class ProtoMessageLiteValue extends StructValue<String, MessageL
   abstract ProtoLiteCelValueConverter protoLiteCelValueConverter();
 
   @Memoized
-  ImmutableMap<String, Object> fieldValues() {
+  MessageFields messageFields() {
     try {
-      return protoLiteCelValueConverter().readAllFields(value(), celType().name());
+      return protoLiteCelValueConverter().readMessageFields(value(), celType().name());
     } catch (IOException e) {
       throw new IllegalStateException("Unable to read message fields for " + celType().name(), e);
     }
+  }
+
+  private ImmutableMap<String, Object> fieldValues() {
+    return messageFields().values();
+  }
+
+  ImmutableListMultimap<Integer, Object> unknownFields() {
+    return messageFields().unknowns();
   }
 
   @Override
@@ -72,6 +85,51 @@ public abstract class ProtoMessageLiteValue extends StructValue<String, MessageL
         .map(value -> protoLiteCelValueConverter().toRuntimeValue(fieldValue));
   }
 
+  @Override
+  public Object selectField(SelectField field) {
+    int fieldNumber = field.fieldNumber();
+    Optional<FieldLiteDescriptor> fieldDescriptor =
+        protoLiteCelValueConverter().findFieldDescriptor(celType().name(), fieldNumber);
+    String currentFieldName =
+        fieldDescriptor.map(FieldLiteDescriptor::getFieldName).orElse(field.fieldName());
+    Object fieldValue = fieldValues().get(currentFieldName);
+    if (fieldValue != null) {
+      return protoLiteCelValueConverter().toRuntimeValue(fieldValue);
+    }
+    return RawProtoMessageLiteValue.selectUnknownOrDefault(
+        field, fieldDescriptor, unknownFields().get(fieldNumber), protoLiteCelValueConverter());
+  }
+
+  @Override
+  public boolean hasField(SelectField field) {
+    int fieldNumber = field.fieldNumber();
+    Optional<FieldLiteDescriptor> fieldDescriptor =
+        protoLiteCelValueConverter().findFieldDescriptor(celType().name(), fieldNumber);
+    String currentFieldName =
+        fieldDescriptor.map(FieldLiteDescriptor::getFieldName).orElse(field.fieldName());
+    Object fieldValue = fieldValues().get(currentFieldName);
+    if (fieldValue != null) {
+      return true;
+    }
+    return RawProtoMessageLiteValue.isPresentInUnknowns(
+        field, fieldDescriptor, unknownFields().get(fieldNumber), protoLiteCelValueConverter());
+  }
+
+  @Override
+  public @Nullable Object navigateField(SelectField field) {
+    int fieldNumber = field.fieldNumber();
+    Optional<FieldLiteDescriptor> fieldDescriptor =
+        protoLiteCelValueConverter().findFieldDescriptor(celType().name(), fieldNumber);
+    String currentFieldName =
+        fieldDescriptor.map(FieldLiteDescriptor::getFieldName).orElse(field.fieldName());
+    Object fieldValue = fieldValues().get(currentFieldName);
+    if (fieldValue != null) {
+      return protoLiteCelValueConverter().toRuntimeValue(fieldValue);
+    }
+    return RawProtoMessageLiteValue.navigateUnknown(
+        field, fieldDescriptor, unknownFields().get(fieldNumber), protoLiteCelValueConverter());
+  }
+
   public static ProtoMessageLiteValue create(
       MessageLite value, String typeName, ProtoLiteCelValueConverter protoLiteCelValueConverter) {
     Preconditions.checkNotNull(value);
@@ -79,4 +137,7 @@ public abstract class ProtoMessageLiteValue extends StructValue<String, MessageL
     return new AutoValue_ProtoMessageLiteValue(
         value, StructTypeReference.create(typeName), protoLiteCelValueConverter);
   }
+
+  // Package-private constructor to prevent subclassing outside the package.
+  ProtoMessageLiteValue() {}
 }
