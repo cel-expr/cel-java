@@ -17,6 +17,7 @@ package dev.cel.parser;
 import static com.google.common.truth.Truth.assertThat;
 import static org.junit.Assert.assertThrows;
 
+import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableSet;
 import com.google.testing.junit.testparameterinjector.TestParameter;
 import com.google.testing.junit.testparameterinjector.TestParameterInjector;
@@ -27,6 +28,7 @@ import dev.cel.common.CelSource;
 import dev.cel.common.CelValidationException;
 import dev.cel.common.CelValidationResult;
 import dev.cel.common.ast.CelExpr;
+import java.util.Collections;
 import java.util.Optional;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -395,5 +397,41 @@ public final class CelParserImplTest {
         .hasSize(CelStandardMacro.STANDARD_MACROS.size());
     assertThat(newParserBuilder.getMacros()).hasSize(1);
     assertThat(newParserBuilder.getParserLibraries().build()).hasSize(1);
+  }
+
+  @Test
+  public void parse_logicalChainLongerThanInitialCapacity_succeeds() {
+    CelParser parser = newParserBuilder().build();
+    for (int operands = 2; operands <= 64; operands++) {
+      String expr = Joiner.on(" || ").join(Collections.nCopies(operands, "true"));
+      CelValidationResult result = parser.parse(expr);
+      assertThat(result.hasError()).isFalse();
+    }
+  }
+
+  @Test
+  public void parse_lexerErrorExceedsRecoveryLimit_stopsParsing() {
+    if (!enablePrattParser) {
+      return;
+    }
+    CelParser parser =
+        newParserBuilder()
+            .setOptions(
+                CelOptions.newBuilder()
+                    .enablePrattParser(enablePrattParser)
+                    .maxParseErrorRecoveryLimit(2)
+                    .build())
+            .build();
+    CelValidationResult result = parser.parse("[ @, @, @ ]");
+    assertThat(result.hasError()).isTrue();
+    assertThat(result.getErrors()).hasSize(3);
+  }
+
+  @Test
+  public void parse_largeExpression_expandsPositionsArray() {
+    CelParser parser = newParserBuilder().build();
+    String expr = "[" + Joiner.on(", ").join(Collections.nCopies(1025, "1")) + "]";
+    CelValidationResult result = parser.parse(expr);
+    assertThat(result.hasError()).isFalse();
   }
 }

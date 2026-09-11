@@ -20,11 +20,13 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 import com.google.auto.value.AutoOneOf;
 import com.google.auto.value.AutoValue;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Iterables;
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import com.google.errorprone.annotations.CheckReturnValue;
 import com.google.errorprone.annotations.Immutable;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.Optional;
 
 /**
@@ -37,6 +39,16 @@ import java.util.Optional;
 @Immutable
 @SuppressWarnings("unchecked") // Class ensures only the super type is used
 public abstract class CelExpr implements Expression {
+
+  /**
+   * Shared instance of the {@link ExprKind.Kind#NOT_SET} kind. {@link CelNotSet} carries no state,
+   * so a single instance can back every unset expression.
+   */
+  private static final ExprKind NOT_SET_KIND =
+      AutoOneOf_CelExpr_ExprKind.notSet(new AutoValue_CelExpr_CelNotSet());
+
+  /** Shared instance of an expression with an unset kind and a zero id. */
+  private static final CelExpr NOT_SET_EXPR = ofNotSet(0L);
 
   @Override
   public abstract long id();
@@ -340,9 +352,7 @@ public abstract class CelExpr implements Expression {
   public abstract Builder toBuilder();
 
   public static Builder newBuilder() {
-    return new AutoValue_CelExpr.Builder()
-        .setId(0)
-        .setExprKind(AutoOneOf_CelExpr_ExprKind.notSet(new AutoValue_CelExpr_CelNotSet()));
+    return new AutoValue_CelExpr.Builder().setId(0).setExprKind(NOT_SET_KIND);
   }
 
   /** Denotes the kind of the expression. An expression can only be of one kind. */
@@ -457,7 +467,7 @@ public abstract class CelExpr implements Expression {
     public static Builder newBuilder() {
       return new AutoValue_CelExpr_CelSelect.Builder()
           .setField("")
-          .setOperand(CelExpr.newBuilder().build())
+          .setOperand(NOT_SET_EXPR)
           .setTestOnly(false);
     }
   }
@@ -525,13 +535,14 @@ public abstract class CelExpr implements Expression {
       @CanIgnoreReturnValue
       public Builder addArgs(CelExpr... args) {
         checkNotNull(args);
-        return addArgs(Arrays.asList(args));
+        Collections.addAll(mutableArgs, args);
+        return this;
       }
 
       @CanIgnoreReturnValue
       public Builder addArgs(Iterable<CelExpr> args) {
         checkNotNull(args);
-        args.forEach(mutableArgs::add);
+        Iterables.addAll(mutableArgs, args);
         return this;
       }
 
@@ -604,13 +615,14 @@ public abstract class CelExpr implements Expression {
       @CanIgnoreReturnValue
       public Builder addElements(CelExpr... elements) {
         checkNotNull(elements);
-        return addElements(Arrays.asList(elements));
+        Collections.addAll(mutableElements, elements);
+        return this;
       }
 
       @CanIgnoreReturnValue
       public Builder addElements(Iterable<CelExpr> elements) {
         checkNotNull(elements);
-        elements.forEach(mutableElements::add);
+        Iterables.addAll(mutableElements, elements);
         return this;
       }
 
@@ -696,13 +708,14 @@ public abstract class CelExpr implements Expression {
       @CanIgnoreReturnValue
       public Builder addEntries(CelStruct.Entry... entries) {
         checkNotNull(entries);
-        return addEntries(Arrays.asList(entries));
+        Collections.addAll(mutableEntries, entries);
+        return this;
       }
 
       @CanIgnoreReturnValue
       public Builder addEntries(Iterable<CelStruct.Entry> entries) {
         checkNotNull(entries);
-        entries.forEach(mutableEntries::add);
+        Iterables.addAll(mutableEntries, entries);
         return this;
       }
 
@@ -815,13 +828,14 @@ public abstract class CelExpr implements Expression {
       @CanIgnoreReturnValue
       public Builder addEntries(CelMap.Entry... entries) {
         checkNotNull(entries);
-        return addEntries(Arrays.asList(entries));
+        Collections.addAll(mutableEntries, entries);
+        return this;
       }
 
       @CanIgnoreReturnValue
       public Builder addEntries(Iterable<CelMap.Entry> entries) {
         checkNotNull(entries);
-        entries.forEach(mutableEntries::add);
+        Iterables.addAll(mutableEntries, entries);
         return this;
       }
 
@@ -963,20 +977,17 @@ public abstract class CelExpr implements Expression {
       return new AutoValue_CelExpr_CelComprehension.Builder()
           .setIterVar("")
           .setIterVar2("")
-          .setIterRange(CelExpr.newBuilder().build())
+          .setIterRange(NOT_SET_EXPR)
           .setAccuVar("")
-          .setAccuInit(CelExpr.newBuilder().build())
-          .setLoopCondition(CelExpr.newBuilder().build())
-          .setLoopStep(CelExpr.newBuilder().build())
-          .setResult(CelExpr.newBuilder().build());
+          .setAccuInit(NOT_SET_EXPR)
+          .setLoopCondition(NOT_SET_EXPR)
+          .setLoopStep(NOT_SET_EXPR)
+          .setResult(NOT_SET_EXPR);
     }
   }
 
   public static CelExpr ofNotSet(long id) {
-    return newBuilder()
-        .setId(id)
-        .setExprKind(AutoOneOf_CelExpr_ExprKind.notSet(new AutoValue_CelExpr_CelNotSet()))
-        .build();
+    return newBuilder().setId(id).setExprKind(NOT_SET_KIND).build();
   }
 
   public static CelExpr ofConstant(long id, CelConstant celConstant) {
@@ -1007,46 +1018,45 @@ public abstract class CelExpr implements Expression {
         .build();
   }
 
+  /** Creates a global (non receiver-style) call expression. */
+  public static CelExpr ofCall(long id, String function, ImmutableList<CelExpr> arguments) {
+    return ofCall(id, Optional.empty(), function, arguments);
+  }
+
   public static CelExpr ofCall(
       long id, Optional<CelExpr> targetExpr, String function, ImmutableList<CelExpr> arguments) {
-
-    CelCall.Builder celCallBuilder = CelCall.newBuilder().setFunction(function).addArgs(arguments);
-    targetExpr.ifPresent(celCallBuilder::setTarget);
-    return newBuilder()
-        .setId(id)
-        .setExprKind(AutoOneOf_CelExpr_ExprKind.call(celCallBuilder.build()))
-        .build();
+    // setArgs/autoBuild are used in place of addArgs/build so that the already-immutable argument
+    // list is handed straight to the value class, skipping a copy through the builder's mutable
+    // list. This is on the hot path of every parse.
+    CelCall celCall =
+        CelCall.newBuilder()
+            .setFunction(function)
+            .setTarget(targetExpr)
+            .setArgs(arguments)
+            .autoBuild();
+    return newBuilder().setId(id).setExprKind(AutoOneOf_CelExpr_ExprKind.call(celCall)).build();
   }
 
   public static CelExpr ofList(
       long id, ImmutableList<CelExpr> elements, ImmutableList<Integer> optionalIndices) {
-    return newBuilder()
-        .setId(id)
-        .setExprKind(
-            AutoOneOf_CelExpr_ExprKind.list(
-                CelList.newBuilder()
-                    .addElements(elements)
-                    .addOptionalIndices(optionalIndices)
-                    .build()))
-        .build();
+    CelList celList =
+        CelList.newBuilder()
+            .setElements(elements)
+            .addOptionalIndices(optionalIndices)
+            .autoBuild();
+    return newBuilder().setId(id).setExprKind(AutoOneOf_CelExpr_ExprKind.list(celList)).build();
   }
 
   public static CelExpr ofStruct(
       long id, String messageName, ImmutableList<CelStruct.Entry> entries) {
-    return newBuilder()
-        .setId(id)
-        .setExprKind(
-            AutoOneOf_CelExpr_ExprKind.struct(
-                CelStruct.newBuilder().setMessageName(messageName).addEntries(entries).build()))
-        .build();
+    CelStruct celStruct =
+        CelStruct.newBuilder().setMessageName(messageName).setEntries(entries).autoBuild();
+    return newBuilder().setId(id).setExprKind(AutoOneOf_CelExpr_ExprKind.struct(celStruct)).build();
   }
 
   public static CelExpr ofMap(long id, ImmutableList<CelMap.Entry> entries) {
-    return newBuilder()
-        .setId(id)
-        .setExprKind(
-            AutoOneOf_CelExpr_ExprKind.map(CelMap.newBuilder().addEntries(entries).build()))
-        .build();
+    CelMap celMap = CelMap.newBuilder().setEntries(entries).autoBuild();
+    return newBuilder().setId(id).setExprKind(AutoOneOf_CelExpr_ExprKind.map(celMap)).build();
   }
 
   public static CelStruct.Entry ofStructEntry(
