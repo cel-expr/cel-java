@@ -20,6 +20,7 @@ import com.google.auto.value.AutoValue;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Defaults;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Multimaps;
@@ -45,6 +46,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.Optional;
 import java.util.TreeMap;
 
 /**
@@ -80,7 +82,7 @@ public final class ProtoLiteCelValueConverter extends BaseProtoCelValueConverter
       case INT64:
         return inputStream.readInt64();
       case UINT32:
-        return UnsignedLong.fromLongBits(inputStream.readUInt32());
+        return UnsignedLong.fromLongBits(Integer.toUnsignedLong(inputStream.readUInt32()));
       case UINT64:
         return UnsignedLong.fromLongBits(inputStream.readUInt64());
       case BOOL:
@@ -160,6 +162,17 @@ public final class ProtoLiteCelValueConverter extends BaseProtoCelValueConverter
     return toRuntimeValue(defaultValue);
   }
 
+  public Optional<FieldLiteDescriptor> findFieldDescriptor(String protoTypeName, int fieldNumber) {
+    return descriptorPool
+        .findDescriptor(protoTypeName)
+        .flatMap(desc -> desc.findByFieldNumber(fieldNumber));
+  }
+
+  public Optional<Object> findDefaultCelValue(String protoTypeName, int fieldNumber) {
+    return findFieldDescriptor(protoTypeName, fieldNumber)
+        .map(fieldDescriptor -> toRuntimeValue(getDefaultValue(fieldDescriptor)));
+  }
+
   @Override
   @SuppressWarnings("LiteProtoToString") // No alternative identifier to use. Debug only info is OK.
   public Object toRuntimeValue(Object value) {
@@ -193,7 +206,10 @@ public final class ProtoLiteCelValueConverter extends BaseProtoCelValueConverter
           descriptorPool
               .findDescriptor(message)
               .orElseThrow(
-                  () -> new NoSuchElementException("Could not find a descriptor for: " + message));
+                  () ->
+                      new NoSuchElementException(
+                          "Could not find a descriptor for message of type: "
+                              + message.getClass().getName()));
       return ProtoMessageLiteValue.create(message, descriptor.getProtoTypeName(), this);
     }
 
@@ -367,13 +383,11 @@ public final class ProtoLiteCelValueConverter extends BaseProtoCelValueConverter
     return MessageFields.create(fieldValues.buildKeepingLast(), unknownFields);
   }
 
-  ImmutableMap<String, Object> readAllFields(MessageLite msg, String protoTypeName)
-      throws IOException {
-    return readAllFields(msg.toByteArray(), protoTypeName).values();
+  MessageFields readMessageFields(MessageLite msg, String protoTypeName) throws IOException {
+    return readAllFields(msg.toByteArray(), protoTypeName);
   }
 
-  private static Object readUnknownField(int tagWireType, CodedInputStream inputStream)
-      throws IOException {
+  static Object readUnknownField(int tagWireType, CodedInputStream inputStream) throws IOException {
     switch (tagWireType) {
       case WireFormat.WIRETYPE_VARINT:
         return inputStream.readInt64();
@@ -393,16 +407,19 @@ public final class ProtoLiteCelValueConverter extends BaseProtoCelValueConverter
   }
 
   @AutoValue
-  @SuppressWarnings("AutoValueImmutableFields") // Unknowns are inaccessible to users.
+  @AutoValue.CopyAnnotations
+  @Immutable
+  @SuppressWarnings("Immutable") // Safe immutable fields
   abstract static class MessageFields {
 
     abstract ImmutableMap<String, Object> values();
 
-    abstract Multimap<Integer, Object> unknowns();
+    abstract ImmutableListMultimap<Integer, Object> unknowns();
 
     static MessageFields create(
         ImmutableMap<String, Object> fieldValues, Multimap<Integer, Object> unknownFields) {
-      return new AutoValue_ProtoLiteCelValueConverter_MessageFields(fieldValues, unknownFields);
+      return new AutoValue_ProtoLiteCelValueConverter_MessageFields(
+          fieldValues, ImmutableListMultimap.copyOf(unknownFields));
     }
   }
 
