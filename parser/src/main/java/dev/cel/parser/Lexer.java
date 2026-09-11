@@ -29,8 +29,6 @@ final class Lexer {
   enum TokenType {
     ERROR("error"),
     END("end"),
-    WHITESPACE("whitespace"),
-    COMMENT("comment"),
 
     // Keywords
     NULL("null"),
@@ -98,11 +96,17 @@ final class Lexer {
     final TokenType type;
     final int start;
     final int end;
+    final @Nullable String text;
 
     Token(TokenType type, int start, int end) {
+      this(type, start, end, null);
+    }
+
+    Token(TokenType type, int start, int end, @Nullable String text) {
       this.type = type;
       this.start = start;
       this.end = end;
+      this.text = text;
     }
 
     @Override
@@ -149,35 +153,28 @@ final class Lexer {
           .buildOrThrow();
 
   private final CelCodePointArray content;
+  private final int size;
   private int position;
   private LexerError error;
 
   Lexer(CelCodePointArray content) {
     this.content = content;
+    this.size = content.size();
     this.position = 0;
     this.error = null;
   }
 
   Token lex() {
+    consumeWhitespaceAndComments();
     int start = position;
-    if (position >= content.size()) {
+    if (position >= size) {
       return makeToken(TokenType.END, start, start);
     }
     int c = content.get(position);
     switch (c) {
-      case '\f':
-      case '\n':
-      case ' ':
-      case '\r':
-      case 0x0B: // \v (vertical tab)
-      case '\t':
-        {
-          consumeWhitespace();
-          return makeToken(TokenType.WHITESPACE, start, position);
-        }
       case '.':
         {
-          if (position + 1 < content.size() && isDigit(content.get(position + 1))) {
+          if (position + 1 < size && isDigit(content.get(position + 1))) {
             return consumeNumericLiteral();
           }
           advance(1);
@@ -283,10 +280,6 @@ final class Lexer {
       case '/':
         {
           advance(1);
-          if (consume('/')) {
-            consumeLine();
-            return makeToken(TokenType.COMMENT, start, position);
-          }
           return makeToken(TokenType.SLASH, start, position);
         }
       case '&':
@@ -381,6 +374,10 @@ final class Lexer {
     return new Token(type, start, end);
   }
 
+  private Token makeToken(TokenType type, int start, int end, @Nullable String text) {
+    return new Token(type, start, end, text);
+  }
+
   private Token setError(int start, int end, String message) {
     this.error = new LexerError(start, end, message);
     return new Token(TokenType.ERROR, start, end);
@@ -391,7 +388,7 @@ final class Lexer {
   }
 
   private boolean match(int c) {
-    return position < content.size() && content.get(position) == c;
+    return position < size && content.get(position) == c;
   }
 
   private boolean consume(int c) {
@@ -403,7 +400,7 @@ final class Lexer {
   }
 
   private boolean consumeIf(IntPredicate predicate) {
-    if (position < content.size()) {
+    if (position < size) {
       int cp = content.get(position);
       if (predicate.test(cp)) {
         advance(1);
@@ -414,7 +411,7 @@ final class Lexer {
   }
 
   private void consumeLine() {
-    while (position < content.size()) {
+    while (position < size) {
       if (content.get(position) == '\n') {
         advance(1);
         return;
@@ -423,8 +420,8 @@ final class Lexer {
     }
   }
 
-  private void consumeWhitespace() {
-    while (position < content.size()) {
+  private void consumeWhitespaceAndComments() {
+    while (position < size) {
       int c = content.get(position);
       switch (c) {
         case '\f':
@@ -433,8 +430,15 @@ final class Lexer {
         case '\r':
         case 11: // \v
         case '\t':
-          advance(1);
+          position++;
           break;
+        case '/':
+          if (position + 1 < size && content.get(position + 1) == '/') {
+            consumeLine();
+            break;
+          } else {
+            return;
+          }
         default:
           return;
       }
@@ -442,29 +446,19 @@ final class Lexer {
   }
 
   private boolean consumeDigits() {
-    boolean advanced = false;
-    while (position < content.size()) {
-      int c = content.get(position);
-      if (!isDigit(c)) {
-        break;
-      }
-      advance(1);
-      advanced = true;
+    int start = position;
+    while (position < size && isDigit(content.get(position))) {
+      position++;
     }
-    return advanced;
+    return position > start;
   }
 
   private boolean consumeHexDigits() {
-    boolean advanced = false;
-    while (position < content.size()) {
-      int c = content.get(position);
-      if (!isHexDigit(c)) {
-        break;
-      }
-      advance(1);
-      advanced = true;
+    int start = position;
+    while (position < size && isHexDigit(content.get(position))) {
+      position++;
     }
-    return advanced;
+    return position > start;
   }
 
   private TokenType consumeIntegralSuffix() {
@@ -486,7 +480,7 @@ final class Lexer {
   private boolean consumeUntilAfter(int c, boolean isRaw) {
     int pos = position;
     boolean escaped = false;
-    while (pos < content.size()) {
+    while (pos < size) {
       int cc = content.get(pos);
       if (cc == '\n' || cc == '\r') {
         position = pos;
@@ -503,20 +497,20 @@ final class Lexer {
       }
       pos++;
     }
-    position = content.size();
+    position = size;
     return false;
   }
 
   private boolean consumeUntilAfterTripleQuote(int quote, boolean isRaw) {
     int pos = position;
     boolean escaped = false;
-    while (pos < content.size()) {
+    while (pos < size) {
       int cc = content.get(pos);
       if (!isRaw && cc == '\\') {
         escaped = !escaped;
       } else {
         if ((isRaw || !escaped)
-            && pos + 2 < content.size()
+            && pos + 2 < size
             && cc == quote
             && content.get(pos + 1) == quote
             && content.get(pos + 2) == quote) {
@@ -527,16 +521,14 @@ final class Lexer {
       }
       pos++;
     }
-    position = content.size();
+    position = size;
     return false;
   }
 
   private Token consumeStringLiteral(int start, int quote, boolean isBytes, boolean isRaw) {
     advance(1);
     boolean isTripleQuote =
-        position + 1 < content.size()
-            && content.get(position) == quote
-            && content.get(position + 1) == quote;
+        position + 1 < size && content.get(position) == quote && content.get(position + 1) == quote;
     if (isTripleQuote) {
       advance(2);
       if (!consumeUntilAfterTripleQuote(quote, isRaw)) {
@@ -556,7 +548,7 @@ final class Lexer {
 
   private @Nullable Token consumePrefixedStringLiteral() {
     int start = position;
-    if (position >= content.size()) {
+    if (position >= size) {
       return null;
     }
     int c = content.get(position);
@@ -566,7 +558,7 @@ final class Lexer {
       return null;
     }
     int lookahead = 1;
-    if (position + 1 < content.size()) {
+    if (position + 1 < size) {
       int c2 = content.get(position + 1);
       if (isBytes ? (c2 == 'r' || c2 == 'R') : (c2 == 'b' || c2 == 'B')) {
         isBytes = true;
@@ -574,7 +566,7 @@ final class Lexer {
         lookahead = 2;
       }
     }
-    if (position + lookahead < content.size()) {
+    if (position + lookahead < size) {
       int quote = content.get(position + lookahead);
       if (quote == '"' || quote == '\'') {
         advance(lookahead);
@@ -612,9 +604,9 @@ final class Lexer {
         return makeToken(tokenType, start, position);
       }
       consumeDigits();
-      if (position < content.size()
+      if (position < size
           && content.get(position) == '.'
-          && position + 1 < content.size()
+          && position + 1 < size
           && isDigit(content.get(position + 1))) {
         floatingPoint = true;
         advance(1);
@@ -639,19 +631,15 @@ final class Lexer {
 
   private Token consumeIdent() {
     int start = position;
-    while (position < content.size()) {
-      int c = content.get(position);
-      if (!isIdentTrailing(c)) {
-        break;
-      }
-      advance(1);
+    while (position < size && isIdentTrailing(content.get(position))) {
+      position++;
     }
     int end = position;
-    String word = content.slice(start, end).toString();
+    String word = content.substring(start, end);
     TokenType keywordType = KEYWORDS.get(word);
     if (keywordType != null) {
       return makeToken(keywordType, start, end);
     }
-    return makeToken(TokenType.IDENT, start, end);
+    return makeToken(TokenType.IDENT, start, end, word);
   }
 }

@@ -372,6 +372,7 @@ public final class CelParserParameterizedTest extends BaselineTestCase {
     runTest("a || b || c || d || e || f");
     runTest("a < 5 || a > 10");
     runTest("a && b && c && d || e && f && g && h");
+    runTest("a || b && c || d && e || f && g || h && i || j && k || l");
 
     // Conditional operator
     runTest("a?b:c");
