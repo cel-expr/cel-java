@@ -821,6 +821,7 @@ java_library(
     tags = [
     ],
     deps = [
+        ":async_options",
         ":descriptor_type_resolver",
         ":dispatcher",
         ":evaluation_exception",
@@ -871,6 +872,7 @@ java_library(
     tags = [
     ],
     deps = [
+        ":async_options",
         ":descriptor_message_provider",
         ":descriptor_type_resolver",
         ":dispatcher",
@@ -926,6 +928,7 @@ java_library(
     ],
     deps = [
         ":activation",
+        ":async_options",
         ":evaluation_exception",
         ":evaluation_listener",
         ":function_binding",
@@ -950,6 +953,7 @@ java_library(
         "@maven//:com_google_errorprone_error_prone_annotations",
         "@maven//:com_google_guava_guava",
         "@maven//:com_google_protobuf_protobuf_java",
+        "@maven//:org_jspecify_jspecify",
     ],
 )
 
@@ -1364,6 +1368,36 @@ cel_android_library(
 )
 
 java_library(
+    name = "async_options",
+    srcs = ["CelAsyncEvaluationOptions.java"],
+    tags = [
+    ],
+    deps = [
+        ":async_drain_strategy",
+        ":async_observer",
+        "//:auto_value",
+        "@maven//:com_google_code_findbugs_annotations",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:org_jspecify_jspecify",
+    ],
+)
+
+cel_android_library(
+    name = "async_options_android",
+    srcs = ["CelAsyncEvaluationOptions.java"],
+    tags = [
+    ],
+    deps = [
+        ":async_drain_strategy_android",
+        ":async_observer_android",
+        "//:auto_value",
+        "@maven//:com_google_code_findbugs_annotations",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:org_jspecify_jspecify",
+    ],
+)
+
+java_library(
     name = "program",
     srcs = ["Program.java"],
     tags = [
@@ -1374,6 +1408,7 @@ java_library(
         ":partial_vars",
         ":variable_resolver",
         "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:com_google_guava_guava",
     ],
 )
 
@@ -1388,6 +1423,7 @@ cel_android_library(
         ":partial_vars_android",
         ":variable_resolver",
         "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven_android//:com_google_guava_guava",
     ],
 )
 

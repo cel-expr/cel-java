@@ -12,6 +12,7 @@ java_library(
         ":async_call",
         ":async_drain_strategy",
         ":async_observer",
+        ":async_options",
         ":descriptor_message_provider",
         ":evaluation_exception",
         ":function_overload",
@@ -416,4 +417,14 @@ java_library(
 cel_android_library(
     name = "async_observer_android",
     exports = ["//runtime/src/main/java/dev/cel/runtime:async_observer_android"],
+)
+
+java_library(
+    name = "async_options",
+    exports = ["//runtime/src/main/java/dev/cel/runtime:async_options"],
+)
+
+cel_android_library(
+    name = "async_options_android",
+    exports = ["//runtime/src/main/java/dev/cel/runtime:async_options_android"],
 )

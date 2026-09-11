@@ -14,6 +14,7 @@
 
 package dev.cel.runtime;
 
+import com.google.common.util.concurrent.ListenableFuture;
 import com.google.errorprone.annotations.Immutable;
 import java.util.Map;
 
@@ -46,4 +47,33 @@ public interface Program {
 
   /** Evaluate a compiled program with unknown attribute patterns {@code partialVars}. */
   Object eval(PartialVars partialVars) throws CelEvaluationException;
+
+  /** Evaluate the expression asynchronously without any variables. */
+  ListenableFuture<Object> evalAsync();
+
+  /**
+   * Evaluate the expression asynchronously using a {@code mapValue} as the source of input
+   * variables.
+   */
+  ListenableFuture<Object> evalAsync(Map<String, ?> mapValue);
+
+  /**
+   * Evaluate the expression asynchronously using a {@code mapValue} as the source of input
+   * variables and late-bound functions {@code lateBoundFunctionResolver}.
+   */
+  ListenableFuture<Object> evalAsync(
+      Map<String, ?> mapValue, CelFunctionResolver lateBoundFunctionResolver);
+
+  /** Evaluate the expression asynchronously with a custom variable {@code resolver}. */
+  ListenableFuture<Object> evalAsync(CelVariableResolver resolver);
+
+  /**
+   * Evaluate the expression asynchronously with a custom variable {@code resolver} and late-bound
+   * functions {@code lateBoundFunctionResolver}.
+   */
+  ListenableFuture<Object> evalAsync(
+      CelVariableResolver resolver, CelFunctionResolver lateBoundFunctionResolver);
+
+  /** Evaluate the expression asynchronously with unknown attribute patterns {@code partialVars}. */
+  ListenableFuture<Object> evalAsync(PartialVars partialVars);
 }

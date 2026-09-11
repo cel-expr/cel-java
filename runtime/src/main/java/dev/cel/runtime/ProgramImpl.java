@@ -16,6 +16,7 @@ package dev.cel.runtime;
 
 import com.google.auto.value.AutoValue;
 import com.google.common.base.Preconditions;
+import com.google.common.util.concurrent.ListenableFuture;
 import com.google.errorprone.annotations.Immutable;
 import com.google.protobuf.Message;
 import dev.cel.common.CelOptions;
@@ -66,6 +67,50 @@ abstract class ProgramImpl implements CelRuntime.Program {
         UnknownContext.create(partialVars.resolver(), partialVars.unknowns()),
         /* lateBoundFunctionResolver= */ Optional.empty(),
         /* listener= */ Optional.empty());
+  }
+
+  @Override
+  public ListenableFuture<Object> evalAsync() {
+    throw new UnsupportedOperationException(
+        "evalAsync is not supported by the legacy interpreter.");
+  }
+
+  @Override
+  public ListenableFuture<Object> evalAsync(Map<String, ?> mapValue) {
+    throw new UnsupportedOperationException(
+        "evalAsync is not supported by the legacy interpreter.");
+  }
+
+  @Override
+  public ListenableFuture<Object> evalAsync(
+      Map<String, ?> mapValue, CelFunctionResolver lateBoundFunctionResolver) {
+    throw new UnsupportedOperationException(
+        "evalAsync is not supported by the legacy interpreter.");
+  }
+
+  @Override
+  public ListenableFuture<Object> evalAsync(Message message) {
+    throw new UnsupportedOperationException(
+        "evalAsync is not supported by the legacy interpreter.");
+  }
+
+  @Override
+  public ListenableFuture<Object> evalAsync(CelVariableResolver resolver) {
+    throw new UnsupportedOperationException(
+        "evalAsync is not supported by the legacy interpreter.");
+  }
+
+  @Override
+  public ListenableFuture<Object> evalAsync(
+      CelVariableResolver resolver, CelFunctionResolver lateBoundFunctionResolver) {
+    throw new UnsupportedOperationException(
+        "evalAsync is not supported by the legacy interpreter.");
+  }
+
+  @Override
+  public ListenableFuture<Object> evalAsync(PartialVars partialVars) {
+    throw new UnsupportedOperationException(
+        "evalAsync is not supported by the legacy interpreter.");
   }
 
   @Override

@@ -14,6 +14,7 @@
 
 package dev.cel.runtime;
 
+import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import com.google.errorprone.annotations.CheckReturnValue;
 import com.google.protobuf.DescriptorProtos.FileDescriptorSet;
@@ -214,6 +215,22 @@ public interface CelRuntimeBuilder {
   @CanIgnoreReturnValue
   CelRuntimeBuilder setContainer(CelContainer container);
 
+  /**
+   * Sets options to use for asynchronous evaluation.
+   *
+   * <p>If not configured, defaults to {@link CelAsyncEvaluationOptions#defaultOptions()}.
+   */
+  @CanIgnoreReturnValue
+  CelRuntimeBuilder setAsyncEvaluationOptions(CelAsyncEvaluationOptions asyncEvaluationOptions);
+
+  /**
+   * Sets the executor to use for asynchronous evaluation.
+   *
+   * <p>This executor is required when evaluating expressions asynchronously via {@link
+   * Program#evalAsync}.
+   */
+  @CanIgnoreReturnValue
+  CelRuntimeBuilder setAsyncExecutor(ListeningExecutorService asyncExecutor);
 
   /** Build a new instance of the {@code CelRuntime}. */
   @CheckReturnValue

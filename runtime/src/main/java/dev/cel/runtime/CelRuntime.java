@@ -14,6 +14,7 @@
 
 package dev.cel.runtime;
 
+import com.google.common.util.concurrent.ListenableFuture;
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import com.google.errorprone.annotations.Immutable;
 import javax.annotation.concurrent.ThreadSafe;
@@ -41,6 +42,12 @@ public interface CelRuntime {
 
     /** Evaluate the expression using {@code message} fields as the source of input variables. */
     Object eval(Message message) throws CelEvaluationException;
+
+    /**
+     * Evaluate the expression asynchronously using {@code message} fields as the source of input
+     * variables.
+     */
+    ListenableFuture<Object> evalAsync(Message message);
 
     /**
      * Trace evaluates a compiled program without any variables and invokes the listener as
