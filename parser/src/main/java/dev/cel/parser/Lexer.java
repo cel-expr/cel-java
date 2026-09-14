@@ -635,7 +635,7 @@ final class Lexer {
       position++;
     }
     int end = position;
-    String word = content.slice(start, end).toString();
+    String word = content.substring(start, end);
     TokenType keywordType = KEYWORDS.get(word);
     if (keywordType != null) {
       return makeToken(keywordType, start, end);

@@ -14,6 +14,8 @@
 
 package dev.cel.common.internal;
 
+import static com.google.common.base.Preconditions.checkPositionIndexes;
+
 import com.google.common.collect.ImmutableList;
 import com.google.errorprone.annotations.DoNotCall;
 import com.google.errorprone.annotations.Immutable;
@@ -52,6 +54,12 @@ final class EmptyCodePointArray extends CelCodePointArray {
   }
 
   @Override
+  public String substring(int i, int j) {
+    checkPositionIndexes(i, j, 0);
+    return "";
+  }
+
+  @Override
   public int size() {
     return 0;
   }
@@ -59,10 +67,5 @@ final class EmptyCodePointArray extends CelCodePointArray {
   @Override
   public ImmutableList<Integer> lineOffsets() {
     return ImmutableList.of(1);
-  }
-
-  @Override
-  public String toString() {
-    return "";
   }
 }

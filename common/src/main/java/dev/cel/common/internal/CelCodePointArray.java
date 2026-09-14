@@ -36,6 +36,14 @@ public abstract class CelCodePointArray {
   /** Returns a new {@link CelCodePointArray} that is a subview of this between [i, j). */
   public abstract CelCodePointArray slice(int i, int j);
 
+  /**
+   * Returns the code points between [i, j) as a string.
+   *
+   * <p>Equivalent to {@code slice(i, j).toString()}, but does not materialize the intermediate
+   * view. Lexing and parsing call this for every literal and identifier.
+   */
+  public abstract String substring(int i, int j);
+
   /** Get the code point at the given index. */
   public abstract int get(int index);
 
@@ -55,7 +63,9 @@ public abstract class CelCodePointArray {
   }
 
   @Override
-  public abstract String toString();
+  public final String toString() {
+    return substring(0, size());
+  }
 
   public static CelCodePointArray fromString(String text) {
     if (isNullOrEmpty(text)) {

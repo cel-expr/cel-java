@@ -58,13 +58,14 @@ public abstract class Latin1CodePointArray extends CelCodePointArray {
   }
 
   @Override
-  public int get(int index) {
-    checkElementIndex(index, size());
-    return Byte.toUnsignedInt(codePoints()[offset() + index]);
+  public String substring(int i, int j) {
+    checkPositionIndexes(i, j, size());
+    return new String(codePoints(), offset() + i, j - i, ISO_8859_1);
   }
 
   @Override
-  public final String toString() {
-    return new String(codePoints(), offset(), size(), ISO_8859_1);
+  public int get(int index) {
+    checkElementIndex(index, size());
+    return Byte.toUnsignedInt(codePoints()[offset() + index]);
   }
 }

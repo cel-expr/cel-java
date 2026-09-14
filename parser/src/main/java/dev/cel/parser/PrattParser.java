@@ -198,7 +198,7 @@ final class PrattParser {
       return tok.text;
     }
     if (tok.start >= 0 && tok.end >= tok.start && tok.end <= source.getContent().size()) {
-      return source.getContent().slice(tok.start, tok.end).toString();
+      return source.getContent().substring(tok.start, tok.end);
     }
     return "";
   }

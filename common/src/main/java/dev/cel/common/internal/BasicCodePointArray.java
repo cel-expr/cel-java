@@ -58,13 +58,14 @@ public abstract class BasicCodePointArray extends CelCodePointArray {
   }
 
   @Override
-  public int get(int index) {
-    checkElementIndex(index, size());
-    return codePoints()[offset() + index] & 0xffff;
+  public String substring(int i, int j) {
+    checkPositionIndexes(i, j, size());
+    return new String(codePoints(), offset() + i, j - i);
   }
 
   @Override
-  public final String toString() {
-    return new String(codePoints(), offset(), size());
+  public int get(int index) {
+    checkElementIndex(index, size());
+    return codePoints()[offset() + index] & 0xffff;
   }
 }
