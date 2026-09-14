@@ -58,32 +58,36 @@ import dev.cel.common.navigation.TraversalOrder;
 import dev.cel.common.types.CelKind;
 import dev.cel.common.types.CelTypes;
 import dev.cel.common.types.ListType;
+import dev.cel.common.types.MapType;
 import dev.cel.common.types.SimpleType;
+import dev.cel.common.types.StructTypeReference;
 import dev.cel.common.values.CelByteString;
 import dev.cel.optimizer.AstMutator;
 import dev.cel.optimizer.CelAstOptimizer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
  * Performs field selection optimization on protobuf message select chains.
  *
- * <p>Embeds protobuf field metadata directly into qualification paths ({@code cel.@attribute}) and
- * field presence paths ({@code cel.@hasField}). This accelerates nested field evaluation, enables
- * reflection-free field traversal in resource-constrained runtimes without descriptor tables, and
- * provides resilience against protobuf field renames.
+ * <p>Embeds protobuf field metadata directly into qualification paths ({@code
+ * cel.@attribute<Type>}) and field presence paths ({@code cel.@hasField}). This accelerates nested
+ * field evaluation, enables reflection-free field traversal in resource-constrained runtimes
+ * without descriptor tables, and provides resilience against protobuf field renames.
  *
  * <p><b>WARNING:</b> Evaluating optimized ASTs requires explicit runtime support for {@code
- * cel.@attribute} and {@code cel.@hasField}. Ensure that the target evaluation environment (in
- * Java, C++, Go, or other language runtimes) supports these select optimization functions before
- * applying this optimizer. Evaluating an optimized AST in an unsupported runtime will result in an
- * evaluation error due to missing function overloads.
+ * cel.@attribute<Type>} and {@code cel.@hasField}. Ensure that the target evaluation environment
+ * (in Java, C++, Go, or other language runtimes) supports these select optimization functions
+ * before applying this optimizer. Evaluating an optimized AST in an unsupported runtime will result
+ * in an evaluation error due to missing function overloads.
  *
- * <p><b>Metadata Tuples:</b> In {@code cel.@attribute}, each step in the qualification path is
- * represented as a metadata tuple:
+ * <p><b>Metadata Tuples:</b> In {@code cel.@attribute<Type>}, each step in the qualification path
+ * is represented as a metadata tuple:
  *
  * <ul>
  *   <li>Scalar fields, repeated fields, maps, and well-known types (timestamp, duration) include
@@ -104,7 +108,7 @@ import java.util.Optional;
  *
  * <pre>
  *   // Selection chains (user message is 3-tuple, leaf scalar is 4-tuple)
- *   request.user.age -&gt; cel.@attribute(request,
+ *   request.user.age -&gt; cel.@attributeInt(request,
  *       [[user_num, "user", type_code], [age_num, "age", type_code, default_val]])
  *
  *   // Presence tests (2-tuples)
@@ -124,16 +128,107 @@ public final class SelectOptimizer implements CelAstOptimizer {
    */
   private static final long CEL_MAP_TYPE_CODE = 20L;
 
-  private static final String CEL_ATTRIBUTE_FUNCTION_NAME = "cel.@attribute";
+  private static final String CEL_ATTRIBUTE_INT_FUNCTION_NAME = "cel.@attributeInt";
+  private static final String CEL_ATTRIBUTE_UINT_FUNCTION_NAME = "cel.@attributeUint";
+  private static final String CEL_ATTRIBUTE_DOUBLE_FUNCTION_NAME = "cel.@attributeDouble";
+  private static final String CEL_ATTRIBUTE_BOOL_FUNCTION_NAME = "cel.@attributeBool";
+  private static final String CEL_ATTRIBUTE_STRING_FUNCTION_NAME = "cel.@attributeString";
+  private static final String CEL_ATTRIBUTE_BYTES_FUNCTION_NAME = "cel.@attributeBytes";
+  private static final String CEL_ATTRIBUTE_DURATION_FUNCTION_NAME = "cel.@attributeDuration";
+  private static final String CEL_ATTRIBUTE_TIMESTAMP_FUNCTION_NAME = "cel.@attributeTimestamp";
+  private static final String CEL_ATTRIBUTE_LIST_FUNCTION_NAME = "cel.@attributeList";
+  private static final String CEL_ATTRIBUTE_MAP_FUNCTION_NAME = "cel.@attributeMap";
+  private static final String CEL_ATTRIBUTE_MESSAGE_FUNCTION_PREFIX = "cel.@attributeMessage:";
   private static final String CEL_HAS_FIELD_FUNCTION_NAME = "cel.@hasField";
 
   @VisibleForTesting
-  static final CelFunctionDecl CEL_ATTRIBUTE_FUNCTION_DECL =
+  static final CelFunctionDecl CEL_ATTRIBUTE_INT_FUNCTION_DECL =
       CelFunctionDecl.newFunctionDeclaration(
-          CEL_ATTRIBUTE_FUNCTION_NAME,
+          CEL_ATTRIBUTE_INT_FUNCTION_NAME,
           CelOverloadDecl.newGlobalOverload(
-              "cel_attribute_list",
+              "cel_attribute_int_list",
+              SimpleType.INT,
               SimpleType.DYN,
+              ListType.create(SimpleType.DYN)));
+
+  private static final CelFunctionDecl CEL_ATTRIBUTE_UINT_FUNCTION_DECL =
+      CelFunctionDecl.newFunctionDeclaration(
+          CEL_ATTRIBUTE_UINT_FUNCTION_NAME,
+          CelOverloadDecl.newGlobalOverload(
+              "cel_attribute_uint_list",
+              SimpleType.UINT,
+              SimpleType.DYN,
+              ListType.create(SimpleType.DYN)));
+
+  private static final CelFunctionDecl CEL_ATTRIBUTE_DOUBLE_FUNCTION_DECL =
+      CelFunctionDecl.newFunctionDeclaration(
+          CEL_ATTRIBUTE_DOUBLE_FUNCTION_NAME,
+          CelOverloadDecl.newGlobalOverload(
+              "cel_attribute_double_list",
+              SimpleType.DOUBLE,
+              SimpleType.DYN,
+              ListType.create(SimpleType.DYN)));
+
+  private static final CelFunctionDecl CEL_ATTRIBUTE_BOOL_FUNCTION_DECL =
+      CelFunctionDecl.newFunctionDeclaration(
+          CEL_ATTRIBUTE_BOOL_FUNCTION_NAME,
+          CelOverloadDecl.newGlobalOverload(
+              "cel_attribute_bool_list",
+              SimpleType.BOOL,
+              SimpleType.DYN,
+              ListType.create(SimpleType.DYN)));
+
+  private static final CelFunctionDecl CEL_ATTRIBUTE_STRING_FUNCTION_DECL =
+      CelFunctionDecl.newFunctionDeclaration(
+          CEL_ATTRIBUTE_STRING_FUNCTION_NAME,
+          CelOverloadDecl.newGlobalOverload(
+              "cel_attribute_string_list",
+              SimpleType.STRING,
+              SimpleType.DYN,
+              ListType.create(SimpleType.DYN)));
+
+  private static final CelFunctionDecl CEL_ATTRIBUTE_BYTES_FUNCTION_DECL =
+      CelFunctionDecl.newFunctionDeclaration(
+          CEL_ATTRIBUTE_BYTES_FUNCTION_NAME,
+          CelOverloadDecl.newGlobalOverload(
+              "cel_attribute_bytes_list",
+              SimpleType.BYTES,
+              SimpleType.DYN,
+              ListType.create(SimpleType.DYN)));
+
+  private static final CelFunctionDecl CEL_ATTRIBUTE_DURATION_FUNCTION_DECL =
+      CelFunctionDecl.newFunctionDeclaration(
+          CEL_ATTRIBUTE_DURATION_FUNCTION_NAME,
+          CelOverloadDecl.newGlobalOverload(
+              "cel_attribute_duration_list",
+              SimpleType.DURATION,
+              SimpleType.DYN,
+              ListType.create(SimpleType.DYN)));
+
+  private static final CelFunctionDecl CEL_ATTRIBUTE_TIMESTAMP_FUNCTION_DECL =
+      CelFunctionDecl.newFunctionDeclaration(
+          CEL_ATTRIBUTE_TIMESTAMP_FUNCTION_NAME,
+          CelOverloadDecl.newGlobalOverload(
+              "cel_attribute_timestamp_list",
+              SimpleType.TIMESTAMP,
+              SimpleType.DYN,
+              ListType.create(SimpleType.DYN)));
+
+  private static final CelFunctionDecl CEL_ATTRIBUTE_LIST_FUNCTION_DECL =
+      CelFunctionDecl.newFunctionDeclaration(
+          CEL_ATTRIBUTE_LIST_FUNCTION_NAME,
+          CelOverloadDecl.newGlobalOverload(
+              "cel_attribute_list_list",
+              ListType.create(SimpleType.DYN),
+              SimpleType.DYN,
+              ListType.create(SimpleType.DYN)));
+
+  private static final CelFunctionDecl CEL_ATTRIBUTE_MAP_FUNCTION_DECL =
+      CelFunctionDecl.newFunctionDeclaration(
+          CEL_ATTRIBUTE_MAP_FUNCTION_NAME,
+          CelOverloadDecl.newGlobalOverload(
+              "cel_attribute_map_list",
+              MapType.create(SimpleType.DYN, SimpleType.DYN),
               SimpleType.DYN,
               ListType.create(SimpleType.DYN)));
 
@@ -146,6 +241,20 @@ public final class SelectOptimizer implements CelAstOptimizer {
               SimpleType.BOOL,
               SimpleType.DYN,
               ListType.create(SimpleType.DYN)));
+
+  private static final ImmutableList<CelFunctionDecl> STATIC_FUNCTION_DECLS =
+      ImmutableList.of(
+          CEL_ATTRIBUTE_INT_FUNCTION_DECL,
+          CEL_ATTRIBUTE_UINT_FUNCTION_DECL,
+          CEL_ATTRIBUTE_DOUBLE_FUNCTION_DECL,
+          CEL_ATTRIBUTE_BOOL_FUNCTION_DECL,
+          CEL_ATTRIBUTE_STRING_FUNCTION_DECL,
+          CEL_ATTRIBUTE_BYTES_FUNCTION_DECL,
+          CEL_ATTRIBUTE_DURATION_FUNCTION_DECL,
+          CEL_ATTRIBUTE_TIMESTAMP_FUNCTION_DECL,
+          CEL_ATTRIBUTE_LIST_FUNCTION_DECL,
+          CEL_ATTRIBUTE_MAP_FUNCTION_DECL,
+          CEL_HAS_FIELD_FUNCTION_DECL);
 
   @VisibleForTesting
   static final Extension SELECT_OPTIMIZATION_AST_EXTENSION_TAG =
@@ -168,7 +277,7 @@ public final class SelectOptimizer implements CelAstOptimizer {
   /** Returns a new select optimizer configured with the provided options and file descriptors. */
   public static SelectOptimizer newInstance(
       SelectOptimizerOptions options, FileDescriptor... fileDescriptors) {
-    return newInstance(options, Arrays.asList(checkNotNull(fileDescriptors)));
+    return newInstance(checkNotNull(options), Arrays.asList(checkNotNull(fileDescriptors)));
   }
 
   /** Returns a new select optimizer configured with the provided options and file descriptors. */
@@ -199,28 +308,33 @@ public final class SelectOptimizer implements CelAstOptimizer {
     MonotonicIdGenerator idGenerator =
         CelExprIdGeneratorFactory.newMonotonicIdGenerator(navAst.getRoot().maxId());
 
+    LinkedHashMap<String, CelFunctionDecl> dynamicMessageFunctionDecls = new LinkedHashMap<>();
     int iterationCount = 0;
     for (CelNavigableMutableExpr topNode : topOfChainSelects) {
       if (++iterationCount > options.iterationLimit()) {
         throw new IllegalStateException("Max iteration count reached.");
       }
-      rewriteSelectChain(astToModify, navAst, topNode, idGenerator);
+      rewriteSelectChain(astToModify, navAst, topNode, idGenerator, dynamicMessageFunctionDecls);
     }
 
     astToModify = astMutator.renumberIdsConsecutively(astToModify);
     CelAbstractSyntaxTree optimizedAst = tagAstExtension(astToModify.toParsedAst());
 
-    return OptimizationResult.create(
-        optimizedAst,
-        ImmutableList.of(),
-        ImmutableList.of(CEL_ATTRIBUTE_FUNCTION_DECL, CEL_HAS_FIELD_FUNCTION_DECL));
+    ImmutableList.Builder<CelFunctionDecl> allFunctionDecls =
+        ImmutableList.builderWithExpectedSize(
+            STATIC_FUNCTION_DECLS.size() + dynamicMessageFunctionDecls.size());
+    allFunctionDecls.addAll(STATIC_FUNCTION_DECLS);
+    allFunctionDecls.addAll(dynamicMessageFunctionDecls.values());
+
+    return OptimizationResult.create(optimizedAst, ImmutableList.of(), allFunctionDecls.build());
   }
 
   private void rewriteSelectChain(
       CelMutableAst astToModify,
       CelNavigableMutableAst navAst,
       CelNavigableMutableExpr topNode,
-      MonotonicIdGenerator idGenerator) {
+      MonotonicIdGenerator idGenerator,
+      Map<String, CelFunctionDecl> dynamicMessageFunctionDecls) {
     boolean isHasField = topNode.expr().select().testOnly();
     astToModify.source().getMacroCalls().remove(topNode.expr().id());
 
@@ -235,11 +349,11 @@ public final class SelectOptimizer implements CelAstOptimizer {
     CelMutableExpr currentExpr = topNode.expr().select().operand();
     while (currentExpr.getKind() == Kind.SELECT) {
       CelMutableSelect select = currentExpr.select();
-      FieldDescriptor field = getOptimizableFieldForExpr(navAst, select).orElse(null);
-      if (field == null) {
+      Optional<FieldDescriptor> field = getOptimizableFieldForExpr(navAst, select);
+      if (!field.isPresent()) {
         break;
       }
-      fields.add(field);
+      fields.add(field.get());
       currentExpr = select.operand();
     }
 
@@ -295,8 +409,75 @@ public final class SelectOptimizer implements CelAstOptimizer {
 
     CelMutableExpr qualifiersExpr =
         CelMutableExpr.ofList(idGenerator.nextExprId(), CelMutableList.create(qualifierLists));
-    String functionName = isHasField ? CEL_HAS_FIELD_FUNCTION_NAME : CEL_ATTRIBUTE_FUNCTION_NAME;
+    String functionName =
+        isHasField ? CEL_HAS_FIELD_FUNCTION_NAME : resolveAttributeFunctionName(topField);
+    if (functionName.startsWith(CEL_ATTRIBUTE_MESSAGE_FUNCTION_PREFIX)) {
+      String messageFullName = topField.getMessageType().getFullName();
+      dynamicMessageFunctionDecls.computeIfAbsent(
+          functionName, fnName -> newAttributeMessageFunctionDeclaration(messageFullName));
+    }
     topNode.expr().setCall(CelMutableCall.create(functionName, currentExpr, qualifiersExpr));
+  }
+
+  private static String resolveAttributeFunctionName(FieldDescriptor leafField) {
+    if (leafField.isMapField()) {
+      return CEL_ATTRIBUTE_MAP_FUNCTION_NAME;
+    }
+    if (leafField.isRepeated()) {
+      return CEL_ATTRIBUTE_LIST_FUNCTION_NAME;
+    }
+    switch (leafField.getType()) {
+      case INT32:
+      case INT64:
+      case SINT32:
+      case SINT64:
+      case SFIXED32:
+      case SFIXED64:
+      case ENUM:
+        return CEL_ATTRIBUTE_INT_FUNCTION_NAME;
+      case UINT32:
+      case UINT64:
+      case FIXED32:
+      case FIXED64:
+        return CEL_ATTRIBUTE_UINT_FUNCTION_NAME;
+      case DOUBLE:
+      case FLOAT:
+        return CEL_ATTRIBUTE_DOUBLE_FUNCTION_NAME;
+      case BOOL:
+        return CEL_ATTRIBUTE_BOOL_FUNCTION_NAME;
+      case STRING:
+        return CEL_ATTRIBUTE_STRING_FUNCTION_NAME;
+      case BYTES:
+        return CEL_ATTRIBUTE_BYTES_FUNCTION_NAME;
+      case MESSAGE:
+        String messageFullName = leafField.getMessageType().getFullName();
+        if (messageFullName.equals(CelTypes.DURATION_MESSAGE)) {
+          return CEL_ATTRIBUTE_DURATION_FUNCTION_NAME;
+        }
+        if (messageFullName.equals(CelTypes.TIMESTAMP_MESSAGE)) {
+          return CEL_ATTRIBUTE_TIMESTAMP_FUNCTION_NAME;
+        }
+        return getAttributeMessageFunctionName(messageFullName);
+      default:
+        throw new IllegalArgumentException(
+            "Unsupported protobuf field type: " + leafField.getType());
+    }
+  }
+
+  private static String getAttributeMessageFunctionName(String messageFullName) {
+    checkNotNull(messageFullName);
+    return CEL_ATTRIBUTE_MESSAGE_FUNCTION_PREFIX + messageFullName;
+  }
+
+  private static CelFunctionDecl newAttributeMessageFunctionDeclaration(String messageFullName) {
+    checkNotNull(messageFullName);
+    return CelFunctionDecl.newFunctionDeclaration(
+        getAttributeMessageFunctionName(messageFullName),
+        CelOverloadDecl.newGlobalOverload(
+            "cel_attribute_message_" + messageFullName.replace('.', '_'),
+            StructTypeReference.create(messageFullName),
+            SimpleType.DYN,
+            ListType.create(SimpleType.DYN)));
   }
 
   private static long resolveTypeCode(FieldDescriptor field) {
@@ -414,13 +595,6 @@ public final class SelectOptimizer implements CelAstOptimizer {
     return CelAbstractSyntaxTree.newParsedAst(ast.getExpr(), celSourceBuilder.build());
   }
 
-  private SelectOptimizer(
-      SelectOptimizerOptions options, Iterable<FileDescriptor> fileDescriptors) {
-    this.options = checkNotNull(options);
-    this.astMutator = AstMutator.newInstance(options.iterationLimit());
-    this.descriptorPool = newDescriptorPool(options, checkNotNull(fileDescriptors));
-  }
-
   private static CelDescriptorPool newDescriptorPool(
       SelectOptimizerOptions options, Iterable<FileDescriptor> fileDescriptors) {
     CelDescriptors celDescriptors =
@@ -430,6 +604,13 @@ public final class SelectOptimizer implements CelAstOptimizer {
     descriptorPools.add(DefaultDescriptorPool.create(celDescriptors));
 
     return CombinedDescriptorPool.create(descriptorPools.build());
+  }
+
+  private SelectOptimizer(
+      SelectOptimizerOptions options, Iterable<FileDescriptor> fileDescriptors) {
+    this.options = checkNotNull(options);
+    this.astMutator = AstMutator.newInstance(options.iterationLimit());
+    this.descriptorPool = newDescriptorPool(options, checkNotNull(fileDescriptors));
   }
 
   /** Options configuring the behavior of {@link SelectOptimizer}. */
