@@ -50,7 +50,6 @@ public final class CelParserParameterizedTest extends BaselineTestCase {
           .populateMacroCalls(true)
           .enableOptionalSyntax(true)
           .enableQuotedIdentifierSyntax(true)
-          .enableHiddenAccumulatorVar(true)
           .build();
 
   private static final CelOptions OPTIONS_MAX_RECURSION_DEPTH_32 =
@@ -73,9 +72,6 @@ public final class CelParserParameterizedTest extends BaselineTestCase {
 
   private static final CelOptions OPTIONS_MAX_ERROR_RECOVERY_LIMIT_2 =
       OPTIONS.toBuilder().maxParseErrorRecoveryLimit(2).build();
-
-  private static final CelOptions OPTIONS_OLD_ACCU_VAR =
-      OPTIONS.toBuilder().enableHiddenAccumulatorVar(false).build();
 
   private static final ImmutableMap<String, CelMacro> MACROS =
       ImmutableMap.<String, CelMacro>builder()
@@ -679,17 +675,6 @@ public final class CelParserParameterizedTest extends BaselineTestCase {
     runTest(OPTIONS_MAX_NODE_COUNT_2, "1 + 2 + 3");
     runTest(OPTIONS_MAX_ERROR_RECOVERY_LIMIT_2, "[?, ?, ?]");
     runTest(OPTIONS_MAX_ERROR_RECOVERY_LIMIT_2, "[1 2 3 a b c]");
-  }
-
-  @Test
-  public void parser_legacyAccuVar() {
-    runAntlrTest(OPTIONS_OLD_ACCU_VAR, "x * 2");
-    runAntlrTest(OPTIONS_OLD_ACCU_VAR, "has(m.f)");
-    runAntlrTest(OPTIONS_OLD_ACCU_VAR, "m.exists_one(v, f)");
-    runAntlrTest(OPTIONS_OLD_ACCU_VAR, "m.all(v, f)");
-    runAntlrTest(OPTIONS_OLD_ACCU_VAR, "m.map(v, f)");
-    runAntlrTest(OPTIONS_OLD_ACCU_VAR, "m.map(v, p, f)");
-    runAntlrTest(OPTIONS_OLD_ACCU_VAR, "m.filter(v, p)");
   }
 
   private void runAntlrTest(CelOptions options, String expression) {

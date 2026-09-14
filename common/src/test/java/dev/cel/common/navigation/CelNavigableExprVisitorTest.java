@@ -811,7 +811,6 @@ public class CelNavigableExprVisitorTest {
   public void comprehension_preOrder_allNodesReturned() throws Exception {
     CelCompiler compiler =
         CelCompilerFactory.standardCelCompilerBuilder()
-            .setOptions(CelOptions.current().enableHiddenAccumulatorVar(true).build())
             .setStandardMacros(CelStandardMacro.EXISTS)
             .build();
     CelAbstractSyntaxTree ast = compiler.compile("[true].exists(i, i)").getAst();
@@ -873,7 +872,6 @@ public class CelNavigableExprVisitorTest {
   public void comprehension_postOrder_allNodesReturned() throws Exception {
     CelCompiler compiler =
         CelCompilerFactory.standardCelCompilerBuilder()
-            .setOptions(CelOptions.current().enableHiddenAccumulatorVar(true).build())
             .setStandardMacros(CelStandardMacro.EXISTS)
             .build();
     CelAbstractSyntaxTree ast = compiler.compile("[true].exists(i, i)").getAst();
@@ -1011,7 +1009,6 @@ public class CelNavigableExprVisitorTest {
   public void comprehension_allNodes_parentsPopulated() throws Exception {
     CelCompiler compiler =
         CelCompilerFactory.standardCelCompilerBuilder()
-            .setOptions(CelOptions.current().enableHiddenAccumulatorVar(true).build())
             .setStandardMacros(CelStandardMacro.EXISTS)
             .build();
     CelAbstractSyntaxTree ast = compiler.compile("[true].exists(i, i)").getAst();
@@ -1070,7 +1067,6 @@ public class CelNavigableExprVisitorTest {
   public void comprehension_filterComprehension_allNodesReturned() throws Exception {
     CelCompiler compiler =
         CelCompilerFactory.standardCelCompilerBuilder()
-            .setOptions(CelOptions.current().enableHiddenAccumulatorVar(true).build())
             .setStandardMacros(CelStandardMacro.EXISTS)
             .build();
     CelAbstractSyntaxTree ast = compiler.compile("[true].exists(i, i)").getAst();

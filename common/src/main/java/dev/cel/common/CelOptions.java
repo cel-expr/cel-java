@@ -68,8 +68,6 @@ public abstract class CelOptions {
 
   public abstract boolean retainUnbalancedLogicalExpressions();
 
-  public abstract boolean enableHiddenAccumulatorVar();
-
   public abstract boolean enableQuotedIdentifierSyntax();
 
   public abstract boolean enablePrattParser();
@@ -144,7 +142,6 @@ public abstract class CelOptions {
         .populateMacroCalls(false)
         .retainRepeatedUnaryOperators(false)
         .retainUnbalancedLogicalExpressions(false)
-        .enableHiddenAccumulatorVar(true)
         .enableQuotedIdentifierSyntax(true)
         .enablePrattParser(false)
         // Type-Checker options
@@ -261,16 +258,6 @@ public abstract class CelOptions {
      * This behavior may not always be desirable.
      */
     public abstract Builder retainUnbalancedLogicalExpressions(boolean value);
-
-    /**
-     * Enable the use of a hidden accumulator variable name.
-     *
-     * <p>This is a temporary option to transition to using an internal identifier for the
-     * accumulator variable used by builtin comprehension macros. When enabled, parses result in a
-     * semantically equivalent AST, but with a different accumulator variable that can't be directly
-     * referenced in the source expression.
-     */
-    public abstract Builder enableHiddenAccumulatorVar(boolean value);
 
     /**
      * Enable quoted identifier syntax.
