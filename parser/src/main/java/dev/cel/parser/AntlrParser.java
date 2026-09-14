@@ -129,8 +129,7 @@ final class AntlrParser extends CELBaseVisitor<CelExpr> {
           "var",
           "void",
           "while");
-  private static final String ACCUMULATOR_NAME = "__result__";
-  private static final String HIDDEN_ACCUMULATOR_NAME = "@result";
+  private static final String ACCUMULATOR_NAME = "@result";
 
   static CelValidationResult parse(
       CelSource source, CelOptions options, Collection<CelMacro> macros) {
@@ -151,10 +150,7 @@ final class AntlrParser extends CELBaseVisitor<CelExpr> {
     sourceInfo.setDescription(source.getDescription());
     ExprFactory exprFactory =
         new ExprFactory(
-            antlrParser,
-            sourceInfo,
-            options.enableHiddenAccumulatorVar() ? HIDDEN_ACCUMULATOR_NAME : ACCUMULATOR_NAME,
-            options.maxParseExpressionNodeCount());
+            antlrParser, sourceInfo, ACCUMULATOR_NAME, options.maxParseExpressionNodeCount());
     AntlrParser parserImpl = new AntlrParser(options, macros, sourceInfo, exprFactory);
     ErrorListener errorListener = new ErrorListener(exprFactory);
     antlrLexer.removeErrorListeners();

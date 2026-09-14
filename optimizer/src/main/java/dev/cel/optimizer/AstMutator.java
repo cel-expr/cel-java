@@ -714,7 +714,7 @@ public final class AstMutator {
 
     comprehension.setIterVar(mangledComprehensionName.iterVarName());
 
-    // Most standard macros set accu_var as __result__, but not all (ex: cel.bind).
+    // Most standard macros set accu_var as @result, but not all (ex: cel.bind).
     if (comprehension.accuVar().equals(originalAccuVar)) {
       comprehension.setAccuVar(mangledComprehensionName.resultName());
     }

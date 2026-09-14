@@ -63,7 +63,7 @@ public final class CelMacroExprFactoryTest {
 
     @Override
     public String getAccumulatorVarName() {
-      return "__result__";
+      return "@result";
     }
 
     @Override

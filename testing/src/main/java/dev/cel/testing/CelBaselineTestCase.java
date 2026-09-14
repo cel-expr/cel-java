@@ -57,7 +57,6 @@ public abstract class CelBaselineTestCase extends BaselineTestCase {
   protected static final CelOptions TEST_OPTIONS =
       CelOptions.current()
           .enableHeterogeneousNumericComparisons(true)
-          .enableHiddenAccumulatorVar(true)
           .enableOptionalSyntax(true)
           .comprehensionMaxIterations(1_000)
           .build();
