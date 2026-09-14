@@ -26,6 +26,7 @@ import dev.cel.common.CelValidationResult;
 import dev.cel.common.Operator;
 import dev.cel.common.ast.CelConstant;
 import dev.cel.common.ast.CelExpr;
+import dev.cel.common.internal.CelCodePointArray;
 import dev.cel.common.internal.Constants;
 import java.text.ParseException;
 import java.util.ArrayDeque;
@@ -40,9 +41,14 @@ import org.jspecify.annotations.Nullable;
 /** Pratt parser implementation for CEL. */
 final class PrattParser {
 
+  /** Sentinel stored in {@link #positions} for expression ids that have no source position. */
+  private static final int NO_POSITION = -1;
+
   private static final String ACCUMULATOR_NAME = "@result";
   private static final CelExpr ERROR = CelExpr.newBuilder().setConstant(Constants.ERROR).build();
-  private static final Lexer.Token END_TOKEN = new Lexer.Token(Lexer.TokenType.END, 0, 0);
+  private static final Lexer.Token END_TOKEN =
+      new Lexer.Token(Lexer.TokenType.END, NO_POSITION, NO_POSITION);
+
   /** Most logical chains are short; 8 avoids resizing for the overwhelming majority. */
   private static final int INITIAL_CHAIN_CAPACITY = 8;
 
@@ -115,10 +121,18 @@ final class PrattParser {
   }
 
   private final CelSource source;
+  private final CelCodePointArray content;
   private final CelOptions options;
   private final ImmutableMap<String, CelMacro> macros;
   private final Lexer lexer;
-  private final Map<Long, Integer> positions;
+
+  /**
+   * Code point offset of each expression node, indexed by expression id, with {@link #NO_POSITION}
+   * for nodes that have none. Ids are dense and handed out sequentially by {@link #nextId}, so an
+   * array avoids the boxing and hashing a {@code Map<Long, Integer>} would cost on every node.
+   */
+  private int[] positions;
+
   private Map<Long, CelExpr> macroCalls = ImmutableMap.of();
   private PrattMacroExprFactory macroExprFactory;
   private final List<CelIssue> issues;
@@ -150,7 +164,7 @@ final class PrattParser {
     }
 
     CelSource.Builder sourceBuilder = source.toBuilder();
-    sourceBuilder.addPositionsMap(prattParser.positions);
+    prattParser.copyPositionsTo(sourceBuilder);
     sourceBuilder.addAllMacroCalls(prattParser.macroCalls);
 
     return new CelValidationResult(
@@ -160,10 +174,12 @@ final class PrattParser {
 
   private PrattParser(CelSource source, CelOptions options, Map<String, CelMacro> macros) {
     this.source = source;
+    this.content = source.getContent();
     this.options = options;
     this.macros = ImmutableMap.copyOf(macros);
-    this.lexer = new Lexer(source.getContent());
-    this.positions = new HashMap<>();
+    this.lexer = new Lexer(content);
+    this.positions = new int[Math.max(16, Math.min(content.size() + 1, 1024))];
+    Arrays.fill(this.positions, NO_POSITION);
     this.issues = new ArrayList<>();
     this.nextId = 1;
     peekToken = nextSignificantToken(true);
@@ -197,13 +213,14 @@ final class PrattParser {
     if (tok.text != null) {
       return tok.text;
     }
-    if (tok.start >= 0 && tok.end >= tok.start && tok.end <= source.getContent().size()) {
-      return source.getContent().substring(tok.start, tok.end);
+    if (tok.start >= 0 && tok.end >= tok.start && tok.end <= content.size()) {
+      return content.substring(tok.start, tok.end);
     }
     return "";
   }
 
   private Lexer.Token nextSignificantToken(boolean reportError) {
+    // The lexer skips whitespace and comments itself, so every token it returns is significant.
     Lexer.Token tok = lexer.lex();
     if (tok.type == Lexer.TokenType.ERROR && reportError) {
       reportSyntaxError(tok, lexer.getError().message);
@@ -250,6 +267,7 @@ final class PrattParser {
     return false;
   }
 
+  // Find the next delimiter to prevent a cascade of spurious secondary errors.
   private void synchronizeOnDelimiter() {
     if (isRecoveryLimitExceeded()) {
       peekToken = END_TOKEN;
@@ -276,7 +294,7 @@ final class PrattParser {
       nodeLimitExceeded = true;
     }
     if (!nodeLimitExceeded && position >= 0) {
-      positions.put(id, position);
+      setPosition(id, position);
     }
     return id;
   }
@@ -286,32 +304,65 @@ final class PrattParser {
   }
 
   private long nextId() {
-    return nextId(-1);
+    return nextId(NO_POSITION);
   }
 
   private void setPosition(long id, Lexer.Token token) {
     if (token.start >= 0) {
-      positions.put(id, token.start);
+      setPosition(id, token.start);
     }
+  }
+
+  private void setPosition(long id, int position) {
+    int index = (int) id;
+    if (index >= positions.length) {
+      int oldLength = positions.length;
+      positions = Arrays.copyOf(positions, Math.max(index + 1, oldLength * 2));
+      Arrays.fill(positions, oldLength, positions.length, NO_POSITION);
+    }
+    positions[index] = position;
+  }
+
+  /** Returns the recorded position of {@code id}, or {@link #NO_POSITION} if it has none. */
+  private int getPosition(long id) {
+    int index = (int) id;
+    return index >= 0 && index < positions.length ? positions[index] : NO_POSITION;
+  }
+
+  private void copyPositionsTo(CelSource.Builder sourceBuilder) {
+    ImmutableMap.Builder<Long, Integer> positionsMap =
+        ImmutableMap.builderWithExpectedSize((int) nextId);
+    for (long id = 1; id < nextId; id++) {
+      int position = getPosition(id);
+      if (position != NO_POSITION) {
+        positionsMap.put(id, position);
+      }
+    }
+    sourceBuilder.addPositionsMap(positionsMap.buildOrThrow());
   }
 
   private long copyId(long id) {
     if (id == 0) {
       return 0;
     }
-    int pos = positions.getOrDefault(id, 0);
-    return nextId(pos);
+    return nextId(getPosition(id));
   }
 
   private void eraseId(long id) {
-    positions.remove(id);
+    int index = (int) id;
+    if (index >= 0 && index < positions.length) {
+      positions[index] = NO_POSITION;
+    }
     if (nextId == id + 1) {
       --nextId;
     }
   }
 
   private void reportError(int position, String msg) {
-    CelSourceLocation loc = source.getOffsetLocation(position).orElse(CelSourceLocation.NONE);
+    CelSourceLocation loc =
+        position >= 0
+            ? source.getOffsetLocation(position).orElse(CelSourceLocation.NONE)
+            : CelSourceLocation.NONE;
     reportError(loc, msg);
   }
 
@@ -411,16 +462,8 @@ final class PrattParser {
       return lhs;
     }
     CelExpr falseExpr = parseExpr();
-    return CelExpr.newBuilder()
-        .setId(opId)
-        .setCall(
-            CelExpr.CelCall.newBuilder()
-                .setFunction(Operator.CONDITIONAL.getFunction())
-                .addArgs(lhs)
-                .addArgs(trueExpr)
-                .addArgs(falseExpr)
-                .build())
-        .build();
+    return CelExpr.ofCall(
+        opId, Operator.CONDITIONAL.getFunction(), ImmutableList.of(lhs, trueExpr, falseExpr));
   }
 
   private CelExpr parseBalancedLogicalChain(CelExpr lhs, BinaryOpInfo opInfo) {
@@ -462,11 +505,11 @@ final class PrattParser {
   }
 
   private static CelExpr buildBinaryCall(long id, String function, CelExpr lhs, CelExpr rhs) {
-    return CelExpr.newBuilder()
-        .setId(id)
-        .setCall(
-            CelExpr.CelCall.newBuilder().setFunction(function).addArgs(lhs).addArgs(rhs).build())
-        .build();
+    return CelExpr.ofCall(id, function, ImmutableList.of(lhs, rhs));
+  }
+
+  private static CelExpr buildUnaryCall(long id, String function, CelExpr operand) {
+    return CelExpr.ofCall(id, function, ImmutableList.of(operand));
   }
 
   private CelExpr parseSelectorChain() {
@@ -519,38 +562,18 @@ final class PrattParser {
         String idText = normalizeIdent(idTok, /* allowQuoted= */ !isMemberCall);
         if (optional) {
           long opId = nextId(dotTok);
-          CelExpr arg1 = lhs;
-          CelExpr arg2 =
+          CelExpr field =
               CelExpr.ofConstant(nextId(getLeftmostPosition(lhs)), CelConstant.ofValue(idText));
-          lhs =
-              CelExpr.newBuilder()
-                  .setId(opId)
-                  .setCall(
-                      CelExpr.CelCall.newBuilder()
-                          .setFunction(Operator.OPTIONAL_SELECT.getFunction())
-                          .addArgs(arg1)
-                          .addArgs(arg2)
-                          .build())
-                  .build();
+          lhs = buildBinaryCall(opId, Operator.OPTIONAL_SELECT.getFunction(), lhs, field);
         } else if (peekToken.type == Lexer.TokenType.LEFT_PAREN) {
           Lexer.Token lparen = nextToken();
           long callId = nextId(lparen);
           ImmutableList<CelExpr> args = parseArguments(Lexer.TokenType.RIGHT_PAREN);
           Optional<CelExpr> expanded = tryExpandMacro(callId, idText, lhs, args);
-          if (expanded.isPresent()) {
-            lhs = expanded.get();
-          } else {
-            lhs =
-                CelExpr.newBuilder()
-                    .setId(callId)
-                    .setCall(
-                        CelExpr.CelCall.newBuilder()
-                            .setFunction(idText)
-                            .setTarget(lhs)
-                            .addArgs(args)
-                            .build())
-                    .build();
-          }
+          lhs =
+              expanded.isPresent()
+                  ? expanded.get()
+                  : CelExpr.ofCall(callId, Optional.of(lhs), idText, args);
         } else {
           lhs = CelExpr.ofSelect(nextId(dotTok), lhs, idText, /* isTestOnly= */ false);
         }
@@ -573,16 +596,7 @@ final class PrattParser {
         expect(Lexer.TokenType.RIGHT_BRACKET, "expected ']'");
         String opName =
             optional ? Operator.OPTIONAL_INDEX.getFunction() : Operator.INDEX.getFunction();
-        lhs =
-            CelExpr.newBuilder()
-                .setId(opId)
-                .setCall(
-                    CelExpr.CelCall.newBuilder()
-                        .setFunction(opName)
-                        .addArgs(lhs)
-                        .addArgs(index)
-                        .build())
-                .build();
+        lhs = buildBinaryCall(opId, opName, lhs, index);
       } else if (tok == Lexer.TokenType.LEFT_BRACE) {
         String structName = extractStructName(lhs);
         if (structName == null) {
@@ -629,10 +643,7 @@ final class PrattParser {
         (opType == Lexer.TokenType.EXCLAMATION)
             ? Operator.LOGICAL_NOT.getFunction()
             : Operator.NEGATE.getFunction();
-    return CelExpr.newBuilder()
-        .setId(opId)
-        .setCall(CelExpr.CelCall.newBuilder().setFunction(opName).addArgs(operand).build())
-        .build();
+    return buildUnaryCall(opId, opName, operand);
   }
 
   private CelExpr parseUnaryOpsChain(Lexer.Token firstOp) {
@@ -706,11 +717,7 @@ final class PrattParser {
           (ops.get(i).token.type == Lexer.TokenType.EXCLAMATION)
               ? Operator.LOGICAL_NOT.getFunction()
               : Operator.NEGATE.getFunction();
-      operand =
-          CelExpr.newBuilder()
-              .setId(ops.get(i).id)
-              .setCall(CelExpr.CelCall.newBuilder().setFunction(opName).addArgs(operand).build())
-              .build();
+      operand = buildUnaryCall(ops.get(i).id, opName, operand);
     }
 
     return operand;
@@ -744,10 +751,7 @@ final class PrattParser {
       if (expanded.isPresent()) {
         return expanded.get();
       }
-      return CelExpr.newBuilder()
-          .setId(callId)
-          .setCall(CelExpr.CelCall.newBuilder().setFunction(name).addArgs(args).build())
-          .build();
+      return CelExpr.ofCall(callId, name, args);
     }
     long id = nextId(leadingDot ? firstTok : idTok);
     return CelExpr.ofIdent(id, name);
@@ -815,7 +819,8 @@ final class PrattParser {
   private CelExpr parseList() {
     Lexer.Token openTok = nextToken();
     long listId = nextId(openTok);
-    CelExpr.CelList.Builder listBuilder = CelExpr.CelList.newBuilder();
+    ImmutableList.Builder<CelExpr> elements = ImmutableList.builder();
+    ImmutableList.Builder<Integer> optionalIndices = ImmutableList.builder();
     int elemIndex = 0;
     while (peekToken.type != Lexer.TokenType.RIGHT_BRACKET
         && peekToken.type != Lexer.TokenType.END) {
@@ -827,9 +832,9 @@ final class PrattParser {
           reportError(q.start, "unsupported syntax '?'");
         }
       }
-      listBuilder.addElements(parseExpr());
+      elements.add(parseExpr());
       if (optional) {
-        listBuilder.addOptionalIndices(elemIndex);
+        optionalIndices.add(elemIndex);
       }
       elemIndex++;
       if (peekToken.type == Lexer.TokenType.COMMA) {
@@ -839,13 +844,13 @@ final class PrattParser {
       }
     }
     expect(Lexer.TokenType.RIGHT_BRACKET, "expected ']'");
-    return CelExpr.newBuilder().setId(listId).setList(listBuilder.build()).build();
+    return CelExpr.ofList(listId, elements.build(), optionalIndices.build());
   }
 
   private CelExpr parseMap() {
     Lexer.Token openTok = nextToken();
     long mapId = nextId(openTok);
-    CelExpr.CelMap.Builder mapBuilder = CelExpr.CelMap.newBuilder();
+    ImmutableList.Builder<CelExpr.CelMap.Entry> entries = ImmutableList.builder();
     while (peekToken.type != Lexer.TokenType.RIGHT_BRACE && peekToken.type != Lexer.TokenType.END) {
       boolean optional = false;
       Lexer.Token keyStart = peekToken;
@@ -865,13 +870,7 @@ final class PrattParser {
       }
       setPosition(entryId, colon);
       CelExpr value = parseExpr();
-      mapBuilder.addEntries(
-          CelExpr.CelMap.Entry.newBuilder()
-              .setId(entryId)
-              .setKey(key)
-              .setValue(value)
-              .setOptionalEntry(optional)
-              .build());
+      entries.add(CelExpr.ofMapEntry(entryId, key, value, optional));
       if (peekToken.type == Lexer.TokenType.COMMA) {
         nextToken();
       } else {
@@ -879,13 +878,12 @@ final class PrattParser {
       }
     }
     expect(Lexer.TokenType.RIGHT_BRACE, "expected '}'");
-    return CelExpr.newBuilder().setId(mapId).setMap(mapBuilder.build()).build();
+    return CelExpr.ofMap(mapId, entries.build());
   }
 
   private CelExpr parseStruct(long objId, String structName) {
     nextToken();
-    CelExpr.CelStruct.Builder structBuilder =
-        CelExpr.CelStruct.newBuilder().setMessageName(structName);
+    ImmutableList.Builder<CelExpr.CelStruct.Entry> entries = ImmutableList.builder();
     while (peekToken.type != Lexer.TokenType.RIGHT_BRACE && peekToken.type != Lexer.TokenType.END) {
       boolean optional = false;
       if (peekToken.type == Lexer.TokenType.QUESTION) {
@@ -909,13 +907,7 @@ final class PrattParser {
       }
       long fieldId = nextId(colon);
       CelExpr value = parseExpr();
-      structBuilder.addEntries(
-          CelExpr.CelStruct.Entry.newBuilder()
-              .setId(fieldId)
-              .setFieldKey(fieldName)
-              .setValue(value)
-              .setOptionalEntry(optional)
-              .build());
+      entries.add(CelExpr.ofStructEntry(fieldId, fieldName, value, optional));
       if (peekToken.type == Lexer.TokenType.COMMA) {
         nextToken();
       } else {
@@ -923,7 +915,7 @@ final class PrattParser {
       }
     }
     expect(Lexer.TokenType.RIGHT_BRACE, "expected '}'");
-    return CelExpr.newBuilder().setId(objId).setStruct(structBuilder.build()).build();
+    return CelExpr.ofStruct(objId, structName, entries.build());
   }
 
   private ImmutableList<CelExpr> parseArguments(Lexer.TokenType closeToken) {
@@ -1068,7 +1060,7 @@ final class PrattParser {
     while (expr.exprKind().getKind() == CelExpr.ExprKind.Kind.SELECT) {
       expr = expr.select().operand();
     }
-    return positions.getOrDefault(expr.id(), 0);
+    return getPosition(expr.id());
   }
 
   private @Nullable CelMacro lookupMacro(String id, int argCount, boolean receiverStyle) {
@@ -1097,8 +1089,7 @@ final class PrattParser {
     }
     if (nodeLimitExceeded) {
       reportError(
-          positions.getOrDefault(exprId, 0),
-          "could not expand macro: expression node limit exceeded");
+          getPosition(exprId), "could not expand macro: expression node limit exceeded");
       return Optional.empty();
     }
 
@@ -1107,8 +1098,8 @@ final class PrattParser {
       return Optional.of(ERROR);
     }
 
-    int macroPosition = positions.getOrDefault(exprId, 0);
-    CelExpr targetExpr = (target != null ? target : CelExpr.newBuilder().build());
+    int macroPosition = getPosition(exprId);
+    CelExpr targetExpr = (target != null ? target : CelExpr.ofNotSet(0));
     Optional<CelExpr> expandedExpr = expandMacro(macroPosition, macro, targetExpr, args);
 
     if (expandedExpr.isPresent()) {
@@ -1184,8 +1175,9 @@ final class PrattParser {
 
     // Fast path: if the next non-whitespace character is not '(', leading open parens is 1.
     int pos = peekToken.end;
-    while (pos < source.getContent().size()) {
-      int c = source.getContent().get(pos);
+    int size = content.size();
+    while (pos < size) {
+      int c = content.get(pos);
       if (c != ' ' && c != '\t' && c != '\n' && c != '\r' && c != '\f' && c != 11) {
         if (c == '/') {
           // A comment might precede another '('.
@@ -1280,7 +1272,10 @@ final class PrattParser {
 
     @Override
     protected CelSourceLocation getSourceLocation(long exprId) {
-      int pos = positions.getOrDefault(exprId, -1);
+      int pos = getPosition(exprId);
+      if (pos < 0) {
+        return CelSourceLocation.NONE;
+      }
       return source.getOffsetLocation(pos).orElse(CelSourceLocation.NONE);
     }
 
@@ -1289,7 +1284,10 @@ final class PrattParser {
       int pos =
           !macroPositions.isEmpty()
               ? peekPosition()
-              : (currentToken != null ? currentToken.start : 0);
+              : (currentToken != null ? currentToken.start : NO_POSITION);
+      if (pos < 0) {
+        return CelSourceLocation.NONE;
+      }
       return source.getOffsetLocation(pos).orElse(CelSourceLocation.NONE);
     }
 

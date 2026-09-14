@@ -18,10 +18,12 @@ import static com.google.common.truth.Truth.assertThat;
 import static org.antlr.v4.runtime.IntStream.UNKNOWN_SOURCE_NAME;
 import static org.junit.Assert.assertThrows;
 
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Iterables;
 import dev.cel.common.CelSource.Extension;
 import dev.cel.common.CelSource.Extension.Component;
 import dev.cel.common.CelSource.Extension.Version;
+import dev.cel.common.ast.CelExpr;
 import dev.cel.common.internal.BasicCodePointArray;
 import dev.cel.common.internal.CodePointStream;
 import dev.cel.common.internal.Latin1CodePointArray;
@@ -191,5 +193,38 @@ public final class CelSourceTest {
     assertThat(e)
         .hasMessageThat()
         .contains("Line offsets were already been computed through the provided code points.");
+  }
+
+  @Test
+  public void builder_getPositionsMap_isMutable() {
+    CelSource.Builder builder = CelSource.newBuilder();
+    builder.getPositionsMap().put(1L, 10);
+    assertThat(builder.build().getPositionsMap()).containsExactly(1L, 10);
+  }
+
+  @Test
+  public void builder_getMacroCalls_isMutable() {
+    CelSource.Builder builder = CelSource.newBuilder();
+    CelExpr macroCall = CelExpr.ofIdent(1, "foo");
+    builder.getMacroCalls().put(1L, macroCall);
+    assertThat(builder.build().getMacroCalls()).containsExactly(1L, macroCall);
+  }
+
+  @Test
+  public void builder_addPositionsMap_mergesWithExisting() {
+    CelSource.Builder builder = CelSource.newBuilder();
+    builder.addPositions(1L, 10);
+    builder.addPositionsMap(ImmutableMap.of(2L, 20));
+    assertThat(builder.build().getPositionsMap()).containsExactly(1L, 10, 2L, 20);
+  }
+
+  @Test
+  public void builder_addAllMacroCalls_mergesWithExisting() {
+    CelSource.Builder builder = CelSource.newBuilder();
+    CelExpr macro1 = CelExpr.ofIdent(1, "foo");
+    CelExpr macro2 = CelExpr.ofIdent(2, "bar");
+    builder.addMacroCalls(1L, macro1);
+    builder.addAllMacroCalls(ImmutableMap.of(2L, macro2));
+    assertThat(builder.build().getMacroCalls()).containsExactly(1L, macro1, 2L, macro2);
   }
 }

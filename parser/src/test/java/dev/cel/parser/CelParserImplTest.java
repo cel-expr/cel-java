@@ -18,6 +18,7 @@ import static com.google.common.truth.Truth.assertThat;
 import static org.junit.Assert.assertThrows;
 
 import com.google.common.base.Joiner;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.testing.junit.testparameterinjector.TestParameter;
 import com.google.testing.junit.testparameterinjector.TestParameterInjector;
@@ -27,9 +28,11 @@ import dev.cel.common.CelOptions;
 import dev.cel.common.CelSource;
 import dev.cel.common.CelValidationException;
 import dev.cel.common.CelValidationResult;
+import dev.cel.common.ast.CelConstant;
 import dev.cel.common.ast.CelExpr;
 import java.util.Collections;
 import java.util.Optional;
+import org.junit.Assume;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
@@ -51,6 +54,7 @@ public final class CelParserImplTest {
     CelParserImpl parser =
         (CelParserImpl)
             newParserBuilder().setStandardMacros(CelStandardMacro.STANDARD_MACROS).build();
+
     assertThat(parser.findMacro("has:1:false")).hasValue(CelStandardMacro.HAS.getDefinition());
     assertThat(parser.findMacro("all:2:true")).hasValue(CelStandardMacro.ALL.getDefinition());
     assertThat(parser.findMacro("exists:2:true")).hasValue(CelStandardMacro.EXISTS.getDefinition());
@@ -67,6 +71,7 @@ public final class CelParserImplTest {
     CelParserImpl parser =
         (CelParserImpl)
             newParserBuilder().setStandardMacros(CelStandardMacro.STANDARD_MACROS).build();
+
     assertThat(parser.findMacro("has:1:false")).hasValue(CelStandardMacro.HAS.getDefinition());
     assertThat(parser.findMacro("all:2:true")).hasValue(CelStandardMacro.ALL.getDefinition());
     assertThat(parser.findMacro("exists:2:true")).hasValue(CelStandardMacro.EXISTS.getDefinition());
@@ -106,6 +111,7 @@ public final class CelParserImplTest {
   public void build_withMacro_containsMacro() {
     CelParserImpl parser =
         (CelParserImpl) newParserBuilder().setStandardMacros(CelStandardMacro.HAS).build();
+
     assertThat(parser.findMacro("has:1:false")).hasValue(CelStandardMacro.HAS.getDefinition());
   }
 
@@ -113,6 +119,7 @@ public final class CelParserImplTest {
   public void build_withStandardMacro_containsMacro() {
     CelParserImpl parser =
         (CelParserImpl) newParserBuilder().setStandardMacros(CelStandardMacro.HAS).build();
+
     assertThat(parser.findMacro("has:1:false")).hasValue(CelStandardMacro.HAS.getDefinition());
   }
 
@@ -146,6 +153,7 @@ public final class CelParserImplTest {
   @Test
   public void build_containsNoMacros() {
     CelParserImpl parser = (CelParserImpl) newParserBuilder().build();
+
     assertThat(parser.findMacro("has:1:false")).isEmpty();
   }
 
@@ -180,7 +188,9 @@ public final class CelParserImplTest {
                         .maxExpressionCodePointSize(2)
                         .build())
                 .build();
+
     CelValidationResult parseResult = parser.parse(CelSource.newBuilder("foo").build());
+
     CelValidationException exception =
         assertThrows(CelValidationException.class, parseResult::getAst);
     assertThat(exception.getErrors()).hasSize(1);
@@ -261,7 +271,6 @@ public final class CelParserImplTest {
   public void parse_exprUnderMaxRecursionLimit_doesNotThrow(
       @TestParameter MaxParseRecursionDepthTestCase testCase) throws CelValidationException {
     int maxParseRecursionLimit = MaxParseRecursionDepthTestCase.MAX_RECURSION_LIMIT + 1;
-
     CelParser parser =
         newParserBuilder()
             .setOptions(
@@ -270,7 +279,9 @@ public final class CelParserImplTest {
                     .maxParseRecursionDepth(maxParseRecursionLimit)
                     .build())
             .build();
+
     CelValidationResult parseResult = parser.parse(CelSource.newBuilder(testCase.source).build());
+
     assertThat(parseResult.hasError()).isFalse();
     assertThat(parseResult.getAst()).isNotNull();
   }
@@ -285,6 +296,7 @@ public final class CelParserImplTest {
                     .maxParseExpressionNodeCount(2)
                     .build())
             .build();
+
     CelValidationResult parseResult = parser.parse("a + b + c");
 
     CelValidationException exception =
@@ -304,6 +316,7 @@ public final class CelParserImplTest {
                     .maxParseExpressionNodeCount(5)
                     .build())
             .build();
+
     CelValidationResult parseResult = parser.parse("[1, 2, 3, 4, 5].map(x, x * 2)");
 
     CelValidationException exception =
@@ -330,7 +343,9 @@ public final class CelParserImplTest {
                     .maxParseExpressionNodeCount(100)
                     .build())
             .build();
+
     CelValidationResult parseResult = parser.parse("[1, 2, 3, 4, 5].map(x, x * 2)");
+
     assertThat(parseResult.hasError()).isFalse();
     assertThat(parseResult.getAst()).isNotNull();
   }
@@ -402,10 +417,76 @@ public final class CelParserImplTest {
   @Test
   public void parse_logicalChainLongerThanInitialCapacity_succeeds() {
     CelParser parser = newParserBuilder().build();
+
     for (int operands = 2; operands <= 64; operands++) {
       String expr = Joiner.on(" || ").join(Collections.nCopies(operands, "true"));
+
       CelValidationResult result = parser.parse(expr);
+
       assertThat(result.hasError()).isFalse();
     }
   }
+
+  @Test
+  public void parse_lexerErrorExceedsRecoveryLimit_stopsParsing() {
+    Assume.assumeTrue(enablePrattParser);
+    CelParser parser =
+        newParserBuilder()
+            .setOptions(
+                CelOptions.newBuilder()
+                    .enablePrattParser(enablePrattParser)
+                    .maxParseErrorRecoveryLimit(2)
+                    .build())
+            .build();
+
+    CelValidationResult result = parser.parse("[ @, @, @ ]");
+
+    assertThat(result.hasError()).isTrue();
+    assertThat(result.getErrors()).hasSize(3);
+  }
+
+  @Test
+  public void parse_largeExpression_expandsPositionsArray() throws Exception {
+    CelParser parser = newParserBuilder().build();
+    String expr = "[" + Joiner.on(", ").join(Collections.nCopies(1025, "1")) + "]";
+    ImmutableMap.Builder<Long, Integer> expectedPositions =
+        ImmutableMap.builderWithExpectedSize(1026);
+    expectedPositions.put(1L, 0);
+    for (int i = 0; i < 1025; i++) {
+      expectedPositions.put((long) (i + 2), 1 + 3 * i);
+    }
+
+    CelValidationResult result = parser.parse(expr);
+
+    assertThat(result.hasError()).isFalse();
+    assertThat(result.getAst().getSource().getPositionsMap())
+        .containsExactlyEntriesIn(expectedPositions.buildOrThrow());
+  }
+
+  @Test
+  public void parse_macroCopiesNodeWithoutPosition_noSourcePositionRecorded() throws Exception {
+    CelMacro macro =
+        CelMacro.newGlobalMacro(
+            "copy_macro",
+            0,
+            (exprFactory, target, args) -> {
+              CelExpr nodeWithoutPosition =
+                  CelExpr.newBuilder()
+                      .setId(5L)
+                      .setConstant(CelConstant.ofValue(10L))
+                      .build();
+              return Optional.of(exprFactory.copy(nodeWithoutPosition));
+            });
+    CelParser parser = newParserBuilder().addMacros(macro).build();
+
+    CelValidationResult result = parser.parse("copy_macro()");
+
+    assertThat(result.hasError()).isFalse();
+    // The contract for nodes without a source position is -1 (NO_POSITION). Unpositioned
+    // nodes must not be assigned position 0 (which is a valid source offset) and thus should
+    // not have an entry recorded in the positions map.
+    assertThat(result.getAst().getSource().getPositionsMap()).isEmpty();
+  }
 }
+
+

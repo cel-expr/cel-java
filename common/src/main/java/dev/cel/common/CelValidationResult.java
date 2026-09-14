@@ -22,6 +22,7 @@ import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import com.google.errorprone.annotations.Immutable;
 import com.google.errorprone.annotations.InlineMe;
 import dev.cel.common.annotations.Internal;
+import java.util.Comparator;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -30,6 +31,9 @@ import org.jspecify.annotations.Nullable;
  */
 @Immutable
 public final class CelValidationResult {
+
+  private static final Comparator<CelIssue> BY_SOURCE_LOCATION =
+      comparing(CelIssue::getSourceLocation);
 
   @SuppressWarnings("Immutable")
   private final @Nullable Throwable failure;
@@ -64,9 +68,18 @@ public final class CelValidationResult {
       @Nullable Throwable failure) {
     this.ast = ast;
     this.source = source;
-    this.issues = ImmutableList.sortedCopyOf(comparing(CelIssue::getSourceLocation), issues);
-    this.hasError = issues.stream().anyMatch(CelValidationResult::issueIsError) || failure != null;
+    this.issues = ImmutableList.sortedCopyOf(BY_SOURCE_LOCATION, issues);
+    this.hasError = failure != null || containsError(issues);
     this.failure = failure;
+  }
+
+  private static boolean containsError(ImmutableList<CelIssue> issues) {
+    for (int i = 0; i < issues.size(); i++) {
+      if (issueIsError(issues.get(i))) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**

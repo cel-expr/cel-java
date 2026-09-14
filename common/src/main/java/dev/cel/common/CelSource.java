@@ -33,6 +33,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import org.jspecify.annotations.Nullable;
 
 /** Represents the source content of an expression and related metadata. */
 @Immutable
@@ -162,9 +163,13 @@ public abstract class CelSource implements Source {
 
     private final CelCodePointArray codePoints;
     private final List<Integer> lineOffsets;
-    private final Map<Long, Integer> positions;
-    private final Map<Long, CelExpr> macroCalls;
-    private final ImmutableSet.Builder<Extension> extensions;
+    // Both maps start out immutable and empty, and are only copied into a mutable map once they are
+    // actually modified. This keeps the common case (a source that is either never populated, or
+    // populated in bulk from an already immutable map) allocation free.
+    private Map<Long, Integer> positions;
+    private Map<Long, CelExpr> macroCalls;
+    // Null until the first extension is added; extensions are rare.
+    private ImmutableSet.@Nullable Builder<Extension> extensions;
 
     private final boolean lineOffsetsAlreadyComputed;
     private String description;
@@ -176,9 +181,8 @@ public abstract class CelSource implements Source {
     private Builder(CelCodePointArray codePoints, List<Integer> lineOffsets) {
       this.codePoints = checkNotNull(codePoints);
       this.lineOffsets = checkNotNull(lineOffsets);
-      this.positions = new HashMap<>();
-      this.macroCalls = new HashMap<>();
-      this.extensions = ImmutableSet.builder();
+      this.positions = ImmutableMap.of();
+      this.macroCalls = ImmutableMap.of();
       this.description = "";
       this.lineOffsetsAlreadyComputed = !lineOffsets.isEmpty();
     }
@@ -207,39 +211,72 @@ public abstract class CelSource implements Source {
       return this;
     }
 
+    /**
+     * Returns a map containing every entry of {@code map} plus every entry of {@code additions}.
+     *
+     * <p>If {@code map} is still the empty immutable placeholder a builder starts with, and {@code
+     * additions} is already immutable, then {@code additions} is adopted as-is and no copy is made.
+     * That is the common case: a source populated in bulk exactly once, which lets {@link #build()}
+     * reuse the argument directly. Otherwise the entries are merged into a mutable copy.
+     */
+    private static <K, V> Map<K, V> augmentedMap(Map<K, V> map, Map<K, V> additions) {
+      if (map instanceof ImmutableMap && map.isEmpty() && additions instanceof ImmutableMap) {
+        return additions;
+      }
+      Map<K, V> merged = map instanceof HashMap ? map : new HashMap<>(map);
+      merged.putAll(additions);
+      return merged;
+    }
+
+    private Map<Long, Integer> mutablePositions() {
+      if (!(positions instanceof HashMap)) {
+        positions = new HashMap<>(positions);
+      }
+      return positions;
+    }
+
     @CanIgnoreReturnValue
     public Builder addPositionsMap(Map<Long, Integer> positionsMap) {
       checkNotNull(positionsMap);
-      this.positions.putAll(positionsMap);
+      positions = augmentedMap(positions, positionsMap);
       return this;
     }
 
     @CanIgnoreReturnValue
     public Builder addPositions(long exprId, int position) {
-      this.positions.put(exprId, position);
+      mutablePositions().put(exprId, position);
       return this;
     }
 
     @CanIgnoreReturnValue
     public Builder removePositions(long exprId) {
-      this.positions.remove(exprId);
+      if (positions.containsKey(exprId)) {
+        mutablePositions().remove(exprId);
+      }
       return this;
+    }
+
+    private Map<Long, CelExpr> mutableMacroCalls() {
+      if (!(macroCalls instanceof HashMap)) {
+        macroCalls = new HashMap<>(macroCalls);
+      }
+      return macroCalls;
     }
 
     @CanIgnoreReturnValue
     public Builder addMacroCalls(long exprId, CelExpr expr) {
-      this.macroCalls.put(exprId, expr);
+      mutableMacroCalls().put(exprId, expr);
       return this;
     }
 
     @CanIgnoreReturnValue
     public Builder addAllMacroCalls(Map<Long, CelExpr> macroCalls) {
-      this.macroCalls.putAll(macroCalls);
+      this.macroCalls = augmentedMap(this.macroCalls, macroCalls);
       return this;
     }
 
     public ImmutableSet<Extension> getExtensions() {
-      return extensions.build();
+      return extensions == null ? ImmutableSet.of() : extensions.build();
     }
 
     /**
@@ -249,6 +286,9 @@ public abstract class CelSource implements Source {
     @CanIgnoreReturnValue
     public Builder addAllExtensions(Iterable<? extends Extension> extensions) {
       checkNotNull(extensions);
+      if (this.extensions == null) {
+        this.extensions = ImmutableSet.builder();
+      }
       this.extensions.addAll(extensions);
       return this;
     }
@@ -287,14 +327,16 @@ public abstract class CelSource implements Source {
       return CelSourceHelper.getOffsetLocation(codePoints, offset);
     }
 
+    /** Returns a live, mutable view of the positions recorded so far. */
     @CheckReturnValue
     public Map<Long, Integer> getPositionsMap() {
-      return this.positions;
+      return mutablePositions();
     }
 
+    /** Returns a live, mutable view of the macro calls recorded so far. */
     @CheckReturnValue
     public Map<Long, CelExpr> getMacroCalls() {
-      return macroCalls;
+      return mutableMacroCalls();
     }
 
     @CheckReturnValue
@@ -310,7 +352,7 @@ public abstract class CelSource implements Source {
           ImmutableList.copyOf(lineOffsets),
           ImmutableMap.copyOf(positions),
           ImmutableMap.copyOf(macroCalls),
-          extensions.build());
+          getExtensions());
     }
   }
 
