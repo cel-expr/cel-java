@@ -1,4 +1,5 @@
 load("@rules_java//java:defs.bzl", "java_library")
+load("//storage/binfs:binfs.bzl", "java_binary_deploy_jar")
 
 package(
     default_applicable_licenses = ["//:license"],
@@ -188,5 +189,15 @@ java_library(
         "@maven//:com_google_guava_guava",
         "@maven//:org_jspecify_jspecify",
         "@maven//:tools_aqua_z3_turnkey",
+    ],
+)
+
+java_binary_deploy_jar(
+    name = "cel-verifier",
+    jvm_flags = ["-Dz3.skipLibraryLoad=true"],
+    main_class = "dev.cel.verifier.tools.CelVerifierTool",
+    visibility = ["//verifier:__subpackages__"],
+    runtime_deps = [
+        "//verifier/src/main/java/dev/cel/verifier/tools:tools_lib",
     ],
 )
