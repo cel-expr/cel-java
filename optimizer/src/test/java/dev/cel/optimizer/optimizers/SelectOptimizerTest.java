@@ -34,8 +34,10 @@ import dev.cel.common.CelAbstractSyntaxTree;
 import dev.cel.common.CelFunctionDecl;
 import dev.cel.common.CelMutableAst;
 import dev.cel.common.CelOptions;
+import dev.cel.common.CelOverloadDecl;
 import dev.cel.common.CelProtoAbstractSyntaxTree;
 import dev.cel.common.CelValidationException;
+import dev.cel.common.ast.CelReference;
 import dev.cel.common.navigation.CelNavigableMutableAst;
 import dev.cel.common.types.MapType;
 import dev.cel.common.types.SimpleType;
@@ -43,6 +45,7 @@ import dev.cel.common.types.StructTypeReference;
 import dev.cel.expr.conformance.proto2.NestedTestAllTypes;
 import dev.cel.expr.conformance.proto2.TestAllTypesProto;
 import dev.cel.expr.conformance.proto3.TestAllTypes;
+import dev.cel.optimizer.CelAstOptimizer;
 import dev.cel.optimizer.CelOptimizer;
 import dev.cel.optimizer.CelOptimizerFactory;
 import dev.cel.optimizer.optimizers.SelectOptimizer.SelectOptimizerOptions;
@@ -119,27 +122,32 @@ public final class SelectOptimizerTest {
   private enum RewriteTestCase {
     // === Selection & Traversal ===
     PROTO3_SINGLE_FIELD_SELECT(
-        "msg.single_int64", "cel.@attribute(msg, [[2, \"single_int64\", 3, 0]])"),
+        "msg.single_int64", "cel.@attribute(msg, [[2, \"single_int64\", 3, 0]], int)"),
     PROTO3_SINGLE_MESSAGE_FIELD_SELECT(
-        "msg.single_nested_message", "cel.@attribute(msg, [[21, \"single_nested_message\", 11]])"),
+        "msg.single_nested_message",
+        "cel.@attribute(msg, [[21, \"single_nested_message\", 11]],"
+            + " cel.expr.conformance.proto3.TestAllTypes.NestedMessage)"),
     PROTO3_CHAINED_FIELD_SELECT(
         "msg.single_nested_message.bb",
-        "cel.@attribute(msg, [[21, \"single_nested_message\", 11], [1, \"bb\", 5, 0]])"),
+        "cel.@attribute(msg, [[21, \"single_nested_message\", 11], [1, \"bb\", 5, 0]], int)"),
     PROTO2_SINGLE_MESSAGE_FIELD_SELECT(
         "proto2_msg.single_nested_message",
-        "cel.@attribute(proto2_msg, [[21, \"single_nested_message\", 11]])"),
+        "cel.@attribute(proto2_msg, [[21, \"single_nested_message\", 11]],"
+            + " cel.expr.conformance.proto2.TestAllTypes.NestedMessage)"),
     PROTO2_CHAINED_FIELD_SELECT(
         "proto2_msg.single_nested_message.bb",
-        "cel.@attribute(proto2_msg, [[21, \"single_nested_message\", 11], [1, \"bb\", 5, 0]])"),
+        "cel.@attribute(proto2_msg, [[21, \"single_nested_message\", 11], [1, \"bb\", 5, 0]],"
+            + " int)"),
     PROTO2_TRIPLE_CHAINED_FIELD_SELECT(
         "nested_msg.child.payload.single_int64",
         "cel.@attribute(nested_msg, "
             + "[[1, \"child\", 11], "
             + "[2, \"payload\", 11], "
-            + "[2, \"single_int64\", 3, -64]])"),
+            + "[2, \"single_int64\", 3, -64]], int)"),
     PROTO2_CHAINED_MESSAGE_FIELD_SELECT(
         "nested_msg.child.payload",
-        "cel.@attribute(nested_msg, [[1, \"child\", 11], [2, \"payload\", 11]])"),
+        "cel.@attribute(nested_msg, [[1, \"child\", 11], [2, \"payload\", 11]],"
+            + " cel.expr.conformance.proto2.TestAllTypes)"),
 
     // === Presence Tests: Proto2 (Explicit Presence) vs Proto3 (Implicit/Explicit Presence) ===
     // In proto2, scalar fields have explicit presence (has-bit).
@@ -178,102 +186,122 @@ public final class SelectOptimizerTest {
     // === Default Value Divergence: Proto2 Custom Defaults vs Proto3 Zero Defaults ===
     // Int32: proto2 has custom default -32, proto3 has 0
     PROTO2_CUSTOM_INT32(
-        "proto2_msg.single_int32", "cel.@attribute(proto2_msg, [[1, \"single_int32\", 5, -32]])"),
-    PROTO3_ZERO_INT32("msg.single_int32", "cel.@attribute(msg, [[1, \"single_int32\", 5, 0]])"),
+        "proto2_msg.single_int32",
+        "cel.@attribute(proto2_msg, [[1, \"single_int32\", 5, -32]], int)"),
+    PROTO3_ZERO_INT32(
+        "msg.single_int32", "cel.@attribute(msg, [[1, \"single_int32\", 5, 0]], int)"),
 
     // Int64: proto2 has custom default -64, proto3 has 0
     PROTO2_CUSTOM_INT64(
-        "proto2_msg.single_int64", "cel.@attribute(proto2_msg, [[2, \"single_int64\", 3, -64]])"),
-    PROTO3_ZERO_INT64("msg.single_int64", "cel.@attribute(msg, [[2, \"single_int64\", 3, 0]])"),
+        "proto2_msg.single_int64",
+        "cel.@attribute(proto2_msg, [[2, \"single_int64\", 3, -64]], int)"),
+    PROTO3_ZERO_INT64(
+        "msg.single_int64", "cel.@attribute(msg, [[2, \"single_int64\", 3, 0]], int)"),
 
     // Uint32: proto2 has custom default 32, proto3 has 0
     PROTO2_CUSTOM_UINT32(
         "proto2_msg.single_uint32",
-        "cel.@attribute(proto2_msg, [[3, \"single_uint32\", 13, 32u]])"),
+        "cel.@attribute(proto2_msg, [[3, \"single_uint32\", 13, 32u]], uint)"),
     PROTO3_ZERO_UINT32(
-        "msg.single_uint32", "cel.@attribute(msg, [[3, \"single_uint32\", 13, 0u]])"),
+        "msg.single_uint32", "cel.@attribute(msg, [[3, \"single_uint32\", 13, 0u]], uint)"),
 
     // Uint64: proto2 has custom default 64, proto3 has 0
     PROTO2_CUSTOM_UINT64(
-        "proto2_msg.single_uint64", "cel.@attribute(proto2_msg, [[4, \"single_uint64\", 4, 64u]])"),
-    PROTO3_ZERO_UINT64("msg.single_uint64", "cel.@attribute(msg, [[4, \"single_uint64\", 4, 0u]])"),
+        "proto2_msg.single_uint64",
+        "cel.@attribute(proto2_msg, [[4, \"single_uint64\", 4, 64u]], uint)"),
+    PROTO3_ZERO_UINT64(
+        "msg.single_uint64", "cel.@attribute(msg, [[4, \"single_uint64\", 4, 0u]], uint)"),
 
     // String: proto2 has custom default "empty", proto3 has ""
     PROTO2_CUSTOM_STRING(
         "proto2_msg.single_string",
-        "cel.@attribute(proto2_msg, [[14, \"single_string\", 9, \"empty\"]])"),
+        "cel.@attribute(proto2_msg, [[14, \"single_string\", 9, \"empty\"]], string)"),
     PROTO3_ZERO_STRING(
-        "msg.single_string", "cel.@attribute(msg, [[14, \"single_string\", 9, \"\"]])"),
+        "msg.single_string", "cel.@attribute(msg, [[14, \"single_string\", 9, \"\"]], string)"),
 
     // Bool: proto2 has custom default true, proto3 has false
     PROTO2_CUSTOM_BOOL(
-        "proto2_msg.single_bool", "cel.@attribute(proto2_msg, [[13, \"single_bool\", 8, true]])"),
-    PROTO3_ZERO_BOOL("msg.single_bool", "cel.@attribute(msg, [[13, \"single_bool\", 8, false]])"),
+        "proto2_msg.single_bool",
+        "cel.@attribute(proto2_msg, [[13, \"single_bool\", 8, true]], bool)"),
+    PROTO3_ZERO_BOOL(
+        "msg.single_bool", "cel.@attribute(msg, [[13, \"single_bool\", 8, false]], bool)"),
 
     // Float: proto2 has custom default 3.0, proto3 has 0.0
     PROTO2_CUSTOM_FLOAT(
-        "proto2_msg.single_float", "cel.@attribute(proto2_msg, [[11, \"single_float\", 2, 3.0]])"),
-    PROTO3_ZERO_FLOAT("msg.single_float", "cel.@attribute(msg, [[11, \"single_float\", 2, 0.0]])"),
+        "proto2_msg.single_float",
+        "cel.@attribute(proto2_msg, [[11, \"single_float\", 2, 3.0]], double)"),
+    PROTO3_ZERO_FLOAT(
+        "msg.single_float", "cel.@attribute(msg, [[11, \"single_float\", 2, 0.0]], double)"),
 
     // Double: proto2 has custom default 6.4, proto3 has 0.0
     PROTO2_CUSTOM_DOUBLE(
         "proto2_msg.single_double",
-        "cel.@attribute(proto2_msg, [[12, \"single_double\", 1, 6.4]])"),
+        "cel.@attribute(proto2_msg, [[12, \"single_double\", 1, 6.4]], double)"),
     PROTO3_ZERO_DOUBLE(
-        "msg.single_double", "cel.@attribute(msg, [[12, \"single_double\", 1, 0.0]])"),
+        "msg.single_double", "cel.@attribute(msg, [[12, \"single_double\", 1, 0.0]], double)"),
 
     // Bytes: proto2 has custom default "none", proto3 has ""
     PROTO2_CUSTOM_BYTES(
         "proto2_msg.single_bytes",
-        "cel.@attribute(proto2_msg, [[15, \"single_bytes\", 12, b\"\\156\\157\\156\\145\"]])"),
+        "cel.@attribute(proto2_msg, [[15, \"single_bytes\", 12, b\"\\156\\157\\156\\145\"]],"
+            + " bytes)"),
     PROTO3_ZERO_BYTES(
-        "msg.single_bytes", "cel.@attribute(msg, [[15, \"single_bytes\", 12, b\"\"]])"),
+        "msg.single_bytes", "cel.@attribute(msg, [[15, \"single_bytes\", 12, b\"\"]], bytes)"),
 
     // Enum: proto2 has custom default 1 (BAR), proto3 has 0 (FOO)
     PROTO2_CUSTOM_ENUM(
         "proto2_msg.single_nested_enum",
-        "cel.@attribute(proto2_msg, [[22, \"single_nested_enum\", 14, 1]])"),
+        "cel.@attribute(proto2_msg, [[22, \"single_nested_enum\", 14, 1]], int)"),
     PROTO3_ZERO_ENUM(
-        "msg.single_nested_enum", "cel.@attribute(msg, [[22, \"single_nested_enum\", 14, 0]])"),
+        "msg.single_nested_enum",
+        "cel.@attribute(msg, [[22, \"single_nested_enum\", 14, 0]], int)"),
 
-    // Fixed / sfixed fields
+    // Fixed / sfixed / sint fields
+    PROTO3_FIXED32(
+        "msg.single_fixed32", "cel.@attribute(msg, [[7, \"single_fixed32\", 7, 0u]], uint)"),
+    PROTO3_FIXED64(
+        "msg.single_fixed64", "cel.@attribute(msg, [[8, \"single_fixed64\", 6, 0u]], uint)"),
     PROTO3_SFIXED32(
-        "msg.single_sfixed32", "cel.@attribute(msg, [[9, \"single_sfixed32\", 15, 0]])"),
+        "msg.single_sfixed32", "cel.@attribute(msg, [[9, \"single_sfixed32\", 15, 0]], int)"),
     PROTO3_SFIXED64(
-        "msg.single_sfixed64", "cel.@attribute(msg, [[10, \"single_sfixed64\", 16, 0]])"),
+        "msg.single_sfixed64", "cel.@attribute(msg, [[10, \"single_sfixed64\", 16, 0]], int)"),
+    PROTO3_SINT32("msg.single_sint32", "cel.@attribute(msg, [[5, \"single_sint32\", 17, 0]], int)"),
+    PROTO3_SINT64("msg.single_sint64", "cel.@attribute(msg, [[6, \"single_sint64\", 18, 0]], int)"),
 
     // Repeated fields: empty list default
     PROTO2_REPEATED_PRIMITIVE(
         "proto2_msg.repeated_int64",
-        "cel.@attribute(proto2_msg, [[32, \"repeated_int64\", 3, []]])"),
+        "cel.@attribute(proto2_msg, [[32, \"repeated_int64\", 3, []]], list)"),
     PROTO3_REPEATED_PRIMITIVE(
-        "msg.repeated_int64", "cel.@attribute(msg, [[32, \"repeated_int64\", 3, []]])"),
+        "msg.repeated_int64", "cel.@attribute(msg, [[32, \"repeated_int64\", 3, []]], list)"),
     PROTO3_REPEATED_MESSAGE(
         "msg.repeated_nested_message",
-        "cel.@attribute(msg, [[51, \"repeated_nested_message\", 11, []]])"),
+        "cel.@attribute(msg, [[51, \"repeated_nested_message\", 11, []]], list)"),
 
     // Well-known types
     PROTO3_TIMESTAMP(
         "msg.single_timestamp",
-        "cel.@attribute(msg, [[102, \"single_timestamp\", 11, timestamp(0)]])"),
+        "cel.@attribute(msg, [[102, \"single_timestamp\", 11, timestamp(0)]],"
+            + " google.protobuf.Timestamp)"),
     PROTO3_DURATION(
         "msg.single_duration",
-        "cel.@attribute(msg, [[101, \"single_duration\", 11, duration(\"0s\")]])"),
+        "cel.@attribute(msg, [[101, \"single_duration\", 11, duration(\"0s\")]],"
+            + " google.protobuf.Duration)"),
 
     // Map selects
     MAP_FIELD_INDEXING(
         "msg.map_int64_message[1].bb",
         "cel.@attribute("
-            + "cel.@attribute(msg, [[95, \"map_int64_message\", 20, {}]])[1], "
-            + "[[1, \"bb\", 5, 0]])"),
+            + "cel.@attribute(msg, [[95, \"map_int64_message\", 20, {}]], map)[1], "
+            + "[[1, \"bb\", 5, 0]], int)"),
     MAP_FIELD_SELECT_CHAIN_STOPS_AT_MAP_BOUNDARY(
         "map_var_msg.key.single_nested_message.bb",
         "cel.@attribute(map_var_msg.key, "
             + "[[21, \"single_nested_message\", 11], "
-            + "[1, \"bb\", 5, 0]])"),
+            + "[1, \"bb\", 5, 0]], int)"),
     MAP_FIELD_SELECT_STOPS_AT_MAP_BOUNDARY(
         "map_var_msg.key.single_int64",
-        "cel.@attribute(map_var_msg.key, [[2, \"single_int64\", 3, 0]])"),
+        "cel.@attribute(map_var_msg.key, [[2, \"single_int64\", 3, 0]], int)"),
     MAP_FIELD_HAS_STOPS_AT_MAP_BOUNDARY(
         "has(map_var_msg.key.single_nested_message)",
         "cel.@hasField(map_var_msg.key, [[21, \"single_nested_message\"]])"),
@@ -283,17 +311,17 @@ public final class SelectOptimizerTest {
     PROTO_MAP_FIELD_SELECT_STOPS_AT_MAP_BOUNDARY(
         "msg.map_string_message.key.bb",
         "cel.@attribute("
-            + "cel.@attribute(msg, [[227, \"map_string_message\", 20, {}]]).key, "
-            + "[[1, \"bb\", 5, 0]])"),
+            + "cel.@attribute(msg, [[227, \"map_string_message\", 20, {}]], map).key, "
+            + "[[1, \"bb\", 5, 0]], int)"),
     PROTO_MAP_FIELD_HAS_STOPS_AT_MAP_BOUNDARY(
         "has(msg.map_string_message.key.bb)",
         "cel.@hasField("
-            + "cel.@attribute(msg, [[227, \"map_string_message\", 20, {}]]).key, "
+            + "cel.@attribute(msg, [[227, \"map_string_message\", 20, {}]], map).key, "
             + "[[1, \"bb\"]])"),
 
     MIXED_BOOLEAN_EXPRESSION(
         "msg.single_int64 > 0 && has(msg.single_nested_message)",
-        "cel.@attribute(msg, [[2, \"single_int64\", 3, 0]]) > 0 "
+        "cel.@attribute(msg, [[2, \"single_int64\", 3, 0]], int) > 0 "
             + "&& cel.@hasField(msg, [[21, \"single_nested_message\"]])");
 
     private final String expression;
@@ -376,7 +404,7 @@ public final class SelectOptimizerTest {
     CelAbstractSyntaxTree optimizedAst = optimizer.optimize(ast);
 
     assertThat(CEL_UNPARSER.unparse(optimizedAst))
-        .isEqualTo("cel.@attribute(msg, [[2, \"single_int64\", 3, 0]])");
+        .isEqualTo("cel.@attribute(msg, [[2, \"single_int64\", 3, 0]], int)");
   }
 
   @Test
@@ -394,7 +422,7 @@ public final class SelectOptimizerTest {
     CelAbstractSyntaxTree optimizedAst = optimizer.optimize(ast);
 
     assertThat(CEL_UNPARSER.unparse(optimizedAst))
-        .isEqualTo("cel.@attribute(msg, [[2, \"single_int64\", 3, 0]])");
+        .isEqualTo("cel.@attribute(msg, [[2, \"single_int64\", 3, 0]], int)");
   }
 
   @Test
@@ -409,7 +437,7 @@ public final class SelectOptimizerTest {
     CelAbstractSyntaxTree optimizedAst = optimizer.optimize(ast, cel).optimizedAst();
 
     assertThat(CEL_UNPARSER.unparse(optimizedAst))
-        .isEqualTo("cel.@attribute(proto2_msg, [[2, \"single_int64\", 3, -64]])");
+        .isEqualTo("cel.@attribute(proto2_msg, [[2, \"single_int64\", 3, -64]], int)");
   }
 
   @Test
@@ -459,7 +487,9 @@ public final class SelectOptimizerTest {
             .addFunctionDeclarations(SelectOptimizer.CEL_ATTRIBUTE_FUNCTION_DECL)
             .addFunctionBindings(
                 CelFunctionBinding.from(
-                    "cel_attribute_list", Object.class, List.class, (target, path) -> 42L))
+                    "cel_attribute_list",
+                    ImmutableList.of(Object.class, List.class, Object.class),
+                    args -> 42L))
             .build();
     CelOptimizer optimizer =
         CelOptimizerFactory.standardCelOptimizerBuilder(celWithBinding)
@@ -487,7 +517,9 @@ public final class SelectOptimizerTest {
             .addFunctionDeclarations(SelectOptimizer.CEL_ATTRIBUTE_FUNCTION_DECL)
             .addFunctionBindings(
                 CelFunctionBinding.from(
-                    "cel_attribute_list", Object.class, List.class, (target, path) -> path))
+                    "cel_attribute_list",
+                    ImmutableList.of(Object.class, List.class, Object.class),
+                    args -> args[1]))
             .build();
     CelOptimizer optimizer =
         CelOptimizerFactory.standardCelOptimizerBuilder(celWithBinding)
@@ -545,7 +577,9 @@ public final class SelectOptimizerTest {
             .addFunctionDeclarations(SelectOptimizer.CEL_ATTRIBUTE_FUNCTION_DECL)
             .addFunctionBindings(
                 CelFunctionBinding.from(
-                    "cel_attribute_list", Object.class, List.class, (target, path) -> 42L))
+                    "cel_attribute_list",
+                    ImmutableList.of(Object.class, List.class, Object.class),
+                    args -> 42L))
             .build();
     CelOptimizer optimizer =
         CelOptimizerFactory.standardCelOptimizerBuilder(celWithBinding)
@@ -608,7 +642,9 @@ public final class SelectOptimizerTest {
             .addFunctionDeclarations(SelectOptimizer.CEL_ATTRIBUTE_FUNCTION_DECL)
             .addFunctionBindings(
                 CelFunctionBinding.from(
-                    "cel_attribute_list", Object.class, List.class, (target, path) -> 42L))
+                    "cel_attribute_list",
+                    ImmutableList.of(Object.class, List.class, Object.class),
+                    args -> 42L))
             .build();
     CelOptimizer optimizer =
         CelOptimizerFactory.standardCelOptimizerBuilder(celWithBinding)
@@ -744,7 +780,7 @@ public final class SelectOptimizerTest {
     CelAbstractSyntaxTree optimizedAst = optimizer.optimize(ast, cel).optimizedAst();
 
     assertThat(CEL_UNPARSER.unparse(optimizedAst))
-        .isEqualTo("cel.@attribute(proto2_msg, [[2, \"single_int64\", 3, -64]])");
+        .isEqualTo("cel.@attribute(proto2_msg, [[2, \"single_int64\", 3, -64]], int)");
   }
 
   @Test
@@ -756,7 +792,7 @@ public final class SelectOptimizerTest {
     CelAbstractSyntaxTree optimizedAst = optimizer.optimize(ast, cel).optimizedAst();
 
     assertThat(CEL_UNPARSER.unparse(optimizedAst))
-        .isEqualTo("cel.@attribute(proto2_msg, [[2, \"single_int64\", 3, -64]])");
+        .isEqualTo("cel.@attribute(proto2_msg, [[2, \"single_int64\", 3, -64]], int)");
   }
 
   @Test
@@ -774,7 +810,7 @@ public final class SelectOptimizerTest {
     CelAbstractSyntaxTree proto3Optimized = optimizer.optimize(proto3Ast, cel).optimizedAst();
 
     assertThat(CEL_UNPARSER.unparse(proto2Optimized))
-        .isEqualTo("cel.@attribute(proto2_msg, [[2, \"single_int64\", 3, -64]])");
+        .isEqualTo("cel.@attribute(proto2_msg, [[2, \"single_int64\", 3, -64]], int)");
     assertThat(CEL_UNPARSER.unparse(proto3Optimized)).isEqualTo("msg.single_int64");
   }
 
@@ -794,18 +830,18 @@ public final class SelectOptimizerTest {
     CelAbstractSyntaxTree proto3Optimized = optimizer.optimize(proto3Ast, cel).optimizedAst();
 
     assertThat(CEL_UNPARSER.unparse(proto2Optimized))
-        .isEqualTo("cel.@attribute(proto2_msg, [[2, \"single_int64\", 3, -64]])");
+        .isEqualTo("cel.@attribute(proto2_msg, [[2, \"single_int64\", 3, -64]], int)");
     assertThat(CEL_UNPARSER.unparse(proto3Optimized)).isEqualTo("msg.single_int64");
   }
 
   private enum CompilerRejectionTestCase {
     ATTRIBUTE_AT_SIGN(
         SelectOptimizer.CEL_ATTRIBUTE_FUNCTION_DECL,
-        "cel.@attribute(msg, [])",
+        "cel.@attribute(msg, [], int)",
         "token recognition error at: '@'"),
     ATTRIBUTE_OVERLOAD(
         SelectOptimizer.CEL_ATTRIBUTE_FUNCTION_DECL,
-        "cel_attribute_list(msg, [])",
+        "cel_attribute_list(msg, [], int)",
         "undeclared reference to 'cel_attribute_list'"),
     HAS_FIELD_AT_SIGN(
         SelectOptimizer.CEL_HAS_FIELD_FUNCTION_DECL,
@@ -912,6 +948,12 @@ public final class SelectOptimizerTest {
                 + "        }\n"
                 + "      }\n"
                 + "    }\n"
+                + "    args {\n"
+                + "      id: 13\n"
+                + "      ident_expr {\n"
+                + "        name: \"int\"\n"
+                + "      }\n"
+                + "    }\n"
                 + "  }\n"
                 + "}\n"
                 + "source_info {\n"
@@ -930,5 +972,71 @@ public final class SelectOptimizerTest {
     ParsedExpr parsedExpr = CelProtoAbstractSyntaxTree.fromCelAst(optimizedAst).toParsedExpr();
 
     assertThat(parsedExpr).isEqualTo(expectedParsedExpr);
+  }
+
+  @Test
+  public void
+      optimize_binaryOperationOnOptimizedSelect_resolvesOverloadAndPreservesConcreteResultType()
+          throws Exception {
+    CelAbstractSyntaxTree ast = cel.compile("msg.single_int64 + 1").getAst();
+
+    CelAbstractSyntaxTree optimizedAst = celOptimizer.optimize(ast);
+
+    assertThat(optimizedAst.getResultType()).isEqualTo(SimpleType.INT);
+    assertThat(CEL_UNPARSER.unparse(optimizedAst))
+        .isEqualTo("cel.@attribute(msg, [[2, \"single_int64\", 3, 0]], int) + 1");
+  }
+
+  @Test
+  public void
+      optimize_stringOperationOnOptimizedSelect_resolvesOverloadAndPreservesConcreteResultType()
+          throws Exception {
+    CelAbstractSyntaxTree ast = cel.compile("msg.single_string + 'suffix'").getAst();
+
+    CelAbstractSyntaxTree optimizedAst = celOptimizer.optimize(ast);
+
+    assertThat(optimizedAst.getResultType()).isEqualTo(SimpleType.STRING);
+    assertThat(CEL_UNPARSER.unparse(optimizedAst))
+        .isEqualTo("cel.@attribute(msg, [[14, \"single_string\", 9, \"\"]], string) + \"suffix\"");
+  }
+
+  @Test
+  public void optimize_resultFunctionDeclarations_containsOnlySingularAttributeAndHasField()
+      throws Exception {
+    SelectOptimizer optimizer = SelectOptimizer.newInstance(TestAllTypes.getDescriptor().getFile());
+    CelAbstractSyntaxTree ast = cel.compile("msg.single_int64").getAst();
+
+    CelAstOptimizer.OptimizationResult result = optimizer.optimize(ast, cel);
+
+    assertThat(result.newFunctionDecls())
+        .containsExactly(
+            SelectOptimizer.CEL_ATTRIBUTE_FUNCTION_DECL,
+            SelectOptimizer.CEL_HAS_FIELD_FUNCTION_DECL);
+    assertThat(
+            SelectOptimizer.CEL_ATTRIBUTE_FUNCTION_DECL.overloads().stream()
+                .map(CelOverloadDecl::overloadId))
+        .containsExactly("cel_attribute_list");
+  }
+
+  @Test
+  public void optimize_referenceMap_containsSingleOverloadIdForAttributeCall() throws Exception {
+    CelAbstractSyntaxTree ast = cel.compile("msg.single_int64").getAst();
+
+    CelAbstractSyntaxTree optimizedAst = celOptimizer.optimize(ast);
+
+    CelReference reference = optimizedAst.getReferenceOrThrow(optimizedAst.getExpr().id());
+    assertThat(reference.overloadIds()).containsExactly("cel_attribute_list");
+  }
+
+  @Test
+  public void optimize_binaryOperationBetweenOptimizedSelects_resolvesSingleOverloadInReferenceMap()
+      throws Exception {
+    CelAbstractSyntaxTree ast = cel.compile("msg.single_int64 + msg.single_sint64").getAst();
+
+    CelAbstractSyntaxTree optimizedAst = celOptimizer.optimize(ast);
+
+    assertThat(optimizedAst.getResultType()).isEqualTo(SimpleType.INT);
+    CelReference addReference = optimizedAst.getReferenceOrThrow(optimizedAst.getExpr().id());
+    assertThat(addReference.overloadIds()).containsExactly("add_int64");
   }
 }

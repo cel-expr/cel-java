@@ -59,6 +59,8 @@ import dev.cel.common.types.CelKind;
 import dev.cel.common.types.CelTypes;
 import dev.cel.common.types.ListType;
 import dev.cel.common.types.SimpleType;
+import dev.cel.common.types.TypeParamType;
+import dev.cel.common.types.TypeType;
 import dev.cel.common.values.CelByteString;
 import dev.cel.optimizer.AstMutator;
 import dev.cel.optimizer.CelAstOptimizer;
@@ -103,9 +105,9 @@ import java.util.Optional;
  * <p>Expressions are rewritten into the following forms:
  *
  * <pre>
- *   // Selection chains (user message is 3-tuple, leaf scalar is 4-tuple)
+ *   // Selection chains (user message is 3-tuple, leaf scalar is 4-tuple, leaf type is 3rd argument)
  *   request.user.age -&gt; cel.@attribute(request,
- *       [[user_num, "user", type_code], [age_num, "age", type_code, default_val]])
+ *       [[user_num, "user", type_code], [age_num, "age", type_code, default_val]], int)
  *
  *   // Presence tests (2-tuples)
  *   has(request.user.age) -&gt; cel.@hasField(request,
@@ -127,15 +129,18 @@ public final class SelectOptimizer implements CelAstOptimizer {
   private static final String CEL_ATTRIBUTE_FUNCTION_NAME = "cel.@attribute";
   private static final String CEL_HAS_FIELD_FUNCTION_NAME = "cel.@hasField";
 
+  private static final TypeParamType TYPE_PARAM_T = TypeParamType.create("T");
+
   @VisibleForTesting
   static final CelFunctionDecl CEL_ATTRIBUTE_FUNCTION_DECL =
       CelFunctionDecl.newFunctionDeclaration(
           CEL_ATTRIBUTE_FUNCTION_NAME,
           CelOverloadDecl.newGlobalOverload(
               "cel_attribute_list",
+              TYPE_PARAM_T,
               SimpleType.DYN,
-              SimpleType.DYN,
-              ListType.create(SimpleType.DYN)));
+              ListType.create(SimpleType.DYN),
+              TypeType.create(TYPE_PARAM_T)));
 
   @VisibleForTesting
   static final CelFunctionDecl CEL_HAS_FIELD_FUNCTION_DECL =
@@ -295,8 +300,19 @@ public final class SelectOptimizer implements CelAstOptimizer {
 
     CelMutableExpr qualifiersExpr =
         CelMutableExpr.ofList(idGenerator.nextExprId(), CelMutableList.create(qualifierLists));
-    String functionName = isHasField ? CEL_HAS_FIELD_FUNCTION_NAME : CEL_ATTRIBUTE_FUNCTION_NAME;
-    topNode.expr().setCall(CelMutableCall.create(functionName, currentExpr, qualifiersExpr));
+    if (isHasField) {
+      topNode
+          .expr()
+          .setCall(CelMutableCall.create(CEL_HAS_FIELD_FUNCTION_NAME, currentExpr, qualifiersExpr));
+    } else {
+      CelMutableExpr typeExpr =
+          CelMutableExpr.ofIdent(idGenerator.nextExprId(), resolveTypeIdent(topField));
+      topNode
+          .expr()
+          .setCall(
+              CelMutableCall.create(
+                  CEL_ATTRIBUTE_FUNCTION_NAME, currentExpr, qualifiersExpr, typeExpr));
+    }
   }
 
   private static long resolveTypeCode(FieldDescriptor field) {
@@ -304,6 +320,43 @@ public final class SelectOptimizer implements CelAstOptimizer {
       return CEL_MAP_TYPE_CODE;
     }
     return field.getType().toProto().getNumber();
+  }
+
+  private static String resolveTypeIdent(FieldDescriptor field) {
+    if (field.isMapField()) {
+      return "map";
+    }
+    if (field.isRepeated()) {
+      return "list";
+    }
+    switch (field.getType()) {
+      case DOUBLE:
+      case FLOAT:
+        return "double";
+      case INT64:
+      case SINT64:
+      case SFIXED64:
+      case INT32:
+      case SINT32:
+      case SFIXED32:
+      case ENUM:
+        return "int";
+      case UINT64:
+      case FIXED64:
+      case UINT32:
+      case FIXED32:
+        return "uint";
+      case BOOL:
+        return "bool";
+      case STRING:
+        return "string";
+      case BYTES:
+        return "bytes";
+      case MESSAGE:
+        return field.getMessageType().getFullName();
+      default:
+        throw new IllegalArgumentException("Unsupported protobuf field type: " + field.getType());
+    }
   }
 
   private boolean isTopOfSelectChain(CelNavigableMutableAst navAst, CelNavigableMutableExpr node) {
@@ -414,13 +467,6 @@ public final class SelectOptimizer implements CelAstOptimizer {
     return CelAbstractSyntaxTree.newParsedAst(ast.getExpr(), celSourceBuilder.build());
   }
 
-  private SelectOptimizer(
-      SelectOptimizerOptions options, Iterable<FileDescriptor> fileDescriptors) {
-    this.options = checkNotNull(options);
-    this.astMutator = AstMutator.newInstance(options.iterationLimit());
-    this.descriptorPool = newDescriptorPool(options, checkNotNull(fileDescriptors));
-  }
-
   private static CelDescriptorPool newDescriptorPool(
       SelectOptimizerOptions options, Iterable<FileDescriptor> fileDescriptors) {
     CelDescriptors celDescriptors =
@@ -430,6 +476,13 @@ public final class SelectOptimizer implements CelAstOptimizer {
     descriptorPools.add(DefaultDescriptorPool.create(celDescriptors));
 
     return CombinedDescriptorPool.create(descriptorPools.build());
+  }
+
+  private SelectOptimizer(
+      SelectOptimizerOptions options, Iterable<FileDescriptor> fileDescriptors) {
+    this.options = checkNotNull(options);
+    this.astMutator = AstMutator.newInstance(options.iterationLimit());
+    this.descriptorPool = newDescriptorPool(options, checkNotNull(fileDescriptors));
   }
 
   /** Options configuring the behavior of {@link SelectOptimizer}. */
