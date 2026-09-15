@@ -14,8 +14,8 @@
 
 package dev.cel.common;
 
-import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
+import dev.cel.common.annotations.Internal;
 import java.util.List;
 
 /** Base class for all checked exceptions explicitly thrown by the library during parsing. */
@@ -27,7 +27,7 @@ public final class CelValidationException extends CelException {
   private final CelSource source;
   private final ImmutableList<CelIssue> errors;
 
-  @VisibleForTesting
+  @Internal
   public CelValidationException(CelSource source, List<CelIssue> errors) {
     super(safeJoinErrorMessage(source, errors));
     this.source = source;
@@ -49,8 +49,9 @@ public final class CelValidationException extends CelException {
     List<CelIssue> truncatedErrors = errors.subList(0, MAX_ERRORS_TO_REPORT);
 
     return CelIssue.toDisplayString(truncatedErrors, source)
-        + String.format(
-            "%n...and %d more errors (truncated)", errors.size() - MAX_ERRORS_TO_REPORT);
+        + "\n...and "
+        + (errors.size() - MAX_ERRORS_TO_REPORT)
+        + " more errors (truncated)";
   }
 
   /** Returns the {@link CelSource} that was being validated. */

@@ -1,4 +1,5 @@
 load("@rules_java//java:defs.bzl", "java_library")
+load("//:cel_android_rules.bzl", "cel_android_local_test")
 load("//:testing.bzl", "junit4_test_suites")
 
 package(
@@ -7,19 +8,25 @@ package(
     ],
 )
 
+ANDROID_TESTS = [
+    "CelLiteParserAndroidTest.java",
+]
+
 java_library(
     name = "tests",
     testonly = True,
     srcs = glob(
         ["*Test.java"],
-        exclude = ["TmpPrattParserTest.java"],
+        exclude = ["TmpPrattParserTest.java"] + ANDROID_TESTS,
     ),
     resources = ["//parser/src/test/resources:baselines"],
     deps = [
         "//:java_truth",
         "//common:cel_ast",
+        "//common:cel_issue",
         "//common:cel_source",
-        "//common:compiler_common",
+        "//common:cel_validation_exception",
+        "//common:cel_validation_result",
         "//common:operator",
         "//common:options",
         "//common:proto_ast",
@@ -29,6 +36,7 @@ java_library(
         "//common/values:cel_byte_string",
         "//extensions:optional_library",
         "//parser",
+        "//parser:lite_parser_factory",
         "//parser:macro",
         "//parser:parser_builder",
         "//parser:parser_factory",
@@ -43,6 +51,18 @@ java_library(
         "@maven//:com_google_protobuf_protobuf_java",
         "@maven//:com_google_testparameterinjector_test_parameter_injector",
         "@maven//:junit_junit",
+    ],
+)
+
+cel_android_local_test(
+    name = "android_tests",
+    srcs = ANDROID_TESTS,
+    test_class = "dev.cel.parser.CelLiteParserAndroidTest",
+    deps = [
+        "//:java_truth",
+        "//common:cel_validation_result_android",
+        "//parser:lite_parser_factory_android",
+        "//parser:parser_builder_android",
     ],
 )
 

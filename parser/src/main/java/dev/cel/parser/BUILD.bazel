@@ -1,4 +1,5 @@
 load("@rules_java//java:defs.bzl", "java_library")
+load("//:cel_android_rules.bzl", "cel_android_library")
 
 package(
     default_applicable_licenses = ["//:license"],
@@ -9,15 +10,26 @@ package(
 )
 
 # keep sorted
-PARSER_SOURCES = [
-    "CelParserImpl.java",
-    "Parser.java",
-]
-
-# keep sorted
 ANTLR_PARSER_SOURCES = [
     "AntlrParser.java",
     "ExpressionBalancer.java",
+]
+
+# keep sorted
+LITE_PARSER_FACTORY_SOURCES = [
+    "CelLiteParserFactory.java",
+    "LiteParserImpl.java",
+]
+
+# keep sorted
+PARSER_BASE_SOURCES = [
+    "CelParserBase.java",
+]
+
+# keep sorted
+PARSER_SOURCES = [
+    "CelParserImpl.java",
+    "Parser.java",
 ]
 
 # keep sorted
@@ -61,6 +73,78 @@ java_library(
 )
 
 java_library(
+    name = "parser_base",
+    srcs = PARSER_BASE_SOURCES,
+    tags = [
+    ],
+    deps = [
+        ":macro",
+        ":parser_builder",
+        "//common:cel_source",
+        "//common:cel_validation_result",
+        "//common:options",
+        "//common/annotations",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:com_google_guava_guava",
+    ],
+)
+
+cel_android_library(
+    name = "parser_base_android",
+    srcs = PARSER_BASE_SOURCES,
+    tags = [
+    ],
+    deps = [
+        ":macro_android",
+        ":parser_builder_android",
+        "//common:cel_source_android",
+        "//common:cel_validation_result_android",
+        "//common:options",
+        "//common/annotations",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven_android//:com_google_guava_guava",
+    ],
+)
+
+java_library(
+    name = "lite_parser_factory",
+    srcs = LITE_PARSER_FACTORY_SOURCES,
+    tags = [
+    ],
+    deps = [
+        ":macro",
+        ":parser_base",
+        ":parser_builder",
+        ":pratt_parser",
+        "//common:cel_source",
+        "//common:cel_validation_result",
+        "//common:options",
+        "//common/annotations",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:com_google_guava_guava",
+    ],
+)
+
+cel_android_library(
+    name = "lite_parser_factory_android",
+    srcs = LITE_PARSER_FACTORY_SOURCES,
+    tags = [
+    ],
+    deps = [
+        ":macro_android",
+        ":parser_base_android",
+        ":parser_builder_android",
+        ":pratt_parser_android",
+        "//common:cel_source_android",
+        "//common:cel_validation_result_android",
+        "//common:options",
+        "//common/annotations",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven_android//:com_google_guava_guava",
+    ],
+)
+
+java_library(
     name = "parser",
     srcs = PARSER_SOURCES,
     tags = [
@@ -68,10 +152,11 @@ java_library(
     deps = [
         ":antlr_parser",
         ":macro",
+        ":parser_base",
         ":parser_builder",
         ":pratt_parser",
         "//common:cel_source",
-        "//common:compiler_common",
+        "//common:cel_validation_result",
         "//common:options",
         "//common/annotations",
         "//common/internal:env_visitor",
@@ -88,8 +173,9 @@ java_library(
     deps = [
         ":macro",
         "//common:cel_ast",
+        "//common:cel_issue",
         "//common:cel_source",
-        "//common:compiler_common",
+        "//common:cel_validation_result",
         "//common:operator",
         "//common:options",
         "//common:source_location",
@@ -111,8 +197,9 @@ java_library(
     deps = [
         ":macro",
         "//common:cel_ast",
+        "//common:cel_issue",
         "//common:cel_source",
-        "//common:compiler_common",
+        "//common:cel_validation_result",
         "//common:operator",
         "//common:options",
         "//common:source_location",
@@ -120,6 +207,25 @@ java_library(
         "//common/internal",
         "@maven//:com_google_guava_guava",
         "@maven//:org_jspecify_jspecify",
+    ],
+)
+
+cel_android_library(
+    name = "pratt_parser_android",
+    srcs = PRATT_PARSER_SOURCES,
+    deps = [
+        ":macro_android",
+        "//common:cel_ast_android",
+        "//common:cel_issue_android",
+        "//common:cel_source_android",
+        "//common:cel_validation_result_android",
+        "//common:operator_android",
+        "//common:options",
+        "//common:source_location_android",
+        "//common/ast:ast_android",
+        "//common/internal:internal_android",
+        "@maven//:org_jspecify_jspecify",
+        "@maven_android//:com_google_guava_guava",
     ],
 )
 
@@ -131,7 +237,21 @@ java_library(
     deps = [
         ":macro",
         "//common:cel_source",
-        "//common:compiler_common",
+        "//common:cel_validation_result",
+        "//common:options",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+    ],
+)
+
+cel_android_library(
+    name = "parser_builder_android",
+    srcs = PARSER_BUILDER_SOURCES,
+    tags = [
+    ],
+    deps = [
+        ":macro_android",
+        "//common:cel_source_android",
+        "//common:cel_validation_result_android",
         "//common:options",
         "@maven//:com_google_errorprone_error_prone_annotations",
     ],
@@ -144,13 +264,30 @@ java_library(
     ],
     deps = [
         "//:auto_value",
-        "//common:compiler_common",
+        "//common:cel_issue",
         "//common:operator",
         "//common:source_location",
         "//common/ast",
         "//common/ast:expr_factory",
         "@maven//:com_google_errorprone_error_prone_annotations",
         "@maven//:com_google_guava_guava",
+    ],
+)
+
+cel_android_library(
+    name = "macro_android",
+    srcs = MACRO_SOURCES,
+    tags = [
+    ],
+    deps = [
+        "//:auto_value",
+        "//common:cel_issue_android",
+        "//common:operator_android",
+        "//common:source_location_android",
+        "//common/ast:ast_android",
+        "//common/ast:expr_factory_android",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven_android//:com_google_guava_guava",
     ],
 )
 

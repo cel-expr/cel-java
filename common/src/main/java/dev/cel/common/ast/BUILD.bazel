@@ -156,6 +156,19 @@ java_library(
     ],
 )
 
+cel_android_library(
+    name = "expr_factory_android",
+    srcs = EXPR_FACTORY_SOURCES,
+    tags = [
+    ],
+    deps = [
+        ":ast_android",
+        "//common/annotations",
+        "//common/values:cel_byte_string",
+        "@maven_android//:com_google_guava_guava",
+    ],
+)
+
 java_library(
     name = "mutable_expr",
     srcs = MUTABLE_EXPR_SOURCES,

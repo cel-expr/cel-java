@@ -53,6 +53,11 @@ java_library(
     exports = ["//common/src/main/java/dev/cel/common/ast:expr_factory"],
 )
 
+cel_android_library(
+    name = "expr_factory_android",
+    exports = ["//common/src/main/java/dev/cel/common/ast:expr_factory_android"],
+)
+
 java_library(
     name = "mutable_expr",
     exports = ["//common/src/main/java/dev/cel/common/ast:mutable_expr"],

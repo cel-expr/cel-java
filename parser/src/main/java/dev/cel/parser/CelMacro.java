@@ -158,12 +158,12 @@ public abstract class CelMacro implements Comparable<CelMacro> {
   static String formatKey(String function, int argCount, boolean receiverStyle) {
     checkArgument(!isNullOrEmpty(function));
     checkArgument(argCount >= 0);
-    return String.format("%s:%d:%s", function, argCount, receiverStyle);
+    return function + ":" + argCount + ":" + receiverStyle;
   }
 
   static String formatVarArgKey(String function, boolean receiverStyle) {
     checkArgument(!isNullOrEmpty(function));
-    return String.format("%s:*:%s", function, receiverStyle);
+    return function + ":*:" + receiverStyle;
   }
 
   @AutoValue.Builder

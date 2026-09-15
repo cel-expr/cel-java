@@ -1,4 +1,4 @@
-// Copyright 2022 Google LLC
+// Copyright 2026 Google LLC
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -25,48 +25,47 @@ import dev.cel.common.CelOptions;
 import dev.cel.common.CelSource;
 import dev.cel.common.CelValidationResult;
 import dev.cel.common.annotations.Internal;
-import dev.cel.common.internal.EnvVisitable;
-import dev.cel.common.internal.EnvVisitor;
 
 /**
- * Modernized parser implementation for CEL.
+ * Modernized lite parser implementation for CEL using the Pratt parser.
  *
- * <p>CEL Library Internals. Do Not Use. Consumers should use factories, such as {@link
- * CelParserFactory} instead to instantiate a parser.
+ * <p>CEL Library Internals. Do Not Use. Consumers should use {@link CelLiteParserFactory} instead.
  */
 @Immutable
 @Internal
-public final class CelParserImpl extends CelParserBase implements EnvVisitable {
+final class LiteParserImpl extends CelParserBase {
 
-  /** Creates a new {@link Builder}. */
-  public static Builder newBuilder() {
-    return new Builder().setOptions(CelOptions.DEFAULT);
+  static Builder newBuilder() {
+    return new Builder();
   }
 
   @Override
   public CelValidationResult parse(CelSource source) {
-    return Parser.parse(this, checkNotNull(source), getOptions());
+    return PrattParser.parse(checkNotNull(source), getOptions(), getMacros());
   }
 
   @Override
-  public Builder toParserBuilder() {
+  public CelParserBuilder toParserBuilder() {
     return populateBuilder(new Builder());
   }
 
-  @Override
-  public void accept(EnvVisitor visitor) {
-    getMacros().forEach((name, macro) -> visitor.visitMacro(macro));
-  }
+  static final class Builder extends CelParserBase.Builder<Builder> {
 
-  /** Builder for {@link CelParserImpl}. */
-  public static final class Builder extends CelParserBase.Builder<Builder> {
+    /** Throws if an unsupported flag in CelOptions is toggled. */
+    private static void assertAllowedCelOptions(CelOptions celOptions) {
+      String prefix = "Misconfigured CelOptions: ";
+      if (!celOptions.enablePrattParser()) {
+        throw new IllegalArgumentException(prefix + "enablePrattParser cannot be disabled.");
+      }
+    }
 
     @Override
     @CheckReturnValue
-    public CelParserImpl build() {
+    public CelParser build() {
       ImmutableSet<CelParserLibrary> parserLibrarySet = buildLibraries();
+      assertAllowedCelOptions(getOptions());
 
-      return new CelParserImpl(
+      return new LiteParserImpl(
           buildMacroMap(),
           buildCustomMacros(),
           getOptions(),
@@ -74,10 +73,12 @@ public final class CelParserImpl extends CelParserBase implements EnvVisitable {
           parserLibrarySet);
     }
 
-    private Builder() {}
+    private Builder() {
+      setOptions(CelOptions.current().enablePrattParser(true).build());
+    }
   }
 
-  private CelParserImpl(
+  private LiteParserImpl(
       ImmutableMap<String, CelMacro> macros,
       ImmutableMap<String, CelMacro> customMacros,
       CelOptions options,

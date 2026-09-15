@@ -8,7 +8,65 @@ package(
 
 java_library(
     name = "compiler_common",
-    exports = ["//common/src/main/java/dev/cel/common:compiler_common"],
+    deprecation = "Please use the granular targets (e.g. :cel_issue, :cel_validation_result, etc.) instead.",
+    exports = [
+        ":cel_function_decl",
+        ":cel_issue",
+        ":cel_overload_decl",
+        ":cel_validation_exception",
+        ":cel_validation_result",
+        ":cel_var_decl",
+    ],
+)
+
+java_library(
+    name = "cel_function_decl",
+    exports = ["//common/src/main/java/dev/cel/common:cel_function_decl"],
+)
+
+java_library(
+    name = "cel_overload_decl",
+    exports = ["//common/src/main/java/dev/cel/common:cel_overload_decl"],
+)
+
+java_library(
+    name = "cel_var_decl",
+    exports = ["//common/src/main/java/dev/cel/common:cel_var_decl"],
+)
+
+cel_android_library(
+    name = "cel_var_decl_android",
+    exports = ["//common/src/main/java/dev/cel/common:cel_var_decl_android"],
+)
+
+java_library(
+    name = "cel_issue",
+    exports = ["//common/src/main/java/dev/cel/common:cel_issue"],
+)
+
+cel_android_library(
+    name = "cel_issue_android",
+    exports = ["//common/src/main/java/dev/cel/common:cel_issue_android"],
+)
+
+java_library(
+    name = "cel_validation_exception",
+    exports = ["//common/src/main/java/dev/cel/common:cel_validation_exception"],
+)
+
+cel_android_library(
+    name = "cel_validation_exception_android",
+    exports = ["//common/src/main/java/dev/cel/common:cel_validation_exception_android"],
+)
+
+java_library(
+    name = "cel_validation_result",
+    exports = ["//common/src/main/java/dev/cel/common:cel_validation_result"],
+)
+
+cel_android_library(
+    name = "cel_validation_result_android",
+    exports = ["//common/src/main/java/dev/cel/common:cel_validation_result_android"],
 )
 
 java_library(
@@ -72,6 +130,11 @@ java_library(
 java_library(
     name = "source_location",
     exports = ["//common/src/main/java/dev/cel/common:source_location"],
+)
+
+cel_android_library(
+    name = "source_location_android",
+    exports = ["//common/src/main/java/dev/cel/common:source_location_android"],
 )
 
 java_library(

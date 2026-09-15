@@ -34,12 +34,15 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import org.jspecify.annotations.Nullable;
 
 /** Pratt parser implementation for CEL. */
 final class PrattParser {
+
+  private static final Locale LOCALE = Locale.US;
 
   /** Sentinel stored in {@link #positions} for expression ids that have no source position. */
   private static final int NO_POSITION = -1;
@@ -154,8 +157,10 @@ final class PrattParser {
               CelIssue.formatError(
                   CelSourceLocation.NONE,
                   String.format(
+                      LOCALE,
                       "expression code point size exceeds limit: size: %d, limit %d",
-                      source.getContent().size(), options.maxExpressionCodePointSize()))));
+                      source.getContent().size(),
+                      options.maxExpressionCodePointSize()))));
     }
     PrattParser prattParser = new PrattParser(source, options, macros);
     CelExpr expr = prattParser.run();
@@ -290,7 +295,9 @@ final class PrattParser {
       reportError(
           position,
           String.format(
-              "expression node limit (%d) exceeded", options.maxParseExpressionNodeCount()));
+              LOCALE,
+              "expression node limit (%d) exceeded",
+              options.maxParseExpressionNodeCount()));
       nodeLimitExceeded = true;
     }
     if (!nodeLimitExceeded && position >= 0) {
@@ -375,7 +382,8 @@ final class PrattParser {
       issues.add(
           CelIssue.formatError(
               CelSourceLocation.NONE,
-              String.format("More than %d parse errors.", options.maxParseErrorRecoveryLimit())));
+              String.format(
+                  LOCALE, "More than %d parse errors.", options.maxParseErrorRecoveryLimit())));
       peekToken = END_TOKEN;
     }
     if (errorCount <= options.maxParseErrorRecoveryLimit()) {
@@ -401,7 +409,9 @@ final class PrattParser {
       reportError(
           position,
           String.format(
-              "Expression recursion limit exceeded. limit: %d", options.maxParseRecursionDepth()));
+              LOCALE,
+              "Expression recursion limit exceeded. limit: %d",
+              options.maxParseRecursionDepth()));
     }
   }
 

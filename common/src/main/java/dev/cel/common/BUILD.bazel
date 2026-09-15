@@ -10,16 +10,6 @@ package(
 )
 
 # keep sorted
-COMPILER_COMMON_SOURCES = [
-    "CelFunctionDecl.java",
-    "CelIssue.java",
-    "CelOverloadDecl.java",
-    "CelValidationException.java",
-    "CelValidationResult.java",
-    "CelVarDecl.java",
-]
-
-# keep sorted
 SOURCE_SOURCES = [
     "Source.java",
 ]
@@ -67,25 +57,148 @@ java_library(
 )
 
 java_library(
-    name = "compiler_common",
-    srcs = COMPILER_COMMON_SOURCES,
+    name = "cel_function_decl",
+    srcs = ["CelFunctionDecl.java"],
     tags = [
     ],
     deps = [
-        ":cel_ast",
-        ":cel_exception",
-        ":cel_source",
-        ":source",
-        ":source_location",
+        ":cel_overload_decl",
         "//:auto_value",
         "//common/annotations",
-        "//common/internal:safe_string_formatter",
+        "@cel_spec//proto/cel/expr:checked_java_proto",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:com_google_guava_guava",
+    ],
+)
+
+java_library(
+    name = "cel_overload_decl",
+    srcs = ["CelOverloadDecl.java"],
+    tags = [
+    ],
+    deps = [
+        "//:auto_value",
         "//common/types:cel_proto_types",
         "//common/types:type_providers",
         "@cel_spec//proto/cel/expr:checked_java_proto",
         "@maven//:com_google_errorprone_error_prone_annotations",
         "@maven//:com_google_guava_guava",
+    ],
+)
+
+java_library(
+    name = "cel_var_decl",
+    srcs = ["CelVarDecl.java"],
+    tags = [
+    ],
+    deps = [
+        "//:auto_value",
+        "//common/types:type_providers",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+    ],
+)
+
+cel_android_library(
+    name = "cel_var_decl_android",
+    srcs = ["CelVarDecl.java"],
+    tags = [
+    ],
+    deps = [
+        "//:auto_value",
+        "//common/types:type_providers_android",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+    ],
+)
+
+java_library(
+    name = "cel_issue",
+    srcs = ["CelIssue.java"],
+    tags = [
+    ],
+    deps = [
+        ":source",
+        ":source_location",
+        "//:auto_value",
+        "//common/internal:safe_string_formatter",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:com_google_guava_guava",
+    ],
+)
+
+cel_android_library(
+    name = "cel_issue_android",
+    srcs = ["CelIssue.java"],
+    tags = [
+    ],
+    deps = [
+        ":source_android",
+        ":source_location_android",
+        "//:auto_value",
+        "//common/internal:safe_string_formatter",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven_android//:com_google_guava_guava",
+    ],
+)
+
+java_library(
+    name = "cel_validation_exception",
+    srcs = ["CelValidationException.java"],
+    tags = [
+    ],
+    deps = [
+        ":cel_exception",
+        ":cel_issue",
+        ":cel_source",
+        "//common/annotations",
+        "@maven//:com_google_guava_guava",
+    ],
+)
+
+cel_android_library(
+    name = "cel_validation_exception_android",
+    srcs = ["CelValidationException.java"],
+    tags = [
+    ],
+    deps = [
+        ":cel_exception",
+        ":cel_issue_android",
+        ":cel_source_android",
+        "//common/annotations",
+        "@maven_android//:com_google_guava_guava",
+    ],
+)
+
+java_library(
+    name = "cel_validation_result",
+    srcs = ["CelValidationResult.java"],
+    tags = [
+    ],
+    deps = [
+        ":cel_ast",
+        ":cel_issue",
+        ":cel_source",
+        ":cel_validation_exception",
+        "//common/annotations",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:com_google_guava_guava",
         "@maven//:org_jspecify_jspecify",
+    ],
+)
+
+cel_android_library(
+    name = "cel_validation_result_android",
+    srcs = ["CelValidationResult.java"],
+    tags = [
+    ],
+    deps = [
+        ":cel_ast_android",
+        ":cel_issue_android",
+        ":cel_source_android",
+        ":cel_validation_exception_android",
+        "//common/annotations",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:org_jspecify_jspecify",
+        "@maven_android//:com_google_guava_guava",
     ],
 )
 
@@ -345,7 +458,8 @@ cel_android_library(
 cel_android_library(
     name = "source_location_android",
     srcs = ["CelSourceLocation.java"],
-    visibility = ["//visibility:private"],
+    tags = [
+    ],
     deps = [
         "//:auto_value",
         "@maven//:com_google_errorprone_error_prone_annotations",

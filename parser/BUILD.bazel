@@ -1,4 +1,5 @@
 load("@rules_java//java:defs.bzl", "java_library")
+load("//:cel_android_rules.bzl", "cel_android_library")
 
 package(
     default_applicable_licenses = ["//:license"],
@@ -23,8 +24,35 @@ java_library(
 )
 
 java_library(
+    name = "lite_parser_factory",
+    exports = ["//parser/src/main/java/dev/cel/parser:lite_parser_factory"],
+)
+
+cel_android_library(
+    name = "lite_parser_factory_android",
+    exports = ["//parser/src/main/java/dev/cel/parser:lite_parser_factory_android"],
+)
+
+java_library(
+    name = "parser_base",
+    visibility = ["//:internal"],
+    exports = ["//parser/src/main/java/dev/cel/parser:parser_base"],
+)
+
+cel_android_library(
+    name = "parser_base_android",
+    visibility = ["//:internal"],
+    exports = ["//parser/src/main/java/dev/cel/parser:parser_base_android"],
+)
+
+java_library(
     name = "parser_builder",
     exports = ["//parser/src/main/java/dev/cel/parser:parser_builder"],
+)
+
+cel_android_library(
+    name = "parser_builder_android",
+    exports = ["//parser/src/main/java/dev/cel/parser:parser_builder_android"],
 )
 
 java_library(
@@ -35,6 +63,11 @@ java_library(
 java_library(
     name = "macro",
     exports = ["//parser/src/main/java/dev/cel/parser:macro"],
+)
+
+cel_android_library(
+    name = "macro_android",
+    exports = ["//parser/src/main/java/dev/cel/parser:macro_android"],
 )
 
 java_library(
