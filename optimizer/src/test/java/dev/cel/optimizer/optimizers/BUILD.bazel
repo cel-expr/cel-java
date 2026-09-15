@@ -26,6 +26,7 @@ java_library(
         "//extensions:optional_library",
         #         "//java/com/google/testing/testsize:annotations",
         "//optimizer",
+        "//optimizer:ast_optimizer",
         "//optimizer:optimization_exception",
         "//optimizer:optimizer_builder",
         "//optimizer/optimizers:common_subexpression_elimination",
