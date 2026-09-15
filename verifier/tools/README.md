@@ -1,5 +1,6 @@
 # CEL Java Verifier CLI & Interactive REPL Tool
 
+
 The CEL Java Verifier comes with a command-line tool (`cel-verifier`) and an
 interactive REPL shell for testing satisfiability, validity, equivalence,
 and policy invariants without writing Java code.
