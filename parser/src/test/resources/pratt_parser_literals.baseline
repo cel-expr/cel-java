@@ -28,6 +28,11 @@ I: 0xF
 P: 15^#1:int64#
 L: 15^#1[1,0]#
 
+I: 0X12
+=====>
+P: 18^#1:int64#
+L: 18^#1[1,0]#
+
 I: 0x2A
 =====>
 P: 42^#1:int64#
@@ -37,6 +42,11 @@ I: -1
 =====>
 P: -1^#1:int64#
 L: -1^#1[1,1]#
+
+I: -0X12
+=====>
+P: -18^#1:int64#
+L: -18^#1[1,1]#
 
 I: -42
 =====>
@@ -67,9 +77,9 @@ E: ERROR: <input>:1:3: Syntax error: invalid int literal: 9223372036854775808
 
 I: 123a
 =====>
-E: ERROR: <input>:1:1: Syntax error: int literal has unexpected trailing characters
+E: ERROR: <input>:1:4: Syntax error: unexpected token after expression
  | 123a
- | ^
+ | ...^
 
 I: 0u
 =====>
@@ -86,6 +96,11 @@ I: 0xFu
 P: 15u^#1:uint64#
 L: 15u^#1[1,0]#
 
+I: 0XFu
+=====>
+P: 15u^#1:uint64#
+L: 15u^#1[1,0]#
+
 I: 0xFFFFFFFFFFFFFFFFFu
 =====>
 E: ERROR: <input>:1:1: Syntax error: invalid uint literal: 0xFFFFFFFFFFFFFFFFFu
@@ -94,9 +109,9 @@ E: ERROR: <input>:1:1: Syntax error: invalid uint literal: 0xFFFFFFFFFFFFFFFFFu
 
 I: 123u_
 =====>
-E: ERROR: <input>:1:1: Syntax error: uint literal has unexpected trailing characters
+E: ERROR: <input>:1:5: Syntax error: unexpected token after expression
  | 123u_
- | ^
+ | ....^
 
 I: 3.14
 =====>
@@ -183,9 +198,9 @@ E: ERROR: <input>:1:3: Syntax error: floating point literal missing digits after
 
 I: 0x123z
 =====>
-E: ERROR: <input>:1:1: Syntax error: int literal has unexpected trailing characters
+E: ERROR: <input>:1:6: Syntax error: unexpected token after expression
  | 0x123z
- | ^
+ | .....^
 
 I: 'hello'
 =====>
