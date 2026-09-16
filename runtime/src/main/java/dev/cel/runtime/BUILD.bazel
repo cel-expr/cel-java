@@ -41,6 +41,7 @@ LITE_RUNTIME_SOURCES = [
 
 # keep sorted
 LITE_RUNTIME_IMPL_SOURCES = [
+    "LiteAttributeStep.java",
     "LiteRuntimeImpl.java",
 ]
 
@@ -990,9 +991,11 @@ java_library(
         ":program",
         ":runtime_equality",
         ":runtime_helpers",
+        ":unknown_attributes",
         "//common:cel_ast",
         "//common:container",
         "//common:options",
+        "//common/exceptions:attribute_not_found",
         "//common/types:default_type_provider",
         "//common/types:type_providers",
         "//common/values",
@@ -1003,6 +1006,7 @@ java_library(
         "@maven//:com_google_code_findbugs_annotations",
         "@maven//:com_google_errorprone_error_prone_annotations",
         "@maven//:com_google_guava_guava",
+        "@maven//:org_jspecify_jspecify",
     ],
 )
 
@@ -1018,9 +1022,11 @@ cel_android_library(
         ":program_android",
         ":runtime_equality_android",
         ":runtime_helpers_android",
+        ":unknown_attributes_android",
         "//common:cel_ast_android",
         "//common:container_android",
         "//common:options",
+        "//common/exceptions:attribute_not_found",
         "//common/types:default_type_provider_android",
         "//common/types:type_providers_android",
         "//common/values:cel_value_provider_android",
@@ -1031,6 +1037,7 @@ cel_android_library(
         "@maven//:com_google_code_findbugs_annotations",
         "@maven//:com_google_errorprone_error_prone_annotations",
         "@maven//:com_google_guava_guava",
+        "@maven//:org_jspecify_jspecify",
         "@maven_android//:com_google_guava_guava",
     ],
 )

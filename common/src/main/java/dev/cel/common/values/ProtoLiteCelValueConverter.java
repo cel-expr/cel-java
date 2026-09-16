@@ -17,14 +17,15 @@ package dev.cel.common.values;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.google.auto.value.AutoValue;
-import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Defaults;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Multimaps;
 import com.google.common.primitives.UnsignedLong;
 import com.google.errorprone.annotations.Immutable;
+import com.google.protobuf.ByteString;
 import com.google.protobuf.CodedInputStream;
 import com.google.protobuf.ExtensionRegistryLite;
 import com.google.protobuf.MessageLite;
@@ -45,6 +46,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.Optional;
 import java.util.TreeMap;
 
 /**
@@ -62,8 +64,36 @@ import java.util.TreeMap;
 public final class ProtoLiteCelValueConverter extends BaseProtoCelValueConverter {
   private final CelLiteDescriptorPool descriptorPool;
 
+  private static final CelLiteDescriptorPool EMPTY_DESCRIPTOR_POOL =
+      new CelLiteDescriptorPool() {
+        @Override
+        public Optional<MessageLiteDescriptor> findDescriptor(String protoTypeName) {
+          return Optional.empty();
+        }
+
+        @Override
+        public Optional<MessageLiteDescriptor> findDescriptor(MessageLite messageLite) {
+          return Optional.empty();
+        }
+
+        @Override
+        public MessageLiteDescriptor getDescriptorOrThrow(String protoTypeName) {
+          throw new NoSuchElementException("Descriptor not found: " + protoTypeName);
+        }
+      };
+
+  private static final ProtoLiteCelValueConverter DEFAULT_INSTANCE =
+      new ProtoLiteCelValueConverter(EMPTY_DESCRIPTOR_POOL);
+
+  public static ProtoLiteCelValueConverter newInstance() {
+    return DEFAULT_INSTANCE;
+  }
+
   public static ProtoLiteCelValueConverter newInstance(
       CelLiteDescriptorPool celLiteDescriptorPool) {
+    if (celLiteDescriptorPool == EMPTY_DESCRIPTOR_POOL) {
+      return DEFAULT_INSTANCE;
+    }
     return new ProtoLiteCelValueConverter(celLiteDescriptorPool);
   }
 
@@ -80,7 +110,7 @@ public final class ProtoLiteCelValueConverter extends BaseProtoCelValueConverter
       case INT64:
         return inputStream.readInt64();
       case UINT32:
-        return UnsignedLong.fromLongBits(inputStream.readUInt32());
+        return UnsignedLong.fromLongBits(Integer.toUnsignedLong(inputStream.readUInt32()));
       case UINT64:
         return UnsignedLong.fromLongBits(inputStream.readUInt64());
       case BOOL:
@@ -160,6 +190,39 @@ public final class ProtoLiteCelValueConverter extends BaseProtoCelValueConverter
     return toRuntimeValue(defaultValue);
   }
 
+  Optional<FieldLiteDescriptor> findFieldDescriptor(String protoTypeName, int fieldNumber) {
+    return descriptorPool
+        .findDescriptor(protoTypeName)
+        .flatMap(desc -> desc.findByFieldNumber(fieldNumber));
+  }
+
+  Optional<Object> findDefaultCelValue(FieldLiteDescriptor fieldDescriptor) {
+    try {
+      return Optional.of(toRuntimeValue(getDefaultValue(fieldDescriptor)));
+    } catch (NoSuchElementException e) {
+      return Optional.empty();
+    }
+  }
+
+  Optional<Object> tryDecodeWellKnownProto(ByteString bytes, String protoTypeName) {
+    Optional<WellKnownProto> wellKnownProto = WellKnownProto.getByTypeName(protoTypeName);
+    if (!wellKnownProto.isPresent()) {
+      return Optional.empty();
+    }
+    Optional<MessageLiteDescriptor> descriptor = descriptorPool.findDescriptor(protoTypeName);
+    if (!descriptor.isPresent()) {
+      return Optional.empty();
+    }
+    try {
+      MessageLite.Builder builder = descriptor.get().newMessageBuilder();
+      builder.mergeFrom(bytes, ExtensionRegistryLite.getEmptyRegistry());
+      return Optional.of(fromWellKnownProto(builder.build(), wellKnownProto.get()));
+    } catch (IOException e) {
+      throw new IllegalArgumentException(
+          "Failed to decode well-known proto of type: " + protoTypeName, e);
+    }
+  }
+
   @Override
   @SuppressWarnings("LiteProtoToString") // No alternative identifier to use. Debug only info is OK.
   public Object toRuntimeValue(Object value) {
@@ -193,7 +256,10 @@ public final class ProtoLiteCelValueConverter extends BaseProtoCelValueConverter
           descriptorPool
               .findDescriptor(message)
               .orElseThrow(
-                  () -> new NoSuchElementException("Could not find a descriptor for: " + message));
+                  () ->
+                      new NoSuchElementException(
+                          "Could not find a descriptor for message of type: "
+                              + message.getClass().getName()));
       return ProtoMessageLiteValue.create(message, descriptor.getProtoTypeName(), this);
     }
 
@@ -269,7 +335,6 @@ public final class ProtoLiteCelValueConverter extends BaseProtoCelValueConverter
     return new AbstractMap.SimpleEntry<>(key, value);
   }
 
-  @VisibleForTesting
   MessageFields readAllFields(byte[] bytes, String protoTypeName) throws IOException {
     MessageLiteDescriptor messageDescriptor = descriptorPool.getDescriptorOrThrow(protoTypeName);
     CodedInputStream inputStream = CodedInputStream.newInstance(bytes);
@@ -344,18 +409,15 @@ public final class ProtoLiteCelValueConverter extends BaseProtoCelValueConverter
       if (fieldDescriptor.getEncodingType().equals(EncodingType.LIST)) {
         String fieldName = fieldDescriptor.getFieldName();
         List<Object> repeatedValues =
-            repeatedFieldValues.computeIfAbsent(
-                fieldNumber,
-                (unused) -> {
-                  List<Object> newList = new ArrayList<>();
-                  fieldValues.put(fieldName, newList);
-                  return newList;
-                });
+            repeatedFieldValues.computeIfAbsent(fieldNumber, (unused) -> new ArrayList<>());
 
         if (payload instanceof Collection) {
           repeatedValues.addAll((Collection<?>) payload);
         } else {
           repeatedValues.add(payload);
+        }
+        if (!repeatedValues.isEmpty()) {
+          fieldValues.put(fieldName, repeatedValues);
         }
       } else {
         fieldValues.put(fieldDescriptor.getFieldName(), payload);
@@ -367,13 +429,11 @@ public final class ProtoLiteCelValueConverter extends BaseProtoCelValueConverter
     return MessageFields.create(fieldValues.buildKeepingLast(), unknownFields);
   }
 
-  ImmutableMap<String, Object> readAllFields(MessageLite msg, String protoTypeName)
-      throws IOException {
-    return readAllFields(msg.toByteArray(), protoTypeName).values();
+  MessageFields readMessageFields(MessageLite msg, String protoTypeName) throws IOException {
+    return readAllFields(msg.toByteArray(), protoTypeName);
   }
 
-  private static Object readUnknownField(int tagWireType, CodedInputStream inputStream)
-      throws IOException {
+  static Object readUnknownField(int tagWireType, CodedInputStream inputStream) throws IOException {
     switch (tagWireType) {
       case WireFormat.WIRETYPE_VARINT:
         return inputStream.readInt64();
@@ -393,16 +453,19 @@ public final class ProtoLiteCelValueConverter extends BaseProtoCelValueConverter
   }
 
   @AutoValue
-  @SuppressWarnings("AutoValueImmutableFields") // Unknowns are inaccessible to users.
+  @AutoValue.CopyAnnotations
+  @Immutable
+  @SuppressWarnings("Immutable") // Safe immutable fields
   abstract static class MessageFields {
 
     abstract ImmutableMap<String, Object> values();
 
-    abstract Multimap<Integer, Object> unknowns();
+    abstract ImmutableListMultimap<Integer, Object> unknowns();
 
     static MessageFields create(
         ImmutableMap<String, Object> fieldValues, Multimap<Integer, Object> unknownFields) {
-      return new AutoValue_ProtoLiteCelValueConverter_MessageFields(fieldValues, unknownFields);
+      return new AutoValue_ProtoLiteCelValueConverter_MessageFields(
+          fieldValues, ImmutableListMultimap.copyOf(unknownFields));
     }
   }
 
