@@ -16,6 +16,7 @@ package dev.cel.runtime;
 
 import dev.cel.common.annotations.Internal;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Optional;
 
 /**
@@ -100,7 +101,7 @@ class CallArgumentChecker {
     }
 
     if (!exprIds.isEmpty()) {
-      return Optional.of(AccumulatedUnknowns.create(exprIds));
+      return Optional.of(AccumulatedUnknowns.create(exprIds, Collections.emptyList()));
     }
 
     return Optional.empty();

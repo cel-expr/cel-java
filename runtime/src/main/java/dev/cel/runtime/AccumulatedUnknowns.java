@@ -16,9 +16,8 @@ package dev.cel.runtime;
 
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import dev.cel.common.annotations.Internal;
-import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
 import org.jspecify.annotations.Nullable;
@@ -35,6 +34,7 @@ public final class AccumulatedUnknowns {
   private static final int MAX_UNKNOWN_ATTRIBUTE_SIZE = 500_000;
   private final Set<Long> exprIds;
   private final Set<CelAttribute> attributes;
+  private final Set<Long> callIds;
 
   Set<Long> exprIds() {
     return exprIds;
@@ -42,6 +42,17 @@ public final class AccumulatedUnknowns {
 
   Set<CelAttribute> attributes() {
     return attributes;
+  }
+
+  /**
+   * Returns the in-flight asynchronous call IDs this unknown is waiting on.
+   *
+   * <p>The returned set is an unmodifiable <em>view</em> over this mutable accumulator, not a
+   * snapshot: a subsequent {@link #merge} on this instance is visible through it. Callers that
+   * retain the set beyond the current evaluation step must copy it.
+   */
+  public Set<Long> callIds() {
+    return Collections.unmodifiableSet(callIds);
   }
 
   /**
@@ -62,20 +73,29 @@ public final class AccumulatedUnknowns {
     enforceMaxAttributeSize(this.attributes, arg.attributes);
     this.exprIds.addAll(arg.exprIds);
     this.attributes.addAll(arg.attributes);
+    this.callIds.addAll(arg.callIds);
     return this;
   }
 
-  static AccumulatedUnknowns create(Long... ids) {
-    return create(Arrays.asList(ids));
-  }
-
-  static AccumulatedUnknowns create(Collection<Long> ids) {
-    return create(ids, new ArrayList<>());
+  static AccumulatedUnknowns create(long exprId) {
+    return new AccumulatedUnknowns(
+        Collections.singletonList(exprId), Collections.emptyList(), Collections.emptyList());
   }
 
   public static AccumulatedUnknowns create(
       Collection<Long> exprIds, Collection<CelAttribute> attributes) {
-    return new AccumulatedUnknowns(new HashSet<>(exprIds), new HashSet<>(attributes));
+    return new AccumulatedUnknowns(exprIds, attributes, Collections.emptyList());
+  }
+
+  /**
+   * Creates an accumulated unknown for a pending asynchronous call, recording {@code exprId} so the
+   * unknown retains its origin when adapted into a {@link CelUnknownSet}.
+   */
+  public static AccumulatedUnknowns createForAsyncCall(long exprId, long callId) {
+    return new AccumulatedUnknowns(
+        Collections.singletonList(exprId),
+        Collections.emptyList(),
+        Collections.singletonList(callId));
   }
 
   private static void enforceMaxAttributeSize(
@@ -88,8 +108,10 @@ public final class AccumulatedUnknowns {
     }
   }
 
-  private AccumulatedUnknowns(Set<Long> exprIds, Set<CelAttribute> attributes) {
-    this.exprIds = exprIds;
-    this.attributes = attributes;
+  private AccumulatedUnknowns(
+      Collection<Long> exprIds, Collection<CelAttribute> attributes, Collection<Long> callIds) {
+    this.exprIds = new HashSet<>(exprIds);
+    this.attributes = new HashSet<>(attributes);
+    this.callIds = new HashSet<>(callIds);
   }
 }
