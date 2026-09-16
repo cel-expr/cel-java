@@ -89,8 +89,7 @@ public final class AsyncCompletionCoordinatorTest {
   }
 
   @Test
-  public void
-      waitForCompletions_afterDrainConsumedBatchWithNoNewDispatch_returnsNoOutstandingWork() {
+  public void waitForCompletions_afterBatchConsumed_returnsNoOutstandingWork() {
     AsyncGate gate = AsyncGate.create(1);
     CelAsyncEvaluationOptions options =
         CelAsyncEvaluationOptions.builder()
@@ -127,8 +126,7 @@ public final class AsyncCompletionCoordinatorTest {
   }
 
   @Test
-  public void
-      waitForCompletions_whenDrainStrategySatisfiedImmediately_returnsReevaluateNowWithoutDispatch() {
+  public void waitForCompletions_drainSatisfiedImmediately_returnsReevaluateNow() {
     AsyncGate gate = AsyncGate.create(1);
     CelAsyncEvaluationOptions options =
         CelAsyncEvaluationOptions.builder()
@@ -150,8 +148,7 @@ public final class AsyncCompletionCoordinatorTest {
   }
 
   @Test
-  public void
-      waitForCompletions_whenDrainStrategyReturnsReevaluateWithInFlightCalls_returnsReevaluateNow() {
+  public void waitForCompletions_drainReevaluatesWithCallsInFlight_returnsReevaluateNow() {
     CelAsyncEvaluationOptions options =
         CelAsyncEvaluationOptions.builder()
             .setDrainStrategy(CelAsyncDrainStrategy.drainNone())
@@ -309,8 +306,7 @@ public final class AsyncCompletionCoordinatorTest {
   }
 
   @Test
-  public void
-      callCompleted_whenWaitingWithDrainAllStrategy_triggersContinuationWhenFinalCallCompletes() {
+  public void callCompleted_drainAllAndFinalCallCompletes_triggersContinuation() {
     CelAsyncEvaluationOptions options =
         CelAsyncEvaluationOptions.builder()
             .setDrainStrategy(CelAsyncDrainStrategy.drainAll())
@@ -331,8 +327,7 @@ public final class AsyncCompletionCoordinatorTest {
   }
 
   @Test
-  public void
-      callCompleted_whenWaitingWithDrainNoneStrategy_triggersContinuationWhileCallsRemainInFlight() {
+  public void callCompleted_drainNoneWithCallsInFlight_triggersContinuation() {
     CelAsyncEvaluationOptions options =
         CelAsyncEvaluationOptions.builder()
             .setDrainStrategy(CelAsyncDrainStrategy.drainNone())
@@ -383,8 +378,7 @@ public final class AsyncCompletionCoordinatorTest {
   }
 
   @Test
-  public void
-      callCompleted_whenDebounceTimerPendingAndNextActionIsWaitForMore_cancelsPendingDebounceTimer() {
+  public void callCompleted_pendingTimerAndNextActionWaitForMore_cancelsDebounceTimer() {
     TrackingScheduler scheduler = new TrackingScheduler();
     try {
       AtomicInteger callCount = new AtomicInteger();
@@ -450,29 +444,6 @@ public final class AsyncCompletionCoordinatorTest {
   }
 
   @Test
-  public void onDebounceFired_whenCycleMismatch_doesNotExecuteContinuation() {
-    AtomicInteger executedCount = new AtomicInteger();
-    Executor rejectingNullExecutor =
-        task -> {
-          requireNonNull(task, "task must not be null");
-          executedCount.incrementAndGet();
-          task.run();
-        };
-    CelAsyncEvaluationOptions options = CelAsyncEvaluationOptions.builder().build();
-    AsyncGate gate = AsyncGate.create(1);
-    AsyncCompletionCoordinator coordinator =
-        AsyncCompletionCoordinator.create(options, gate, rejectingNullExecutor, t -> {});
-    acquirePermit(gate);
-    registerWait(coordinator, () -> {});
-
-    coordinator.onDebounceFired(coordinator.cycleId() - 1, coordinator.debounceGeneration());
-
-    assertThat(executedCount.get()).isEqualTo(0);
-    assertThat(coordinator.isWaiting()).isTrue();
-    assertThat(coordinator.hasContinuation()).isTrue();
-  }
-
-  @Test
   public void onDebounceFired_whenDebounceGenerationMismatch_doesNotExecuteContinuation() {
     ScheduledThreadPoolExecutor scheduler = new ScheduledThreadPoolExecutor(1);
     try {
@@ -493,7 +464,7 @@ public final class AsyncCompletionCoordinatorTest {
       long staleGen = coordinator.debounceGeneration();
       coordinator.callCompleted(DUMMY_CALL);
 
-      coordinator.onDebounceFired(coordinator.cycleId(), staleGen);
+      coordinator.onDebounceFired(staleGen);
 
       assertThat(continuationRan.get()).isEqualTo(0);
       assertThat(coordinator.isWaiting()).isTrue();
@@ -646,8 +617,7 @@ public final class AsyncCompletionCoordinatorTest {
   }
 
   @Test
-  public void
-      scheduleDebounce_whenCoordinatorCancelledConcurrently_cancelsScheduledFutureWithoutInterrupt() {
+  public void scheduleDebounce_cancelledConcurrently_cancelsFutureWithoutInterrupt() {
     AtomicBoolean cancelledInsideScheduler = new AtomicBoolean(false);
     AsyncCompletionCoordinator[] coordinatorHolder = new AsyncCompletionCoordinator[1];
     TrackingScheduler scheduler =
@@ -856,24 +826,23 @@ public final class AsyncCompletionCoordinatorTest {
   }
 
   @Test
-  public void drainAndReset_incrementsCycleIdAndClearsContinuation() {
+  public void drainAndReset_incrementsGenerationAndClearsContinuation() {
     CelAsyncEvaluationOptions options = CelAsyncEvaluationOptions.builder().build();
     AsyncGate gate = AsyncGate.create(1);
     AsyncCompletionCoordinator coordinator =
         AsyncCompletionCoordinator.create(options, gate, Runnable::run, t -> {});
     acquirePermit(gate);
     registerWait(coordinator, () -> {});
-    long initialCycleId = coordinator.cycleId();
+    long initialGeneration = coordinator.debounceGeneration();
 
     coordinator.callCompleted(DUMMY_CALL);
 
-    assertThat(coordinator.cycleId()).isGreaterThan(initialCycleId);
+    assertThat(coordinator.debounceGeneration()).isGreaterThan(initialGeneration);
     assertThat(coordinator.hasContinuation()).isFalse();
   }
 
   @Test
-  public void
-      waitForCompletions_lastCallCompletesDuringDrainStrategyEval_runsContinuationAndReturnsRegistered() {
+  public void waitForCompletions_lastCallCompletesDuringDrainEval_runsContinuationAndRegisters() {
     AtomicReference<AsyncCompletionCoordinator> coordinatorRef = new AtomicReference<>();
     CelAsyncDrainStrategy racingStrategy = new RacingDrainStrategy(coordinatorRef);
     CelAsyncEvaluationOptions options =
@@ -1051,8 +1020,7 @@ public final class AsyncCompletionCoordinatorTest {
   }
 
   @Test
-  public void
-      waitForCompletions_whenDrainStrategyReturnsWaitForMore_registersWithoutSchedulingTimer() {
+  public void waitForCompletions_drainWaitsForMore_registersWithoutTimer() {
     CelAsyncDrainStrategy waitForMoreStrategy =
         (batch, active) -> CelAsyncDrainAction.waitForMore();
     CelAsyncEvaluationOptions options =
@@ -1271,8 +1239,7 @@ public final class AsyncCompletionCoordinatorTest {
   }
 
   @Test
-  public void
-      failAndCancel_whenFailureCallbackThrows_suppressesCallbackExceptionAndCancelsCoordinator() {
+  public void failAndCancel_failureCallbackThrows_suppressesExceptionAndCancels() {
     RuntimeException strategyError = new RuntimeException("strategy failed");
     CelAsyncEvaluationOptions options =
         CelAsyncEvaluationOptions.builder()
@@ -1328,13 +1295,43 @@ public final class AsyncCompletionCoordinatorTest {
   }
 
   @Test
-  public void callCompleted_whenCancelledAndNoCallsInFlight_invokesFailureCallback() {
+  public void callCompleted_whenCancelled_doesNotInvokeFailureCallback() {
     AsyncGate gate = AsyncGate.create(1);
     CelAsyncEvaluationOptions options = CelAsyncEvaluationOptions.builder().build();
     AtomicReference<Throwable> capturedFailure = new AtomicReference<>();
     AsyncCompletionCoordinator coordinator =
         AsyncCompletionCoordinator.create(options, gate, Runnable::run, capturedFailure::set);
     coordinator.cancel();
+
+    coordinator.callCompleted(DUMMY_CALL);
+
+    assertThat(capturedFailure.get()).isNull();
+  }
+
+  @Test
+  public void callCompleted_whenCancelledWithCallInFlight_releasesPermitWithoutFailing() {
+    AsyncGate gate = AsyncGate.create(1);
+    CelAsyncEvaluationOptions options = CelAsyncEvaluationOptions.builder().build();
+    AtomicReference<Throwable> capturedFailure = new AtomicReference<>();
+    AsyncCompletionCoordinator coordinator =
+        AsyncCompletionCoordinator.create(options, gate, Runnable::run, capturedFailure::set);
+    acquirePermit(gate);
+    coordinator.cancel();
+
+    coordinator.callCompleted(DUMMY_CALL);
+
+    assertThat(capturedFailure.get()).isNull();
+    assertThat(gate.activeCount()).isEqualTo(0);
+    assertThat(coordinator.hasPendingBatch()).isFalse();
+  }
+
+  @Test
+  public void callCompleted_whenNoCallsInFlight_invokesFailureCallback() {
+    AsyncGate gate = AsyncGate.create(1);
+    CelAsyncEvaluationOptions options = CelAsyncEvaluationOptions.builder().build();
+    AtomicReference<Throwable> capturedFailure = new AtomicReference<>();
+    AsyncCompletionCoordinator coordinator =
+        AsyncCompletionCoordinator.create(options, gate, Runnable::run, capturedFailure::set);
 
     coordinator.callCompleted(DUMMY_CALL);
 
@@ -1425,13 +1422,12 @@ public final class AsyncCompletionCoordinatorTest {
   }
 
   @Test
-  public void create_initialState_hasZeroGenerationsAndCleanDefaults() {
+  public void create_initialState_hasZeroGenerationAndCleanDefaults() {
     CelAsyncEvaluationOptions options = CelAsyncEvaluationOptions.builder().build();
     AsyncGate gate = AsyncGate.create(1);
     AsyncCompletionCoordinator coordinator =
         AsyncCompletionCoordinator.create(options, gate, Runnable::run, t -> {});
 
-    assertThat(coordinator.cycleId()).isEqualTo(0);
     assertThat(coordinator.debounceGeneration()).isEqualTo(0);
     assertThat(coordinator.isWaiting()).isFalse();
     assertThat(coordinator.isCancelled()).isFalse();
@@ -1441,8 +1437,7 @@ public final class AsyncCompletionCoordinatorTest {
   }
 
   @Test
-  public void
-      callCompleted_whenDebounceTimerPendingAndNextActionIsReevaluate_cancelsPendingDebounceTimerWithoutInterrupt() {
+  public void callCompleted_pendingTimerAndNextActionReevaluate_cancelsTimerWithoutInterrupt() {
     TrackingScheduler scheduler = new TrackingScheduler();
     try {
       AtomicInteger callCount = new AtomicInteger();
@@ -1475,8 +1470,7 @@ public final class AsyncCompletionCoordinatorTest {
   }
 
   @Test
-  public void
-      waitForCompletions_whenPendingBatchAndStrategyWaits_schedulesDebounceTimerAndReturnsRegistered() {
+  public void waitForCompletions_pendingBatchAndStrategyWaits_schedulesTimerAndRegisters() {
     TrackingScheduler scheduler = new TrackingScheduler();
     try {
       CelAsyncEvaluationOptions options =
@@ -1502,8 +1496,7 @@ public final class AsyncCompletionCoordinatorTest {
   }
 
   @Test
-  public void
-      waitForCompletions_whenWaitingWithDrainAllStrategyAndCallsInFlight_returnsRegistered() {
+  public void waitForCompletions_drainAllWithCallsInFlight_returnsRegistered() {
     AsyncGate gate = AsyncGate.create(2);
     CelAsyncEvaluationOptions options =
         CelAsyncEvaluationOptions.builder()

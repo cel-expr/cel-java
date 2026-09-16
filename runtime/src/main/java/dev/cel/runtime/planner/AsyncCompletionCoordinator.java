@@ -87,9 +87,7 @@ final class AsyncCompletionCoordinator {
 
   private final ThreadLocal<Deque<Runnable>> continuationTrampoline;
 
-  @GuardedBy("lock")
-  private long cycleId;
-
+  /** Monotonic staleness token bumped on every drain and snapshot. */
   @GuardedBy("lock")
   private long debounceGeneration;
 
@@ -118,14 +116,17 @@ final class AsyncCompletionCoordinator {
     CompletionSnapshot snapshot = null;
 
     synchronized (lock) {
+      // Check cancellation before activeCount() so late-finishing calls do not trip the unbalanced
+      // fail-safe on an evaluation that was already cancelled.
+      if (isCancelled) {
+        gate.release();
+        return;
+      }
       // Check activeCount() <= 0 BEFORE release() to detect unbalanced completion misuse.
       if (gate.activeCount() <= 0) {
         unbalanced = true;
       } else {
         gate.release();
-        if (isCancelled) {
-          return;
-        }
         completedBatch.add(call);
         if (!isWaiting) {
           return;
@@ -133,10 +134,7 @@ final class AsyncCompletionCoordinator {
         // Take inFlight AFTER release() to capture remaining active calls for the drain strategy.
         snapshot =
             new CompletionSnapshot(
-                ImmutableList.copyOf(completedBatch),
-                gate.activeCount(),
-                cycleId,
-                ++debounceGeneration);
+                ImmutableList.copyOf(completedBatch), gate.activeCount(), ++debounceGeneration);
       }
     }
 
@@ -155,7 +153,7 @@ final class AsyncCompletionCoordinator {
       failAndCancel(t);
       return;
     }
-    applyDrainAction(action, snapshot.cycleId, snapshot.debounceGeneration);
+    applyDrainAction(action, snapshot.debounceGeneration);
   }
 
   /**
@@ -189,10 +187,7 @@ final class AsyncCompletionCoordinator {
 
       snapshot =
           new CompletionSnapshot(
-              ImmutableList.copyOf(completedBatch),
-              gate.activeCount(),
-              this.cycleId,
-              ++this.debounceGeneration);
+              ImmutableList.copyOf(completedBatch), gate.activeCount(), ++this.debounceGeneration);
     }
 
     CelAsyncDrainAction action;
@@ -207,6 +202,7 @@ final class AsyncCompletionCoordinator {
     }
 
     boolean reevaluateNow = false;
+    ScheduledFuture<?> timerToCancel = null;
     synchronized (lock) {
       if (isCancelled) {
         return WaitResult.CANCELLED;
@@ -218,12 +214,15 @@ final class AsyncCompletionCoordinator {
         if (action.shouldReevaluate() || gate.activeCount() == 0) {
           // The continuation in DrainResult is intentionally not dispatched here because
           // WaitResult.REEVALUATE_NOW instructs the calling thread to re-evaluate synchronously.
-          DrainResult unused = drainAndResetUnderLock();
+          timerToCancel = drainAndResetUnderLock().timer;
           reevaluateNow = true;
         }
       } else {
         return WaitResult.REGISTERED;
       }
+    }
+    if (timerToCancel != null) {
+      timerToCancel.cancel(false);
     }
     if (reevaluateNow) {
       return WaitResult.REEVALUATE_NOW;
@@ -240,20 +239,21 @@ final class AsyncCompletionCoordinator {
       failAndCancel(e);
       return WaitResult.CANCELLED;
     }
-    return scheduleDebounce(delayNanos, snapshot.cycleId, snapshot.debounceGeneration)
+    return scheduleDebounce(delayNanos, snapshot.debounceGeneration)
         ? WaitResult.REGISTERED
         : WaitResult.CANCELLED;
   }
 
-  private void applyDrainAction(
-      CelAsyncDrainAction action, long expectedCycleId, long expectedGen) {
-    boolean shouldReevaluate;
+  private void applyDrainAction(CelAsyncDrainAction action, long expectedGen) {
     DrainResult drainResult = null;
     synchronized (lock) {
+      // Bail out if a newer generation has superseded this action.
+      if (!isCurrentUnderLock(expectedGen)) {
+        return;
+      }
       // Live read: check gate.activeCount() == 0 under lock so we do not schedule an unnecessary
       // timer if all remaining calls completed while evaluating nextAction().
-      shouldReevaluate = action.shouldReevaluate() || gate.activeCount() == 0;
-      if (shouldReevaluate && isCurrentUnderLock(expectedCycleId, expectedGen)) {
+      if (action.shouldReevaluate() || gate.activeCount() == 0) {
         drainResult = drainAndResetUnderLock();
       }
     }
@@ -266,9 +266,6 @@ final class AsyncCompletionCoordinator {
       }
       return;
     }
-    if (shouldReevaluate) {
-      return;
-    }
 
     Duration waitDuration = action.waitDuration();
     if (!waitDuration.isZero()) {
@@ -279,13 +276,13 @@ final class AsyncCompletionCoordinator {
         failAndCancel(e);
         return;
       }
-      boolean unusedScheduled = scheduleDebounce(delayNanos, expectedCycleId, expectedGen);
+      scheduleDebounce(delayNanos, expectedGen);
       return;
     }
 
     ScheduledFuture<?> timerToCancel = null;
     synchronized (lock) {
-      if (isCurrentUnderLock(expectedCycleId, expectedGen)) {
+      if (isCurrentUnderLock(expectedGen)) {
         timerToCancel = cancelDebounceTimerUnderLock();
       }
     }
@@ -300,21 +297,39 @@ final class AsyncCompletionCoordinator {
    * @return false if the timer could not be scheduled, in which case the coordinator has already
    *     been failed and cancelled.
    */
-  private boolean scheduleDebounce(long nanos, long scheduledCycleId, long scheduledGen) {
+  private boolean scheduleDebounce(long nanos, long scheduledGen) {
+    synchronized (lock) {
+      if (isCancelled) {
+        return false;
+      }
+      if (!isCurrentUnderLock(scheduledGen)) {
+        return true;
+      }
+    }
     ScheduledFuture<?> future;
     try {
       future =
           options
               .resolveScheduledExecutorService()
-              .schedule(() -> onDebounceFired(scheduledCycleId, scheduledGen), nanos, NANOSECONDS);
+              .schedule(() -> onDebounceFired(scheduledGen), nanos, NANOSECONDS);
     } catch (Throwable t) {
-      failAndCancel(t);
-      return false;
+      boolean shouldFail;
+      synchronized (lock) {
+        if (isCancelled) {
+          return false;
+        }
+        shouldFail = isCurrentUnderLock(scheduledGen);
+      }
+      if (shouldFail) {
+        failAndCancel(t);
+        return false;
+      }
+      return true;
     }
 
     ScheduledFuture<?> redundantFuture = null;
     synchronized (lock) {
-      if (isCurrentUnderLock(scheduledCycleId, scheduledGen)) {
+      if (isCurrentUnderLock(scheduledGen)) {
         if (debounceTimer != null) {
           redundantFuture = debounceTimer;
         }
@@ -330,22 +345,19 @@ final class AsyncCompletionCoordinator {
   }
 
   /**
-   * Returns true if the coordinator is still actively waiting on the cycle and debounce generation
-   * that produced the in-flight action, meaning the action is not stale.
+   * Returns true if the coordinator is still actively waiting on the debounce generation that
+   * produced the in-flight action, meaning the action is not stale.
    */
   @GuardedBy("lock")
-  private boolean isCurrentUnderLock(long expectedCycleId, long expectedGen) {
-    return !isCancelled
-        && isWaiting
-        && this.cycleId == expectedCycleId
-        && this.debounceGeneration == expectedGen;
+  private boolean isCurrentUnderLock(long expectedGen) {
+    return !isCancelled && isWaiting && this.debounceGeneration == expectedGen;
   }
 
   @VisibleForTesting
-  void onDebounceFired(long firedCycleId, long firedGen) {
+  void onDebounceFired(long firedGen) {
     DrainResult drainResult = null;
     synchronized (lock) {
-      if (isCurrentUnderLock(firedCycleId, firedGen)) {
+      if (isCurrentUnderLock(firedGen)) {
         drainResult = drainAndResetUnderLock();
       }
     }
@@ -429,7 +441,6 @@ final class AsyncCompletionCoordinator {
   @GuardedBy("lock")
   @CheckReturnValue
   private DrainResult drainAndResetUnderLock() {
-    cycleId++;
     debounceGeneration++;
     isWaiting = false;
     completedBatch.clear();
@@ -475,13 +486,6 @@ final class AsyncCompletionCoordinator {
   }
 
   @VisibleForTesting
-  long cycleId() {
-    synchronized (lock) {
-      return cycleId;
-    }
-  }
-
-  @VisibleForTesting
   long debounceGeneration() {
     synchronized (lock) {
       return debounceGeneration;
@@ -498,14 +502,12 @@ final class AsyncCompletionCoordinator {
   private static final class CompletionSnapshot {
     final ImmutableList<CelAsyncCall> batch;
     final int inFlight;
-    final long cycleId;
     final long debounceGeneration;
 
     private CompletionSnapshot(
-        ImmutableList<CelAsyncCall> batch, int inFlight, long cycleId, long debounceGeneration) {
+        ImmutableList<CelAsyncCall> batch, int inFlight, long debounceGeneration) {
       this.batch = checkNotNull(batch, "batch must not be null");
       this.inFlight = inFlight;
-      this.cycleId = cycleId;
       this.debounceGeneration = debounceGeneration;
     }
   }
@@ -539,10 +541,5 @@ final class AsyncCompletionCoordinator {
             return new ArrayDeque<>();
           }
         };
-    this.isWaiting = false;
-    this.isCancelled = false;
-    this.failureReported = false;
-    this.cycleId = 0;
-    this.debounceGeneration = 0;
   }
 }
