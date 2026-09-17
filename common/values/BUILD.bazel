@@ -126,3 +126,39 @@ cel_android_library(
     name = "base_proto_message_value_provider_android",
     exports = ["//common/src/main/java/dev/cel/common/values:base_proto_message_value_provider_android"],
 )
+
+java_library(
+    name = "select_field",
+    visibility = ["//:internal"],
+    exports = ["//common/src/main/java/dev/cel/common/values:select_field"],
+)
+
+cel_android_library(
+    name = "select_field_android",
+    visibility = ["//:internal"],
+    exports = ["//common/src/main/java/dev/cel/common/values:select_field_android"],
+)
+
+java_library(
+    name = "optimized_selectable",
+    visibility = ["//:internal"],
+    exports = ["//common/src/main/java/dev/cel/common/values:optimized_selectable"],
+)
+
+cel_android_library(
+    name = "optimized_selectable_android",
+    visibility = ["//:internal"],
+    exports = ["//common/src/main/java/dev/cel/common/values:optimized_selectable_android"],
+)
+
+java_library(
+    name = "optimized_select_traversal",
+    visibility = ["//:internal"],
+    exports = ["//common/src/main/java/dev/cel/common/values:optimized_select_traversal"],
+)
+
+cel_android_library(
+    name = "optimized_select_traversal_android",
+    visibility = ["//:internal"],
+    exports = ["//common/src/main/java/dev/cel/common/values:optimized_select_traversal_android"],
+)
