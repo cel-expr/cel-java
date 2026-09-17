@@ -229,7 +229,10 @@ final class LiteRuntimeImpl implements CelLiteRuntime {
               celValueProvider.celValueConverter(),
               container,
               celOptions,
-              lateBoundFunctionNamesBuilder.build());
+              lateBoundFunctionNamesBuilder.build(),
+              // TODO: Support async eval in lite runtime.
+              CelAsyncEvaluationOptions.defaultOptions(),
+              /* asyncExecutor= */ null);
 
       return new LiteRuntimeImpl(
           planner,
