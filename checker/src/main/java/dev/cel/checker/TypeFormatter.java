@@ -14,19 +14,18 @@
 
 package dev.cel.checker;
 
-import dev.cel.expr.Type;
 import dev.cel.common.annotations.Internal;
 import dev.cel.common.types.CelType;
 import dev.cel.common.types.CelTypes;
 import org.jspecify.annotations.Nullable;
 
 /**
- * Class to format {@link Type} objects into {@code String} values.
+ * Class to format {@link CelType} objects into {@code String} values.
  *
  * <p>CEL Library Internals. Do Not Use.
  */
 @Internal
-public final class TypeFormatter {
+final class TypeFormatter {
 
   /** Format a function string from the {@code argTypes} and {@code isInstance} information */
   static String formatFunction(Iterable<CelType> argTypes, boolean isInstance) {
