@@ -280,7 +280,9 @@ java_library(
     ],
     deps = [
         ":base_proto_cel_value_converter",
+        ":optimized_selectable",
         ":preadapted_list",
+        ":select_field",
         ":values",
         "//:auto_value",
         "//common:options",
@@ -320,6 +322,7 @@ java_library(
         "ProtoLiteCelValueConverter.java",
         "ProtoMessageLiteValue.java",
         "RawProtoMessageLiteValue.java",
+        "WireMessageLite.java",
     ],
     tags = [
     ],
@@ -350,6 +353,7 @@ cel_android_library(
         "ProtoLiteCelValueConverter.java",
         "ProtoMessageLiteValue.java",
         "RawProtoMessageLiteValue.java",
+        "WireMessageLite.java",
     ],
     tags = [
     ],

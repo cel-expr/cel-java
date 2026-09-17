@@ -21,6 +21,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.primitives.UnsignedLong;
+import com.google.common.testing.EqualsTester;
 import com.google.protobuf.Any;
 import com.google.protobuf.BoolValue;
 import com.google.protobuf.ByteString;
@@ -46,6 +47,7 @@ import dev.cel.expr.conformance.proto3.TestAllTypes.NestedEnum;
 import dev.cel.expr.conformance.proto3.TestAllTypes.NestedMessage;
 import dev.cel.expr.conformance.proto3.TestAllTypesCelDescriptor;
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
@@ -84,6 +86,186 @@ public final class ProtoMessageLiteValueTest {
     assertThat(messageLiteValue.value())
         .isEqualTo(TestAllTypes.newBuilder().setSingleInt64(1L).build());
     assertThat(messageLiteValue.isZeroValue()).isFalse();
+  }
+
+  @Test
+  public void create_withEmptyByteString() {
+    ProtoMessageLiteValue messageLiteValue =
+        ProtoMessageLiteValue.create(
+            ByteString.EMPTY,
+            "cel.expr.conformance.proto3.TestAllTypes",
+            PROTO_LITE_CEL_VALUE_CONVERTER);
+
+    assertThat(messageLiteValue.isZeroValue()).isTrue();
+    assertThat(messageLiteValue.toByteString()).isEqualTo(ByteString.EMPTY);
+    assertThat(messageLiteValue.value()).isSameInstanceAs(TestAllTypes.getDefaultInstance());
+  }
+
+  @Test
+  public void isZeroValue_emptyWireBytesWithoutDescriptor_returnsTrueWithoutParsing() {
+    ProtoMessageLiteValue messageLiteValue =
+        ProtoMessageLiteValue.create(
+            ByteString.EMPTY, "unregistered.Message", PROTO_LITE_CEL_VALUE_CONVERTER);
+
+    assertThat(messageLiteValue.isZeroValue()).isTrue();
+  }
+
+  @Test
+  public void isZeroValue_nonEmptyWireBytesForDefaultMessage_returnsTrue() {
+    // Explicit wire tag for field 1 (single_int32) with value 0: deserializes to default instance.
+    ByteString explicitZeroFieldBytes = ByteString.copyFrom(new byte[] {0x08, 0x00});
+    ProtoMessageLiteValue messageLiteValue =
+        ProtoMessageLiteValue.create(
+            explicitZeroFieldBytes,
+            "cel.expr.conformance.proto3.TestAllTypes",
+            PROTO_LITE_CEL_VALUE_CONVERTER);
+
+    assertThat(messageLiteValue.isZeroValue()).isTrue();
+  }
+
+  @Test
+  public void create_withPopulatedByteString_selectsAndLazilyMaterializesValue() {
+    TestAllTypes expected =
+        TestAllTypes.newBuilder().setSingleInt64(42L).setSingleString("hello").build();
+
+    ProtoMessageLiteValue messageLiteValue =
+        ProtoMessageLiteValue.create(
+            expected.toByteString(),
+            "cel.expr.conformance.proto3.TestAllTypes",
+            PROTO_LITE_CEL_VALUE_CONVERTER);
+
+    assertThat(messageLiteValue.select("single_int64")).isEqualTo(42L);
+    assertThat(messageLiteValue.select("single_string")).isEqualTo("hello");
+    assertThat(messageLiteValue.isZeroValue()).isFalse();
+    assertThat(messageLiteValue.toByteString()).isEqualTo(expected.toByteString());
+    assertThat(messageLiteValue.value()).isEqualTo(expected);
+  }
+
+  @Test
+  public void equals_byteStringBackedAndMessageBacked_areEqual() {
+    TestAllTypes populated = TestAllTypes.newBuilder().setSingleInt64(42L).build();
+    TestAllTypes different = TestAllTypes.newBuilder().setSingleInt64(99L).build();
+    ProtoLiteCelValueConverter distinctConverter =
+        ProtoLiteCelValueConverter.newInstance(DESCRIPTOR_POOL);
+
+    new EqualsTester()
+        .addEqualityGroup(
+            ProtoMessageLiteValue.create(
+                TestAllTypes.getDefaultInstance(),
+                "cel.expr.conformance.proto3.TestAllTypes",
+                PROTO_LITE_CEL_VALUE_CONVERTER),
+            ProtoMessageLiteValue.create(
+                ByteString.EMPTY,
+                "cel.expr.conformance.proto3.TestAllTypes",
+                PROTO_LITE_CEL_VALUE_CONVERTER))
+        .addEqualityGroup(
+            ProtoMessageLiteValue.create(
+                populated,
+                "cel.expr.conformance.proto3.TestAllTypes",
+                PROTO_LITE_CEL_VALUE_CONVERTER),
+            ProtoMessageLiteValue.create(
+                populated.toByteString(),
+                "cel.expr.conformance.proto3.TestAllTypes",
+                PROTO_LITE_CEL_VALUE_CONVERTER),
+            ProtoMessageLiteValue.create(
+                populated, "cel.expr.conformance.proto3.TestAllTypes", distinctConverter))
+        .addEqualityGroup(
+            ProtoMessageLiteValue.create(
+                different,
+                "cel.expr.conformance.proto3.TestAllTypes",
+                PROTO_LITE_CEL_VALUE_CONVERTER))
+        .addEqualityGroup(
+            ProtoMessageLiteValue.create(
+                TestAllTypes.getDefaultInstance(),
+                "different.TypeName",
+                PROTO_LITE_CEL_VALUE_CONVERTER))
+        .addEqualityGroup(
+            ProtoMessageLiteValue.create(
+                NestedMessage.getDefaultInstance(),
+                "cel.expr.conformance.proto3.TestAllTypes.NestedMessage",
+                PROTO_LITE_CEL_VALUE_CONVERTER))
+        .testEquals();
+  }
+
+  @Test
+  public void create_withCorruptByteString_throwsOnValueMaterialization() {
+    ByteString corruptBytes = ByteString.copyFrom(new byte[] {(byte) 0xFF, (byte) 0xFF});
+    ProtoMessageLiteValue messageLiteValue =
+        ProtoMessageLiteValue.create(
+            corruptBytes,
+            "cel.expr.conformance.proto3.TestAllTypes",
+            PROTO_LITE_CEL_VALUE_CONVERTER);
+
+    IllegalArgumentException thrown =
+        assertThrows(IllegalArgumentException.class, messageLiteValue::value);
+
+    assertThat(thrown)
+        .hasMessageThat()
+        .contains(
+            "Failed to decode proto message of type: cel.expr.conformance.proto3.TestAllTypes");
+    assertThat(thrown).hasCauseThat().isInstanceOf(IOException.class);
+  }
+
+  @Test
+  public void create_withCorruptByteString_throwsOnSelect() {
+    ByteString corruptBytes = ByteString.copyFrom(new byte[] {(byte) 0xFF, (byte) 0xFF});
+    ProtoMessageLiteValue messageLiteValue =
+        ProtoMessageLiteValue.create(
+            corruptBytes,
+            "cel.expr.conformance.proto3.TestAllTypes",
+            PROTO_LITE_CEL_VALUE_CONVERTER);
+
+    IllegalArgumentException thrown =
+        assertThrows(IllegalArgumentException.class, () -> messageLiteValue.select("single_int64"));
+
+    assertThat(thrown)
+        .hasMessageThat()
+        .contains(
+            "Failed to decode proto message of type: cel.expr.conformance.proto3.TestAllTypes");
+    assertThat(thrown).hasCauseThat().isInstanceOf(IOException.class);
+  }
+
+  @Test
+  public void create_withCorruptByteString_throwsOnSelectByFieldNumber() {
+    ByteString corruptBytes = ByteString.copyFrom(new byte[] {0x10, (byte) 0x80});
+    ProtoMessageLiteValue messageLiteValue =
+        ProtoMessageLiteValue.create(
+            corruptBytes,
+            "cel.expr.conformance.proto3.TestAllTypes",
+            PROTO_LITE_CEL_VALUE_CONVERTER);
+    SelectField selectField = SelectField.create(2L, "single_int64", 3, 0L);
+
+    IllegalArgumentException thrown =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> messageLiteValue.selectByFieldNumber(selectField));
+
+    assertThat(thrown)
+        .hasMessageThat()
+        .contains(
+            "Failed to decode proto message of type: cel.expr.conformance.proto3.TestAllTypes");
+    assertThat(thrown).hasCauseThat().isInstanceOf(IOException.class);
+  }
+
+  @Test
+  public void create_withCorruptByteString_throwsOnHasFieldByNumber() {
+    ByteString corruptBytes = ByteString.copyFrom(new byte[] {0x10, (byte) 0x80});
+    ProtoMessageLiteValue messageLiteValue =
+        ProtoMessageLiteValue.create(
+            corruptBytes,
+            "cel.expr.conformance.proto3.TestAllTypes",
+            PROTO_LITE_CEL_VALUE_CONVERTER);
+    SelectField selectField = SelectField.create(2L, "single_int64");
+
+    IllegalArgumentException thrown =
+        assertThrows(
+            IllegalArgumentException.class, () -> messageLiteValue.hasFieldByNumber(selectField));
+
+    assertThat(thrown)
+        .hasMessageThat()
+        .contains(
+            "Failed to decode proto message of type: cel.expr.conformance.proto3.TestAllTypes");
+    assertThat(thrown).hasCauseThat().isInstanceOf(IOException.class);
   }
 
   @SuppressWarnings("ImmutableEnumChecker") // Test only
@@ -125,6 +307,13 @@ public final class ProtoMessageLiteValueTest {
     REPEATED_DOUBLE("repeated_double", ImmutableList.of(3.5d, 4.5d)),
 
     REPEATED_STRING("repeated_string", ImmutableList.of("foo", "bar")),
+    REPEATED_NESTED_MESSAGE(
+        "repeated_nested_message",
+        ImmutableList.of(
+            ProtoMessageLiteValue.create(
+                NestedMessage.newBuilder().setBb(10).build(),
+                "cel.expr.conformance.proto3.TestAllTypes.NestedMessage",
+                PROTO_LITE_CEL_VALUE_CONVERTER))),
 
     MAP_INT64_INT64("map_int64_int64", ImmutableMap.of(1L, 2L, 3L, 4L)),
 
@@ -193,6 +382,7 @@ public final class ProtoMessageLiteValueTest {
             .addRepeatedDouble(4.5d)
             .addRepeatedString("foo")
             .addRepeatedString("bar")
+            .addRepeatedNestedMessage(NestedMessage.newBuilder().setBb(10))
             .putMapStringString("a", "b")
             .putMapInt64Int64(1L, 2L)
             .putMapInt64Int64(3L, 4L)

@@ -30,7 +30,6 @@ import com.google.errorprone.annotations.Immutable;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.CodedInputStream;
 import com.google.protobuf.WireFormat;
-import dev.cel.common.annotations.Internal;
 import dev.cel.common.exceptions.CelAttributeNotFoundException;
 import dev.cel.common.types.CelType;
 import dev.cel.common.types.StructTypeReference;
@@ -39,6 +38,7 @@ import java.io.IOException;
 import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.TreeMap;
@@ -49,7 +49,7 @@ import org.jspecify.annotations.Nullable;
  * client-server version skew issues where newer fields or submessages lack generated classes and
  * descriptors in the evaluation environment.
  *
- * <p>Rather than requiring compiled {@link MessageLite} classes or runtime schema descriptors, this
+ * <p>Rather than requiring compiled {@code MessageLite} classes or runtime schema descriptors, this
  * value encapsulates the raw wire-format {@link ByteString} payload and performs classless,
  * reflection-free field traversal directly over wire tags via {@link CodedInputStream}.
  */
@@ -57,15 +57,15 @@ import org.jspecify.annotations.Nullable;
 @AutoValue.CopyAnnotations
 @Immutable
 @SuppressWarnings("Immutable") // Immutable wire fields
-@Internal
-public abstract class RawProtoMessageLiteValue extends StructValue<String, RawProtoMessageLiteValue>
-    implements OptimizedSelectable {
+abstract class RawProtoMessageLiteValue extends StructValue<String, WireMessageLite>
+    implements OptimizedSelectable, WireMessageLite {
 
   private static final String UNKNOWN_MESSAGE_TYPE_NAME = "cel.@unknownMessage";
   private static final int MAP_KEY_FIELD_NUMBER = 1;
   private static final int MAP_VALUE_FIELD_NUMBER = 2;
 
-  abstract ByteString rawWireBytes();
+  @Override
+  public abstract ByteString toByteString();
 
   @Override
   public abstract CelType celType();
@@ -73,14 +73,39 @@ public abstract class RawProtoMessageLiteValue extends StructValue<String, RawPr
   abstract ProtoLiteCelValueConverter protoLiteCelValueConverter();
 
   @Override
-  public RawProtoMessageLiteValue value() {
+  public String protoTypeName() {
+    return celType().name();
+  }
+
+  @Override
+  public WireMessageLite value() {
     return this;
+  }
+
+  @Override
+  public final boolean equals(Object other) {
+    // TODO: Support message equality
+    throw new UnsupportedOperationException("Message equality is not supported");
+  }
+
+  @Override
+  public final int hashCode() {
+    throw new UnsupportedOperationException("Message equality is not supported");
+  }
+
+  @Override
+  public final String toString() {
+    return String.format(
+        Locale.US,
+        "WireMessageLite{protoTypeName=%s, size=%d}",
+        protoTypeName(),
+        toByteString().size());
   }
 
   @Memoized
   ImmutableListMultimap<Integer, Object> unknownFields() {
     try {
-      CodedInputStream inputStream = rawWireBytes().newCodedInput();
+      CodedInputStream inputStream = toByteString().newCodedInput();
       Multimap<Integer, Object> fields = Multimaps.newMultimap(new TreeMap<>(), ArrayList::new);
       for (int tag = inputStream.readTag(); tag != 0; tag = inputStream.readTag()) {
         int tagWireType = WireFormat.getTagWireType(tag);
@@ -96,7 +121,7 @@ public abstract class RawProtoMessageLiteValue extends StructValue<String, RawPr
 
   @Override
   public boolean isZeroValue() {
-    return rawWireBytes().isEmpty();
+    return toByteString().isEmpty();
   }
 
   /**
@@ -128,18 +153,45 @@ public abstract class RawProtoMessageLiteValue extends StructValue<String, RawPr
   @Override
   public Object selectByFieldNumber(SelectField field) {
     return selectWireOrDefault(
-        field, unknownFields().get(field.fieldNumber()), protoLiteCelValueConverter());
+        field, readWireField(toByteString(), field.fieldNumber()), protoLiteCelValueConverter());
   }
 
   @Override
   public boolean hasFieldByNumber(SelectField field) {
-    return isPresentInWire(field, unknownFields().get(field.fieldNumber()));
+    return isPresentInWire(toByteString(), field);
   }
 
   @Override
   public Optional<Object> findByFieldNumber(SelectField field) {
     return navigateWire(
-        field, unknownFields().get(field.fieldNumber()), protoLiteCelValueConverter());
+        field, readWireField(toByteString(), field.fieldNumber()), protoLiteCelValueConverter());
+  }
+
+  /**
+   * Scans {@code wireBytes} for a single {@code targetFieldNumber}, skipping all other wire tags.
+   *
+   * <p>Package-private: shared with {@code ProtoMessageLiteValue} for unknown field resolution.
+   */
+  static ImmutableList<Object> readWireField(ByteString wireBytes, int targetFieldNumber) {
+    if (wireBytes.isEmpty()) {
+      return ImmutableList.of();
+    }
+    ImmutableList.Builder<Object> entries = ImmutableList.builder();
+    try {
+      CodedInputStream inputStream = wireBytes.newCodedInput();
+      for (int tag = inputStream.readTag(); tag != 0; tag = inputStream.readTag()) {
+        int fieldNumber = WireFormat.getTagFieldNumber(tag);
+        if (fieldNumber != targetFieldNumber) {
+          ProtoLiteCelValueConverter.skipWireField(tag, inputStream);
+          continue;
+        }
+        int tagWireType = WireFormat.getTagWireType(tag);
+        entries.add(ProtoLiteCelValueConverter.readUnknownField(tagWireType, inputStream));
+      }
+    } catch (IOException e) {
+      throw new IllegalStateException("Failed to parse raw proto message wire bytes", e);
+    }
+    return entries.build();
   }
 
   /**
@@ -169,55 +221,40 @@ public abstract class RawProtoMessageLiteValue extends StructValue<String, RawPr
     }
 
     boolean isRepeated = field.defaultValue() instanceof List;
-    String protoTypeName = resolveProtoTypeName(field);
 
-    return decodeWireEntries(unknowns, typeCode, protoTypeName, isRepeated, converter);
-  }
-
-  /**
-   * Resolves the protobuf message type name for a field from the optimizer metadata in {@link
-   * SelectField}, or {@link #UNKNOWN_MESSAGE_TYPE_NAME} if unspecified.
-   */
-  private static String resolveProtoTypeName(SelectField field) {
-    if (!field.protoTypeName().isEmpty()) {
-      return field.protoTypeName();
-    }
-    return UNKNOWN_MESSAGE_TYPE_NAME;
+    return decodeWireEntries(unknowns, typeCode, field.protoTypeName(), isRepeated, converter);
   }
 
   private static Object resolveDefault(SelectField field, ProtoLiteCelValueConverter converter) {
     if (field.defaultValue() != null) {
       return field.defaultValue();
     }
-    return create(ByteString.EMPTY, resolveProtoTypeName(field), converter);
+    return decodeMessageValue(ByteString.EMPTY, field.protoTypeName(), converter);
   }
 
   /**
-   * Returns whether a field has presence in preserved wire bytes.
+   * Scans {@code wireBytes} to determine whether {@code field} is present on the wire.
    *
    * <p>Package-private: shared with {@code ProtoMessageLiteValue} for unknown field resolution.
    */
-  static boolean isPresentInWire(SelectField field, ImmutableList<Object> unknowns) {
+  static boolean isPresentInWire(ByteString wireBytes, SelectField field) {
+    try {
+      return ProtoLiteCelValueConverter.hasSingleField(
+          wireBytes, field.fieldNumber(), isPackableRepeated(field));
+    } catch (IOException e) {
+      throw new IllegalStateException("Failed to parse raw proto message wire bytes", e);
+    }
+  }
+
+  private static boolean isPresentInWire(SelectField field, ImmutableList<Object> unknowns) {
     if (unknowns.isEmpty()) {
       return false;
     }
 
-    boolean isRepeated = field.defaultValue() instanceof List;
-    int typeCode = field.typeCode();
-
     // In protobuf wire format, a zero-length entry for a singular field (e.g. empty string,
     // bytes, or empty submessage) represents explicit presence on the wire. Only packed repeated
     // fields with empty payload represent an empty/absent collection.
-    if (!isRepeated) {
-      return true;
-    }
-
-    boolean isPackable =
-        typeCode != FieldLiteDescriptor.Type.STRING.getNumber()
-            && typeCode != FieldLiteDescriptor.Type.BYTES.getNumber()
-            && typeCode != FieldLiteDescriptor.Type.MESSAGE.getNumber()
-            && typeCode != FieldLiteDescriptor.Type.GROUP.getNumber();
-    if (!isPackable) {
+    if (!isPackableRepeated(field)) {
       return true;
     }
 
@@ -227,6 +264,13 @@ public abstract class RawProtoMessageLiteValue extends StructValue<String, RawPr
       }
     }
     return false;
+  }
+
+  private static boolean isPackableRepeated(SelectField field) {
+    return (field.defaultValue() instanceof List)
+        && FieldLiteDescriptor.Type.forNumber(field.typeCode())
+            .toWireFormatFieldType()
+            .isPackable();
   }
 
   /**
@@ -419,9 +463,7 @@ public abstract class RawProtoMessageLiteValue extends StructValue<String, RawPr
         throw new UnsupportedOperationException("Groups are not supported");
       case MESSAGE:
         ByteString msgBytes = requireType(raw, ByteString.class, fieldType);
-        return converter
-            .tryDecodeWellKnownProto(msgBytes, protoTypeName)
-            .orElseGet(() -> create(msgBytes, protoTypeName, converter));
+        return decodeMessageValue(msgBytes, protoTypeName, converter);
       case BYTES:
         return CelByteString.of(requireType(raw, ByteString.class, fieldType).toByteArray());
       case UINT32:
@@ -435,6 +477,13 @@ public abstract class RawProtoMessageLiteValue extends StructValue<String, RawPr
         return CodedInputStream.decodeZigZag64(requireType(raw, Long.class, fieldType));
     }
     throw new IllegalArgumentException("Unsupported proto field type: " + fieldType);
+  }
+
+  private static Object decodeMessageValue(
+      ByteString msgBytes, String protoTypeName, ProtoLiteCelValueConverter converter) {
+    return converter
+        .tryDecodeProtoMessage(msgBytes, protoTypeName)
+        .orElseGet(() -> create(msgBytes, protoTypeName, converter));
   }
 
   private static <T> T requireType(
@@ -509,12 +558,12 @@ public abstract class RawProtoMessageLiteValue extends StructValue<String, RawPr
     }
   }
 
-  public static RawProtoMessageLiteValue create(
+  static RawProtoMessageLiteValue create(
       ByteString rawWireBytes, ProtoLiteCelValueConverter protoLiteCelValueConverter) {
     return create(rawWireBytes, "", protoLiteCelValueConverter);
   }
 
-  public static RawProtoMessageLiteValue create(
+  static RawProtoMessageLiteValue create(
       ByteString rawWireBytes,
       String protoTypeName,
       ProtoLiteCelValueConverter protoLiteCelValueConverter) {
