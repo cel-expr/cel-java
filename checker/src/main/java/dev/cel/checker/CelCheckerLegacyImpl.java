@@ -36,13 +36,12 @@ import dev.cel.common.CelDescriptorUtil;
 import dev.cel.common.CelFunctionDecl;
 import dev.cel.common.CelIssue;
 import dev.cel.common.CelOptions;
-import dev.cel.common.CelOverloadDecl;
+import dev.cel.common.CelProtoDeclConverter;
 import dev.cel.common.CelSource;
 import dev.cel.common.CelSourceLocation;
 import dev.cel.common.CelValidationResult;
 import dev.cel.common.CelVarDecl;
 import dev.cel.common.annotations.Internal;
-import dev.cel.common.ast.CelExprConverter;
 import dev.cel.common.internal.EnvVisitable;
 import dev.cel.common.internal.EnvVisitor;
 import dev.cel.common.internal.Errors;
@@ -70,7 +69,7 @@ public final class CelCheckerLegacyImpl implements CelChecker, EnvVisitable {
 
   private final CelOptions celOptions;
   private final CelContainer container;
-  private final ImmutableSet<CelIdentDecl> identDeclarations;
+  private final ImmutableSet<CelVarDecl> identDeclarations;
   private final ImmutableSet<CelFunctionDecl> functionDeclarations;
   private final Optional<CelType> expectedResultType;
 
@@ -115,7 +114,7 @@ public final class CelCheckerLegacyImpl implements CelChecker, EnvVisitable {
   public CelCheckerBuilder toCheckerBuilder() {
     CelCheckerBuilder builder =
         new Builder()
-            .addIdentDeclarations(identDeclarations)
+            .addVarDeclarations(identDeclarations)
             .setOptions(celOptions)
             .setTypeProvider(celTypeProvider)
             .setContainer(container)
@@ -146,14 +145,14 @@ public final class CelCheckerLegacyImpl implements CelChecker, EnvVisitable {
       names.addAll(declGroup.getIdents().keySet());
       names.addAll(declGroup.getFunctions().keySet());
       for (String name : names) {
-        CelIdentDecl ident = declGroup.getIdent(name);
+        CelVarDecl ident = declGroup.getIdent(name);
         CelFunctionDecl func = declGroup.getFunction(name);
         List<Decl> decls = new ArrayList<>();
         if (ident != null) {
-          decls.add(CelIdentDecl.celIdentToDecl(ident));
+          decls.add(CelProtoDeclConverter.celVarDeclToDecl(ident));
         }
         if (func != null) {
-          decls.add(CelFunctionDecl.celFunctionDeclToDecl(func));
+          decls.add(CelProtoDeclConverter.celFunctionDeclToDecl(func));
         }
         envVisitor.visitDecl(name, decls);
       }
@@ -182,7 +181,7 @@ public final class CelCheckerLegacyImpl implements CelChecker, EnvVisitable {
   /** Builder class for the legacy {@code CelChecker} implementation. */
   public static final class Builder implements CelCheckerBuilder {
 
-    private final ImmutableSet.Builder<CelIdentDecl> identDeclarations;
+    private final ImmutableSet.Builder<CelVarDecl> identDeclarations;
     private final ImmutableSet.Builder<CelFunctionDecl> functionDeclarations;
     private final ImmutableSet.Builder<ProtoTypeMask> protoTypeMasks;
     private final ImmutableSet.Builder<Descriptor> messageTypes;
@@ -231,27 +230,10 @@ public final class CelCheckerLegacyImpl implements CelChecker, EnvVisitable {
       for (Decl decl : declarations) {
         switch (decl.getDeclKindCase()) {
           case IDENT:
-            CelIdentDecl.Builder identBuilder =
-                CelIdentDecl.newBuilder()
-                    .setName(decl.getName())
-                    .setType(CelProtoTypes.typeToCelType(decl.getIdent().getType()))
-                    // Note: Setting doc and constant value exists for compatibility reason. This
-                    // should not be set by the users.
-                    .setDoc(decl.getIdent().getDoc());
-            if (decl.getIdent().hasValue()) {
-              identBuilder.setConstant(
-                  CelExprConverter.exprConstantToCelConstant(decl.getIdent().getValue()));
-            }
-
-            this.identDeclarations.add(identBuilder.build());
+            this.identDeclarations.add(CelProtoDeclConverter.declToCelVarDecl(decl));
             break;
           case FUNCTION:
-            addFunctionDeclarations(
-                CelFunctionDecl.newFunctionDeclaration(
-                    decl.getName(),
-                    decl.getFunction().getOverloadsList().stream()
-                        .map(CelOverloadDecl::overloadToCelOverload)
-                        .collect(toImmutableList())));
+            addFunctionDeclarations(CelProtoDeclConverter.declToCelFunctionDecl(decl));
             break;
           default:
             throw new IllegalArgumentException("unexpected decl kind: " + decl.getDeclKindCase());
@@ -283,10 +265,7 @@ public final class CelCheckerLegacyImpl implements CelChecker, EnvVisitable {
     @Override
     public CelCheckerBuilder addVarDeclarations(Iterable<CelVarDecl> celVarDecls) {
       checkNotNull(celVarDecls);
-      for (CelVarDecl celVarDecl : celVarDecls) {
-        this.identDeclarations.add(
-            CelIdentDecl.newIdentDeclaration(celVarDecl.name(), celVarDecl.type()));
-      }
+      this.identDeclarations.addAll(celVarDecls);
       return this;
     }
 
@@ -384,12 +363,6 @@ public final class CelCheckerLegacyImpl implements CelChecker, EnvVisitable {
       return this;
     }
 
-    @CanIgnoreReturnValue
-    Builder addIdentDeclarations(ImmutableSet<CelIdentDecl> identDeclarations) {
-      this.identDeclarations.addAll(identDeclarations);
-      return this;
-    }
-
     // The following getters marked @VisibleForTesting exist for testing toCheckerBuilder copies
     // over all properties. Do not expose these to public
     @VisibleForTesting
@@ -398,7 +371,7 @@ public final class CelCheckerLegacyImpl implements CelChecker, EnvVisitable {
     }
 
     @VisibleForTesting
-    ImmutableSet.Builder<CelIdentDecl> identDecls() {
+    ImmutableSet.Builder<CelVarDecl> identDecls() {
       return this.identDeclarations;
     }
 
@@ -468,15 +441,20 @@ public final class CelCheckerLegacyImpl implements CelChecker, EnvVisitable {
       // Configure the declaration set, and possibly alter the type provider if ProtoDecl values
       // are provided as they may prevent the use of certain field selection patterns against the
       // proto.
-      ImmutableSet<CelIdentDecl> identDeclarationSet = identDeclarations.build();
+      ImmutableSet<CelVarDecl> identDeclarationSet = identDeclarations.build();
       ImmutableSet<ProtoTypeMask> protoTypeMaskSet = protoTypeMasks.build();
       if (!protoTypeMaskSet.isEmpty()) {
         ProtoTypeMaskTypeProvider protoTypeMaskTypeProvider =
             new ProtoTypeMaskTypeProvider(messageTypeProvider, protoTypeMaskSet);
+        ImmutableSet<String> declaredNames =
+            identDeclarationSet.stream().map(CelVarDecl::name).collect(toImmutableSet());
         identDeclarationSet =
-            ImmutableSet.<CelIdentDecl>builder()
+            ImmutableSet.<CelVarDecl>builder()
                 .addAll(identDeclarationSet)
-                .addAll(protoTypeMaskTypeProvider.computeDeclsFromProtoTypeMasks())
+                .addAll(
+                    protoTypeMaskTypeProvider.computeDeclsFromProtoTypeMasks().stream()
+                        .filter(decl -> !declaredNames.contains(decl.name()))
+                        .collect(toImmutableSet()))
                 .build();
         messageTypeProvider = protoTypeMaskTypeProvider;
       }
@@ -518,7 +496,7 @@ public final class CelCheckerLegacyImpl implements CelChecker, EnvVisitable {
   private CelCheckerLegacyImpl(
       CelOptions celOptions,
       CelContainer container,
-      ImmutableSet<CelIdentDecl> identDeclarations,
+      ImmutableSet<CelVarDecl> identDeclarations,
       ImmutableSet<CelFunctionDecl> functionDeclarations,
       Optional<CelType> expectedResultType,
       TypeProvider typeProvider,
@@ -528,6 +506,7 @@ public final class CelCheckerLegacyImpl implements CelChecker, EnvVisitable {
       ImmutableSet<CelCheckerLibrary> checkerLibraries,
       ImmutableSet<FileDescriptor> fileDescriptors,
       ImmutableSet<ProtoTypeMask> protoTypeMasks) {
+
     this.celOptions = celOptions;
     this.container = container;
     this.identDeclarations = identDeclarations;

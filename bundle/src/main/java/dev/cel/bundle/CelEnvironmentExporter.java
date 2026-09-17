@@ -37,11 +37,11 @@ import dev.cel.checker.CelStandardDeclarations.StandardIdentifier;
 import dev.cel.common.CelFunctionDecl;
 import dev.cel.common.CelOptions;
 import dev.cel.common.CelOverloadDecl;
+import dev.cel.common.CelProtoDeclConverter;
 import dev.cel.common.CelVarDecl;
 import dev.cel.common.internal.EnvVisitable;
 import dev.cel.common.internal.EnvVisitor;
 import dev.cel.common.types.CelKind;
-import dev.cel.common.types.CelProtoTypes;
 import dev.cel.common.types.CelType;
 import dev.cel.compiler.CelCompiler;
 import dev.cel.extensions.CelExtensionLibrary;
@@ -262,13 +262,11 @@ public abstract class CelEnvironmentExporter {
                     for (Overload overload : function.getOverloadsList()) {
                       inventory.add(
                           NamedOverload.create(
-                              decl.getName(), CelOverloadDecl.overloadToCelOverload(overload)));
+                              decl.getName(),
+                              CelProtoDeclConverter.overloadToCelOverload(overload)));
                     }
                   } else if (decl.hasIdent()) {
-                    inventory.add(
-                        CelVarDecl.newVarDeclaration(
-                            decl.getName(),
-                            CelProtoTypes.typeToCelType(decl.getIdent().getType())));
+                    inventory.add(CelProtoDeclConverter.declToCelVarDecl(decl));
                   }
                 }
               }
@@ -299,7 +297,7 @@ public abstract class CelEnvironmentExporter {
 
     featureSets.sort(
         Comparator.comparing(NamedFeatureSet::name)
-            .thenComparing(nfs -> nfs.featureSet().version())
+            .thenComparingInt(nfs -> nfs.featureSet().version())
             .reversed());
 
     Set<String> includedExtensions = new HashSet<>();
@@ -348,8 +346,7 @@ public abstract class CelEnvironmentExporter {
       CelEnvironment.Builder envBuilder, Set<Object> inventory) {
     // Claim standard identifiers for the standard library
     for (StandardIdentifier value : StandardIdentifier.values()) {
-      inventory.remove(
-          CelVarDecl.newVarDeclaration(value.identDecl().name(), value.identDecl().type()));
+      inventory.remove(value.identDecl());
     }
 
     Set<String> excludedFunctions = new HashSet<>();
@@ -431,13 +428,13 @@ public abstract class CelEnvironmentExporter {
   private void addCustomDecls(CelEnvironment.Builder envBuilder, Set<Object> inventory) {
     // Group "orphaned" function overloads and vars by their names
     ListMultimap<String, CelOverloadDecl> extraOverloads = ArrayListMultimap.create();
-    Map<String, CelType> extraVars = new HashMap<>();
+    Map<String, CelVarDecl> extraVars = new HashMap<>();
     for (Object item : inventory) {
       if (item instanceof NamedOverload) {
         extraOverloads.put(
             ((NamedOverload) item).functionName(), ((NamedOverload) item).overload());
       } else if (item instanceof CelVarDecl) {
-        extraVars.put(((CelVarDecl) item).name(), ((CelVarDecl) item).type());
+        extraVars.put(((CelVarDecl) item).name(), (CelVarDecl) item);
       }
     }
 
@@ -457,9 +454,15 @@ public abstract class CelEnvironmentExporter {
 
     if (!extraVars.isEmpty()) {
       ImmutableSet.Builder<CelEnvironment.VariableDecl> varDeclBuilder = ImmutableSet.builder();
-      for (String ident : extraVars.keySet()) {
-        varDeclBuilder.add(
-            CelEnvironment.VariableDecl.create(ident, toCelEnvTypeDecl(extraVars.get(ident))));
+      for (CelVarDecl varDecl : extraVars.values()) {
+        CelEnvironment.VariableDecl.Builder builder =
+            CelEnvironment.VariableDecl.newBuilder()
+                .setName(varDecl.name())
+                .setType(toCelEnvTypeDecl(varDecl.type()));
+        if (!varDecl.doc().isEmpty()) {
+          builder.setDescription(varDecl.doc());
+        }
+        varDeclBuilder.add(builder.build());
       }
       envBuilder.setVariables(varDeclBuilder.build());
     }

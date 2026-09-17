@@ -13,6 +13,7 @@ java_library(
         ":cel_function_decl",
         ":cel_issue",
         ":cel_overload_decl",
+        ":cel_proto_decl_converter",
         ":cel_validation_exception",
         ":cel_validation_result",
         ":cel_var_decl",
@@ -24,9 +25,29 @@ java_library(
     exports = ["//common/src/main/java/dev/cel/common:cel_function_decl"],
 )
 
+cel_android_library(
+    name = "cel_function_decl_android",
+    exports = ["//common/src/main/java/dev/cel/common:cel_function_decl_android"],
+)
+
 java_library(
     name = "cel_overload_decl",
     exports = ["//common/src/main/java/dev/cel/common:cel_overload_decl"],
+)
+
+cel_android_library(
+    name = "cel_overload_decl_android",
+    exports = ["//common/src/main/java/dev/cel/common:cel_overload_decl_android"],
+)
+
+java_library(
+    name = "cel_proto_decl_converter",
+    exports = ["//common/src/main/java/dev/cel/common:cel_proto_decl_converter"],
+)
+
+cel_android_library(
+    name = "cel_proto_decl_converter_android",
+    exports = ["//common/src/main/java/dev/cel/common:cel_proto_decl_converter_android"],
 )
 
 java_library(

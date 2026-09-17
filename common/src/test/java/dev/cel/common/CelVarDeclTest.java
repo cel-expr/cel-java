@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package dev.cel.checker;
+package dev.cel.common;
 
 import static com.google.common.truth.Truth.assertThat;
 import static com.google.common.truth.extensions.proto.ProtoTruth.assertThat;
@@ -29,58 +29,58 @@ import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
 
 @RunWith(JUnit4.class)
-public class CelIdentDeclTest {
+public final class CelVarDeclTest {
 
   @Test
-  public void celIdentBuilder_success() {
-    CelIdentDecl stringIdent =
-        CelIdentDecl.newBuilder()
+  public void celVarBuilder_success() {
+    CelVarDecl stringVar =
+        CelVarDecl.newBuilder()
             .setName("ident")
             .setType(SimpleType.STRING)
             .setDoc("doc")
             .setConstant(CelConstant.ofValue("str"))
             .build();
 
-    assertThat(stringIdent.name()).isEqualTo("ident");
-    assertThat(stringIdent.type()).isEqualTo(SimpleType.STRING);
-    assertThat(stringIdent.doc()).isEqualTo("doc");
-    assertThat(stringIdent.constant()).hasValue(CelConstant.ofValue("str"));
+    assertThat(stringVar.name()).isEqualTo("ident");
+    assertThat(stringVar.type()).isEqualTo(SimpleType.STRING);
+    assertThat(stringVar.doc()).isEqualTo("doc");
+    assertThat(stringVar.constant()).hasValue(CelConstant.ofValue("str"));
   }
 
   @Test
-  public void celIdentBuilder_clearConstant() {
-    CelIdentDecl.Builder builder =
-        CelIdentDecl.newBuilder()
+  public void celVarBuilder_clearConstant() {
+    CelVarDecl varDecl =
+        CelVarDecl.newBuilder()
             .setName("ident")
             .setType(SimpleType.STRING)
-            .setConstant(CelConstant.ofValue("str"));
+            .setConstant(CelConstant.ofValue("str"))
+            .clearConstant()
+            .build();
 
-    builder.clearConstant();
-
-    assertThat(builder.build().constant()).isEmpty();
+    assertThat(varDecl.constant()).isEmpty();
   }
 
   @Test
-  public void newIdentDeclaration_success() {
-    CelIdentDecl intIdent = CelIdentDecl.newIdentDeclaration("ident", SimpleType.INT);
+  public void newVarDeclaration_success() {
+    CelVarDecl intVar = CelVarDecl.newVarDeclaration("ident", SimpleType.INT);
 
-    assertThat(intIdent.name()).isEqualTo("ident");
-    assertThat(intIdent.type()).isEqualTo(SimpleType.INT);
-    assertThat(intIdent.doc()).isEmpty();
-    assertThat(intIdent.constant()).isEmpty();
+    assertThat(intVar.name()).isEqualTo("ident");
+    assertThat(intVar.type()).isEqualTo(SimpleType.INT);
+    assertThat(intVar.doc()).isEmpty();
+    assertThat(intVar.constant()).isEmpty();
   }
 
   @Test
-  public void celIdentToDecl_success() {
-    CelIdentDecl stringIdent =
-        CelIdentDecl.newBuilder()
+  public void celVarDeclToDecl_success() {
+    CelVarDecl stringVar =
+        CelVarDecl.newBuilder()
             .setName("ident")
             .setType(SimpleType.STRING)
             .setDoc("doc")
             .setConstant(CelConstant.ofValue("str"))
             .build();
 
-    Decl decl = CelIdentDecl.celIdentToDecl(stringIdent);
+    Decl decl = CelProtoDeclConverter.celVarDeclToDecl(stringVar);
 
     assertThat(decl)
         .isEqualTo(

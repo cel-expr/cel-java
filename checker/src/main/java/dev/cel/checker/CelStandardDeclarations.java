@@ -25,6 +25,7 @@ import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import com.google.errorprone.annotations.Immutable;
 import dev.cel.common.CelFunctionDecl;
 import dev.cel.common.CelOverloadDecl;
+import dev.cel.common.CelVarDecl;
 import dev.cel.common.Operator;
 import dev.cel.common.types.CelType;
 import dev.cel.common.types.CelTypes;
@@ -56,7 +57,7 @@ public final class CelStandardDeclarations {
       new CelStandardDeclarations(ImmutableSet.of(), ImmutableSet.of());
 
   private final ImmutableSet<CelFunctionDecl> celFunctionDecls;
-  private final ImmutableSet<CelIdentDecl> celIdentDecls;
+  private final ImmutableSet<CelVarDecl> celIdentDecls;
 
   /** Enumeration of Standard Functions. */
   public enum StandardFunction implements CelFunctionDecl.Declarer {
@@ -1559,25 +1560,25 @@ public final class CelStandardDeclarations {
     MAP(newStandardIdentDecl("map", MapType.create(SimpleType.DYN, SimpleType.DYN))),
     ;
 
-    private static CelIdentDecl newStandardIdentDecl(CelType celType) {
+    private final CelVarDecl identDecl;
+
+    public CelVarDecl identDecl() {
+      return identDecl;
+    }
+
+    private static CelVarDecl newStandardIdentDecl(CelType celType) {
       return newStandardIdentDecl(CelTypes.format(celType), celType);
     }
 
-    private static CelIdentDecl newStandardIdentDecl(String identName, CelType celType) {
-      return CelIdentDecl.newBuilder()
+    private static CelVarDecl newStandardIdentDecl(String identName, CelType celType) {
+      return CelVarDecl.newBuilder()
           .setName(identName)
           .setType(TypeType.create(celType))
           .setDoc("type denotation")
           .build();
     }
 
-    private final CelIdentDecl identDecl;
-
-    public CelIdentDecl identDecl() {
-      return identDecl;
-    }
-
-    StandardIdentifier(CelIdentDecl identDecl) {
+    StandardIdentifier(CelVarDecl identDecl) {
       this.identDecl = identDecl;
     }
   }
@@ -1740,7 +1741,7 @@ public final class CelStandardDeclarations {
         functionDeclBuilder.add(standardFunction.celFunctionDecl);
       }
 
-      ImmutableSet.Builder<CelIdentDecl> identBuilder = ImmutableSet.builder();
+      ImmutableSet.Builder<CelVarDecl> identBuilder = ImmutableSet.builder();
       for (StandardIdentifier standardIdentifier : StandardIdentifier.values()) {
         if (hasIncludeIdentifiers) {
           if (this.includeIdentifiers.contains(standardIdentifier)) {
@@ -1804,12 +1805,12 @@ public final class CelStandardDeclarations {
     return celFunctionDecls;
   }
 
-  ImmutableSet<CelIdentDecl> identifierDecls() {
+  ImmutableSet<CelVarDecl> identifierDecls() {
     return celIdentDecls;
   }
 
   private CelStandardDeclarations(
-      ImmutableSet<CelFunctionDecl> celFunctionDecls, ImmutableSet<CelIdentDecl> celIdentDecls) {
+      ImmutableSet<CelFunctionDecl> celFunctionDecls, ImmutableSet<CelVarDecl> celIdentDecls) {
     this.celFunctionDecls = celFunctionDecls;
     this.celIdentDecls = celIdentDecls;
   }

@@ -15,16 +15,12 @@
 package dev.cel.common;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-import static com.google.common.collect.ImmutableList.toImmutableList;
 
-import dev.cel.expr.Decl;
-import dev.cel.expr.Decl.FunctionDecl;
 import com.google.auto.value.AutoValue;
 import com.google.common.collect.ImmutableSet;
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import com.google.errorprone.annotations.CheckReturnValue;
 import com.google.errorprone.annotations.Immutable;
-import dev.cel.common.annotations.Internal;
 import java.util.Arrays;
 
 /** Abstract representation of a CEL Function declaration. */
@@ -96,19 +92,5 @@ public abstract class CelFunctionDecl {
   public static CelFunctionDecl newFunctionDeclaration(
       String functionName, Iterable<CelOverloadDecl> overloads) {
     return CelFunctionDecl.newBuilder().setName(functionName).addOverloads(overloads).build();
-  }
-
-  /** Converts a {@link CelFunctionDecl} to a protobuf equivalent form {@link FunctionDecl} */
-  @Internal
-  public static Decl celFunctionDeclToDecl(CelFunctionDecl celFunctionDecl) {
-    return Decl.newBuilder()
-        .setName(celFunctionDecl.name())
-        .setFunction(
-            FunctionDecl.newBuilder()
-                .addAllOverloads(
-                    celFunctionDecl.overloads().stream()
-                        .map(CelOverloadDecl::celOverloadToOverload)
-                        .collect(toImmutableList())))
-        .build();
   }
 }

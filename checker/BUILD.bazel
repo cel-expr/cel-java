@@ -33,11 +33,6 @@ java_library(
 )
 
 java_library(
-    name = "cel_ident_decl",
-    exports = ["//checker/src/main/java/dev/cel/checker:cel_ident_decl"],
-)
-
-java_library(
     name = "checker_legacy_environment",
     deprecation = "See go/cel-java-migration-guide. Please use CEL-Java Fluent APIs //compiler instead",
     exports = ["//checker/src/main/java/dev/cel/checker:checker_legacy_environment"],

@@ -21,6 +21,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.errorprone.annotations.Immutable;
+import dev.cel.common.CelVarDecl;
 import dev.cel.common.types.CelKind;
 import dev.cel.common.types.CelType;
 import dev.cel.common.types.CelTypeProvider;
@@ -69,8 +70,8 @@ public final class ProtoTypeMaskTypeProvider implements CelTypeProvider {
    * <p>All top-level fields in {@link ProtoTypeMask#getTypeName} definition which are also exposed
    * via a {@code FieldMask} are converted into {@code Decl} values.
    */
-  ImmutableList<CelIdentDecl> computeDeclsFromProtoTypeMasks() {
-    ImmutableList.Builder<CelIdentDecl> decls = ImmutableList.builder();
+  ImmutableList<CelVarDecl> computeDeclsFromProtoTypeMasks() {
+    ImmutableList.Builder<CelVarDecl> decls = ImmutableList.builder();
     for (ProtoTypeMask typeMask : protoTypeMasks) {
       if (!typeMask.fieldsAreVariableDeclarations()) {
         continue;
@@ -82,7 +83,7 @@ public final class ProtoTypeMaskTypeProvider implements CelTypeProvider {
       StructType celStruct = (StructType) celType.get();
       // The fieldNames cannot be null based on the checking provided by the computeVisibleFieldsMap
       for (StructType.Field field : celStruct.fields()) {
-        decls.add(CelIdentDecl.newIdentDeclaration(field.name(), field.type()));
+        decls.add(CelVarDecl.newVarDeclaration(field.name(), field.type()));
       }
     }
     return decls.build();

@@ -34,6 +34,8 @@ import dev.cel.common.CelContainer;
 import dev.cel.common.CelFunctionDecl;
 import dev.cel.common.CelOptions;
 import dev.cel.common.CelOverloadDecl;
+import dev.cel.common.CelProtoDeclConverter;
+import dev.cel.common.CelVarDecl;
 import dev.cel.common.annotations.Internal;
 import dev.cel.common.ast.CelConstant;
 import dev.cel.common.ast.CelExpr;
@@ -71,8 +73,8 @@ public class Env {
   public static final int ROOT_SCOPE = 0;
 
   /** An ident declaration to represent an error. */
-  public static final CelIdentDecl ERROR_IDENT_DECL =
-      CelIdentDecl.newBuilder().setName("*error*").setType(SimpleType.ERROR).build();
+  public static final CelVarDecl ERROR_IDENT_DECL =
+      CelVarDecl.newBuilder().setName("*error*").setType(SimpleType.ERROR).build();
 
   /** A function declaration to represent an error. */
   public static final CelFunctionDecl ERROR_FUNCTION_DECL =
@@ -347,28 +349,9 @@ public class Env {
   public Env add(Decl decl) {
     switch (decl.getDeclKindCase()) {
       case IDENT:
-        CelIdentDecl.Builder identBuilder =
-            CelIdentDecl.newBuilder()
-                .setName(decl.getName())
-                .setType(CelProtoTypes.typeToCelType(decl.getIdent().getType()))
-                // Note: Setting doc and constant value exists for compatibility reason. This should
-                // not be set by the users.
-                .setDoc(decl.getIdent().getDoc());
-        if (decl.getIdent().hasValue()) {
-          identBuilder.setConstant(
-              CelExprConverter.exprConstantToCelConstant(decl.getIdent().getValue()));
-        }
-        return add(identBuilder.build());
+        return add(CelProtoDeclConverter.declToCelVarDecl(decl));
       case FUNCTION:
-        ImmutableList.Builder<CelOverloadDecl> overloadDeclBuilder = new ImmutableList.Builder<>();
-        for (Overload overload : decl.getFunction().getOverloadsList()) {
-          overloadDeclBuilder.add(CelOverloadDecl.overloadToCelOverload(overload));
-        }
-        return add(
-            CelFunctionDecl.newBuilder()
-                .setName(decl.getName())
-                .addOverloads(overloadDeclBuilder.build())
-                .build());
+        return add(CelProtoDeclConverter.declToCelFunctionDecl(decl));
       default:
         break;
     }
@@ -381,8 +364,8 @@ public class Env {
   }
 
   @CanIgnoreReturnValue
-  public Env add(CelIdentDecl celIdentDecl) {
-    return addIdent(sanitizeIdent(celIdentDecl));
+  public Env add(CelVarDecl celVarDecl) {
+    return addIdent(sanitizeIdent(celVarDecl));
   }
 
   /**
@@ -395,7 +378,7 @@ public class Env {
   @CanIgnoreReturnValue
   @Deprecated
   public Env add(String name, Type type) {
-    return add(CelIdentDecl.newIdentDeclaration(name, CelProtoTypes.typeToCelType(type)));
+    return add(CelVarDecl.newVarDeclaration(name, CelProtoTypes.typeToCelType(type)));
   }
 
   /**
@@ -410,7 +393,7 @@ public class Env {
       return null;
     }
 
-    return CelFunctionDecl.celFunctionDeclToDecl(decl);
+    return CelProtoDeclConverter.celFunctionDeclToDecl(decl);
   }
 
   /**
@@ -439,12 +422,12 @@ public class Env {
    */
   @Deprecated
   public @Nullable Decl tryLookupIdent(CelContainer container, String name) {
-    CelIdentDecl decl = tryLookupCelIdent(container, name);
+    CelVarDecl decl = tryLookupCelIdent(container, name);
     if (decl == null) {
       return null;
     }
 
-    return CelIdentDecl.celIdentToDecl(decl);
+    return CelProtoDeclConverter.celVarDeclToDecl(decl);
   }
 
   /**
@@ -457,7 +440,7 @@ public class Env {
    *
    * <p>Returns {@code null} if the ident cannot be found.
    */
-  public @Nullable CelIdentDecl tryLookupCelIdent(CelContainer container, String name) {
+  public @Nullable CelVarDecl tryLookupCelIdent(CelContainer container, String name) {
     // A name with a leading '.' always resolves in the root scope, bypassing local scopes.
     if (!name.startsWith(".")) {
       // Check if this is a qualified ident, or a field selection.
@@ -468,7 +451,7 @@ public class Env {
       }
 
       // Attempt to find the decl with just the ident name to account for shadowed variables.
-      CelIdentDecl decl = tryLookupCelIdentFromLocalScopes(simpleName);
+      CelVarDecl decl = tryLookupCelIdentFromLocalScopes(simpleName);
       if (decl != null) {
         // Appears to be a field selection on a local.
         // Return null instead of attempting to resolve qualified name at the root scope
@@ -477,7 +460,7 @@ public class Env {
     }
 
     for (String cand : container.resolveCandidateNames(name)) {
-      CelIdentDecl decl = tryLookupCelIdent(cand);
+      CelVarDecl decl = tryLookupCelIdent(cand);
       if (decl != null) {
         return decl;
       }
@@ -486,9 +469,9 @@ public class Env {
     return null;
   }
 
-  private @Nullable CelIdentDecl tryLookupCelIdent(String cand) {
+  private @Nullable CelVarDecl tryLookupCelIdent(String cand) {
     // First determine whether we know this name already.
-    CelIdentDecl decl = findIdentDecl(cand);
+    CelVarDecl decl = findIdentDecl(cand);
     if (decl != null) {
       return decl;
     }
@@ -497,7 +480,7 @@ public class Env {
     // This is done via the type provider.
     Optional<CelType> type = typeProvider.lookupCelType(cand);
     if (type.isPresent()) {
-      decl = CelIdentDecl.newIdentDeclaration(cand, type.get());
+      decl = CelVarDecl.newVarDeclaration(cand, type.get());
       decls.get(0).putIdent(decl);
       return decl;
     }
@@ -507,7 +490,7 @@ public class Env {
     Integer enumValue = typeProvider.lookupEnumValue(cand);
     if (enumValue != null) {
       decl =
-          CelIdentDecl.newBuilder()
+          CelVarDecl.newBuilder()
               .setName(cand)
               .setType(SimpleType.INT)
               .setConstant(CelConstant.ofValue(enumValue))
@@ -525,7 +508,7 @@ public class Env {
    *
    * <p>Returns {@code null} if not found in local scopes.
    */
-  @Nullable CelIdentDecl tryLookupCelIdentFromLocalScopes(String name) {
+  @Nullable CelVarDecl tryLookupCelIdentFromLocalScopes(String name) {
     int firstUserSpaceScope = 2;
     // Iterate from the top of the stack down to the first local scope.
     // Note that:
@@ -533,7 +516,7 @@ public class Env {
     // Scope 1: User defined environment
     // Scope 2 and onwards: comprehension scopes
     for (int i = decls.size() - 1; i >= firstUserSpaceScope; i--) {
-      CelIdentDecl ident = decls.get(i).getIdent(name);
+      CelVarDecl ident = decls.get(i).getIdent(name);
       if (ident != null) {
         return ident;
       }
@@ -545,8 +528,8 @@ public class Env {
    * Lookup a name like {@link #tryLookupCelIdent}, but report an error if the name is not found and
    * return the {@link #ERROR_IDENT_DECL}.
    */
-  public CelIdentDecl lookupIdent(long exprId, int position, CelContainer container, String name) {
-    CelIdentDecl result = tryLookupCelIdent(container, name);
+  public CelVarDecl lookupIdent(long exprId, int position, CelContainer container, String name) {
+    CelVarDecl result = tryLookupCelIdent(container, name);
     if (result == null) {
       reportError(
           exprId,
@@ -607,18 +590,18 @@ public class Env {
 
   /** Add an identifier {@code decl} to the environment. */
   @CanIgnoreReturnValue
-  private Env addIdent(CelIdentDecl celIdentDecl) {
-    CelIdentDecl current = getDeclGroup().getIdent(celIdentDecl.name());
+  private Env addIdent(CelVarDecl celVarDecl) {
+    CelVarDecl current = getDeclGroup().getIdent(celVarDecl.name());
     if (current == null) {
-      getDeclGroup().putIdent(celIdentDecl);
+      getDeclGroup().putIdent(celVarDecl);
     } else {
       reportError(
           /* exprId= */ 0,
           /* position= */ 0,
           "overlapping declaration name '%s' (type '%s' cannot be distinguished from '%s')",
-          celIdentDecl.name(),
+          celVarDecl.name(),
           CelTypes.format(current.type()),
-          CelTypes.format(celIdentDecl.type()));
+          CelTypes.format(celVarDecl.type()));
     }
     return this;
   }
@@ -688,9 +671,9 @@ public class Env {
   }
 
   /** Search for the named identifier declaration. */
-  private @Nullable CelIdentDecl findIdentDecl(String name) {
+  private @Nullable CelVarDecl findIdentDecl(String name) {
     for (DeclGroup declGroup : Lists.reverse(decls)) {
-      CelIdentDecl ident = declGroup.getIdent(name);
+      CelVarDecl ident = declGroup.getIdent(name);
       if (ident != null) {
         return ident;
       }
@@ -749,7 +732,7 @@ public class Env {
    */
   @Deprecated
   public static final class IdentBuilder {
-    private final CelIdentDecl.Builder builder = CelIdentDecl.newBuilder();
+    private final CelVarDecl.Builder builder = CelVarDecl.newBuilder();
 
     /** Create an identifier builder. */
     public IdentBuilder(String name) {
@@ -788,7 +771,7 @@ public class Env {
 
     /** Build the ident {@code Decl}. */
     public Decl build() {
-      return CelIdentDecl.celIdentToDecl(builder.build());
+      return CelProtoDeclConverter.celVarDeclToDecl(builder.build());
     }
   }
 
@@ -824,7 +807,7 @@ public class Env {
       Preconditions.checkNotNull(func);
       for (Overload overload : func.getFunction().getOverloadsList()) {
         this.overloads.add(
-            CelOverloadDecl.overloadToCelOverload(overload).toBuilder()
+            CelProtoDeclConverter.overloadToCelOverload(overload).toBuilder()
                 .setOverloadId(overload.getOverloadId().replace(idPart, idPartReplace))
                 .build());
       }
@@ -896,7 +879,7 @@ public class Env {
     /** Build the function {@code Decl}. */
     @CheckReturnValue
     public Decl build() {
-      return CelFunctionDecl.celFunctionDeclToDecl(
+      return CelProtoDeclConverter.celFunctionDeclToDecl(
           CelFunctionDecl.newBuilder().setName(name).addOverloads(overloads).build());
     }
   }
@@ -914,7 +897,7 @@ public class Env {
    */
   public static class DeclGroup {
 
-    private final Map<String, CelIdentDecl> idents;
+    private final Map<String, CelVarDecl> idents;
     private final Map<String, CelFunctionDecl> functions;
 
     /** Construct an empty {@code DeclGroup}. */
@@ -923,7 +906,7 @@ public class Env {
     }
 
     /** Construct a new {@code DeclGroup} from the input {@code idents} and {@code functions}. */
-    public DeclGroup(Map<String, CelIdentDecl> idents, Map<String, CelFunctionDecl> functions) {
+    public DeclGroup(Map<String, CelVarDecl> idents, Map<String, CelFunctionDecl> functions) {
       this.functions = functions;
       this.idents = idents;
     }
@@ -931,7 +914,7 @@ public class Env {
     /**
      * Get an immutable map of the identifiers in the {@code DeclGroup} keyed by declaration name.
      */
-    public Map<String, CelIdentDecl> getIdents() {
+    public Map<String, CelVarDecl> getIdents() {
       return ImmutableMap.copyOf(idents);
     }
 
@@ -941,12 +924,12 @@ public class Env {
     }
 
     /** Get an identifier declaration by {@code name}. Returns {@code null} if absent. */
-    public @Nullable CelIdentDecl getIdent(String name) {
+    public @Nullable CelVarDecl getIdent(String name) {
       return idents.get(name);
     }
 
     /** Put an identifier declaration into the {@code DeclGroup}. */
-    public void putIdent(CelIdentDecl ident) {
+    public void putIdent(CelVarDecl ident) {
       idents.put(ident.name(), ident);
     }
 
@@ -970,13 +953,13 @@ public class Env {
    * Sanitize the identifier declaration type making sure that proto-based message names are mapped
    * to the appropriate CEL type.
    */
-  private static CelIdentDecl sanitizeIdent(CelIdentDecl decl) {
+  private static CelVarDecl sanitizeIdent(CelVarDecl decl) {
     CelType type = decl.type();
     if (!isWellKnownType(type)) {
       return decl;
     }
 
-    return CelIdentDecl.newIdentDeclaration(decl.name(), getWellKnownType(decl.type()));
+    return decl.toBuilder().setType(getWellKnownType(decl.type())).build();
   }
 
   /**

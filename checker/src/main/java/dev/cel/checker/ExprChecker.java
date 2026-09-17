@@ -33,6 +33,7 @@ import dev.cel.common.CelMutableAst;
 import dev.cel.common.CelOverloadDecl;
 import dev.cel.common.CelProtoAbstractSyntaxTree;
 import dev.cel.common.CelSource;
+import dev.cel.common.CelVarDecl;
 import dev.cel.common.Operator;
 import dev.cel.common.annotations.Internal;
 import dev.cel.common.ast.CelConstant;
@@ -262,7 +263,7 @@ public final class ExprChecker {
   }
 
   private void visit(CelMutableExpr expr, CelMutableIdent ident) {
-    CelIdentDecl decl = env.lookupIdent(expr.id(), getPosition(expr), container, ident.name());
+    CelVarDecl decl = env.lookupIdent(expr.id(), getPosition(expr), container, ident.name());
     checkNotNull(decl);
     if (decl.equals(Env.ERROR_IDENT_DECL)) {
       // error reported
@@ -285,7 +286,7 @@ public final class ExprChecker {
     // Before traversing down the tree, try to interpret as qualified name.
     String qname = asQualifiedName(expr);
     if (qname != null) {
-      CelIdentDecl decl = env.tryLookupCelIdent(container, qname);
+      CelVarDecl decl = env.tryLookupCelIdent(container, qname);
       if (decl != null) {
         if (select.testOnly()) {
           env.reportError(expr.id(), getPosition(expr), "expression does not select a field");
@@ -299,6 +300,7 @@ public final class ExprChecker {
             expr.setIdent(CelMutableIdent.create(refName));
           }
           env.setType(expr, decl.type());
+
           env.setRef(expr, makeReference(refName, decl));
         }
         return;
@@ -375,7 +377,7 @@ public final class ExprChecker {
   private void visit(CelMutableExpr expr, CelMutableStruct struct) {
     // Determine the type of the message.
     CelType messageType = SimpleType.ERROR;
-    CelIdentDecl decl =
+    CelVarDecl decl =
         env.lookupIdent(expr.id(), getPosition(expr), container, struct.messageName());
     if (!struct.messageName().equals(decl.name())) {
       struct.setMessageName(decl.name());
@@ -545,12 +547,12 @@ public final class ExprChecker {
 
     // Declare accumulation variable on outer scope.
     env.enterScope();
-    env.add(CelIdentDecl.newIdentDeclaration(compre.accuVar(), accuType));
+    env.add(CelVarDecl.newVarDeclaration(compre.accuVar(), accuType));
     // Declare iteration variable on inner scope.
     env.enterScope();
-    env.add(CelIdentDecl.newIdentDeclaration(compre.iterVar(), varType));
+    env.add(CelVarDecl.newVarDeclaration(compre.iterVar(), varType));
     if (!Strings.isNullOrEmpty(compre.iterVar2())) {
-      env.add(CelIdentDecl.newIdentDeclaration(compre.iterVar2(), varType2));
+      env.add(CelVarDecl.newVarDeclaration(compre.iterVar2(), varType2));
     }
     visit(compre.loopCondition());
     assertType(compre.loopCondition(), SimpleType.BOOL);
@@ -564,11 +566,9 @@ public final class ExprChecker {
     env.setType(expr, inferenceContext.specialize(env.getType(compre.result())));
   }
 
-  private CelReference makeReference(String name, CelIdentDecl decl) {
+  private CelReference makeReference(String name, CelVarDecl decl) {
     CelReference.Builder ref = CelReference.newBuilder().setName(name);
-    if (decl.constant().isPresent()) {
-      ref.setValue(decl.constant().get());
-    }
+    decl.constant().ifPresent(ref::setValue);
     return ref.build();
   }
 

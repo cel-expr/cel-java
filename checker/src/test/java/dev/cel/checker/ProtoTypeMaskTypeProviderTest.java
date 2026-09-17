@@ -22,6 +22,7 @@ import static org.junit.Assert.assertThrows;
 import com.google.common.collect.ImmutableSet;
 import com.google.protobuf.FieldMask;
 import com.google.rpc.context.AttributeContext;
+import dev.cel.common.CelVarDecl;
 import dev.cel.common.types.CelType;
 import dev.cel.common.types.CelTypeProvider;
 import dev.cel.common.types.MapType;
@@ -219,8 +220,8 @@ public final class ProtoTypeMaskTypeProviderTest {
     ProtoMessageType requestType = (ProtoMessageType) celTypeProvider.findType(REQUEST_TYPE).get();
     assertThat(protoTypeMaskProvider.computeDeclsFromProtoTypeMasks())
         .containsExactly(
-            CelIdentDecl.newBuilder().setName("resource").setType(resourceType).build(),
-            CelIdentDecl.newBuilder().setName("request").setType(requestType).build());
+            CelVarDecl.newBuilder().setName("resource").setType(resourceType).build(),
+            CelVarDecl.newBuilder().setName("request").setType(requestType).build());
   }
 
   @Test

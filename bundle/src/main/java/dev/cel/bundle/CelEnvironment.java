@@ -478,7 +478,11 @@ public abstract class CelEnvironment {
 
     /** Converts this policy variable declaration into a {@link CelVarDecl}. */
     public CelVarDecl toCelVarDecl(CelTypeProvider celTypeProvider) {
-      return CelVarDecl.newVarDeclaration(name(), type().toCelType(celTypeProvider));
+      return CelVarDecl.newBuilder()
+          .setName(name())
+          .setType(type().toCelType(celTypeProvider))
+          .setDoc(description().orElse(""))
+          .build();
     }
   }
 

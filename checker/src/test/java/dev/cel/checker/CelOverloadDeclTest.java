@@ -22,6 +22,7 @@ import static dev.cel.common.CelOverloadDecl.newMemberOverload;
 import dev.cel.expr.Decl.FunctionDecl.Overload;
 import com.google.common.collect.ImmutableList;
 import dev.cel.common.CelOverloadDecl;
+import dev.cel.common.CelProtoDeclConverter;
 import dev.cel.common.types.CelProtoTypes;
 import dev.cel.common.types.SimpleType;
 import dev.cel.common.types.TypeParamType;
@@ -30,7 +31,7 @@ import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
 
 @RunWith(JUnit4.class)
-public class CelOverloadDeclTest {
+public final class CelOverloadDeclTest {
   @Test
   public void newGlobalFunction_success() {
     CelOverloadDecl overloadDecl =
@@ -69,16 +70,16 @@ public class CelOverloadDeclTest {
 
   @Test
   public void toProtoOverload_withTypeParams() {
-    CelOverloadDecl.Builder celOverloadDeclBuilder =
+    CelOverloadDecl celOverloadDecl =
         CelOverloadDecl.newBuilder()
             .setOverloadId("overloadId")
             .setResultType(TypeParamType.create("A"))
             .addParameterTypes(SimpleType.STRING, SimpleType.DOUBLE, TypeParamType.create("B"))
-            .setIsInstanceFunction(true);
+            .setIsInstanceFunction(true)
+            .build();
 
-    CelOverloadDecl celOverloadDecl = celOverloadDeclBuilder.build();
+    Overload protoOverload = CelProtoDeclConverter.celOverloadToOverload(celOverloadDecl);
 
-    Overload protoOverload = CelOverloadDecl.celOverloadToOverload(celOverloadDecl);
     assertThat(protoOverload.getOverloadId()).isEqualTo("overloadId");
     assertThat(protoOverload.getIsInstanceFunction()).isTrue();
     assertThat(protoOverload.getResultType()).isEqualTo(CelProtoTypes.createTypeParam("A"));

@@ -15,7 +15,6 @@
 package dev.cel.checker;
 
 import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.collect.ImmutableList.toImmutableList;
 import static dev.cel.common.types.CelProtoTypes.format;
 
 import dev.cel.expr.CheckedExpr;
@@ -31,16 +30,13 @@ import com.google.testing.junit.testparameterinjector.TestParameterInjector;
 // import com.google.testing.testsize.MediumTest;
 import dev.cel.common.CelAbstractSyntaxTree;
 import dev.cel.common.CelContainer;
-import dev.cel.common.CelFunctionDecl;
 import dev.cel.common.CelMutableAst;
-import dev.cel.common.CelOverloadDecl;
 import dev.cel.common.CelProtoAbstractSyntaxTree;
-import dev.cel.common.CelVarDecl;
+import dev.cel.common.CelProtoDeclConverter;
 import dev.cel.common.ast.CelConstant;
 import dev.cel.common.internal.EnvVisitable;
 import dev.cel.common.internal.EnvVisitor;
 import dev.cel.common.internal.Errors;
-import dev.cel.common.types.CelProtoTypes;
 import dev.cel.common.types.CelType;
 import dev.cel.common.types.ListType;
 import dev.cel.common.types.MapType;
@@ -116,18 +112,12 @@ public class ExprCheckerTest extends CelBaselineTestCase {
                 // interface
                 for (Decl decl : decls) {
                   if (decl.hasFunction()) {
-                    CelFunctionDecl celFunctionDecl =
-                        CelFunctionDecl.newFunctionDeclaration(
-                            decl.getName(),
-                            decl.getFunction().getOverloadsList().stream()
-                                .map(CelOverloadDecl::overloadToCelOverload)
-                                .collect(toImmutableList()));
-                    testOutput().println(formatFunctionDecl(celFunctionDecl));
+                    testOutput()
+                        .println(
+                            formatFunctionDecl(CelProtoDeclConverter.declToCelFunctionDecl(decl)));
                   } else if (decl.hasIdent()) {
-                    CelVarDecl celVarDecl =
-                        CelVarDecl.newVarDeclaration(
-                            decl.getName(), CelProtoTypes.typeToCelType(decl.getIdent().getType()));
-                    testOutput().println(formatVarDecl(celVarDecl));
+                    testOutput()
+                        .println(formatVarDecl(CelProtoDeclConverter.declToCelVarDecl(decl)));
                   } else {
                     throw new IllegalArgumentException("Invalid declaration: " + decl);
                   }

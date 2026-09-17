@@ -15,9 +15,7 @@
 package dev.cel.common;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-import static com.google.common.collect.ImmutableList.toImmutableList;
 
-import dev.cel.expr.Decl.FunctionDecl.Overload;
 import com.google.auto.value.AutoValue;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -25,7 +23,6 @@ import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import com.google.errorprone.annotations.CheckReturnValue;
 import com.google.errorprone.annotations.Immutable;
 import dev.cel.common.types.CelKind;
-import dev.cel.common.types.CelProtoTypes;
 import dev.cel.common.types.CelType;
 import java.util.Arrays;
 import java.util.List;
@@ -222,34 +219,6 @@ public abstract class CelOverloadDecl {
         .setResultType(resultType)
         .addParameterTypes(paramTypes)
         .setDoc(doc)
-        .build();
-  }
-
-  /** Converts a {@link CelOverloadDecl} to a protobuf equivalent form {@link Overload} */
-  public static Overload celOverloadToOverload(CelOverloadDecl overload) {
-    return Overload.newBuilder()
-        .setIsInstanceFunction(overload.isInstanceFunction())
-        .setOverloadId(overload.overloadId())
-        .setResultType(CelProtoTypes.celTypeToType(overload.resultType()))
-        .addAllParams(
-            overload.parameterTypes().stream()
-                .map(CelProtoTypes::celTypeToType)
-                .collect(toImmutableList()))
-        .addAllTypeParams(overload.typeParameterNames())
-        .setDoc(overload.doc())
-        .build();
-  }
-
-  public static CelOverloadDecl overloadToCelOverload(Overload overload) {
-    return CelOverloadDecl.newBuilder()
-        .setIsInstanceFunction(overload.getIsInstanceFunction())
-        .setOverloadId(overload.getOverloadId())
-        .setResultType(CelProtoTypes.typeToCelType(overload.getResultType()))
-        .setDoc(overload.getDoc())
-        .addParameterTypes(
-            overload.getParamsList().stream()
-                .map(CelProtoTypes::typeToCelType)
-                .collect(toImmutableList()))
         .build();
   }
 

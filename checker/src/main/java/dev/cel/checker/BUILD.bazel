@@ -65,22 +65,23 @@ java_library(
     tags = [
     ],
     deps = [
-        ":cel_ident_decl",
         ":checker_builder",
         ":checker_legacy_environment",
         ":proto_type_mask",
         ":standard_decl",
         ":type_provider_legacy_impl",
-        "//:auto_value",
         "//common:cel_ast",
         "//common:cel_descriptor_util",
+        "//common:cel_function_decl",
+        "//common:cel_issue",
+        "//common:cel_proto_decl_converter",
         "//common:cel_source",
-        "//common:compiler_common",
+        "//common:cel_validation_result",
+        "//common:cel_var_decl",
         "//common:container",
         "//common:options",
         "//common:source_location",
         "//common/annotations",
-        "//common/ast:expr_converter",
         "//common/internal:env_visitor",
         "//common/internal:errors",
         "//common/types",
@@ -105,7 +106,9 @@ java_library(
         ":proto_type_mask",
         ":standard_decl",
         "//common:cel_ast",
-        "//common:compiler_common",
+        "//common:cel_function_decl",
+        "//common:cel_validation_result",
+        "//common:cel_var_decl",
         "//common:container",
         "//common:options",
         "//common/types:type_providers",
@@ -129,33 +132,12 @@ java_library(
 )
 
 java_library(
-    name = "cel_ident_decl",
-    srcs = [
-        "CelIdentDecl.java",
-    ],
-    tags = [
-    ],
-    deps = [
-        "//:auto_value",
-        "//common/annotations",
-        "//common/ast",
-        "//common/ast:expr_converter",
-        "//common/types:cel_proto_types",
-        "//common/types:type_providers",
-        "@cel_spec//proto/cel/expr:checked_java_proto",
-        "@maven//:com_google_errorprone_error_prone_annotations",
-        "@maven//:com_google_guava_guava",
-    ],
-)
-
-java_library(
     name = "type_provider_legacy_impl",
     srcs = ["TypeProviderLegacyImpl.java"],
     tags = [
     ],
     deps = [
         ":checker_legacy_environment",
-        "//:auto_value",
         "//common/annotations",
         "//common/types",
         "//common/types:cel_proto_types",
@@ -173,12 +155,14 @@ java_library(
     tags = [
     ],
     deps = [
-        ":cel_ident_decl",
         ":standard_decl",
         "//:auto_value",
         "//common:cel_ast",
+        "//common:cel_function_decl",
+        "//common:cel_overload_decl",
+        "//common:cel_proto_decl_converter",
         "//common:cel_source",
-        "//common:compiler_common",
+        "//common:cel_var_decl",
         "//common:container",
         "//common:mutable_ast",
         "//common:operator",
@@ -240,8 +224,9 @@ java_library(
     tags = [
     ],
     deps = [
-        ":cel_ident_decl",
-        "//common:compiler_common",
+        "//common:cel_function_decl",
+        "//common:cel_overload_decl",
+        "//common:cel_var_decl",
         "//common:operator",
         "//common/types",
         "//common/types:cel_types",
