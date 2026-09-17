@@ -51,13 +51,13 @@ public final class Constants {
 
   public static CelConstant parseInt(String text) throws ParseException {
     int base;
-    if (text.startsWith("-0x")) {
+    if (text.startsWith("-0x") || text.startsWith("-0X")) {
       base = 16;
       // Strip off the sign and prefix.
       text = text.substring(3);
       // Add the sign back.
       text = "-" + text;
-    } else if (text.startsWith("0x")) {
+    } else if (text.startsWith("0x") || text.startsWith("0X")) {
       base = 16;
       text = text.substring(2);
       if (text.startsWith("-")) {
@@ -83,7 +83,7 @@ public final class Constants {
       throw new ParseException("Unsigned integer literal is missing trailing 'u' suffix", 0);
     }
     text = text.substring(0, text.length() - 1);
-    if (text.startsWith("0x")) {
+    if (text.startsWith("0x") || text.startsWith("0X")) {
       base = 16;
       text = text.substring(2);
     } else {

@@ -43,6 +43,15 @@ E/P: ERROR: <input>:1:5: Syntax error: unexpected character
  | 1 + $
  | ....^
 
+I: 1  + 2
+=====>
+E/A: ERROR: <input>:1:3: token recognition error at: ''
+ | 1  + 2
+ | ..^
+E/P: ERROR: <input>:1:3: Syntax error: unexpected character
+ | 1  + 2
+ | ..^
+
 I: ó ¢
 »»ó 0 
 »»\u007f0"""\""\"""\""\"""\""\"""\""\"""\"\"""\""\"""\""\"""\""\"""\"!\"""\""\"""\""\"
@@ -185,6 +194,27 @@ ERROR: <input>:1:6: mismatched input '<EOF>' expecting {'[', '{', '(', '.', '-',
 E/P: ERROR: <input>:1:5: Syntax error: unexpected token
  | 1 + +
  | ....^
+
+I: -!x
+=====>
+E/A: ERROR: <input>:1:2: no viable alternative at input '-!'
+ | -!x
+ | .^
+E/P: ERROR: <input>:1:2: Syntax error: unexpected token
+ | -!x
+ | .^
+ERROR: <input>:1:3: Syntax error: unexpected token after expression
+ | -!x
+ | ..^
+
+I: !-x
+=====>
+E/A: ERROR: <input>:1:3: no viable alternative at input '-x'
+ | !-x
+ | ..^
+E/P: ERROR: <input>:1:2: Syntax error: unexpected '-'
+ | !-x
+ | .^
 
 I: ?
 =====>
@@ -645,6 +675,18 @@ E/P: ERROR: <input>:1:6: Syntax error: expected identifier after '.'
  | self.true == 1
  | .....^
 
+I: a.in
+=====>
+E/A: ERROR: <input>:1:3: no viable alternative at input '.in'
+ | a.in
+ | ..^
+ERROR: <input>:1:5: mismatched input '<EOF>' expecting {'[', '{', '(', '.', '-', '!', 'true', 'false', 'null', NUM_FLOAT, NUM_INT, NUM_UINT, STRING, BYTES, IDENTIFIER}
+ | a.in
+ | ....^
+E/P: ERROR: <input>:1:3: Syntax error: expected identifier after '.'
+ | a.in
+ | ..^
+
 I: {a}
 =====>
 E/A: ERROR: <input>:1:3: mismatched input '}' expecting {'==', '!=', 'in', '<', '<=', '>=', '>', '&&', '||', '[', '.', '-', '?', ':', '+', '*', '/', '%%'}
@@ -779,6 +821,57 @@ ERROR: <input>:1:12: Syntax error: expected ']'
 ERROR: <input>:1:12: Syntax error: mismatched input <EOF> expecting ')'
  | has([(has((
  | ...........^
+
+I: (a){}
+=====>
+E/A: ERROR: <input>:1:4: mismatched input '{' expecting {'==', '!=', 'in', '<', '<=', '>=', '>', '&&', '||', '[', ')', '.', '-', '?', '+', '*', '/', '%%'}
+ | (a){}
+ | ...^
+E/P: ERROR: <input>:1:4: Syntax error: unexpected token after expression
+ | (a){}
+ | ...^
+
+I: (a.b){}
+=====>
+E/A: ERROR: <input>:1:6: mismatched input '{' expecting {'==', '!=', 'in', '<', '<=', '>=', '>', '&&', '||', '[', ')', '.', '-', '?', '+', '*', '/', '%%'}
+ | (a.b){}
+ | .....^
+E/P: ERROR: <input>:1:6: Syntax error: unexpected token after expression
+ | (a.b){}
+ | .....^
+
+I: (a).b{}
+=====>
+E/A: ERROR: <input>:1:6: mismatched input '{' expecting {<EOF>, '==', '!=', 'in', '<', '<=', '>=', '>', '&&', '||', '[', '.', '-', '?', '+', '*', '/', '%%'}
+ | (a).b{}
+ | .....^
+E/P: ERROR: <input>:1:6: Syntax error: unexpected token after expression
+ | (a).b{}
+ | .....^
+
+I: a.`b-c`{}
+=====>
+E/A: ERROR: <input>:1:8: mismatched input '{' expecting {<EOF>, '==', '!=', 'in', '<', '<=', '>=', '>', '&&', '||', '[', '.', '-', '?', '+', '*', '/', '%%'}
+ | a.`b-c`{}
+ | .......^
+E/P: ERROR: <input>:1:8: Syntax error: unexpected token after expression
+ | a.`b-c`{}
+ | .......^
+
+I: Msg{`$b`: 1}
+=====>
+E/A: ERROR: <input>:1:5: token recognition error at: '`$'
+ | Msg{`$b`: 1}
+ | ....^
+ERROR: <input>:1:8: token recognition error at: '`:'
+ | Msg{`$b`: 1}
+ | .......^
+ERROR: <input>:1:11: missing ':' at '1'
+ | Msg{`$b`: 1}
+ | ..........^
+E/P: ERROR: <input>:1:5: unexpected quoted identifier
+ | Msg{`$b`: 1}
+ | ....^
 
 I: 1.all(2, 3)
 =====>
@@ -1050,6 +1143,21 @@ E/P: ERROR: <input>:1:3: unexpected quoted identifier
  | a.`$b`
  | ..^
 
+I: has(a.`$b`)
+=====>
+E/A: ERROR: <input>:1:7: token recognition error at: '`$'
+ | has(a.`$b`)
+ | ......^
+ERROR: <input>:1:10: token recognition error at: '`)'
+ | has(a.`$b`)
+ | .........^
+ERROR: <input>:1:12: missing ')' at '<EOF>'
+ | has(a.`$b`)
+ | ...........^
+E/P: ERROR: <input>:1:7: unexpected quoted identifier
+ | has(a.`$b`)
+ | ......^
+
 I: a.`b.c`()
 =====>
 E/A: ERROR: <input>:1:8: mismatched input '(' expecting {<EOF>, '==', '!=', 'in', '<', '<=', '>=', '>', '&&', '||', '[', '.', '-', '?', '+', '*', '/', '%%'}
@@ -1058,6 +1166,9 @@ E/A: ERROR: <input>:1:8: mismatched input '(' expecting {<EOF>, '==', '!=', 'in'
 E/P: ERROR: <input>:1:3: unexpected quoted identifier
  | a.`b.c`()
  | ..^
+ERROR: <input>:1:9: Syntax error: unexpected token after expression
+ | a.`b.c`()
+ | ........^
 
 I: `bar`
 =====>
@@ -1248,9 +1359,54 @@ ERROR: <input>:1:31: no viable alternative at input '-!'
 ERROR: <input>:1:33: no viable alternative at input '-!'
  | !-!-!-!-!-!-!-!-!-!-!-!-!-!-!-!-!x
  | ................................^
-E/P: ERROR: <input>:1:33: Expression recursion limit exceeded. limit: 32
+E/P: ERROR: <input>:1:2: Syntax error: unexpected '-'
  | !-!-!-!-!-!-!-!-!-!-!-!-!-!-!-!-!x
- | ................................^
+ | .^
+ERROR: <input>:1:3: Syntax error: unexpected token
+ | !-!-!-!-!-!-!-!-!-!-!-!-!-!-!-!-!x
+ | ..^
+ERROR: <input>:1:6: Syntax error: unexpected '-'
+ | !-!-!-!-!-!-!-!-!-!-!-!-!-!-!-!-!x
+ | .....^
+ERROR: <input>:1:7: Syntax error: unexpected token
+ | !-!-!-!-!-!-!-!-!-!-!-!-!-!-!-!-!x
+ | ......^
+ERROR: <input>:1:10: Syntax error: unexpected '-'
+ | !-!-!-!-!-!-!-!-!-!-!-!-!-!-!-!-!x
+ | .........^
+ERROR: <input>:1:11: Syntax error: unexpected token
+ | !-!-!-!-!-!-!-!-!-!-!-!-!-!-!-!-!x
+ | ..........^
+ERROR: <input>:1:14: Syntax error: unexpected '-'
+ | !-!-!-!-!-!-!-!-!-!-!-!-!-!-!-!-!x
+ | .............^
+ERROR: <input>:1:15: Syntax error: unexpected token
+ | !-!-!-!-!-!-!-!-!-!-!-!-!-!-!-!-!x
+ | ..............^
+ERROR: <input>:1:18: Syntax error: unexpected '-'
+ | !-!-!-!-!-!-!-!-!-!-!-!-!-!-!-!-!x
+ | .................^
+ERROR: <input>:1:19: Syntax error: unexpected token
+ | !-!-!-!-!-!-!-!-!-!-!-!-!-!-!-!-!x
+ | ..................^
+ERROR: <input>:1:22: Syntax error: unexpected '-'
+ | !-!-!-!-!-!-!-!-!-!-!-!-!-!-!-!-!x
+ | .....................^
+ERROR: <input>:1:23: Syntax error: unexpected token
+ | !-!-!-!-!-!-!-!-!-!-!-!-!-!-!-!-!x
+ | ......................^
+ERROR: <input>:1:26: Syntax error: unexpected '-'
+ | !-!-!-!-!-!-!-!-!-!-!-!-!-!-!-!-!x
+ | .........................^
+ERROR: <input>:1:27: Syntax error: unexpected token
+ | !-!-!-!-!-!-!-!-!-!-!-!-!-!-!-!-!x
+ | ..........................^
+ERROR: <input>:1:30: Syntax error: unexpected '-'
+ | !-!-!-!-!-!-!-!-!-!-!-!-!-!-!-!-!x
+ | .............................^
+ERROR: <input>:1:31: Syntax error: unexpected token
+ | !-!-!-!-!-!-!-!-!-!-!-!-!-!-!-!-!x
+ | ..............................^
 
 I: 123456
 =====>

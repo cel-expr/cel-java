@@ -19,6 +19,12 @@ E: ERROR: <input>:1:5: Syntax error: unexpected character
  | 1 + $
  | ....^
 
+I: 1  + 2
+=====>
+E: ERROR: <input>:1:3: Syntax error: unexpected character
+ | 1  + 2
+ | ..^
+
 I: ó ¢
 »»ó 0 
 »»\u007f0"""\""\"""\""\"""\""\"""\""\"""\"\"""\""\"""\""\"""\""\"""\"!\"""\""\"""\""\"
@@ -53,6 +59,21 @@ I: 1 + +
 E: ERROR: <input>:1:5: Syntax error: unexpected token
  | 1 + +
  | ....^
+
+I: -!x
+=====>
+E: ERROR: <input>:1:2: Syntax error: unexpected token
+ | -!x
+ | .^
+ERROR: <input>:1:3: Syntax error: unexpected token after expression
+ | -!x
+ | ..^
+
+I: !-x
+=====>
+E: ERROR: <input>:1:2: Syntax error: unexpected '-'
+ | !-x
+ | .^
 
 I: ?
 =====>
@@ -250,6 +271,12 @@ E: ERROR: <input>:1:6: Syntax error: expected identifier after '.'
  | self.true == 1
  | .....^
 
+I: a.in
+=====>
+E: ERROR: <input>:1:3: Syntax error: expected identifier after '.'
+ | a.in
+ | ..^
+
 I: {a}
 =====>
 E: ERROR: <input>:1:3: Syntax error: expected ':' in map entry
@@ -303,6 +330,36 @@ E: ERROR: <input>:1:3: Syntax error: expected struct field name
 ERROR: <input>:1:4: Syntax error: expected '}'
  | x{.
  | ...^
+
+I: (a){}
+=====>
+E: ERROR: <input>:1:4: Syntax error: unexpected token after expression
+ | (a){}
+ | ...^
+
+I: (a.b){}
+=====>
+E: ERROR: <input>:1:6: Syntax error: unexpected token after expression
+ | (a.b){}
+ | .....^
+
+I: (a).b{}
+=====>
+E: ERROR: <input>:1:6: Syntax error: unexpected token after expression
+ | (a).b{}
+ | .....^
+
+I: a.`b-c`{}
+=====>
+E: ERROR: <input>:1:8: Syntax error: unexpected token after expression
+ | a.`b-c`{}
+ | .......^
+
+I: Msg{`$b`: 1}
+=====>
+E: ERROR: <input>:1:5: unexpected quoted identifier
+ | Msg{`$b`: 1}
+ | ....^
 
 I: 1.all(2, 3)
 =====>
@@ -385,11 +442,20 @@ E: ERROR: <input>:1:3: unexpected quoted identifier
  | a.`$b`
  | ..^
 
+I: has(a.`$b`)
+=====>
+E: ERROR: <input>:1:7: unexpected quoted identifier
+ | has(a.`$b`)
+ | ......^
+
 I: a.`b.c`()
 =====>
 E: ERROR: <input>:1:3: unexpected quoted identifier
  | a.`b.c`()
  | ..^
+ERROR: <input>:1:9: Syntax error: unexpected token after expression
+ | a.`b.c`()
+ | ........^
 
 I: [[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
 »»»[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['too many']]]]]]]]]]]]]]]]]]]]]]]]]]]]
@@ -480,9 +546,54 @@ E: ERROR: <input>:1:353: Expression recursion limit exceeded. limit: 32
 
 I: !-!-!-!-!-!-!-!-!-!-!-!-!-!-!-!-!x
 =====>
-E: ERROR: <input>:1:33: Expression recursion limit exceeded. limit: 32
+E: ERROR: <input>:1:2: Syntax error: unexpected '-'
  | !-!-!-!-!-!-!-!-!-!-!-!-!-!-!-!-!x
- | ................................^
+ | .^
+ERROR: <input>:1:3: Syntax error: unexpected token
+ | !-!-!-!-!-!-!-!-!-!-!-!-!-!-!-!-!x
+ | ..^
+ERROR: <input>:1:6: Syntax error: unexpected '-'
+ | !-!-!-!-!-!-!-!-!-!-!-!-!-!-!-!-!x
+ | .....^
+ERROR: <input>:1:7: Syntax error: unexpected token
+ | !-!-!-!-!-!-!-!-!-!-!-!-!-!-!-!-!x
+ | ......^
+ERROR: <input>:1:10: Syntax error: unexpected '-'
+ | !-!-!-!-!-!-!-!-!-!-!-!-!-!-!-!-!x
+ | .........^
+ERROR: <input>:1:11: Syntax error: unexpected token
+ | !-!-!-!-!-!-!-!-!-!-!-!-!-!-!-!-!x
+ | ..........^
+ERROR: <input>:1:14: Syntax error: unexpected '-'
+ | !-!-!-!-!-!-!-!-!-!-!-!-!-!-!-!-!x
+ | .............^
+ERROR: <input>:1:15: Syntax error: unexpected token
+ | !-!-!-!-!-!-!-!-!-!-!-!-!-!-!-!-!x
+ | ..............^
+ERROR: <input>:1:18: Syntax error: unexpected '-'
+ | !-!-!-!-!-!-!-!-!-!-!-!-!-!-!-!-!x
+ | .................^
+ERROR: <input>:1:19: Syntax error: unexpected token
+ | !-!-!-!-!-!-!-!-!-!-!-!-!-!-!-!-!x
+ | ..................^
+ERROR: <input>:1:22: Syntax error: unexpected '-'
+ | !-!-!-!-!-!-!-!-!-!-!-!-!-!-!-!-!x
+ | .....................^
+ERROR: <input>:1:23: Syntax error: unexpected token
+ | !-!-!-!-!-!-!-!-!-!-!-!-!-!-!-!-!x
+ | ......................^
+ERROR: <input>:1:26: Syntax error: unexpected '-'
+ | !-!-!-!-!-!-!-!-!-!-!-!-!-!-!-!-!x
+ | .........................^
+ERROR: <input>:1:27: Syntax error: unexpected token
+ | !-!-!-!-!-!-!-!-!-!-!-!-!-!-!-!-!x
+ | ..........................^
+ERROR: <input>:1:30: Syntax error: unexpected '-'
+ | !-!-!-!-!-!-!-!-!-!-!-!-!-!-!-!-!x
+ | .............................^
+ERROR: <input>:1:31: Syntax error: unexpected token
+ | !-!-!-!-!-!-!-!-!-!-!-!-!-!-!-!-!x
+ | ..............................^
 
 I: 123456
 =====>

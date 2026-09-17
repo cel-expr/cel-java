@@ -76,9 +76,9 @@ I: 123a
 E/A: ERROR: <input>:1:4: extraneous input 'a' expecting <EOF>
  | 123a
  | ...^
-E/P: ERROR: <input>:1:1: Syntax error: int literal has unexpected trailing characters
+E/P: ERROR: <input>:1:4: Syntax error: unexpected token after expression
  | 123a
- | ^
+ | ...^
 
 I: 0u
 =====>
@@ -129,9 +129,9 @@ I: 123u_
 E/A: ERROR: <input>:1:5: extraneous input '_' expecting <EOF>
  | 123u_
  | ....^
-E/P: ERROR: <input>:1:1: Syntax error: uint literal has unexpected trailing characters
+E/P: ERROR: <input>:1:5: Syntax error: unexpected token after expression
  | 123u_
- | ^
+ | ....^
 
 I: 3.14
 =====>
@@ -245,9 +245,9 @@ I: 0x123z
 E/A: ERROR: <input>:1:6: extraneous input 'z' expecting <EOF>
  | 0x123z
  | .....^
-E/P: ERROR: <input>:1:1: Syntax error: int literal has unexpected trailing characters
+E/P: ERROR: <input>:1:6: Syntax error: unexpected token after expression
  | 0x123z
- | ^
+ | .....^
 
 I: 'hello'
 =====>
