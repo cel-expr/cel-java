@@ -307,7 +307,8 @@ public enum CelStandardMacro {
     CelExpr arg = checkNotNull(argument);
     if (!isSimpleIdentifier(arg)) {
       return reportArgumentError(exprFactory, arg);
-    } else if (arg.exprKind().ident().name().equals("__result__")) {
+    } else if (arg.exprKind().ident().name().equals(exprFactory.getAccumulatorVarName())
+        || arg.exprKind().ident().name().equals("__result__")) {
       return reportAccumulatorOverwriteError(exprFactory, arg);
     } else {
       return arg;

@@ -21,7 +21,6 @@ import com.google.auto.value.AutoValue;
 import com.google.common.collect.ImmutableList;
 import dev.cel.common.CelAbstractSyntaxTree;
 import dev.cel.common.CelContainer;
-import dev.cel.common.CelOptions;
 import dev.cel.common.Operator;
 import dev.cel.common.ast.CelExpr.CelCall;
 import dev.cel.common.ast.CelExpr.CelComprehension;
@@ -327,7 +326,6 @@ public class CelExprVisitorTest {
   public void visitComprehension() throws Exception {
     CelCompiler celCompiler =
         CelCompilerFactory.standardCelCompilerBuilder()
-            .setOptions(CelOptions.current().enableHiddenAccumulatorVar(true).build())
             .setStandardMacros(CelStandardMacro.ALL)
             .build();
     CelAbstractSyntaxTree ast = celCompiler.compile("[1, 1].all(x, x == 1)").getAst();
