@@ -14,7 +14,8 @@
 
 package dev.cel.runtime.planner;
 
-import static dev.cel.runtime.planner.EvalHelpers.evalNonstrictly;
+import static com.google.common.base.Preconditions.checkArgument;
+import static dev.cel.runtime.planner.EvalHelpers.evalBooleanNonstrictly;
 
 import com.google.errorprone.annotations.Immutable;
 import dev.cel.common.ast.CelExpr;
@@ -41,11 +42,9 @@ final class EvalExhaustiveAnd extends PlannedInterpretable {
     boolean hasFalse = false;
 
     for (PlannedInterpretable arg : args) {
-      Object argVal = evalNonstrictly(arg, resolver, frame);
-      if (argVal instanceof Boolean) {
-        if (!((boolean) argVal)) {
-          hasFalse = true;
-        }
+      Object argVal = evalBooleanNonstrictly(arg, resolver, frame);
+      if (argVal instanceof Boolean && !(boolean) argVal) {
+        hasFalse = true;
       }
 
       // If we already encountered a false, we do not need to accumulate unknowns or errors
@@ -55,10 +54,7 @@ final class EvalExhaustiveAnd extends PlannedInterpretable {
       }
 
       if (argVal instanceof AccumulatedUnknowns) {
-        accumulatedUnknowns =
-            accumulatedUnknowns == null
-                ? (AccumulatedUnknowns) argVal
-                : accumulatedUnknowns.merge((AccumulatedUnknowns) argVal);
+        accumulatedUnknowns = AccumulatedUnknowns.maybeMerge(accumulatedUnknowns, argVal);
       } else if (argVal instanceof ErrorValue) {
         if (errorValue == null) {
           errorValue = (ErrorValue) argVal;
@@ -87,6 +83,7 @@ final class EvalExhaustiveAnd extends PlannedInterpretable {
 
   private EvalExhaustiveAnd(CelExpr expr, PlannedInterpretable[] args) {
     super(expr);
+    checkArgument(args.length == 2);
     this.args = args;
   }
 }

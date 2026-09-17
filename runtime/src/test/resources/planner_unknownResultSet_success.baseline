@@ -206,7 +206,7 @@ single_timestamp {
   seconds: 15
 }
 , unknown_attributes=[x.single_int32, x.single_int64]}
-result:   CelUnknownSet{attributes=[x.single_int64], unknownExprIds=[27]}
+result:   CelUnknownSet{attributes=[x.single_int32, x.single_int64], unknownExprIds=[18, 27]}
 
 Source: [0, 2].all(z, z == 2 || z == x.single_int32)
 declare x {
@@ -236,7 +236,7 @@ single_timestamp {
   seconds: 15
 }
 , unknown_attributes=[x.single_int32, x.single_int64]}
-result:   CelUnknownSet{attributes=[x.single_int64], unknownExprIds=[27]}
+result:   CelUnknownSet{attributes=[x.single_int32, x.single_int64], unknownExprIds=[18, 27]}
 
 Source: [0, 2, 4].map(z, z == 0 || (z == 2 && z == x.single_int32) || (z == 4 && z == x.single_int64))
 declare x {
