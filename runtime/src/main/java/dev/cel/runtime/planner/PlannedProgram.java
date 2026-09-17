@@ -14,14 +14,19 @@
 
 package dev.cel.runtime.planner;
 
+import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.util.concurrent.MoreExecutors.directExecutor;
+
 import com.google.auto.value.AutoValue;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListeningExecutorService;
+import com.google.common.util.concurrent.SettableFuture;
 import com.google.errorprone.annotations.Immutable;
 import dev.cel.common.CelOptions;
 import dev.cel.common.annotations.Internal;
 import dev.cel.common.exceptions.CelRuntimeException;
 import dev.cel.common.values.ErrorValue;
+import dev.cel.runtime.AccumulatedUnknowns;
 import dev.cel.runtime.Activation;
 import dev.cel.runtime.CelAsyncEvaluationOptions;
 import dev.cel.runtime.CelEvaluationException;
@@ -33,8 +38,11 @@ import dev.cel.runtime.GlobalResolver;
 import dev.cel.runtime.InterpreterUtil;
 import dev.cel.runtime.PartialVars;
 import dev.cel.runtime.Program;
+import dev.cel.runtime.RuntimeEquality;
+import dev.cel.runtime.planner.AsyncCompletionCoordinator.WaitResult;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -53,6 +61,8 @@ public abstract class PlannedProgram implements Program {
 
   public abstract CelOptions options();
 
+  abstract RuntimeEquality runtimeEquality();
+
   // CelAsyncEvaluationOptions is an immutable value object.
   @SuppressWarnings("Immutable")
   @AutoValue.CopyAnnotations
@@ -67,10 +77,16 @@ public abstract class PlannedProgram implements Program {
       PlannedInterpretable interpretable,
       ErrorMetadata metadata,
       CelOptions options,
+      RuntimeEquality runtimeEquality,
       CelAsyncEvaluationOptions asyncOptions,
       @Nullable ListeningExecutorService asyncExecutor) {
     return new AutoValue_PlannedProgram(
-        interpretable, metadata, options, asyncOptions, Optional.ofNullable(asyncExecutor));
+        interpretable,
+        metadata,
+        options,
+        runtimeEquality,
+        asyncOptions,
+        Optional.ofNullable(asyncExecutor));
   }
 
   @Override
@@ -131,34 +147,73 @@ public abstract class PlannedProgram implements Program {
 
   @Override
   public ListenableFuture<Object> evalAsync() {
-    throw new UnsupportedOperationException("evalAsync is not supported by PlannedProgram.");
+    return evalAsync(GlobalResolver.EMPTY, CelFunctionResolver.EMPTY, /* partialVars= */ null);
   }
 
   @Override
   public ListenableFuture<Object> evalAsync(Map<String, ?> mapValue) {
-    throw new UnsupportedOperationException("evalAsync is not supported by PlannedProgram.");
+    checkNotNull(mapValue, "mapValue");
+    return evalAsync(
+        Activation.copyOf(mapValue), CelFunctionResolver.EMPTY, /* partialVars= */ null);
   }
 
   @Override
   public ListenableFuture<Object> evalAsync(
       Map<String, ?> mapValue, CelFunctionResolver lateBoundFunctionResolver) {
-    throw new UnsupportedOperationException("evalAsync is not supported by PlannedProgram.");
+    checkNotNull(mapValue, "mapValue");
+    checkNotNull(lateBoundFunctionResolver, "lateBoundFunctionResolver");
+    return evalAsync(
+        Activation.copyOf(mapValue), lateBoundFunctionResolver, /* partialVars= */ null);
   }
 
   @Override
   public ListenableFuture<Object> evalAsync(CelVariableResolver resolver) {
-    throw new UnsupportedOperationException("evalAsync is not supported by PlannedProgram.");
+    checkNotNull(resolver, "resolver");
+    return evalAsync(
+        (name) -> resolver.find(name).orElse(null),
+        CelFunctionResolver.EMPTY,
+        /* partialVars= */ null);
   }
 
   @Override
   public ListenableFuture<Object> evalAsync(
       CelVariableResolver resolver, CelFunctionResolver lateBoundFunctionResolver) {
-    throw new UnsupportedOperationException("evalAsync is not supported by PlannedProgram.");
+    checkNotNull(resolver, "resolver");
+    checkNotNull(lateBoundFunctionResolver, "lateBoundFunctionResolver");
+    return evalAsync(
+        (name) -> resolver.find(name).orElse(null),
+        lateBoundFunctionResolver,
+        /* partialVars= */ null);
   }
 
   @Override
   public ListenableFuture<Object> evalAsync(PartialVars partialVars) {
-    throw new UnsupportedOperationException("evalAsync is not supported by PlannedProgram.");
+    checkNotNull(partialVars, "partialVars");
+    return evalAsync(
+        (name) -> partialVars.resolver().find(name).orElse(null),
+        CelFunctionResolver.EMPTY,
+        partialVars);
+  }
+
+  public ListenableFuture<Object> evalAsync(
+      GlobalResolver resolver,
+      CelFunctionResolver lateBoundResolver,
+      @Nullable PartialVars partialVars) {
+    checkNotNull(resolver, "resolver");
+    checkNotNull(lateBoundResolver, "lateBoundResolver");
+    ListeningExecutorService effectiveExecutor =
+        asyncExecutor()
+            .orElseThrow(
+                () ->
+                    new IllegalStateException(
+                        "No async executor was configured for evalAsync. You must provide a"
+                            + " ListeningExecutorService when configuring the CelRuntime (via"
+                            + " setAsyncExecutor)."));
+
+    AsyncDriver driver =
+        new AsyncDriver(resolver, lateBoundResolver, partialVars, effectiveExecutor);
+    driver.step();
+    return driver.resultFuture;
   }
 
   public Object evalOrThrow(
@@ -213,6 +268,114 @@ public abstract class PlannedProgram implements Program {
     }
 
     return builder.setMetadata(metadata(), exprId).build();
+  }
+
+  private final class AsyncDriver {
+    private final GlobalResolver resolver;
+    private final CelFunctionResolver lateBoundResolver;
+    private final @Nullable PartialVars partialVars;
+    private final ListeningExecutorService executor;
+    private final SettableFuture<Object> resultFuture = SettableFuture.create();
+    private final AsyncCallStateTracker tracker = AsyncCallStateTracker.create(runtimeEquality());
+    private final AsyncGate gate = AsyncGate.create(asyncOptions().maxConcurrency());
+    private final AsyncCompletionCoordinator coordinator;
+    private final AtomicInteger iterationCount = new AtomicInteger();
+
+    private void step() {
+      try {
+        while (true) {
+          int maxIterations = asyncOptions().maxIterations();
+          if (maxIterations >= 0 && iterationCount.incrementAndGet() > maxIterations) {
+            fail(
+                new CelEvaluationException(
+                    "Exceeded maximum async evaluation iterations: " + maxIterations));
+            return;
+          }
+
+          ExecutionFrame frame =
+              ExecutionFrame.createForAsync(
+                  lateBoundResolver, options(), partialVars, /* listener= */ null, tracker);
+          Object evalResult = interpretable().eval(resolver, frame);
+
+          if (evalResult instanceof AccumulatedUnknowns) {
+            AccumulatedUnknowns unknowns = (AccumulatedUnknowns) evalResult;
+            if (unknowns.callIds().isEmpty()) {
+              complete(InterpreterUtil.maybeAdaptToCelUnknownSet(evalResult));
+              return;
+            }
+
+            tracker.dispatchPendingCalls(
+                unknowns.callIds(),
+                executor,
+                gate,
+                coordinator,
+                asyncOptions().observer().orElse(null));
+
+            WaitResult waitResult = coordinator.waitForCompletions(this::step);
+            switch (waitResult) {
+              case REEVALUATE_NOW:
+                continue;
+              case NO_OUTSTANDING_WORK:
+                fail(
+                    new CelEvaluationException(
+                        "Asynchronous evaluation stalled: unresolved async calls remain but no"
+                            + " tasks are in-flight."));
+                return;
+              case REGISTERED:
+              case CANCELLED:
+                return;
+            }
+          }
+
+          if (evalResult instanceof ErrorValue) {
+            ErrorValue errorValue = (ErrorValue) evalResult;
+            fail(newCelEvaluationException(errorValue.exprId(), errorValue.value()));
+            return;
+          }
+
+          complete(InterpreterUtil.maybeAdaptToCelUnknownSet(evalResult));
+          return;
+        }
+      } catch (Throwable t) {
+        fail(newCelEvaluationException(interpretable().expr().id(), t));
+      }
+    }
+
+    private void complete(Object value) {
+      tracker.cancelInFlight();
+      resultFuture.set(value);
+    }
+
+    private void fail(Throwable t) {
+      tracker.cancelInFlight();
+      resultFuture.setException(t);
+    }
+
+    private AsyncDriver(
+        GlobalResolver resolver,
+        CelFunctionResolver lateBoundResolver,
+        @Nullable PartialVars partialVars,
+        ListeningExecutorService executor) {
+      this.resolver = resolver;
+      this.lateBoundResolver = lateBoundResolver;
+      this.partialVars = partialVars;
+      this.executor = executor;
+      this.coordinator =
+          AsyncCompletionCoordinator.create(
+              asyncOptions(),
+              gate,
+              executor,
+              t -> fail(newCelEvaluationException(interpretable().expr().id(), t)));
+      this.resultFuture.addListener(
+          () -> {
+            if (resultFuture.isCancelled()) {
+              gate.cancel();
+              coordinator.cancel();
+              tracker.cancelInFlight();
+            }
+          },
+          directExecutor());
+    }
   }
 
   PlannedProgram() {}
