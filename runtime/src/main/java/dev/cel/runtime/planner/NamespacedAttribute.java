@@ -53,6 +53,11 @@ final class NamespacedAttribute implements Attribute {
 
   @Override
   public Object resolve(long exprId, GlobalResolver ctx, ExecutionFrame frame) {
+    return resolveInternal(exprId, ctx, frame, /* applyQualifiers= */ true);
+  }
+
+  Object resolveInternal(
+      long exprId, GlobalResolver ctx, ExecutionFrame frame, boolean applyQualifiers) {
     GlobalResolver inputVars = ctx;
     // Unwrap any local activations to ensure that we reach the variables provided as input
     // to the expression in the event that we need to disambiguate between global and local
@@ -90,7 +95,7 @@ final class NamespacedAttribute implements Attribute {
       }
 
       if (value != null) {
-        return applyQualifiers(value, celValueConverter, qualifiers);
+        return applyQualifiers ? applyQualifiers(value, celValueConverter, qualifiers) : value;
       }
 
       // Attempt to resolve the qualify type name if the name is not a variable identifier
@@ -182,18 +187,31 @@ final class NamespacedAttribute implements Attribute {
             .build());
   }
 
+  @Override
+  public Optional<AccumulatedUnknowns> findUnknown(
+      long exprId, GlobalResolver ctx, ExecutionFrame frame) {
+    if (!frame.partialVars().isPresent()) {
+      return Optional.empty();
+    }
+    Object result = resolveInternal(exprId, ctx, frame, /* applyQualifiers= */ false);
+    if (result instanceof AccumulatedUnknowns) {
+      return Optional.of((AccumulatedUnknowns) result);
+    }
+    return Optional.empty();
+  }
+
   private static Object applyQualifiers(
       Object value, CelValueConverter celValueConverter, ImmutableList<Qualifier> qualifiers) {
     if (value instanceof AccumulatedUnknowns) {
       return value;
     }
-    Object obj = celValueConverter.toRuntimeValue(value);
+    Object obj = (value instanceof Map) ? value : celValueConverter.toRuntimeValue(value);
 
     // Avoid enhanced for loop to prevent UnmodifiableIterator from being allocated
     for (int i = 0; i < qualifiers.size(); i++) {
       Qualifier element = qualifiers.get(i);
       obj = element.qualify(obj);
-      obj = celValueConverter.toRuntimeValue(obj);
+      obj = (obj instanceof Map) ? obj : celValueConverter.toRuntimeValue(obj);
     }
 
     return celValueConverter.maybeUnwrap(obj);
