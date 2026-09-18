@@ -14,6 +14,9 @@
 
 package dev.cel.runtime.planner;
 
+import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.Preconditions.checkState;
+
 import dev.cel.common.CelOptions;
 import dev.cel.common.exceptions.CelIterationLimitExceededException;
 import dev.cel.runtime.CelEvaluationException;
@@ -30,10 +33,11 @@ final class ExecutionFrame {
 
   private final int comprehensionIterationLimit;
   private final CelFunctionResolver functionResolver;
-  private final PartialVars partialVars;
+  private final @Nullable PartialVars partialVars;
   private final @Nullable CelEvaluationListener listener;
+  private final @Nullable AsyncCallStateTracker asyncTracker;
   private int iterationCount;
-  private BlockMemoizer blockMemoizer;
+  private @Nullable BlockMemoizer blockMemoizer;
 
   Optional<CelResolvedOverload> findOverload(
       String functionName, Collection<String> overloadIds, Object[] args)
@@ -70,7 +74,35 @@ final class ExecutionFrame {
       @Nullable PartialVars partialVars,
       @Nullable CelEvaluationListener listener) {
     return new ExecutionFrame(
-        functionResolver, celOptions.comprehensionMaxIterations(), partialVars, listener);
+        functionResolver,
+        celOptions.comprehensionMaxIterations(),
+        partialVars,
+        listener,
+        /* asyncTracker= */ null);
+  }
+
+  static ExecutionFrame createForAsync(
+      CelFunctionResolver functionResolver,
+      CelOptions celOptions,
+      @Nullable PartialVars partialVars,
+      @Nullable CelEvaluationListener listener,
+      AsyncCallStateTracker asyncTracker) {
+    checkNotNull(asyncTracker, "asyncTracker");
+    return new ExecutionFrame(
+        functionResolver,
+        celOptions.comprehensionMaxIterations(),
+        partialVars,
+        listener,
+        asyncTracker);
+  }
+
+  boolean isAsync() {
+    return asyncTracker != null;
+  }
+
+  AsyncCallStateTracker asyncTracker() {
+    checkState(asyncTracker != null, "Not in async execution mode");
+    return asyncTracker;
   }
 
   Optional<PartialVars> partialVars() {
@@ -85,10 +117,12 @@ final class ExecutionFrame {
       CelFunctionResolver functionResolver,
       int limit,
       @Nullable PartialVars partialVars,
-      @Nullable CelEvaluationListener listener) {
+      @Nullable CelEvaluationListener listener,
+      @Nullable AsyncCallStateTracker asyncTracker) {
     this.comprehensionIterationLimit = limit;
     this.functionResolver = functionResolver;
     this.partialVars = partialVars;
     this.listener = listener;
+    this.asyncTracker = asyncTracker;
   }
 }

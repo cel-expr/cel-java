@@ -36,6 +36,8 @@ import java.util.List;
  * <p>An overload is declared in either a global function `Ex: f(x, ...)` or a method call style
  * `Ex: x.f(...)`.
  */
+// TODO: Port https://github.com/cel-expr/cel-go/pull/1483 to support first-class
+// properties on declarations and bindings for late-bound and asynchronous functions.
 @AutoValue
 @Immutable
 public abstract class CelOverloadDecl {
