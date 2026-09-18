@@ -16,7 +16,9 @@ package dev.cel.runtime.planner;
 
 import com.google.common.collect.ImmutableList;
 import com.google.errorprone.annotations.Immutable;
+import dev.cel.runtime.AccumulatedUnknowns;
 import dev.cel.runtime.GlobalResolver;
+import java.util.Optional;
 
 /**
  * An attribute that attempts to resolve a variable against a list of potential namespaced
@@ -72,6 +74,37 @@ final class MaybeAttribute implements Attribute {
 
     namespacedAttributeBuilder.addAll(attributesBuilder.build());
     return new MaybeAttribute(attrFactory, namespacedAttributeBuilder.build());
+  }
+
+  /**
+   * A known value resolved by any candidate takes precedence over an unknown reported by another.
+   * Candidates are therefore scanned exhaustively rather than short-circuiting on the first
+   * unknown, because {@link #addQualifier} front-loads the name-augmented candidates (for example
+   * {@code b.field}) ahead of the qualified originals (for example {@code a.b} plus qualifier
+   * {@code field}) that may well resolve to a concrete value.
+   */
+  @Override
+  public Optional<AccumulatedUnknowns> findUnknown(
+      long exprId, GlobalResolver resolver, ExecutionFrame frame) {
+    if (!frame.partialVars().isPresent()) {
+      return Optional.empty();
+    }
+    AccumulatedUnknowns unknown = null;
+    for (int i = 0; i < attributes.size(); i++) {
+      Object result =
+          attributes.get(i).resolveInternal(exprId, resolver, frame, /* applyQualifiers= */ false);
+      if (result == null || result instanceof MissingAttribute) {
+        continue;
+      }
+      if (result instanceof AccumulatedUnknowns) {
+        if (unknown == null) {
+          unknown = (AccumulatedUnknowns) result;
+        }
+        continue;
+      }
+      return Optional.empty();
+    }
+    return Optional.ofNullable(unknown);
   }
 
   MaybeAttribute(AttributeFactory attrFactory, ImmutableList<NamespacedAttribute> attributes) {

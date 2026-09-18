@@ -17,7 +17,9 @@ package dev.cel.runtime.planner;
 import com.google.common.collect.ImmutableSet;
 import com.google.errorprone.annotations.Immutable;
 import dev.cel.common.exceptions.CelAttributeNotFoundException;
+import dev.cel.runtime.AccumulatedUnknowns;
 import dev.cel.runtime.GlobalResolver;
+import java.util.Optional;
 
 /** Represents a missing attribute that is surfaced while resolving a struct field or a map key. */
 @Immutable
@@ -41,6 +43,12 @@ final class MissingAttribute implements Attribute {
   @Override
   public Attribute addQualifier(Qualifier qualifier) {
     throw new UnsupportedOperationException("Unsupported operation");
+  }
+
+  @Override
+  public Optional<AccumulatedUnknowns> findUnknown(
+      long exprId, GlobalResolver resolver, ExecutionFrame frame) {
+    return Optional.empty();
   }
 
   static MissingAttribute newMissingAttribute(ImmutableSet<String> attributeNames) {

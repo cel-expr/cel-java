@@ -75,6 +75,10 @@ final class EvalOptionalSelectField extends PlannedInterpretable {
     return Optional.of(resultValue);
   }
 
+  PlannedInterpretable selectAttribute() {
+    return selectAttribute;
+  }
+
   static EvalOptionalSelectField create(
       CelExpr expr,
       PlannedInterpretable operand,

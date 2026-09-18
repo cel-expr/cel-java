@@ -15,7 +15,9 @@
 package dev.cel.runtime.planner;
 
 import com.google.errorprone.annotations.Immutable;
+import dev.cel.runtime.AccumulatedUnknowns;
 import dev.cel.runtime.GlobalResolver;
+import java.util.Optional;
 
 /** Represents a resolvable symbol or path (such as a variable or a field selection). */
 @Immutable
@@ -23,4 +25,7 @@ interface Attribute {
   Object resolve(long exprId, GlobalResolver ctx, ExecutionFrame frame);
 
   Attribute addQualifier(Qualifier qualifier);
+
+  Optional<AccumulatedUnknowns> findUnknown(
+      long exprId, GlobalResolver resolver, ExecutionFrame frame);
 }
