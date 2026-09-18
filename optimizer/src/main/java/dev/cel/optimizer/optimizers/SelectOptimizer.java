@@ -115,6 +115,17 @@ import java.util.Optional;
  * </pre>
  *
  * <p>Map indexing and non-protobuf selects pass through untouched.
+ *
+ * <p><b>Rename Resilience & Dynamic Type Limitations:</b>
+ *
+ * <ul>
+ *   <li><b>Protobuf Extensions:</b> Extension fields are not rename-resilient; runtime lookup
+ *       resolves extensions by their fully qualified name rather than field number.
+ *   <li><b>Dynamic & Unpacked Payloads:</b> When traversing values typed as {@code dyn}, unpacked
+ *       from {@code google.protobuf.Any}, or evaluated via classless wire payloads ({@link
+ *       dev.cel.common.values.RawProtoMessageLiteValue}), no cross-check between the embedded field
+ *       number and field name is performed at runtime.
+ * </ul>
  */
 public final class SelectOptimizer implements CelAstOptimizer {
 
@@ -131,6 +142,14 @@ public final class SelectOptimizer implements CelAstOptimizer {
 
   private static final TypeParamType TYPE_PARAM_T = TypeParamType.create("T");
 
+  /**
+   * Declaration for {@code cel.@attribute(operand, qualifiers, typeIdent) -> T}.
+   *
+   * <p>The 3rd argument ({@code TypeType.create(TYPE_PARAM_T)}) binds type parameter {@code T} to
+   * the static type identifier of the leaf field so that type checking preserves the exact result
+   * type rather than erasing to {@code dyn}, and enables plan-time integrity validation between the
+   * leaf hop's wire type code and its static type.
+   */
   @VisibleForTesting
   static final CelFunctionDecl CEL_ATTRIBUTE_FUNCTION_DECL =
       CelFunctionDecl.newFunctionDeclaration(
@@ -322,6 +341,13 @@ public final class SelectOptimizer implements CelAstOptimizer {
     return field.getType().toProto().getNumber();
   }
 
+  /**
+   * Resolves the type identifier string passed as the 3rd argument to {@code cel.@attribute}.
+   *
+   * <p>This identifier parameterizes the return type {@code T} during type checking and is
+   * cross-checked against the leaf hop's wire {@code typeCode} by {@code ProgramPlanner} at plan
+   * time.
+   */
   private static String resolveTypeIdent(FieldDescriptor field) {
     if (field.isMapField()) {
       return "map";

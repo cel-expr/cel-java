@@ -14,6 +14,7 @@
 
 package dev.cel.runtime.planner;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.google.auto.value.AutoValue;
@@ -38,6 +39,7 @@ import dev.cel.common.ast.CelExpr.CelMap;
 import dev.cel.common.ast.CelExpr.CelSelect;
 import dev.cel.common.ast.CelExpr.CelStruct;
 import dev.cel.common.ast.CelExpr.CelStruct.Entry;
+import dev.cel.common.ast.CelExpr.ExprKind.Kind;
 import dev.cel.common.ast.CelReference;
 import dev.cel.common.exceptions.CelOverloadNotFoundException;
 import dev.cel.common.types.CelKind;
@@ -47,11 +49,14 @@ import dev.cel.common.types.SimpleType;
 import dev.cel.common.types.TypeType;
 import dev.cel.common.values.CelValueConverter;
 import dev.cel.common.values.CelValueProvider;
+import dev.cel.common.values.SelectField;
 import dev.cel.runtime.CelEvaluationException;
 import dev.cel.runtime.CelEvaluationExceptionBuilder;
 import dev.cel.runtime.CelResolvedOverload;
 import dev.cel.runtime.DefaultDispatcher;
 import dev.cel.runtime.Program;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.HashMap;
 import java.util.NoSuchElementException;
 import java.util.Optional;
@@ -117,21 +122,15 @@ public final class ProgramPlanner {
         return planComprehension(celExpr, ctx);
       case NOT_SET:
         throw new UnsupportedOperationException("Unsupported kind: " + celExpr.getKind());
-      default:
-        throw new UnsupportedOperationException("Unexpected kind: " + celExpr.getKind());
     }
+    throw new UnsupportedOperationException("Unexpected kind: " + celExpr.getKind());
   }
 
   private PlannedInterpretable planSelect(CelExpr celExpr, PlannerContext ctx) {
     CelSelect select = celExpr.select();
     PlannedInterpretable operand = plan(select.operand(), ctx);
 
-    InterpretableAttribute attribute;
-    if (operand instanceof EvalAttribute) {
-      attribute = (EvalAttribute) operand;
-    } else {
-      attribute = EvalAttribute.create(celExpr, attributeFactory.newRelativeAttribute(operand));
-    }
+    InterpretableAttribute attribute = EvalAttribute.create(celExpr, resolveBaseAttribute(operand));
 
     if (select.testOnly()) {
       attribute = EvalTestOnly.create(celExpr, attribute);
@@ -142,22 +141,36 @@ public final class ProgramPlanner {
     return attribute.addQualifier(celExpr, qualifier);
   }
 
+  private Attribute resolveBaseAttribute(PlannedInterpretable operand) {
+    if (operand instanceof EvalAttribute) {
+      return ((EvalAttribute) operand).attribute();
+    }
+    if (operand instanceof EvalOptimizedSelect) {
+      return ((EvalOptimizedSelect) operand).attribute();
+    }
+    return attributeFactory.newRelativeAttribute(operand);
+  }
+
   private PlannedInterpretable planConstant(CelExpr expr, CelConstant celConstant) {
+    return EvalConstant.create(expr, resolveConstant(celConstant));
+  }
+
+  private static Object resolveConstant(CelConstant celConstant) {
     switch (celConstant.getKind()) {
       case NULL_VALUE:
-        return EvalConstant.create(expr, celConstant.nullValue());
+        return celConstant.nullValue();
       case BOOLEAN_VALUE:
-        return EvalConstant.create(expr, celConstant.booleanValue());
+        return celConstant.booleanValue();
       case INT64_VALUE:
-        return EvalConstant.create(expr, celConstant.int64Value());
+        return celConstant.int64Value();
       case UINT64_VALUE:
-        return EvalConstant.create(expr, celConstant.uint64Value());
+        return celConstant.uint64Value();
       case DOUBLE_VALUE:
-        return EvalConstant.create(expr, celConstant.doubleValue());
+        return celConstant.doubleValue();
       case STRING_VALUE:
-        return EvalConstant.create(expr, celConstant.stringValue());
+        return celConstant.stringValue();
       case BYTES_VALUE:
-        return EvalConstant.create(expr, celConstant.bytesValue());
+        return celConstant.bytesValue();
       default:
         throw new IllegalStateException("Unsupported kind: " + celConstant.getKind());
     }
@@ -237,6 +250,15 @@ public final class ProgramPlanner {
   private PlannedInterpretable planCall(CelExpr expr, PlannerContext ctx) {
     ResolvedFunction resolvedFunction = resolveFunction(expr, ctx.referenceMap());
     String functionName = resolvedFunction.functionName();
+
+    // Intercept optimizer-rewritten select chains (cel.@attribute and cel.@hasField) for direct
+    // traversal via OptimizedSelectTraversal (proto field number lookup on OptimizedSelectable,
+    // map key lookup on Map, and SelectableValue fallback). If the caller registered a custom
+    // overload for either function in the dispatcher, defer to normal function dispatch.
+    if ((functionName.equals("cel.@attribute") || functionName.equals("cel.@hasField"))
+        && !hasCustomOverload(resolvedFunction, functionName)) {
+      return planOptimizedSelect(expr, functionName, ctx);
+    }
 
     CelExpr target = resolvedFunction.target().orElse(null);
     int argCount = expr.call().args().size();
@@ -619,6 +641,226 @@ public final class ProgramPlanner {
     return Optional.empty();
   }
 
+  private PlannedInterpretable planOptimizedSelect(
+      CelExpr expr, String functionName, PlannerContext ctx) {
+    ImmutableList<CelExpr> args = expr.call().args();
+    boolean isAttribute = functionName.equals("cel.@attribute");
+    int expectedArgCount = isAttribute ? 3 : 2;
+    checkArgument(
+        args.size() == expectedArgCount,
+        "Expected %s arguments for %s, found %s",
+        expectedArgCount,
+        functionName,
+        args.size());
+    String typeIdent = null;
+    if (isAttribute) {
+      // Argument 3 is an identifier encoding the static result type (e.g. "int", "list",
+      // "map", or message full name) used by the type checker to parameterize cel.@attribute
+      // and by the planner to validate hop tuple integrity.
+      CelExpr typeIdentExpr = args.get(2);
+      checkArgument(
+          typeIdentExpr.getKind() == Kind.IDENT,
+          "Expected type identifier argument to be an IDENT, found: %s",
+          typeIdentExpr.getKind());
+      typeIdent = typeIdentExpr.ident().name();
+    }
+    PlannedInterpretable operand = plan(args.get(0), ctx);
+    ImmutableList<SelectField> selectFields = unpackSelectFields(args.get(1), typeIdent);
+    Attribute baseAttribute = resolveBaseAttribute(operand);
+    if (isAttribute) {
+      return EvalOptimizedSelect.createQualify(
+          expr, selectFields, baseAttribute, celValueConverter);
+    }
+    return EvalOptimizedSelect.createHasField(expr, selectFields, baseAttribute, celValueConverter);
+  }
+
+  private boolean hasCustomOverload(ResolvedFunction resolvedFunction, String functionName) {
+    if (resolvedFunction.overloadId().isPresent()
+        && dispatcher.findOverload(resolvedFunction.overloadId().get()).isPresent()) {
+      return true;
+    }
+    return dispatcher.findOverload(functionName).isPresent();
+  }
+
+  private ImmutableList<SelectField> unpackSelectFields(
+      CelExpr qualifiersExpr, @Nullable String typeIdent) {
+    checkArgument(
+        qualifiersExpr.getKind() == Kind.LIST,
+        "Expected qualifiers argument to be a list, found: %s",
+        qualifiersExpr.getKind());
+    ImmutableList<CelExpr> elements = qualifiersExpr.list().elements();
+    checkArgument(!elements.isEmpty(), "Expected qualifiers list to be non-empty");
+    ImmutableList.Builder<SelectField> fieldsBuilder =
+        ImmutableList.builderWithExpectedSize(elements.size());
+    for (int i = 0; i < elements.size(); i++) {
+      boolean isLeaf = (i == elements.size() - 1);
+      CelExpr hopExpr = elements.get(i);
+      checkArgument(
+          hopExpr.getKind() == Kind.LIST,
+          "Expected qualifier hop to be a list, found: %s",
+          hopExpr.getKind());
+      ImmutableList<CelExpr> hopElements = hopExpr.list().elements();
+      if (typeIdent != null) {
+        checkArgument(
+            hopElements.size() == 3 || hopElements.size() == 4,
+            "Expected qualifier hop for cel.@attribute to contain 3 or 4 elements, found: %s",
+            hopElements.size());
+      } else {
+        checkArgument(
+            hopElements.size() == 2,
+            "Expected qualifier hop for cel.@hasField to contain 2 elements, found: %s",
+            hopElements.size());
+      }
+      checkArgument(
+          hopElements.get(0).getKind() == Kind.CONSTANT
+              && hopElements.get(0).constant().getKind() == CelConstant.Kind.INT64_VALUE,
+          "Expected qualifier hop field number to be an int64 constant, found: %s",
+          hopElements.get(0));
+      long fieldNumber = hopElements.get(0).constant().int64Value();
+      checkArgument(
+          hopElements.get(1).getKind() == Kind.CONSTANT
+              && hopElements.get(1).constant().getKind() == CelConstant.Kind.STRING_VALUE,
+          "Expected qualifier hop field name to be a string constant, found: %s",
+          hopElements.get(1));
+      String fieldName = hopElements.get(1).constant().stringValue();
+
+      if (typeIdent == null) {
+        fieldsBuilder.add(SelectField.create(fieldNumber, fieldName));
+        continue;
+      }
+
+      checkArgument(
+          isLeaf || hopElements.size() == 3,
+          "Non-leaf qualifier hop must not contain a default value: %s",
+          hopExpr);
+      checkArgument(
+          hopElements.get(2).getKind() == Kind.CONSTANT
+              && hopElements.get(2).constant().getKind() == CelConstant.Kind.INT64_VALUE,
+          "Expected qualifier hop type code to be an int64 constant, found: %s",
+          hopElements.get(2));
+      long rawTypeCode = hopElements.get(2).constant().int64Value();
+      checkArgument(
+          SelectField.isSupportedTypeCode(rawTypeCode),
+          "Invalid protobuf type code: %s",
+          rawTypeCode);
+      checkArgument(
+          isLeaf || rawTypeCode == SelectField.MESSAGE_TYPE_CODE,
+          "Non-leaf qualifier hop must have MESSAGE type code (11), found: %s",
+          rawTypeCode);
+      if (isLeaf) {
+        validateLeafTypeIdent((int) rawTypeCode, typeIdent);
+      }
+      Object defaultValue =
+          (hopElements.size() == 4) ? resolveDefaultValue(hopElements.get(3)) : null;
+      fieldsBuilder.add(SelectField.create(fieldNumber, fieldName, rawTypeCode, defaultValue));
+    }
+    return fieldsBuilder.build();
+  }
+
+  private static void validateLeafTypeIdent(int leafTypeCode, String typeIdent) {
+    checkArgument(
+        (leafTypeCode == SelectField.CEL_MAP_TYPE_CODE) == typeIdent.equals("map"),
+        "Leaf type code %s is incompatible with typeIdent '%s'",
+        leafTypeCode,
+        typeIdent);
+    if (typeIdent.equals("map") || typeIdent.equals("list")) {
+      return;
+    }
+    if (leafTypeCode == SelectField.MESSAGE_TYPE_CODE) {
+      checkArgument(
+          !isScalarTypeIdent(typeIdent),
+          "Leaf MESSAGE type code (11) is incompatible with scalar typeIdent '%s'",
+          typeIdent);
+      return;
+    }
+    String expectedScalarIdent = expectedScalarTypeIdent(leafTypeCode);
+    checkArgument(
+        typeIdent.equals(expectedScalarIdent),
+        "Leaf type code %s (expected '%s') is incompatible with typeIdent '%s'",
+        leafTypeCode,
+        expectedScalarIdent,
+        typeIdent);
+  }
+
+  private static boolean isScalarTypeIdent(String typeIdent) {
+    switch (typeIdent) {
+      case "double":
+      case "int":
+      case "uint":
+      case "bool":
+      case "string":
+      case "bytes":
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  private static String expectedScalarTypeIdent(int leafTypeCode) {
+    switch (leafTypeCode) {
+      case 1: // DOUBLE
+      case 2: // FLOAT
+        return "double";
+      case 3: // INT64
+      case 5: // INT32
+      case 14: // ENUM
+      case 15: // SFIXED32
+      case 16: // SFIXED64
+      case 17: // SINT32
+      case 18: // SINT64
+        return "int";
+      case 4: // UINT64
+      case 6: // FIXED64
+      case 7: // FIXED32
+      case 13: // UINT32
+        return "uint";
+      case 8: // BOOL
+        return "bool";
+      case 9: // STRING
+        return "string";
+      case 12: // BYTES
+      default:
+        return "bytes";
+    }
+  }
+
+  private static Object resolveDefaultValue(CelExpr defaultExpr) {
+    switch (defaultExpr.getKind()) {
+      case CONSTANT:
+        return resolveConstant(defaultExpr.constant());
+      case LIST:
+        if (defaultExpr.list().elements().isEmpty()) {
+          return ImmutableList.of();
+        }
+        break;
+      case MAP:
+        if (defaultExpr.map().entries().isEmpty()) {
+          return ImmutableMap.of();
+        }
+        break;
+      case CALL:
+        CelCall call = defaultExpr.call();
+        if (call.function().equals("duration")
+            && call.args().size() == 1
+            && call.args().get(0).getKind() == Kind.CONSTANT
+            && call.args().get(0).constant().getKind() == CelConstant.Kind.STRING_VALUE
+            && call.args().get(0).constant().stringValue().equals("0s")) {
+          return Duration.ZERO;
+        }
+        if (call.function().equals("timestamp")
+            && call.args().size() == 1
+            && call.args().get(0).getKind() == Kind.CONSTANT
+            && call.args().get(0).constant().getKind() == CelConstant.Kind.INT64_VALUE
+            && call.args().get(0).constant().int64Value() == 0L) {
+          return Instant.EPOCH;
+        }
+        break;
+      default:
+        break;
+    }
+    throw new IllegalArgumentException("Unsupported default value expression: " + defaultExpr);
+  }
+
   @AutoValue
   abstract static class ResolvedFunction {
 
@@ -695,12 +937,12 @@ public final class ProgramPlanner {
       return localVars.containsKey(name);
     }
 
-    private PlannerContext(CelAbstractSyntaxTree ast) {
-      this.ast = checkNotNull(ast);
-    }
-
     static PlannerContext create(CelAbstractSyntaxTree ast) {
       return new PlannerContext(ast);
+    }
+
+    private PlannerContext(CelAbstractSyntaxTree ast) {
+      this.ast = checkNotNull(ast);
     }
   }
 
