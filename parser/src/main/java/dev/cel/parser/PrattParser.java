@@ -253,7 +253,7 @@ final class PrattParser {
       nextToken();
       return true;
     }
-    if (isRecoveryLimitExceeded()) {
+    if (recursionLimitExceeded || isRecoveryLimitExceeded()) {
       return false;
     }
     if (peekToken.type != Lexer.TokenType.ERROR) {
@@ -274,7 +274,7 @@ final class PrattParser {
 
   // Find the next delimiter to prevent a cascade of spurious secondary errors.
   private void synchronizeOnDelimiter() {
-    if (isRecoveryLimitExceeded()) {
+    if (recursionLimitExceeded || isRecoveryLimitExceeded()) {
       peekToken = END_TOKEN;
       return;
     }
@@ -412,6 +412,7 @@ final class PrattParser {
               LOCALE,
               "Expression recursion limit exceeded. limit: %d",
               options.maxParseRecursionDepth()));
+      peekToken = END_TOKEN;
     }
   }
 
@@ -433,7 +434,7 @@ final class PrattParser {
   private CelExpr parseBinaryAndTernary(int minPrec) {
     CelExpr lhs = parseSelectorChain();
     int chainDepth = currentLhsDepth;
-    while (true) {
+    while (!recursionLimitExceeded && !isRecoveryLimitExceeded()) {
       Lexer.TokenType tok = peekToken.type;
       if (tok == Lexer.TokenType.QUESTION && minPrec <= 0) {
         lhs = parseTernary(lhs);
