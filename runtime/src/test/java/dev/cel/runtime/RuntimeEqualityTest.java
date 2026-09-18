@@ -37,6 +37,7 @@ public final class RuntimeEqualityTest {
     assertEqualityAndHashCode(runtimeEquality, 2, 2L);
     assertEqualityAndHashCode(runtimeEquality, 3, 3.0);
     assertEqualityAndHashCode(runtimeEquality, 4, UnsignedLong.valueOf(4));
+    assertEqualityAndHashCode(runtimeEquality, 0.0d, -0.0d);
     assertEqualityAndHashCode(
         runtimeEquality,
         ImmutableList.of(1, 2, 3),

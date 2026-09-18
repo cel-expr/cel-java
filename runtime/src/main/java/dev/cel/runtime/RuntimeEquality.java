@@ -237,7 +237,9 @@ public class RuntimeEquality {
 
     object = runtimeHelpers.adaptValue(object);
     if (object instanceof Number) {
-      return Double.hashCode(((Number) object).doubleValue());
+      double value = ((Number) object).doubleValue();
+      // Normalize -0.0 to 0.0. objectEquals reports the two as equal, so they must hash alike.
+      return Double.hashCode(value == 0.0d ? 0.0d : value);
     }
     if (object instanceof Iterable) {
       int h = 1;

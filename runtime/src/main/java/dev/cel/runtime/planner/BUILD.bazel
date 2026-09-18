@@ -218,6 +218,22 @@ java_library(
 )
 
 java_library(
+    name = "async_call_state_tracker",
+    srcs = ["AsyncCallRecord.java"],
+    tags = [
+    ],
+    deps = [
+        "//runtime:async_call",
+        "//runtime:function_overload",
+        "//runtime:runtime_equality",
+        "@maven//:com_google_code_findbugs_annotations",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:com_google_guava_guava",
+        "@maven//:org_jspecify_jspecify",
+    ],
+)
+
+java_library(
     name = "activation_wrapper",
     srcs = ["ActivationWrapper.java"],
     deps = ["//runtime:interpretable"],

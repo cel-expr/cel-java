@@ -35,3 +35,9 @@ java_library(
     visibility = ["//:internal"],
     exports = ["//runtime/src/main/java/dev/cel/runtime/planner:async_completion_coordinator"],
 )
+
+java_library(
+    name = "async_call_state_tracker",
+    visibility = ["//:internal"],
+    exports = ["//runtime/src/main/java/dev/cel/runtime/planner:async_call_state_tracker"],
+)
