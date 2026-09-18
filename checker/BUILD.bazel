@@ -1,4 +1,5 @@
 load("@rules_java//java:defs.bzl", "java_library")
+load("//:cel_android_rules.bzl", "cel_android_library")
 
 package(
     default_applicable_licenses = ["//:license"],
@@ -52,4 +53,9 @@ java_library(
 java_library(
     name = "standard_decl",
     exports = ["//checker/src/main/java/dev/cel/checker:standard_decl"],
+)
+
+cel_android_library(
+    name = "standard_decl_android",
+    exports = ["//checker/src/main/java/dev/cel/checker:standard_decl_android"],
 )
