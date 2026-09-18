@@ -21,6 +21,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.errorprone.annotations.CheckReturnValue;
 import com.google.errorprone.annotations.Immutable;
 import dev.cel.common.CelAbstractSyntaxTree;
@@ -47,11 +48,13 @@ import dev.cel.common.types.SimpleType;
 import dev.cel.common.types.TypeType;
 import dev.cel.common.values.CelValueConverter;
 import dev.cel.common.values.CelValueProvider;
+import dev.cel.runtime.CelAsyncEvaluationOptions;
+import dev.cel.runtime.CelAsyncFunctionOverload;
 import dev.cel.runtime.CelEvaluationException;
 import dev.cel.runtime.CelEvaluationExceptionBuilder;
 import dev.cel.runtime.CelResolvedOverload;
 import dev.cel.runtime.DefaultDispatcher;
-import dev.cel.runtime.Program;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.NoSuchElementException;
 import java.util.Optional;
@@ -73,11 +76,19 @@ public final class ProgramPlanner {
   private final CelValueConverter celValueConverter;
   private final ImmutableSet<String> lateBoundFunctionNames;
 
+  // CelAsyncEvaluationOptions is an immutable value object.
+  @SuppressWarnings("Immutable")
+  private final CelAsyncEvaluationOptions asyncOptions;
+
+  // The executor service is an externally managed, thread-safe asynchronous execution pool.
+  @SuppressWarnings("Immutable")
+  private final @Nullable ListeningExecutorService asyncExecutor;
+
   /**
-   * Plans a {@link Program} from the provided parsed-only or type-checked {@link
+   * Plans a {@link PlannedProgram} from the provided parsed-only or type-checked {@link
    * CelAbstractSyntaxTree}.
    */
-  public Program plan(CelAbstractSyntaxTree ast) throws CelEvaluationException {
+  public PlannedProgram plan(CelAbstractSyntaxTree ast) throws CelEvaluationException {
     PlannedInterpretable plannedInterpretable;
     ErrorMetadata errorMetadata =
         ErrorMetadata.create(ast.getSource().getPositionsMap(), ast.getSource().getDescription());
@@ -94,7 +105,8 @@ public final class ProgramPlanner {
           .build();
     }
 
-    return PlannedProgram.create(plannedInterpretable, errorMetadata, options);
+    return PlannedProgram.create(
+        plannedInterpretable, errorMetadata, options, asyncOptions, asyncExecutor);
   }
 
   private PlannedInterpretable plan(CelExpr celExpr, PlannerContext ctx) {
@@ -117,9 +129,8 @@ public final class ProgramPlanner {
         return planComprehension(celExpr, ctx);
       case NOT_SET:
         throw new UnsupportedOperationException("Unsupported kind: " + celExpr.getKind());
-      default:
-        throw new UnsupportedOperationException("Unexpected kind: " + celExpr.getKind());
     }
+    throw new UnsupportedOperationException("Unexpected kind: " + celExpr.getKind());
   }
 
   private PlannedInterpretable planSelect(CelExpr celExpr, PlannerContext ctx) {
@@ -320,6 +331,10 @@ public final class ProgramPlanner {
           expr, functionName, overloadIds, evaluatedArgs, celValueConverter);
     }
 
+    if (resolvedOverload.getDefinition() instanceof CelAsyncFunctionOverload) {
+      return EvalAsyncCall.create(expr, functionName);
+    }
+
     switch (argCount) {
       case 0:
         return EvalZeroArity.create(expr, functionName, resolvedOverload, celValueConverter);
@@ -353,9 +368,7 @@ public final class ProgramPlanner {
     ImmutableList<CelExpr> indices = celBlock.indices();
 
     PlannedInterpretable[] slotExprs = new PlannedInterpretable[indices.size()];
-    for (int i = 0; i < slotExprs.length; i++) {
-      slotExprs[i] = plan(indices.get(i), ctx);
-    }
+    Arrays.setAll(slotExprs, i -> plan(indices.get(i), ctx));
     PlannedInterpretable resultExpr = plan(celBlock.result(), ctx);
     return EvalBlock.create(celBlock.expr(), slotExprs, resultExpr);
   }
@@ -695,15 +708,18 @@ public final class ProgramPlanner {
       return localVars.containsKey(name);
     }
 
-    private PlannerContext(CelAbstractSyntaxTree ast) {
-      this.ast = checkNotNull(ast);
-    }
-
     static PlannerContext create(CelAbstractSyntaxTree ast) {
       return new PlannerContext(ast);
     }
+
+    private PlannerContext(CelAbstractSyntaxTree ast) {
+      this.ast = checkNotNull(ast);
+    }
   }
 
+  // Internal API: ProgramPlanner is marked @Internal for the CEL runtime engine and requires all
+  // engine dependencies for planning.
+  @SuppressWarnings("TooManyParameters")
   public static ProgramPlanner newPlanner(
       CelTypeProvider typeProvider,
       CelValueProvider valueProvider,
@@ -711,7 +727,9 @@ public final class ProgramPlanner {
       CelValueConverter celValueConverter,
       CelContainer container,
       CelOptions options,
-      ImmutableSet<String> lateBoundFunctionNames) {
+      ImmutableSet<String> lateBoundFunctionNames,
+      CelAsyncEvaluationOptions asyncOptions,
+      @Nullable ListeningExecutorService asyncExecutor) {
     return new ProgramPlanner(
         typeProvider,
         valueProvider,
@@ -719,7 +737,9 @@ public final class ProgramPlanner {
         celValueConverter,
         container,
         options,
-        lateBoundFunctionNames);
+        lateBoundFunctionNames,
+        asyncOptions,
+        asyncExecutor);
   }
 
   private ProgramPlanner(
@@ -729,7 +749,9 @@ public final class ProgramPlanner {
       CelValueConverter celValueConverter,
       CelContainer container,
       CelOptions options,
-      ImmutableSet<String> lateBoundFunctionNames) {
+      ImmutableSet<String> lateBoundFunctionNames,
+      CelAsyncEvaluationOptions asyncOptions,
+      @Nullable ListeningExecutorService asyncExecutor) {
     this.typeProvider = typeProvider;
     this.valueProvider = valueProvider;
     this.dispatcher = dispatcher;
@@ -737,6 +759,8 @@ public final class ProgramPlanner {
     this.container = container;
     this.options = options;
     this.lateBoundFunctionNames = lateBoundFunctionNames;
+    this.asyncOptions = checkNotNull(asyncOptions);
+    this.asyncExecutor = asyncExecutor;
     this.attributeFactory =
         AttributeFactory.newAttributeFactory(container, typeProvider, celValueConverter);
   }

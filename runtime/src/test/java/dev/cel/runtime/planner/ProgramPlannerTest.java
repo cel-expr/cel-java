@@ -14,7 +14,9 @@
 
 package dev.cel.runtime.planner;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.truth.Truth.assertThat;
+import static com.google.common.util.concurrent.MoreExecutors.newDirectExecutorService;
 import static dev.cel.common.CelFunctionDecl.newFunctionDeclaration;
 import static dev.cel.common.CelOverloadDecl.newGlobalOverload;
 import static dev.cel.common.CelOverloadDecl.newMemberOverload;
@@ -26,6 +28,8 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.primitives.UnsignedLong;
+import com.google.common.util.concurrent.Futures;
+import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.testing.junit.testparameterinjector.TestParameter;
 import com.google.testing.junit.testparameterinjector.TestParameterInjector;
 import com.google.testing.junit.testparameterinjector.TestParameters;
@@ -66,6 +70,7 @@ import dev.cel.expr.conformance.proto3.TestAllTypes;
 import dev.cel.expr.conformance.proto3.TestAllTypes.NestedMessage;
 import dev.cel.extensions.CelExtensions;
 import dev.cel.parser.CelStandardMacro;
+import dev.cel.runtime.CelAsyncEvaluationOptions;
 import dev.cel.runtime.CelAttribute;
 import dev.cel.runtime.CelAttributePattern;
 import dev.cel.runtime.CelEvaluationException;
@@ -92,7 +97,9 @@ public final class ProgramPlannerTest {
   private static final CelTypeProvider TYPE_PROVIDER =
       new CombinedCelTypeProvider(
           DefaultTypeProvider.getInstance(),
-          new ProtoMessageTypeProvider(ImmutableSet.of(TestAllTypes.getDescriptor())));
+          ProtoMessageTypeProvider.newBuilder()
+              .addDescriptors(ImmutableSet.of(TestAllTypes.getDescriptor()))
+              .build());
   private static final RuntimeEquality RUNTIME_EQUALITY =
       RuntimeEquality.create(RuntimeHelpers.create(), CEL_OPTIONS);
   private static final CelDescriptorPool DESCRIPTOR_POOL =
@@ -119,7 +126,9 @@ public final class ProgramPlannerTest {
           CEL_VALUE_CONVERTER,
           CEL_CONTAINER,
           CEL_OPTIONS,
-          ImmutableSet.of("late_bound_func"));
+          ImmutableSet.of("late_bound_func"),
+          CelAsyncEvaluationOptions.defaultOptions(),
+          /* asyncExecutor= */ null);
 
   private static final CelCompiler CEL_COMPILER =
       CelCompilerFactory.standardCelCompilerBuilder()
@@ -255,9 +264,7 @@ public final class ProgramPlannerTest {
 
   private static void addBindingsToDispatcher(
       DefaultDispatcher.Builder builder, ImmutableCollection<CelFunctionBinding> overloadBindings) {
-    if (overloadBindings.isEmpty()) {
-      throw new IllegalArgumentException("Invalid bindings");
-    }
+    checkArgument(!overloadBindings.isEmpty(), "Invalid bindings");
 
     overloadBindings.forEach(
         overload ->
@@ -320,7 +327,9 @@ public final class ProgramPlannerTest {
             CEL_VALUE_CONVERTER,
             container,
             CEL_OPTIONS,
-            ImmutableSet.of());
+            ImmutableSet.of(),
+            CelAsyncEvaluationOptions.defaultOptions(),
+            /* asyncExecutor= */ null);
 
     Program program = planner.plan(ast);
 
@@ -519,7 +528,7 @@ public final class ProgramPlannerTest {
         .hasMessageThat()
         .contains("evaluation error at <input>:5: Function 'error' failed with arg(s) ''");
     assertThat(e).hasCauseThat().isInstanceOf(IllegalArgumentException.class);
-    assertThat(e.getCause()).hasMessageThat().contains("Intentional error");
+    assertThat(e).hasCauseThat().hasMessageThat().contains("Intentional error");
   }
 
   @Test
@@ -1023,7 +1032,9 @@ public final class ProgramPlannerTest {
             CEL_VALUE_CONVERTER,
             CEL_CONTAINER,
             options,
-            ImmutableSet.of());
+            ImmutableSet.of(),
+            CelAsyncEvaluationOptions.defaultOptions(),
+            /* asyncExecutor= */ null);
     CelAbstractSyntaxTree ast = compile(expression);
 
     Program program = planner.plan(ast);
@@ -1044,7 +1055,9 @@ public final class ProgramPlannerTest {
             CEL_VALUE_CONVERTER,
             CEL_CONTAINER,
             options,
-            /* lateBoundFunctionNames= */ ImmutableSet.of());
+            /* lateBoundFunctionNames= */ ImmutableSet.of(),
+            CelAsyncEvaluationOptions.defaultOptions(),
+            /* asyncExecutor= */ null);
     CelAbstractSyntaxTree ast = compile("[1, 2, 3].map(x, [1, 2].map(y, x + y))");
 
     Program program = planner.plan(ast);
@@ -1203,6 +1216,90 @@ public final class ProgramPlannerTest {
   }
 
   @Test
+  public void newPlanner_withAsyncOptionsAndExecutor_plansSuccessfully() throws Exception {
+    ListeningExecutorService executor = newDirectExecutorService();
+    try {
+      CelAsyncEvaluationOptions asyncOptions =
+          CelAsyncEvaluationOptions.builder().setMaxIterations(5).build();
+      ProgramPlanner planner =
+          ProgramPlanner.newPlanner(
+              TYPE_PROVIDER,
+              VALUE_PROVIDER,
+              newDispatcher(),
+              CEL_VALUE_CONVERTER,
+              CEL_CONTAINER,
+              CEL_OPTIONS,
+              ImmutableSet.of(),
+              asyncOptions,
+              executor);
+      CelAbstractSyntaxTree ast = compile("1 + 2");
+
+      PlannedProgram program = planner.plan(ast);
+
+      assertThat(program.eval()).isEqualTo(3L);
+      assertThat(program.asyncOptions()).isEqualTo(asyncOptions);
+      assertThat(program.asyncExecutor()).hasValue(executor);
+    } finally {
+      executor.shutdownNow();
+    }
+  }
+
+  @Test
+  public void newPlanner_nullAsyncOptions_throwsNullPointerException() {
+    DefaultDispatcher dispatcher = newDispatcher();
+
+    assertThrows(
+        NullPointerException.class,
+        () ->
+            ProgramPlanner.newPlanner(
+                TYPE_PROVIDER,
+                VALUE_PROVIDER,
+                dispatcher,
+                CEL_VALUE_CONVERTER,
+                CEL_CONTAINER,
+                CEL_OPTIONS,
+                ImmutableSet.of(),
+                /* asyncOptions= */ null,
+                /* asyncExecutor= */ null));
+  }
+
+  @Test
+  public void plan_asyncFunction_evalSynchronously_throwsCelEvaluationException() throws Exception {
+    CelCompiler compiler =
+        CelCompilerFactory.standardCelCompilerBuilder()
+            .addFunctionDeclarations(
+                newFunctionDeclaration(
+                    "asyncSquare",
+                    newGlobalOverload("asyncSquare_int", SimpleType.INT, SimpleType.INT)))
+            .build();
+    CelAbstractSyntaxTree ast = compiler.compile("asyncSquare(5)").getAst();
+    DefaultDispatcher.Builder dispatcher = DefaultDispatcher.newBuilder();
+    addBindingsToDispatcher(
+        dispatcher,
+        ImmutableList.of(
+            CelFunctionBinding.fromAsync(
+                "asyncSquare_int", Long.class, (Long arg) -> Futures.immediateFuture(arg * arg))));
+    ProgramPlanner planner =
+        ProgramPlanner.newPlanner(
+            TYPE_PROVIDER,
+            VALUE_PROVIDER,
+            dispatcher.build(),
+            CEL_VALUE_CONVERTER,
+            CEL_CONTAINER,
+            CEL_OPTIONS,
+            ImmutableSet.of(),
+            CelAsyncEvaluationOptions.defaultOptions(),
+            /* asyncExecutor= */ null);
+    Program program = planner.plan(ast);
+
+    CelEvaluationException e = assertThrows(CelEvaluationException.class, program::eval);
+
+    assertThat(e)
+        .hasMessageThat()
+        .contains("Async function 'asyncSquare' evaluated in synchronous mode.");
+  }
+
+  @Test
   public void plan_binaryFunction_withUnknownArg() throws Exception {
     CelCompiler compiler =
         CelCompilerFactory.standardCelCompilerBuilder()
@@ -1264,7 +1361,9 @@ public final class ProgramPlannerTest {
             CEL_VALUE_CONVERTER,
             CelContainer.ofName("cel.example"),
             CEL_OPTIONS,
-            /* lateBoundFunctionNames= */ ImmutableSet.of());
+            /* lateBoundFunctionNames= */ ImmutableSet.of(),
+            CelAsyncEvaluationOptions.defaultOptions(),
+            /* asyncExecutor= */ null);
     CelAbstractSyntaxTree ast = compile(celCompiler, "[{'z': 0}].exists(y, y.z == 0)");
 
     Program program = planner.plan(ast);
@@ -1289,7 +1388,9 @@ public final class ProgramPlannerTest {
             CEL_VALUE_CONVERTER,
             CelContainer.ofName("y"),
             CEL_OPTIONS,
-            /* lateBoundFunctionNames= */ ImmutableSet.of());
+            /* lateBoundFunctionNames= */ ImmutableSet.of(),
+            CelAsyncEvaluationOptions.defaultOptions(),
+            /* asyncExecutor= */ null);
     CelAbstractSyntaxTree ast = compile(celCompiler, "[{'z': 0}].exists(y, y.z == 0 && .y.z == 1)");
 
     Program program = planner.plan(ast);
@@ -1313,7 +1414,9 @@ public final class ProgramPlannerTest {
             CEL_VALUE_CONVERTER,
             CelContainer.newBuilder().build(),
             CEL_OPTIONS,
-            /* lateBoundFunctionNames= */ ImmutableSet.of());
+            /* lateBoundFunctionNames= */ ImmutableSet.of(),
+            CelAsyncEvaluationOptions.defaultOptions(),
+            /* asyncExecutor= */ null);
     CelAbstractSyntaxTree ast = compile(celCompiler, "[0].exists(x, x == 0 && .x == 1)");
 
     Program program = planner.plan(ast);
@@ -1337,7 +1440,9 @@ public final class ProgramPlannerTest {
             CEL_VALUE_CONVERTER,
             CelContainer.newBuilder().build(),
             CEL_OPTIONS,
-            /* lateBoundFunctionNames= */ ImmutableSet.of());
+            /* lateBoundFunctionNames= */ ImmutableSet.of(),
+            CelAsyncEvaluationOptions.defaultOptions(),
+            /* asyncExecutor= */ null);
     CelAbstractSyntaxTree ast = compile(celCompiler, "[0].exists(x, [x+1].exists(x, x == .x))");
 
     Program program = planner.plan(ast);
@@ -1377,7 +1482,9 @@ public final class ProgramPlannerTest {
             CEL_VALUE_CONVERTER,
             CEL_CONTAINER,
             CEL_OPTIONS,
-            ImmutableSet.of());
+            ImmutableSet.of(),
+            CelAsyncEvaluationOptions.defaultOptions(),
+            /* asyncExecutor= */ null);
 
     Program program = planner.plan(ast);
 
@@ -1417,7 +1524,9 @@ public final class ProgramPlannerTest {
             CEL_VALUE_CONVERTER,
             CEL_CONTAINER,
             CEL_OPTIONS,
-            ImmutableSet.of());
+            ImmutableSet.of(),
+            CelAsyncEvaluationOptions.defaultOptions(),
+            /* asyncExecutor= */ null);
 
     Program program = planner.plan(ast);
 
@@ -1450,7 +1559,9 @@ public final class ProgramPlannerTest {
             CEL_VALUE_CONVERTER,
             CEL_CONTAINER,
             CEL_OPTIONS,
-            ImmutableSet.of());
+            ImmutableSet.of(),
+            CelAsyncEvaluationOptions.defaultOptions(),
+            /* asyncExecutor= */ null);
 
     ImmutableMap<String, Object> vars =
         ImmutableMap.of(

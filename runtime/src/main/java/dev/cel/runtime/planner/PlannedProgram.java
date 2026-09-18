@@ -16,23 +16,23 @@ package dev.cel.runtime.planner;
 
 import com.google.auto.value.AutoValue;
 import com.google.common.util.concurrent.ListenableFuture;
+import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.errorprone.annotations.Immutable;
 import dev.cel.common.CelOptions;
 import dev.cel.common.annotations.Internal;
 import dev.cel.common.exceptions.CelRuntimeException;
 import dev.cel.common.values.ErrorValue;
 import dev.cel.runtime.Activation;
+import dev.cel.runtime.CelAsyncEvaluationOptions;
 import dev.cel.runtime.CelEvaluationException;
 import dev.cel.runtime.CelEvaluationExceptionBuilder;
 import dev.cel.runtime.CelEvaluationListener;
 import dev.cel.runtime.CelFunctionResolver;
-import dev.cel.runtime.CelResolvedOverload;
 import dev.cel.runtime.CelVariableResolver;
 import dev.cel.runtime.GlobalResolver;
 import dev.cel.runtime.InterpreterUtil;
 import dev.cel.runtime.PartialVars;
 import dev.cel.runtime.Program;
-import java.util.Collection;
 import java.util.Map;
 import java.util.Optional;
 import org.jspecify.annotations.Nullable;
@@ -47,33 +47,37 @@ import org.jspecify.annotations.Nullable;
 @AutoValue
 public abstract class PlannedProgram implements Program {
 
-  private static final CelFunctionResolver EMPTY_FUNCTION_RESOLVER =
-      new CelFunctionResolver() {
-        @Override
-        public Optional<CelResolvedOverload> findOverloadMatchingArgs(
-            String functionName, Collection<String> overloadIds, Object[] args) {
-          return Optional.empty();
-        }
-
-        @Override
-        public Optional<CelResolvedOverload> findOverloadMatchingArgs(
-            String functionName, Object[] args) {
-          return Optional.empty();
-        }
-      };
-
-  public abstract PlannedInterpretable interpretable();
+  abstract PlannedInterpretable interpretable();
 
   abstract ErrorMetadata metadata();
 
   public abstract CelOptions options();
 
+  // CelAsyncEvaluationOptions is an immutable value object.
+  @SuppressWarnings("Immutable")
+  @AutoValue.CopyAnnotations
+  abstract CelAsyncEvaluationOptions asyncOptions();
+
+  // The executor service is an externally managed, thread-safe asynchronous execution pool.
+  @SuppressWarnings("Immutable")
+  @AutoValue.CopyAnnotations
+  abstract Optional<ListeningExecutorService> asyncExecutor();
+
+  static PlannedProgram create(
+      PlannedInterpretable interpretable,
+      ErrorMetadata metadata,
+      CelOptions options,
+      CelAsyncEvaluationOptions asyncOptions,
+      @Nullable ListeningExecutorService asyncExecutor) {
+    return new AutoValue_PlannedProgram(
+        interpretable, metadata, options, asyncOptions, Optional.ofNullable(asyncExecutor));
+  }
+
   @Override
   public Object eval() throws CelEvaluationException {
     return evalOrThrow(
-        interpretable(),
         GlobalResolver.EMPTY,
-        EMPTY_FUNCTION_RESOLVER,
+        CelFunctionResolver.EMPTY,
         /* partialVars= */ null,
         /* listener= */ null);
   }
@@ -81,9 +85,8 @@ public abstract class PlannedProgram implements Program {
   @Override
   public Object eval(Map<String, ?> mapValue) throws CelEvaluationException {
     return evalOrThrow(
-        interpretable(),
         Activation.copyOf(mapValue),
-        EMPTY_FUNCTION_RESOLVER,
+        CelFunctionResolver.EMPTY,
         /* partialVars= */ null,
         /* listener= */ null);
   }
@@ -92,7 +95,6 @@ public abstract class PlannedProgram implements Program {
   public Object eval(Map<String, ?> mapValue, CelFunctionResolver lateBoundFunctionResolver)
       throws CelEvaluationException {
     return evalOrThrow(
-        interpretable(),
         Activation.copyOf(mapValue),
         lateBoundFunctionResolver,
         /* partialVars= */ null,
@@ -102,9 +104,8 @@ public abstract class PlannedProgram implements Program {
   @Override
   public Object eval(CelVariableResolver resolver) throws CelEvaluationException {
     return evalOrThrow(
-        interpretable(),
         (name) -> resolver.find(name).orElse(null),
-        EMPTY_FUNCTION_RESOLVER,
+        CelFunctionResolver.EMPTY,
         /* partialVars= */ null,
         /* listener= */ null);
   }
@@ -113,7 +114,6 @@ public abstract class PlannedProgram implements Program {
   public Object eval(CelVariableResolver resolver, CelFunctionResolver lateBoundFunctionResolver)
       throws CelEvaluationException {
     return evalOrThrow(
-        interpretable(),
         (name) -> resolver.find(name).orElse(null),
         lateBoundFunctionResolver,
         /* partialVars= */ null,
@@ -123,9 +123,8 @@ public abstract class PlannedProgram implements Program {
   @Override
   public Object eval(PartialVars partialVars) throws CelEvaluationException {
     return evalOrThrow(
-        interpretable(),
         (name) -> partialVars.resolver().find(name).orElse(null),
-        EMPTY_FUNCTION_RESOLVER,
+        CelFunctionResolver.EMPTY,
         partialVars,
         /* listener= */ null);
   }
@@ -163,7 +162,6 @@ public abstract class PlannedProgram implements Program {
   }
 
   public Object evalOrThrow(
-      PlannedInterpretable interpretable,
       GlobalResolver resolver,
       CelFunctionResolver functionResolver,
       @Nullable PartialVars partialVars,
@@ -172,7 +170,7 @@ public abstract class PlannedProgram implements Program {
     try {
       ExecutionFrame frame =
           ExecutionFrame.create(functionResolver, options(), partialVars, listener);
-      Object evalResult = interpretable.eval(resolver, frame);
+      Object evalResult = interpretable().eval(resolver, frame);
       if (evalResult instanceof ErrorValue) {
         ErrorValue errorValue = (ErrorValue) evalResult;
         throw newCelEvaluationException(errorValue.exprId(), errorValue.value());
@@ -180,20 +178,23 @@ public abstract class PlannedProgram implements Program {
 
       return InterpreterUtil.maybeAdaptToCelUnknownSet(evalResult);
     } catch (RuntimeException e) {
-      throw newCelEvaluationException(interpretable.expr().id(), e);
+      throw newCelEvaluationException(interpretable().expr().id(), e);
     }
   }
 
   public Object trace(
       GlobalResolver resolver,
       CelFunctionResolver functionResolver,
-      PartialVars partialVars,
-      CelEvaluationListener listener)
+      @Nullable PartialVars partialVars,
+      @Nullable CelEvaluationListener listener)
       throws CelEvaluationException {
-    return evalOrThrow(interpretable(), resolver, functionResolver, partialVars, listener);
+    return evalOrThrow(resolver, functionResolver, partialVars, listener);
   }
 
-  private CelEvaluationException newCelEvaluationException(long exprId, Exception e) {
+  private CelEvaluationException newCelEvaluationException(long exprId, Throwable e) {
+    if (e instanceof CelEvaluationException) {
+      return (CelEvaluationException) e;
+    }
     CelEvaluationExceptionBuilder builder;
     if (e instanceof LocalizedEvaluationException) {
       // Use the localized expr ID (most specific error location)
@@ -201,8 +202,7 @@ public abstract class PlannedProgram implements Program {
       exprId = localized.exprId();
       Throwable cause = localized.getCause();
       if (cause instanceof CelRuntimeException) {
-        builder =
-            CelEvaluationExceptionBuilder.newBuilder((CelRuntimeException) localized.getCause());
+        builder = CelEvaluationExceptionBuilder.newBuilder((CelRuntimeException) cause);
       } else {
         builder = CelEvaluationExceptionBuilder.newBuilder(cause.getMessage()).setCause(cause);
       }
@@ -220,8 +220,5 @@ public abstract class PlannedProgram implements Program {
     return builder.setMetadata(metadata(), exprId).build();
   }
 
-  static Program create(
-      PlannedInterpretable interpretable, ErrorMetadata metadata, CelOptions options) {
-    return new AutoValue_PlannedProgram(interpretable, metadata, options);
-  }
+  PlannedProgram() {}
 }
