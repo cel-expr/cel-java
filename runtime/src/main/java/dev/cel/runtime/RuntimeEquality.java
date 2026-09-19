@@ -135,12 +135,12 @@ public class RuntimeEquality {
    * comparable even if they are not of the same type, where type differences are usually trivially
    * false.
    */
-  @SuppressWarnings({"rawtypes", "unchecked"})
+  @SuppressWarnings({"rawtypes", "unchecked", "ReferenceEquality"})
   public boolean objectEquals(Object x, Object y) {
     if (celOptions.disableCelStandardEquality()) {
       return Objects.equals(x, y);
     }
-    if (x == y) {
+    if (x == y && !isNan(x)) {
       return true;
     }
     x = runtimeHelpers.adaptValue(x);
@@ -276,6 +276,10 @@ public class RuntimeEquality {
       return Optional.of(v.longValue());
     }
     return Optional.empty();
+  }
+
+  private static boolean isNan(Object value) {
+    return value instanceof Number && Double.isNaN(((Number) value).doubleValue());
   }
 
   RuntimeEquality(RuntimeHelpers runtimeHelpers, CelOptions celOptions) {

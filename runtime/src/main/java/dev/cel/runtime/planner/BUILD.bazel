@@ -219,12 +219,23 @@ java_library(
 
 java_library(
     name = "async_call_state_tracker",
-    srcs = ["AsyncCallRecord.java"],
+    srcs = [
+        "AsyncCallRecord.java",
+        "AsyncCallStateTracker.java",
+    ],
     tags = [
     ],
     deps = [
+        ":async_completion_coordinator",
+        ":async_gate",
+        "//common/exceptions:runtime_exception",
+        "//common/values",
+        "//runtime:accumulated_unknowns",
         "//runtime:async_call",
+        "//runtime:async_observer",
+        "//runtime:evaluation_exception",
         "//runtime:function_overload",
+        "//runtime:interpreter_util",
         "//runtime:runtime_equality",
         "@maven//:com_google_code_findbugs_annotations",
         "@maven//:com_google_errorprone_error_prone_annotations",

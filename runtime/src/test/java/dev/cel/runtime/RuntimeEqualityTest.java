@@ -57,12 +57,24 @@ public final class RuntimeEqualityTest {
   public void objectEquals_messageLite_throws() {
     RuntimeEquality runtimeEquality =
         RuntimeEquality.create(RuntimeHelpers.create(), CelOptions.DEFAULT);
+    TestAllTypes.Builder builder = TestAllTypes.newBuilder();
+    TestAllTypes defaultInstance = TestAllTypes.getDefaultInstance();
 
     // Unimplemented until CelLiteDescriptor is available.
-    assertThrows(
-        UnsupportedOperationException.class,
-        () ->
-            runtimeEquality.objectEquals(
-                TestAllTypes.newBuilder(), TestAllTypes.getDefaultInstance()));
+    UnsupportedOperationException e =
+        assertThrows(
+            UnsupportedOperationException.class,
+            () -> runtimeEquality.objectEquals(builder, defaultInstance));
+
+    assertThat(e).hasMessageThat().contains("Not implemented yet");
+  }
+
+  @Test
+  public void objectEquals_nanWithIdenticalReference_returnsFalse() {
+    RuntimeEquality runtimeEquality =
+        RuntimeEquality.create(RuntimeHelpers.create(), CelOptions.DEFAULT);
+    Double nan = Double.NaN;
+
+    assertThat(runtimeEquality.objectEquals(nan, nan)).isFalse();
   }
 }
