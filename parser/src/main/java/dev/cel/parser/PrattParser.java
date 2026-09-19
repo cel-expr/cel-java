@@ -253,7 +253,7 @@ final class PrattParser {
       nextToken();
       return true;
     }
-    if (isRecoveryLimitExceeded()) {
+    if (recursionLimitExceeded || isRecoveryLimitExceeded()) {
       return false;
     }
     if (peekToken.type != Lexer.TokenType.ERROR) {
@@ -274,7 +274,7 @@ final class PrattParser {
 
   // Find the next delimiter to prevent a cascade of spurious secondary errors.
   private void synchronizeOnDelimiter() {
-    if (isRecoveryLimitExceeded()) {
+    if (recursionLimitExceeded || isRecoveryLimitExceeded()) {
       peekToken = END_TOKEN;
       return;
     }
@@ -412,6 +412,7 @@ final class PrattParser {
               LOCALE,
               "Expression recursion limit exceeded. limit: %d",
               options.maxParseRecursionDepth()));
+      peekToken = END_TOKEN;
     }
   }
 
@@ -429,11 +430,14 @@ final class PrattParser {
     return expr;
   }
 
-  @SuppressWarnings("EnumOrdinal") // Using ordinal for O(1) binary operator lookup table
   private CelExpr parseBinaryAndTernary(int minPrec) {
-    CelExpr lhs = parseSelectorChain();
+    return parseBinaryAndTernaryFromLhs(parseSelectorChain(), minPrec);
+  }
+
+  @SuppressWarnings("EnumOrdinal") // Using ordinal for O(1) binary operator lookup table
+  private CelExpr parseBinaryAndTernaryFromLhs(CelExpr lhs, int minPrec) {
     int chainDepth = currentLhsDepth;
-    while (true) {
+    while (!recursionLimitExceeded && !isRecoveryLimitExceeded()) {
       Lexer.TokenType tok = peekToken.type;
       if (tok == Lexer.TokenType.QUESTION && minPrec <= 0) {
         lhs = parseTernary(lhs);
@@ -771,16 +775,39 @@ final class PrattParser {
     switch (peekToken.type) {
       case LEFT_PAREN:
         {
-          int groupingParenCount = countGroupingParentheses();
-          if (checkRecursion(groupingParenCount, peekToken)) {
+          if (recursionLimitExceeded || isRecoveryLimitExceeded()) {
             return ERROR;
           }
-          for (int i = 0; i < groupingParenCount; ++i) {
+          // To avoid deep call-stack recursion on heavily nested parentheses (e.g. "((((a))))" or
+          // "((((a + 1) + 1) + 1))"), consume all consecutive leading '(' tokens upfront, parse the
+          // innermost expression once, and then iteratively unwind each enclosing '(' from
+          // innermost to outermost. After consuming each matching ')', if more enclosing '(' remain
+          // open and the next token is not another ')', continue parsing any trailing selectors or
+          // binary/ternary operators belonging to that enclosing parenthesized level using the
+          // already-parsed inner expression as the LHS.
+          int openParens = 0;
+          while (peekToken.type == Lexer.TokenType.LEFT_PAREN) {
+            openParens++;
+            if (checkRecursion(openParens, peekToken)) {
+              return ERROR;
+            }
             nextToken();
           }
-          CelExpr expr = parseExpr();
-          for (int i = 0; i < groupingParenCount; ++i) {
+          recursionDepth += openParens;
+          CelExpr expr = parseBinaryAndTernary(0);
+          for (int i = 0; i < openParens; ++i) {
             expect(Lexer.TokenType.RIGHT_PAREN, "");
+            recursionDepth--;
+            if (i < openParens - 1 && peekToken.type != Lexer.TokenType.RIGHT_PAREN) {
+              currentLhsDepth = 0;
+              Lexer.TokenType tok = peekToken.type;
+              if (tok == Lexer.TokenType.DOT
+                  || tok == Lexer.TokenType.LEFT_BRACKET
+                  || tok == Lexer.TokenType.LEFT_BRACE) {
+                expr = parseSelectorChainTail(expr);
+              }
+              expr = parseBinaryAndTernaryFromLhs(expr, 0);
+            }
           }
           return expr;
         }
@@ -1098,8 +1125,7 @@ final class PrattParser {
       return Optional.empty();
     }
     if (nodeLimitExceeded) {
-      reportError(
-          getPosition(exprId), "could not expand macro: expression node limit exceeded");
+      reportError(getPosition(exprId), "could not expand macro: expression node limit exceeded");
       return Optional.empty();
     }
 
@@ -1176,76 +1202,6 @@ final class PrattParser {
       return resultExpr.setCall(callExpr.build()).build();
     }
     return expr;
-  }
-
-  private int countGroupingParentheses() {
-    if (peekToken.type != Lexer.TokenType.LEFT_PAREN) {
-      return 0;
-    }
-
-    // Fast path: if the next non-whitespace character is not '(', leading open parens is 1.
-    int pos = peekToken.end;
-    int size = content.size();
-    while (pos < size) {
-      int c = content.get(pos);
-      if (c != ' ' && c != '\t' && c != '\n' && c != '\r' && c != '\f' && c != 11) {
-        if (c == '/') {
-          // A comment might precede another '('.
-          break;
-        }
-        if (c == '(') {
-          break;
-        }
-        // Next significant token is definitely not '('.
-        return 1;
-      }
-      pos++;
-    }
-
-    int savedPos = lexer.savePosition();
-    try {
-      int leadingOpenParens = 1;
-      Lexer.Token tok = nextSignificantToken(/* reportError= */ false);
-      while (tok.type == Lexer.TokenType.LEFT_PAREN) {
-        leadingOpenParens++;
-        tok = nextSignificantToken(/* reportError= */ false);
-      }
-      if (leadingOpenParens == 1) {
-        return 1;
-      }
-
-      int openParens = leadingOpenParens;
-      int consecutiveLeadingClosed = 0;
-
-      while (openParens > 0) {
-        if (tok.type == Lexer.TokenType.END || tok.type == Lexer.TokenType.ERROR) {
-          return 1;
-        }
-
-        if (tok.type == Lexer.TokenType.LEFT_PAREN) {
-          openParens++;
-          consecutiveLeadingClosed = 0;
-        } else if (tok.type == Lexer.TokenType.RIGHT_PAREN) {
-          if (leadingOpenParens == openParens) {
-            leadingOpenParens--;
-            consecutiveLeadingClosed++;
-          } else {
-            consecutiveLeadingClosed = 0;
-          }
-          openParens--;
-        } else {
-          consecutiveLeadingClosed = 0;
-        }
-
-        if (openParens > 0) {
-          tok = nextSignificantToken(/* reportError= */ false);
-        }
-      }
-
-      return Math.max(1, consecutiveLeadingClosed);
-    } finally {
-      lexer.restorePosition(savedPos);
-    }
   }
 
   private final class PrattMacroExprFactory extends CelMacroExprFactory {
