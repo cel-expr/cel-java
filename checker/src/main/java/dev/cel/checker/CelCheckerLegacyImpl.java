@@ -111,6 +111,8 @@ public final class CelCheckerLegacyImpl implements CelChecker, EnvVisitable {
   }
 
   @Override
+  // TypeProvider is deprecated, but preserved for backwards compatibility.
+  @SuppressWarnings("deprecation")
   public CelCheckerBuilder toCheckerBuilder() {
     CelCheckerBuilder builder =
         new Builder()
@@ -123,6 +125,10 @@ public final class CelCheckerLegacyImpl implements CelChecker, EnvVisitable {
             .addLibraries(checkerLibraries)
             .addFileTypes(fileDescriptors)
             .addProtoTypeMasks(protoTypeMasks);
+
+    if (typeProvider != null) {
+      builder.setTypeProvider(typeProvider);
+    }
 
     if (expectedResultType.isPresent()) {
       builder.setResultType(expectedResultType.get());
@@ -162,11 +168,13 @@ public final class CelCheckerLegacyImpl implements CelChecker, EnvVisitable {
   private Env getEnv(Errors errors) {
     Env env;
     if (overriddenStandardDeclarations != null) {
-      env = Env.standard(overriddenStandardDeclarations, errors, typeProvider, celOptions);
+      env =
+          Env.standard(
+              overriddenStandardDeclarations, errors, celTypeProvider, typeProvider, celOptions);
     } else if (standardEnvironmentEnabled) {
-      env = Env.standard(errors, typeProvider, celOptions);
+      env = Env.standard(errors, celTypeProvider, typeProvider, celOptions);
     } else {
-      env = Env.unconfigured(errors, typeProvider, celOptions);
+      env = Env.unconfigured(errors, celTypeProvider, typeProvider, celOptions);
     }
     identDeclarations.forEach(env::add);
     functionDeclarations.forEach(env::add);
@@ -459,20 +467,13 @@ public final class CelCheckerLegacyImpl implements CelChecker, EnvVisitable {
         messageTypeProvider = protoTypeMaskTypeProvider;
       }
 
-      TypeProvider legacyProvider = new TypeProviderLegacyImpl(messageTypeProvider);
-      if (customTypeProvider != null) {
-        legacyProvider =
-            new TypeProvider.CombinedTypeProvider(
-                ImmutableList.of(customTypeProvider, legacyProvider));
-      }
-
       return new CelCheckerLegacyImpl(
           celOptions,
           container,
           identDeclarationSet,
           functionDeclarations.build(),
           Optional.fromNullable(expectedResultType),
-          legacyProvider,
+          customTypeProvider,
           messageTypeProvider,
           standardEnvironmentEnabled,
           standardDeclarations,

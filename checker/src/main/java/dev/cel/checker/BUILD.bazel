@@ -1,4 +1,5 @@
 load("@rules_java//java:defs.bzl", "java_library")
+load("//:cel_android_rules.bzl", "cel_android_library")
 
 package(
     default_applicable_licenses = [
@@ -69,7 +70,6 @@ java_library(
         ":checker_legacy_environment",
         ":proto_type_mask",
         ":standard_decl",
-        ":type_provider_legacy_impl",
         "//common:cel_ast",
         "//common:cel_descriptor_util",
         "//common:cel_function_decl",
@@ -233,5 +233,25 @@ java_library(
         "//common/types:type_providers",
         "@maven//:com_google_errorprone_error_prone_annotations",
         "@maven//:com_google_guava_guava",
+    ],
+)
+
+cel_android_library(
+    name = "standard_decl_android",
+    srcs = [
+        "CelStandardDeclarations.java",
+    ],
+    tags = [
+    ],
+    deps = [
+        "//common:cel_function_decl_android",
+        "//common:cel_overload_decl_android",
+        "//common:cel_var_decl_android",
+        "//common:operator_android",
+        "//common/types:cel_types_android",
+        "//common/types:type_providers_android",
+        "//common/types:types_android",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven_android//:com_google_guava_guava",
     ],
 )
