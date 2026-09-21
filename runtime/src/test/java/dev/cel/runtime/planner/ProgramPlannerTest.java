@@ -1574,6 +1574,26 @@ public final class ProgramPlannerTest {
         .isEqualTo(CelUnknownSet.create(CelAttribute.create("custom_msg")));
   }
 
+  @Test
+  public void plan_select_relativeAttribute_resolvesUnknownAttribute() throws Exception {
+    CelAbstractSyntaxTree ast = compile("msg.?single_nested_message.bb");
+    Program program = PLANNER.plan(ast);
+    TestAllTypes msg =
+        TestAllTypes.newBuilder()
+            .setSingleNestedMessage(NestedMessage.newBuilder().setBb(123))
+            .build();
+
+    CelUnknownSet result =
+        (CelUnknownSet)
+            program.eval(
+                PartialVars.of(
+                    ImmutableMap.of("msg", msg),
+                    CelAttributePattern.fromQualifiedIdentifier("msg.single_nested_message.bb")));
+
+    assertThat(result.attributes())
+        .containsExactly(CelAttribute.fromQualifiedIdentifier("msg.single_nested_message.bb"));
+  }
+
   private CelAbstractSyntaxTree compile(String expression) throws Exception {
     return compile(CEL_COMPILER, expression);
   }

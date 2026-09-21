@@ -77,6 +77,22 @@ final class ExecutionFrame {
     return Optional.ofNullable(partialVars);
   }
 
+  ExecutionFrame withoutPartialVars() {
+    if (this.partialVars == null) {
+      return this;
+    }
+    ExecutionFrame frame =
+        new ExecutionFrame(
+            this.functionResolver, this.comprehensionIterationLimit, null, this.listener);
+    frame.iterationCount = this.iterationCount;
+    frame.blockMemoizer = this.blockMemoizer;
+    return frame;
+  }
+
+  void syncIterations(ExecutionFrame other) {
+    this.iterationCount = other.iterationCount;
+  }
+
   @Nullable CelEvaluationListener getListener() {
     return listener;
   }

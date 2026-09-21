@@ -141,7 +141,7 @@ public final class ProgramPlanner {
     if (operand instanceof EvalAttribute) {
       attribute = (EvalAttribute) operand;
     } else {
-      attribute = EvalAttribute.create(celExpr, attributeFactory.newRelativeAttribute(operand));
+      attribute = EvalAttribute.create(celExpr, newRelativeAttribute(operand));
     }
 
     if (select.testOnly()) {
@@ -151,6 +151,27 @@ public final class ProgramPlanner {
     Qualifier qualifier = StringQualifier.create(select.field());
 
     return attribute.addQualifier(celExpr, qualifier);
+  }
+
+  private RelativeAttribute newRelativeAttribute(PlannedInterpretable operand) {
+    return attributeFactory.newRelativeAttribute(operand, extractRootAttribute(operand));
+  }
+
+  private static @Nullable Attribute extractRootAttribute(PlannedInterpretable operand) {
+    if (operand instanceof EvalAttribute) {
+      return unwrapAttribute(((EvalAttribute) operand).attribute());
+    }
+    if (operand instanceof EvalOptionalSelectField) {
+      return extractRootAttribute(((EvalOptionalSelectField) operand).selectAttribute());
+    }
+    return null;
+  }
+
+  private static @Nullable Attribute unwrapAttribute(@Nullable Attribute attr) {
+    if (attr instanceof RelativeAttribute) {
+      return ((RelativeAttribute) attr).rootAttribute();
+    }
+    return attr;
   }
 
   private PlannedInterpretable planConstant(CelExpr expr, CelConstant celConstant) {
@@ -415,8 +436,7 @@ public final class ProgramPlanner {
       if (evaluatedArgs[0] instanceof EvalAttribute) {
         attribute = (EvalAttribute) evaluatedArgs[0];
       } else {
-        attribute =
-            EvalAttribute.create(expr, attributeFactory.newRelativeAttribute(evaluatedArgs[0]));
+        attribute = EvalAttribute.create(expr, newRelativeAttribute(evaluatedArgs[0]));
       }
       Qualifier qualifier = StringQualifier.create(field);
       PlannedInterpretable selectAttribute = attribute.addQualifier(expr, qualifier);

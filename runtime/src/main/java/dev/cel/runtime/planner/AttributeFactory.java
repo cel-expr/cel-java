@@ -20,6 +20,7 @@ import com.google.errorprone.annotations.Immutable;
 import dev.cel.common.CelContainer;
 import dev.cel.common.types.CelTypeProvider;
 import dev.cel.common.values.CelValueConverter;
+import org.jspecify.annotations.Nullable;
 
 @Immutable
 final class AttributeFactory {
@@ -33,7 +34,12 @@ final class AttributeFactory {
   }
 
   RelativeAttribute newRelativeAttribute(PlannedInterpretable operand) {
-    return new RelativeAttribute(operand, celValueConverter);
+    return new RelativeAttribute(operand, celValueConverter, /* rootAttribute= */ null);
+  }
+
+  RelativeAttribute newRelativeAttribute(
+      PlannedInterpretable operand, @Nullable Attribute rootAttribute) {
+    return new RelativeAttribute(operand, celValueConverter, rootAttribute);
   }
 
   MaybeAttribute newMaybeAttribute(String name) {
