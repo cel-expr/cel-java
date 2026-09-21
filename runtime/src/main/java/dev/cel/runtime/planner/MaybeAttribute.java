@@ -51,13 +51,12 @@ final class MaybeAttribute implements Attribute {
 
   @Override
   public Attribute addQualifier(Qualifier qualifier) {
-    Object strQualifier = qualifier.value();
     ImmutableList.Builder<String> augmentedNamesBuilder = ImmutableList.builder();
     ImmutableList.Builder<NamespacedAttribute> attributesBuilder = ImmutableList.builder();
     for (NamespacedAttribute attr : attributes) {
-      if (strQualifier instanceof String && attr.qualifiers().isEmpty()) {
+      if (qualifier instanceof StringQualifier && attr.qualifiers().isEmpty()) {
         for (String varName : attr.candidateVariableNames()) {
-          augmentedNamesBuilder.add(varName + "." + strQualifier);
+          augmentedNamesBuilder.add(varName + "." + qualifier.value());
         }
       }
 

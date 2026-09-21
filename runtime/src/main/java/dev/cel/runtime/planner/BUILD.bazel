@@ -40,8 +40,10 @@ java_library(
         ":eval_unary",
         ":eval_var_args_call",
         ":eval_zero_arity",
+        ":optimized_select_planner",
         ":planned_interpretable",
         ":planned_program",
+        ":planner_helpers",
         "//:auto_value",
         "//common:cel_ast",
         "//common:container",
@@ -447,6 +449,17 @@ java_library(
 )
 
 java_library(
+    name = "planner_helpers",
+    srcs = ["PlannerHelpers.java"],
+    deps = [
+        ":attribute",
+        ":eval_attribute",
+        ":planned_interpretable",
+        "//common/ast",
+    ],
+)
+
+java_library(
     name = "eval_late_bound_call",
     srcs = ["EvalLateBoundCall.java"],
     deps = [
@@ -505,6 +518,27 @@ java_library(
         "//runtime:interpretable",
         "@maven//:com_google_errorprone_error_prone_annotations",
         "@maven//:com_google_guava_guava",
+    ],
+)
+
+java_library(
+    name = "optimized_select_planner",
+    srcs = ["OptimizedSelectPlanner.java"],
+    deps = [
+        ":attribute",
+        ":eval_attribute",
+        ":planned_interpretable",
+        ":planner_helpers",
+        "//common/ast",
+        "//common/types",
+        "//common/types:type_providers",
+        "//common/values",
+        "//common/values:cel_byte_string",
+        "//common/values:optimized_select_traversal",
+        "//common/values:select_field",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:com_google_guava_guava",
+        "@maven//:org_jspecify_jspecify",
     ],
 )
 
@@ -649,8 +683,10 @@ cel_android_library(
         ":eval_unary_android",
         ":eval_var_args_call_android",
         ":eval_zero_arity_android",
+        ":optimized_select_planner_android",
         ":planned_interpretable_android",
         ":planned_program_android",
+        ":planner_helpers_android",
         "//:auto_value",
         "//common:cel_ast_android",
         "//common:container_android",
@@ -1057,6 +1093,17 @@ cel_android_library(
 )
 
 cel_android_library(
+    name = "planner_helpers_android",
+    srcs = ["PlannerHelpers.java"],
+    deps = [
+        ":attribute_android",
+        ":eval_attribute_android",
+        ":planned_interpretable_android",
+        "//common/ast:ast_android",
+    ],
+)
+
+cel_android_library(
     name = "eval_late_bound_call_android",
     srcs = ["EvalLateBoundCall.java"],
     deps = [
@@ -1114,6 +1161,27 @@ cel_android_library(
         "//runtime:interpretable_android",
         "//runtime/src/main/java/dev/cel/runtime:accumulated_unknowns_android",
         "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven_android//:com_google_guava_guava",
+    ],
+)
+
+cel_android_library(
+    name = "optimized_select_planner_android",
+    srcs = ["OptimizedSelectPlanner.java"],
+    deps = [
+        ":attribute_android",
+        ":eval_attribute_android",
+        ":planned_interpretable_android",
+        ":planner_helpers_android",
+        "//common/ast:ast_android",
+        "//common/types:type_providers_android",
+        "//common/types:types_android",
+        "//common/values:cel_byte_string",
+        "//common/values:optimized_select_traversal_android",
+        "//common/values:select_field_android",
+        "//common/values:values_android",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:org_jspecify_jspecify",
         "@maven_android//:com_google_guava_guava",
     ],
 )
