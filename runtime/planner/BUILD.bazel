@@ -22,11 +22,24 @@ java_library(
     exports = ["//runtime/src/main/java/dev/cel/runtime/planner:planned_program"],
 )
 
+cel_android_library(
+    name = "planned_program_android",
+    visibility = ["//:internal"],
+    exports = ["//runtime/src/main/java/dev/cel/runtime/planner:planned_program_android"],
+)
+
 java_library(
     name = "async_gate",
     testonly = 1,
     visibility = ["//:internal"],
     exports = ["//runtime/src/main/java/dev/cel/runtime/planner:async_gate"],
+)
+
+cel_android_library(
+    name = "async_gate_android",
+    testonly = 1,
+    visibility = ["//:internal"],
+    exports = ["//runtime/src/main/java/dev/cel/runtime/planner:async_gate_android"],
 )
 
 java_library(
@@ -36,8 +49,21 @@ java_library(
     exports = ["//runtime/src/main/java/dev/cel/runtime/planner:async_completion_coordinator"],
 )
 
+cel_android_library(
+    name = "async_completion_coordinator_android",
+    testonly = 1,
+    visibility = ["//:internal"],
+    exports = ["//runtime/src/main/java/dev/cel/runtime/planner:async_completion_coordinator_android"],
+)
+
 java_library(
     name = "async_call_state_tracker",
     visibility = ["//:internal"],
     exports = ["//runtime/src/main/java/dev/cel/runtime/planner:async_call_state_tracker"],
+)
+
+cel_android_library(
+    name = "async_call_state_tracker_android",
+    visibility = ["//:internal"],
+    exports = ["//runtime/src/main/java/dev/cel/runtime/planner:async_call_state_tracker_android"],
 )

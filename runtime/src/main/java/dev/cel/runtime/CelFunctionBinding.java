@@ -188,9 +188,7 @@ public interface CelFunctionBinding {
       String functionName, Collection<CelFunctionBinding> overloadBindings) {
     checkArgument(!Strings.isNullOrEmpty(functionName), "Function name cannot be null or empty");
     checkArgument(!overloadBindings.isEmpty(), "You must provide at least one binding.");
-    // TODO: Dynamic dispatch grouping does not currently support asynchronous
-    // function overloads. In parsed-only mode, overloaded async functions must be resolved
-    // at runtime via CelFunctionResolver.
+    // TODO: Support dynamic overload resolution for asynchronous function overloads.
     for (CelFunctionBinding binding : overloadBindings) {
       checkArgument(
           !(binding.getDefinition() instanceof CelAsyncFunctionOverload),
