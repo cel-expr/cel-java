@@ -14,12 +14,14 @@
 
 package dev.cel.runtime.planner;
 
+import static com.google.common.base.Preconditions.checkArgument;
+import static dev.cel.runtime.planner.EvalHelpers.evalBooleanNonstrictly;
 import static dev.cel.runtime.planner.EvalHelpers.evalNonstrictly;
 
 import com.google.errorprone.annotations.Immutable;
 import dev.cel.common.ast.CelExpr;
+import dev.cel.common.values.ErrorValue;
 import dev.cel.runtime.AccumulatedUnknowns;
-import dev.cel.runtime.CelEvaluationException;
 import dev.cel.runtime.GlobalResolver;
 
 /**
@@ -36,22 +38,17 @@ final class EvalExhaustiveConditional extends PlannedInterpretable {
   private final PlannedInterpretable[] args;
 
   @Override
-  Object evalInternal(GlobalResolver resolver, ExecutionFrame frame) throws CelEvaluationException {
+  Object evalInternal(GlobalResolver resolver, ExecutionFrame frame) {
     PlannedInterpretable condition = args[0];
     PlannedInterpretable truthy = args[1];
     PlannedInterpretable falsy = args[2];
 
-    Object condResult = condition.eval(resolver, frame);
+    Object condResult = evalBooleanNonstrictly(condition, resolver, frame);
     Object truthyVal = evalNonstrictly(truthy, resolver, frame);
     Object falsyVal = evalNonstrictly(falsy, resolver, frame);
 
-    if (condResult instanceof AccumulatedUnknowns) {
+    if (condResult instanceof AccumulatedUnknowns || condResult instanceof ErrorValue) {
       return condResult;
-    }
-
-    if (!(condResult instanceof Boolean)) {
-      throw new IllegalArgumentException(
-          String.format("Expected boolean value, found :%s", condResult));
     }
 
     return (boolean) condResult ? truthyVal : falsyVal;
@@ -63,6 +60,7 @@ final class EvalExhaustiveConditional extends PlannedInterpretable {
 
   private EvalExhaustiveConditional(CelExpr expr, PlannedInterpretable[] args) {
     super(expr);
+    checkArgument(args.length == 3);
     this.args = args;
   }
 }

@@ -21,6 +21,7 @@ import dev.cel.common.ast.CelExpr;
 import dev.cel.common.exceptions.CelOverloadNotFoundException;
 import dev.cel.common.values.CelValueConverter;
 import dev.cel.runtime.AccumulatedUnknowns;
+import dev.cel.runtime.CelAsyncFunctionOverload;
 import dev.cel.runtime.CelEvaluationException;
 import dev.cel.runtime.CelResolvedOverload;
 import dev.cel.runtime.GlobalResolver;
@@ -55,6 +56,14 @@ final class EvalLateBoundCall extends PlannedInterpretable {
         frame
             .findOverload(functionName, overloadIds, argVals)
             .orElseThrow(() -> new CelOverloadNotFoundException(functionName, overloadIds));
+
+    if (resolvedOverload.getDefinition() instanceof CelAsyncFunctionOverload) {
+      throw new CelEvaluationException(
+          String.format(
+              "Async function '%s' cannot be late-bound. Late-bound functions must be"
+                  + " synchronous.",
+              functionName));
+    }
 
     return EvalHelpers.dispatch(functionName, resolvedOverload, celValueConverter, argVals);
   }

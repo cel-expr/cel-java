@@ -183,10 +183,10 @@ final class LiteRuntimeImpl implements CelLiteRuntime {
       ImmutableMap.Builder<String, CelFunctionBinding> functionBindingsBuilder =
           ImmutableMap.builder();
 
+      RuntimeHelpers runtimeHelpers = RuntimeHelpers.create();
+      RuntimeEquality runtimeEquality = RuntimeEquality.create(runtimeHelpers, celOptions);
       ImmutableSet<CelStandardFunction> standardFunctions = standardFunctionBuilder.build();
       if (!standardFunctions.isEmpty()) {
-        RuntimeHelpers runtimeHelpers = RuntimeHelpers.create();
-        RuntimeEquality runtimeEquality = RuntimeEquality.create(runtimeHelpers, celOptions);
         for (CelStandardFunction standardFunction : standardFunctions) {
           ImmutableSet<CelFunctionBinding> standardFunctionBinding =
               standardFunction.newFunctionBindings(celOptions, runtimeEquality);
@@ -230,6 +230,7 @@ final class LiteRuntimeImpl implements CelLiteRuntime {
               container,
               celOptions,
               lateBoundFunctionNamesBuilder.build(),
+              runtimeEquality,
               // TODO: Support async eval in lite runtime.
               CelAsyncEvaluationOptions.defaultOptions(),
               /* asyncExecutor= */ null);

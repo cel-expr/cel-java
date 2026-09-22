@@ -56,13 +56,14 @@ public final class AccumulatedUnknowns {
   }
 
   /**
-   * Evaluates if the right hand side is an accumulated unknown, and if so, merges it into the
+   * Evaluates if either value is an accumulated unknown, and if so, merges them into a single
    * accumulator.
    */
-  public static @Nullable AccumulatedUnknowns maybeMerge(
-      @Nullable AccumulatedUnknowns accumulator, Object newValue) {
-    if (newValue instanceof AccumulatedUnknowns) {
-      AccumulatedUnknowns newUnknowns = (AccumulatedUnknowns) newValue;
+  public static @Nullable AccumulatedUnknowns maybeMerge(@Nullable Object val1, Object val2) {
+    AccumulatedUnknowns accumulator =
+        val1 instanceof AccumulatedUnknowns ? (AccumulatedUnknowns) val1 : null;
+    if (val2 instanceof AccumulatedUnknowns) {
+      AccumulatedUnknowns newUnknowns = (AccumulatedUnknowns) val2;
       return accumulator == null ? newUnknowns : accumulator.merge(newUnknowns);
     }
     return accumulator;
@@ -70,6 +71,9 @@ public final class AccumulatedUnknowns {
 
   @CanIgnoreReturnValue
   public AccumulatedUnknowns merge(AccumulatedUnknowns arg) {
+    if (this == arg) {
+      return this;
+    }
     enforceMaxAttributeSize(this.attributes, arg.attributes);
     this.exprIds.addAll(arg.exprIds);
     this.attributes.addAll(arg.attributes);
