@@ -428,7 +428,6 @@ final class Lexer {
         case '\n':
         case ' ':
         case '\r':
-        case 11: // \v
         case '\t':
           position++;
           break;
@@ -589,18 +588,12 @@ final class Lexer {
       }
     } else {
       advance(1);
-      if (c == '0' && consume('x')) {
+      if (c == '0' && (consume('x') || consume('X'))) {
         if (!consumeHexDigits()) {
           return setError(
               start, position, "integral literal missing digits after hexadecimal separator");
         }
         TokenType tokenType = consumeIntegralSuffix();
-        if (consumeIf(Lexer::isIdentTrailing)) {
-          return setError(
-              start,
-              position,
-              tokenType.getSymbol() + " literal has unexpected trailing characters");
-        }
         return makeToken(tokenType, start, position);
       }
       consumeDigits();
@@ -622,10 +615,6 @@ final class Lexer {
       }
     }
     TokenType tokenType = floatingPoint ? TokenType.FLOAT : consumeIntegralSuffix();
-    if (consumeIf(Lexer::isIdentTrailing)) {
-      return setError(
-          start, position, tokenType.getSymbol() + " literal has unexpected trailing characters");
-    }
     return makeToken(tokenType, start, position);
   }
 

@@ -295,11 +295,16 @@ public final class CelParserParameterizedTest extends BaselineTestCase {
     runTest("foo.bar.MyType{ a:b }");
     runTest(".foo.bar.MyType{ a:b }");
     runTest("a.b.c.d.Message{ foo: 1, bar: 'baz' }");
+    runTest("import{}");
+    runTest(".import{}");
+    runTest("import.Foo{}");
+    runTest("Foo.import{}");
 
     // Field selection
     runTest("a.b");
     runTest("a.b.c");
     runTest("a.?b");
+    runTest("a.?b.?c");
     runTest("a.`b-c`");
     runTest("a.`b c`");
     runTest("a.`b.c`");
@@ -330,6 +335,8 @@ public final class CelParserParameterizedTest extends BaselineTestCase {
     runTest("! false");
     runTest("-a");
     runTest("---a");
+    runTest("!-42");
+    runTest("!-4.2");
 
     // Arithmetic operators
     runTest("x * 2");
@@ -355,6 +362,7 @@ public final class CelParserParameterizedTest extends BaselineTestCase {
     runTest("a > b");
     runTest("a >= b");
     runTest("a in b");
+    runTest("9in-x");
     runTest("\"\ud83d\ude01\" in [\"\ud83d\ude01\", \"\ud83d\ude11\", \"\ud83d\ude26\"]");
     runTest("size(x) == x.size()");
     runTest("x.single_nested_message != null");
@@ -375,7 +383,7 @@ public final class CelParserParameterizedTest extends BaselineTestCase {
     runTest("cond ? 1 : 2");
     runTest("false && !true || false ? 2 : 3");
     runTest(OPTIONS_MAX_RECURSION_DEPTH_32, Strings.repeat("true ? 1 : ", 31) + "1", false);
-    runAntlrTest(OPTIONS_MAX_RECURSION_DEPTH_32, Strings.repeat("!-", 15) + "x");
+    runTest(OPTIONS_MAX_RECURSION_DEPTH_32, Strings.repeat("!-", 15) + "x", false);
 
     // Complex expressions
     runTest("1 + 2 * 3 - 1 / 2 == 6 % 1");
@@ -451,6 +459,7 @@ public final class CelParserParameterizedTest extends BaselineTestCase {
     runTest("*@a | b");
     runTest("((@))");
     runTest("1 + $");
+    runTest("1 \u000b + 2");
     runTest(
         "\u00f3\u00a0\u00a2\n"
             + "\t\t\u00f3\u00a00\u00a0\n"
@@ -464,6 +473,8 @@ public final class CelParserParameterizedTest extends BaselineTestCase {
 
     // Unexpected tokens
     runTest("1 + +");
+    runTest("-!x");
+    runTest("!-x");
     runTest("?");
     runTest("a ? b ((?))");
     runTest("a ? b @");
@@ -543,6 +554,7 @@ public final class CelParserParameterizedTest extends BaselineTestCase {
     // Member selection errors
     runTest("{\"a\": 1}.\"a\"");
     runTest("self.true == 1");
+    runTest("a.in");
 
     // Map syntax errors
     runTest("{a}");
@@ -556,6 +568,11 @@ public final class CelParserParameterizedTest extends BaselineTestCase {
     runTest("x{.");
     runTest("t{>C}");
     runTest("has([(has((");
+    runTest("(a){}");
+    runTest("(a.b){}");
+    runTest("(a).b{}");
+    runTest("a.`b-c`{}");
+    runTest("Msg{`$b`: 1}");
 
     // Macro errors
     runTest("1.all(2, 3)");
@@ -590,6 +607,7 @@ public final class CelParserParameterizedTest extends BaselineTestCase {
     runTest(OPTIONS_QUOTED_IDENTIFIER_SYNTAX, "`b-c`");
     runTest(OPTIONS_QUOTED_IDENTIFIER_SYNTAX, "`b-c`()");
     runTest(OPTIONS_QUOTED_IDENTIFIER_SYNTAX, "a.`$b`");
+    runTest(OPTIONS_QUOTED_IDENTIFIER_SYNTAX, "has(a.`$b`)");
     runTest(OPTIONS_QUOTED_IDENTIFIER_SYNTAX, "a.`b.c`()");
     runTest(OPTIONS_QUOTED_IDENTIFIER_SYNTAX, "`bar`");
     runTest(OPTIONS_QUOTED_IDENTIFIER_SYNTAX, "foo.``");

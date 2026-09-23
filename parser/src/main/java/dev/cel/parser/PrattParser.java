@@ -16,7 +16,6 @@ package dev.cel.parser;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Iterables;
 import dev.cel.common.CelAbstractSyntaxTree;
 import dev.cel.common.CelIssue;
 import dev.cel.common.CelOptions;
@@ -236,6 +235,32 @@ final class PrattParser {
       }
     }
     return tok;
+  }
+
+  private boolean isStructCreationAhead() {
+    if (peekToken.type == Lexer.TokenType.LEFT_BRACE) {
+      return true;
+    }
+    if (peekToken.type != Lexer.TokenType.DOT) {
+      return false;
+    }
+    int savedPos = lexer.savePosition();
+    try {
+      Lexer.Token tok = peekToken;
+      while (tok.type == Lexer.TokenType.DOT) {
+        tok = nextSignificantToken(/* reportError= */ false);
+        if (tok.type != Lexer.TokenType.IDENT && tok.type != Lexer.TokenType.RESERVED_WORD) {
+          return false;
+        }
+        if (isQuotedIdent(tok)) {
+          return false;
+        }
+        tok = nextSignificantToken(/* reportError= */ false);
+      }
+      return tok.type == Lexer.TokenType.LEFT_BRACE;
+    } finally {
+      lexer.restorePosition(savedPos);
+    }
   }
 
   private Lexer.Token nextToken() {
@@ -537,24 +562,42 @@ final class PrattParser {
   }
 
   private CelExpr parseSelectorChain() {
-    lastParsedDepth = 0;
     Lexer.TokenType tok = peekToken.type;
-    CelExpr lhs =
-        (tok == Lexer.TokenType.EXCLAMATION || tok == Lexer.TokenType.MINUS)
-            ? parseUnaryOps()
-            : parsePrimary();
-    tok = peekToken.type;
+    if (tok == Lexer.TokenType.EXCLAMATION || tok == Lexer.TokenType.MINUS) {
+      return parseUnaryOps();
+    }
+    return parseMember();
+  }
+
+  private CelExpr parseMember() {
+    lastParsedDepth = 0;
+    int memberStart = peekToken.start;
+    boolean startedWithIdentOrDot =
+        peekToken.type == Lexer.TokenType.DOT
+            || peekToken.type == Lexer.TokenType.IDENT
+            || peekToken.type == Lexer.TokenType.RESERVED_WORD;
+    CelExpr lhs = parsePrimary();
+    boolean canBeStructName =
+        startedWithIdentOrDot
+            && (currentToken.type == Lexer.TokenType.IDENT
+                || currentToken.type == Lexer.TokenType.RESERVED_WORD)
+            && !isQuotedIdent(currentToken);
+    Lexer.TokenType tok = peekToken.type;
     if (tok == Lexer.TokenType.DOT
         || tok == Lexer.TokenType.LEFT_BRACKET
         || tok == Lexer.TokenType.LEFT_BRACE) {
       // A parenthesized primary such as "(a.b.c)" already contributes its own depth, which the
       // selectors trailing the closing ')' continue to accumulate on top of.
-      lhs = parseSelectorChainTail(lhs, lastParsedDepth);
+      lhs = parseSelectorChainTail(lhs, lastParsedDepth, memberStart, canBeStructName);
     }
     return lhs;
   }
 
-  private CelExpr parseSelectorChainTail(CelExpr initialLhs, int initialChainDepth) {
+  private CelExpr parseSelectorChainTail(
+      CelExpr initialLhs,
+      int initialChainDepth,
+      int memberStartPosition,
+      boolean canBeStructName) {
     CelExpr lhs = initialLhs;
     int chainDepth = initialChainDepth;
     while (true) {
@@ -574,9 +617,7 @@ final class PrattParser {
           }
         }
         Lexer.Token idTok = nextToken();
-        if (idTok.type != Lexer.TokenType.IDENT
-            && idTok.type != Lexer.TokenType.RESERVED_WORD
-            && idTok.type != Lexer.TokenType.IN) {
+        if (idTok.type != Lexer.TokenType.IDENT && idTok.type != Lexer.TokenType.RESERVED_WORD) {
           if (idTok.type != Lexer.TokenType.ERROR) {
             reportSyntaxError(idTok, "expected identifier after '.'");
           }
@@ -586,11 +627,17 @@ final class PrattParser {
         }
         boolean isMemberCall = (peekToken.type == Lexer.TokenType.LEFT_PAREN);
         String idText = normalizeIdent(idTok, /* allowQuoted= */ !isMemberCall);
+        if (idText.isEmpty()) {
+          synchronizeOnDelimiter();
+          lastParsedDepth = chainDepth;
+          return ERROR;
+        }
         if (optional) {
           long opId = nextId(dotTok);
           CelExpr field =
-              CelExpr.ofConstant(nextId(getLeftmostPosition(lhs)), CelConstant.ofValue(idText));
+              CelExpr.ofConstant(nextId(memberStartPosition), CelConstant.ofValue(idText));
           lhs = buildBinaryCall(opId, Operator.OPTIONAL_SELECT.getFunction(), lhs, field);
+          canBeStructName = false;
         } else if (peekToken.type == Lexer.TokenType.LEFT_PAREN) {
           Lexer.Token lparen = nextToken();
           long callId = nextId(lparen);
@@ -604,8 +651,10 @@ final class PrattParser {
           // level below the call node, so "a.f(b.c.d.e)" is 4 deep. The max preserves the
           // selectors already walked when the arguments are shallower, as in "a.b.c.f(1)".
           chainDepth = Math.max(chainDepth, lastParsedDepth + 1);
+          canBeStructName = false;
         } else {
           lhs = CelExpr.ofSelect(nextId(dotTok), lhs, idText, /* isTestOnly= */ false);
+          canBeStructName = canBeStructName && !isQuotedIdent(idTok);
         }
       } else if (tok == Lexer.TokenType.LEFT_BRACKET) {
         if (checkRecursion(chainDepth, peekToken)) {
@@ -631,7 +680,11 @@ final class PrattParser {
         // below the index node, so "a[b.c.d.e]" is 4 deep. The max preserves the selectors
         // already walked when the index is shallower, as in "a.b.c[0]".
         chainDepth = Math.max(chainDepth, lastParsedDepth + 1);
+        canBeStructName = false;
       } else if (tok == Lexer.TokenType.LEFT_BRACE) {
+        if (!canBeStructName) {
+          break;
+        }
         String structName = extractStructName(lhs);
         if (structName == null) {
           break;
@@ -642,6 +695,7 @@ final class PrattParser {
         // a primary rather than a chain link, so it adds no level of its own. The max preserves
         // the selectors already walked when the fields are shallower, as in "a.b.Msg{f: 1}".
         chainDepth = Math.max(chainDepth, lastParsedDepth);
+        canBeStructName = false;
       } else {
         break;
       }
@@ -651,83 +705,44 @@ final class PrattParser {
   }
 
   private CelExpr parseUnaryOps() {
-    Lexer.Token op = nextToken();
-    Lexer.TokenType opType = op.type;
-    if (peekToken.type == Lexer.TokenType.EXCLAMATION || peekToken.type == Lexer.TokenType.MINUS) {
-      return parseUnaryOpsChain(op);
-    }
-
-    if (opType == Lexer.TokenType.MINUS) {
-      if (peekToken.type == Lexer.TokenType.INT) {
-        return parseIntLiteral(nextId(peekToken), /* isNegative= */ true);
-      }
-      if (peekToken.type == Lexer.TokenType.FLOAT) {
-        return parseDoubleLiteral(nextId(peekToken), /* isNegative= */ true);
-      }
-    }
-
-    if (checkRecursion(0, op)) {
-      return ERROR;
-    }
-
-    long opId = nextId(op);
-    recursionDepth++;
-    CelExpr operand = parseSelectorChain();
-    recursionDepth--;
-    if (recursionLimitExceeded) {
-      return ERROR;
-    }
-
-    String opName =
-        (opType == Lexer.TokenType.EXCLAMATION)
-            ? Operator.LOGICAL_NOT.getFunction()
-            : Operator.NEGATE.getFunction();
-    return buildUnaryCall(opId, opName, operand);
-  }
-
-  private CelExpr parseUnaryOpsChain(Lexer.Token firstOp) {
+    Lexer.Token firstOp = nextToken();
+    Lexer.TokenType opType = firstOp.type;
     List<UnaryOp> ops = new ArrayList<>();
     ops.add(new UnaryOp(firstOp));
-    while (peekToken.type == Lexer.TokenType.EXCLAMATION
-        || peekToken.type == Lexer.TokenType.MINUS) {
+    while (peekToken.type == opType) {
       ops.add(new UnaryOp(nextToken()));
     }
 
-    boolean hasSolitaryTrailingMinus =
-        !ops.isEmpty()
-            && Iterables.getLast(ops).token.type == Lexer.TokenType.MINUS
-            && (ops.size() == 1 || ops.get(ops.size() - 2).token.type != Lexer.TokenType.MINUS);
+    if (opType == Lexer.TokenType.MINUS
+        && ops.size() == 1
+        && (peekToken.type == Lexer.TokenType.INT || peekToken.type == Lexer.TokenType.FLOAT)) {
+      CelExpr lhs =
+          (peekToken.type == Lexer.TokenType.INT)
+              ? parseIntLiteral(nextId(peekToken), /* isNegative= */ true)
+              : parseDoubleLiteral(nextId(peekToken), /* isNegative= */ true);
+      lastParsedDepth = 0;
+      Lexer.TokenType tok = peekToken.type;
+      if (tok == Lexer.TokenType.DOT
+          || tok == Lexer.TokenType.LEFT_BRACKET
+          || tok == Lexer.TokenType.LEFT_BRACE) {
+        lhs =
+            parseSelectorChainTail(
+                lhs, /* initialChainDepth= */ 0, firstOp.start, /* canBeStructName= */ false);
+      }
+      return lhs;
+    }
 
     if (!options.retainRepeatedUnaryOperators()) {
-      int write = 0;
-      for (int read = 0; read < ops.size(); ) {
-        int next = read;
-        while (next < ops.size() && ops.get(next).token.type == ops.get(read).token.type) {
-          next++;
-        }
-        if ((next - read) % 2 != 0) {
-          ops.set(write++, ops.get(read));
-        }
-        read = next;
+      if (ops.size() % 2 == 0) {
+        ops.clear();
+      } else {
+        ops = new ArrayList<>(ops.subList(0, 1));
       }
-      ops = new ArrayList<>(ops.subList(0, write));
-    }
-
-    for (UnaryOp op : ops) {
-      op.id = nextId(op.token);
-    }
-
-    boolean isNegativeNumericLiteral =
-        hasSolitaryTrailingMinus
-            && (peekToken.type == Lexer.TokenType.INT || peekToken.type == Lexer.TokenType.FLOAT);
-    long negativeLiteralOpId = 0;
-    if (isNegativeNumericLiteral) {
-      negativeLiteralOpId = Iterables.getLast(ops).id;
-      ops.remove(ops.size() - 1);
     }
 
     int chainDepth = 0;
     for (UnaryOp op : ops) {
+      op.id = nextId(op.token);
       if (checkRecursion(chainDepth, op.token)) {
         return ERROR;
       }
@@ -736,14 +751,24 @@ final class PrattParser {
 
     recursionDepth += ops.size();
     CelExpr operand;
-    if (isNegativeNumericLiteral) {
-      operand =
-          (peekToken.type == Lexer.TokenType.INT)
-              ? parseIntLiteral(negativeLiteralOpId, /* isNegative= */ true)
-              : parseDoubleLiteral(negativeLiteralOpId, /* isNegative= */ true);
-      operand = parseSelectorChainTail(operand, /* initialChainDepth= */ 0);
+    if (opType == Lexer.TokenType.EXCLAMATION && peekToken.type == Lexer.TokenType.MINUS) {
+      Lexer.Token minusTok = nextToken();
+      if (peekToken.type == Lexer.TokenType.INT) {
+        operand = parseIntLiteral(nextId(peekToken), /* isNegative= */ true);
+        operand =
+            parseSelectorChainTail(
+                operand, /* initialChainDepth= */ 0, minusTok.start, /* canBeStructName= */ false);
+      } else if (peekToken.type == Lexer.TokenType.FLOAT) {
+        operand = parseDoubleLiteral(nextId(peekToken), /* isNegative= */ true);
+        operand =
+            parseSelectorChainTail(
+                operand, /* initialChainDepth= */ 0, minusTok.start, /* canBeStructName= */ false);
+      } else {
+        reportSyntaxError(minusTok, "unexpected '-'");
+        operand = parseMember();
+      }
     } else {
-      operand = parseSelectorChain();
+      operand = parseMember();
     }
     recursionDepth -= ops.size();
 
@@ -778,7 +803,9 @@ final class PrattParser {
       return CelExpr.newBuilder().setId(nextId(idTok)).build();
     }
     String idText = normalizeIdent(idTok, /* allowQuoted= */ false);
-    if (idTok.type == Lexer.TokenType.RESERVED_WORD && options.enableReservedIds()) {
+    if (idTok.type == Lexer.TokenType.RESERVED_WORD
+        && options.enableReservedIds()
+        && !isStructCreationAhead()) {
       reportError(idTok.start, String.format("reserved identifier: %s", idText));
     }
     String name = leadingDot ? "." + idText : idText;
@@ -811,8 +838,19 @@ final class PrattParser {
           // binary/ternary operators belonging to that enclosing parenthesized level using the
           // already-parsed inner expression as the LHS.
           Lexer.Token firstParen = peekToken;
+          int firstParenStart = firstParen.start;
+          int[] parenStarts = null;
           int openParens = 0;
           while (peekToken.type == Lexer.TokenType.LEFT_PAREN) {
+            if (openParens > 0) {
+              if (parenStarts == null) {
+                parenStarts = new int[8];
+                parenStarts[0] = firstParenStart;
+              } else if (openParens == parenStarts.length) {
+                parenStarts = Arrays.copyOf(parenStarts, parenStarts.length * 2);
+              }
+              parenStarts[openParens] = peekToken.start;
+            }
             openParens++;
             nextToken();
           }
@@ -828,7 +866,12 @@ final class PrattParser {
           for (int i = 0; i < openParens; ++i) {
             expect(Lexer.TokenType.RIGHT_PAREN, "");
             if (i < openParens - 1 && peekToken.type != Lexer.TokenType.RIGHT_PAREN) {
-              expr = parseSelectorChainTail(expr, chainDepth);
+              expr =
+                  parseSelectorChainTail(
+                      expr,
+                      chainDepth,
+                      parenStarts[openParens - 1 - i],
+                      /* canBeStructName= */ false);
               expr = parseBinaryAndTernaryFromLhs(expr, 0, lastParsedDepth);
               chainDepth = lastParsedDepth;
             }
@@ -1018,10 +1061,15 @@ final class PrattParser {
 
   private CelExpr parseIntLiteral(long nodeId, boolean isNegative) {
     Lexer.Token tok = nextToken();
-    String text = isNegative ? "-" + getTokenText(tok) : getTokenText(tok);
+    String tokenText = getTokenText(tok);
+    String text = isNegative ? "-" + tokenText : tokenText;
     long id = nodeId == -1 ? nextId(tok) : nodeId;
     try {
-      CelConstant constExpr = Constants.parseInt(text);
+      String normalizedText =
+          tokenText.startsWith("0X")
+              ? (isNegative ? "-0x" : "0x") + tokenText.substring(2)
+              : text;
+      CelConstant constExpr = Constants.parseInt(normalizedText);
       return CelExpr.ofConstant(id, constExpr);
     } catch (ParseException e) {
       reportSyntaxError(tok, "invalid int literal: " + text);
@@ -1033,7 +1081,8 @@ final class PrattParser {
     Lexer.Token tok = nextToken();
     String value = getTokenText(tok);
     try {
-      CelConstant constExpr = Constants.parseUint(value);
+      String normalizedValue = value.startsWith("0X") ? "0x" + value.substring(2) : value;
+      CelConstant constExpr = Constants.parseUint(normalizedValue);
       return CelExpr.ofConstant(nextId(tok), constExpr);
     } catch (ParseException e) {
       reportSyntaxError(tok, "invalid uint literal: " + value);
@@ -1112,6 +1161,13 @@ final class PrattParser {
     return text;
   }
 
+  private boolean isQuotedIdent(Lexer.Token tok) {
+    if (tok.text != null) {
+      return !tok.text.isEmpty() && tok.text.charAt(0) == '`';
+    }
+    return tok.start >= 0 && tok.start < tok.end && content.get(tok.start) == '`';
+  }
+
   private static boolean isAsciiAlphanumeric(char c) {
     return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9');
   }
@@ -1132,13 +1188,6 @@ final class PrattParser {
       return prefix != null ? prefix + "." + expr.select().field() : null;
     }
     return null;
-  }
-
-  private int getLeftmostPosition(CelExpr expr) {
-    while (expr.exprKind().getKind() == CelExpr.ExprKind.Kind.SELECT) {
-      expr = expr.select().operand();
-    }
-    return getPosition(expr.id());
   }
 
   private @Nullable CelMacro lookupMacro(String id, int argCount, boolean receiverStyle) {
