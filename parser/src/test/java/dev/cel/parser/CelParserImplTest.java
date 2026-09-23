@@ -201,17 +201,21 @@ public final class CelParserImplTest {
   private enum MaxParseRecursionDepthTestCase {
     LARGE_CALC(
         "1 + 2 + 3 + 4 + 5 + 6 + 7 + 8 + 9 + 10 + 11 + 12 + 13 + 14 + 15 + 16 + 17 + 18 + 19 + 20 +"
-            + " 21 + 22 + 23 + 24 + 25 + 26 + 27 + 28 + 29 + 30 + 31 + 32 + 33 + 34"),
-    NESTED_PARENS("((((((((((((((((((((((((((((((((7))))))))))))))))))))))))))))))))"),
+            + " 21 + 22 + 23 + 24 + 25 + 26 + 27 + 28 + 29 + 30 + 31 + 32 + 33 + 34",
+        32),
+    NESTED_PARENS("((((((((((((((((((((((((((((((((7))))))))))))))))))))))))))))))))", 32),
     NESTED_PARENS_WITH_CALC(
         "((((((((((((((((((((((((((((((((7)))))))))))))))))))))))))))))))) +"
-            + "(((((((((((((((((((((((((((((((7)))))))))))))))))))))))))))))))"),
-    FIELD_SELECTIONS("a.b.c.d.e.f.g.h.i.j.k.l.m.n.o.p.q.r.s.t.u.v.w.x.y.z.A.B.C.D.E.F.G.H"),
+            + "(((((((((((((((((((((((((((((((7)))))))))))))))))))))))))))))))",
+        32),
+    FIELD_SELECTIONS("a.b.c.d.e.f.g.h.i.j.k.l.m.n.o.p.q.r.s.t.u.v.w.x.y.z.A.B.C.D.E.F.G.H", 32),
     INDEX_OPERATIONS(
-        "a[1][2][3][4][5][6][7][8][9][10][11][12][13][14][15][16][17][18][19][20][21][22][23][24][25][26][27][28][29][30][31][32][33]"),
+        "a[1][2][3][4][5][6][7][8][9][10][11][12][13][14][15][16][17][18][19][20][21][22][23][24][25][26][27][28][29][30][31][32][33]",
+        32),
     RELATION_OPERATORS(
         "a < 1 < 2 < 3 < 4 < 5 < 6 < 7 < 8 < 9 < 10 < 11 < 12 < 13 < 14 < 15 < 16 < 17 < 18 < 19 <"
-            + " 20 < 21 < 22 < 23 < 24 < 25 < 26 < 27 < 28 < 29 < 30 < 31 < 32 < 33"),
+            + " 20 < 21 < 22 < 23 < 24 < 25 < 26 < 27 < 28 < 29 < 30 < 31 < 32 < 33",
+        32),
     // More than 32 index / relation operators. Note, the recursion count is the
     // maximum recursion level on the left or right side index expression (20) plus
     // the number of relation operators (13)
@@ -229,27 +233,88 @@ public final class CelParserImplTest {
             + " a[1][2][3][4][5][6][7][8][9][10][11][12][13][14][15][16][17][18][19][20] !="
             + " a[1][2][3][4][5][6][7][8][9][10][11][12][13][14][15][16][17][18][19][20] !="
             + " a[1][2][3][4][5][6][7][8][9][10][11][12][13][14][15][16][17][18][19][20] !="
-            + " a[1][2][3][4][5][6][7][8][9][10][11][12][13][14][15][16][17][18][19][20]"),
+            + " a[1][2][3][4][5][6][7][8][9][10][11][12][13][14][15][16][17][18][19][20]",
+        32),
     TERNARY(
         "a ? b : a ? b : a ? b : a ? b : a ? b : a ? b : a ? b : a ? b :"
             + " a ? b : a ? b : a ? b : a ? b : a ? b : a ? b : a ? b : a ? b :"
             + " a ? b : a ? b : a ? b : a ? b : a ? b : a ? b : a ? b : a ? b :"
-            + " a ? b : a ? b : a ? b : a ? b : a ? b : a ? b : a ? b : a ? b : c"),
+            + " a ? b : a ? b : a ? b : a ? b : a ? b : a ? b : a ? b : a ? b : c",
+        32),
     TERNARY_TRUE_BRANCH_PARENS(
-        "a ? ((((((((((((((((((((((((((((((((b)))))))))))))))))))))))))))))))) : c");
+        "a ? ((((((((((((((((((((((((((((((((b)))))))))))))))))))))))))))))))) : c", 32),
+    NESTED_LEFT_PARENS_WITH_CALC(
+        "((((((((((((((((((((((((((((((((7) + 1) + 1) + 1) + 1) + 1) + 1) + 1) + 1) + 1) + 1) + 1)"
+            + " + 1) + 1) + 1) + 1) + 1) + 1) + 1) + 1) + 1) + 1) + 1) + 1) + 1) + 1) + 1) + 1) +"
+            + " 1) + 1) + 1) + 1)",
+        32),
+    NESTED_RIGHT_PARENS_WITH_LOGICAL_OR(
+        "(true) || (true || (true || (true || (true || (true || (true || (true || (true || (true ||"
+            + " (true || (true || (true || (true || (true || (true || (true || (true || (true ||"
+            + " (true || (true || (true || (true || (true || (true || (true || (true || (true ||"
+            + " (true || (true || (true || (true || (true || false))))))))))))))))))))))))))))))))",
+        32),
+    // Parens nested inside an operand are charged against the depth reached so far rather than
+    // accumulating on top of the enclosing parens, so the Pratt parser allows more depth here.
+    GROUPING_PARENS_AROUND_CALC(
+        "((1 + ((7))))", /* antlrMaxRecursionLimit= */ 5, /* prattMaxRecursionLimit= */ 3),
+    PARENTHESIZED_LHS_CALC("(1 + 1 + 1) + 1 + 1 + 1", 4),
+    NESTED_LEFT_PARENS_LHS_CALC("((1 + 1) + 1) + 1 + 1 + 1", 4),
+    GROUPING_PARENS_LHS_CALC("(((1 + 1 + 1))) + 1 + 1 + 1", 4),
+    PARENTHESIZED_RHS_CALC("1 + (1 + 1 + 1 + 1 + 1)", 4),
+    PARENTHESIZED_FIELD_SELECTIONS("(a.b.c).d.e.f", 4),
+    // Depth accumulated inside a call argument carries into the enclosing selector and operator
+    // chains that wrap the call.
+    CALL_ARGUMENT_FIELD_SELECTIONS("f(a.b.c.d).e", 3),
+    CALL_ARGUMENT_FIELD_SELECTIONS_WITH_CALC("x + f(a.b.c.d) + y", 4),
+    CALL_ARGUMENT_CALC_WITH_CALC("x + f(a + b + c + d) + y", 4),
+    INDEX_FIELD_SELECTIONS_WITH_CALC("x + a[b.c.d.e] + y", 5),
+    MEMBER_CALL_ARGUMENT_FIELD_SELECTIONS_WITH_CALC("x + a.f(b.c.d.e) + y", 5),
+    STRUCT_FIELD_SELECTIONS_WITH_CALC("x + Msg{f: a.b.c.d} + y", 4),
+    // A delimited construct contributes its deepest element, not its last one.
+    CALL_ARGUMENT_DEEPEST_NOT_LAST("x + f(a.b.c.d, 1) + y", 4),
+    MEMBER_CALL_ARGUMENT_DEEPEST_NOT_LAST("x + a.f(b.c.d.e, 1) + y", 5),
+    LIST_ELEMENT_DEEPEST_NOT_LAST("x + [a.b.c.d, 1][0] + y", 5),
+    MAP_VALUE_DEEPEST_NOT_LAST("x + {'k': a.b.c.d, 'j': 1}['k'] + y", 5),
+    MAP_KEY_DEEPEST_NOT_LAST("x + {a.b.c.d.e: 1, 'j': 2}['j'] + y", 6),
+    STRUCT_FIELD_DEEPEST_NOT_LAST("x + Msg{f: a.b.c.d, g: 1} + y", 4),
+    NESTED_LIST_ELEMENT_DEEPEST_NOT_LAST("x + [[a.b.c.d, 1], 1][0] + y", 5),
+    PARENTHESIZED_LOGICAL_AND_FIELD_SELECTION("((a && b.c.d).e)", 2),
+    PARENTHESIZED_LOGICAL_AND_CHAIN_FIELD_SELECTION("((a && b && c.d.e).f)", 2),
+    FIELD_SELECTIONS_WITH_CALC("a.b.c.d.e + f.g", 4);
 
-    static final int MAX_RECURSION_LIMIT = 32;
     final String source;
+    final int antlrMaxRecursionLimit;
+    final int prattMaxRecursionLimit;
 
-    MaxParseRecursionDepthTestCase(String source) {
-      this.source = source;
+    MaxParseRecursionDepthTestCase(String source, int maxRecursionLimit) {
+      this(source, maxRecursionLimit, maxRecursionLimit);
     }
+
+    MaxParseRecursionDepthTestCase(
+        String source, int antlrMaxRecursionLimit, int prattMaxRecursionLimit) {
+      this.source = source;
+      this.antlrMaxRecursionLimit = antlrMaxRecursionLimit;
+      this.prattMaxRecursionLimit = prattMaxRecursionLimit;
+    }
+  }
+
+  @Test
+  public void parse_nestedParenthesesWithTernaryAndSelectors_succeeds() throws Exception {
+    CelParser parser = newParserBuilder().build();
+
+    CelValidationResult parseResult =
+        parser.parse("((a ? b : c).d[0] ? (e ? f : g) : h) + ((x).y)");
+
+    assertThat(parseResult.hasError()).isFalse();
+    assertThat(parseResult.getAst()).isNotNull();
   }
 
   @Test
   public void parse_largeExprHitsMaxRecursionLimit_throws(
       @TestParameter MaxParseRecursionDepthTestCase testCase) {
-    int maxParseRecursionLimit = MaxParseRecursionDepthTestCase.MAX_RECURSION_LIMIT;
+    int maxParseRecursionLimit =
+        enablePrattParser ? testCase.prattMaxRecursionLimit : testCase.antlrMaxRecursionLimit;
     CelParser parser =
         newParserBuilder()
             .setOptions(
@@ -277,7 +342,8 @@ public final class CelParserImplTest {
   @Test
   public void parse_exprUnderMaxRecursionLimit_doesNotThrow(
       @TestParameter MaxParseRecursionDepthTestCase testCase) throws CelValidationException {
-    int maxParseRecursionLimit = MaxParseRecursionDepthTestCase.MAX_RECURSION_LIMIT + 1;
+    int maxParseRecursionLimit =
+        (enablePrattParser ? testCase.prattMaxRecursionLimit : testCase.antlrMaxRecursionLimit) + 1;
     CelParser parser =
         newParserBuilder()
             .setOptions(
@@ -478,10 +544,7 @@ public final class CelParserImplTest {
             0,
             (exprFactory, target, args) -> {
               CelExpr nodeWithoutPosition =
-                  CelExpr.newBuilder()
-                      .setId(5L)
-                      .setConstant(CelConstant.ofValue(10L))
-                      .build();
+                  CelExpr.newBuilder().setId(5L).setConstant(CelConstant.ofValue(10L)).build();
               return Optional.of(exprFactory.copy(nodeWithoutPosition));
             });
     CelParser parser = newParserBuilder().addMacros(macro).build();
@@ -495,5 +558,3 @@ public final class CelParserImplTest {
     assertThat(result.getAst().getSource().getPositionsMap()).isEmpty();
   }
 }
-
-

@@ -142,7 +142,9 @@ final class PrattParser {
   private Lexer.Token currentToken;
   private Lexer.Token peekToken;
   private int recursionDepth;
-  private int currentLhsDepth;
+  // Chain depth of the most recently parsed expression, returned as an out-parameter to avoid
+  // allocating a wrapper per node. Only valid immediately after the call that produced it.
+  private int lastParsedDepth;
   private long nextId;
   private boolean nodeLimitExceeded;
   private boolean recursionLimitExceeded;
@@ -430,10 +432,14 @@ final class PrattParser {
     return expr;
   }
 
-  @SuppressWarnings("EnumOrdinal") // Using ordinal for O(1) binary operator lookup table
   private CelExpr parseBinaryAndTernary(int minPrec) {
     CelExpr lhs = parseSelectorChain();
-    int chainDepth = currentLhsDepth;
+    return parseBinaryAndTernaryFromLhs(lhs, minPrec, lastParsedDepth);
+  }
+
+  @SuppressWarnings("EnumOrdinal") // Using ordinal for O(1) binary operator lookup table
+  private CelExpr parseBinaryAndTernaryFromLhs(CelExpr lhs, int minPrec, int initialChainDepth) {
+    int chainDepth = initialChainDepth;
     while (!recursionLimitExceeded && !isRecoveryLimitExceeded()) {
       Lexer.TokenType tok = peekToken.type;
       if (tok == Lexer.TokenType.QUESTION && minPrec <= 0) {
@@ -460,7 +466,12 @@ final class PrattParser {
       long opId = nextId(opTok);
       CelExpr rhs = parseBinaryAndTernary(opInfo.precedence + 1);
       lhs = buildBinaryCall(opId, opInfo.name, lhs, rhs);
-      currentLhsDepth = chainDepth;
+      // lastParsedDepth is the depth of the rhs just parsed. It hangs one level below this
+      // operator, while chainDepth already covers the lhs, so the operator node is as deep as
+      // whichever side is deeper: "x + a.b.c.d" reaches 4 through its rhs and "a.b.c.d + x"
+      // reaches 4 through its lhs.
+      chainDepth = Math.max(chainDepth, lastParsedDepth + 1);
+      lastParsedDepth = chainDepth;
     }
     return lhs;
   }
@@ -482,6 +493,7 @@ final class PrattParser {
     long opId = nextId(opTok.start);
     CelExpr rhs = parseBinaryAndTernary(opInfo.precedence + 1);
     if (peekToken.type != opInfo.type) {
+      lastParsedDepth = 0;
       return buildBinaryCall(opId, opInfo.name, lhs, rhs);
     }
 
@@ -505,6 +517,7 @@ final class PrattParser {
       ops[opsCount++] = opId;
       terms[termsCount++] = rhs;
     }
+    lastParsedDepth = 0;
     return balancedTree(opInfo.name, terms, ops, 0, opsCount - 1);
   }
 
@@ -524,24 +537,26 @@ final class PrattParser {
   }
 
   private CelExpr parseSelectorChain() {
+    lastParsedDepth = 0;
     Lexer.TokenType tok = peekToken.type;
     CelExpr lhs =
         (tok == Lexer.TokenType.EXCLAMATION || tok == Lexer.TokenType.MINUS)
             ? parseUnaryOps()
             : parsePrimary();
-    currentLhsDepth = 0;
     tok = peekToken.type;
     if (tok == Lexer.TokenType.DOT
         || tok == Lexer.TokenType.LEFT_BRACKET
         || tok == Lexer.TokenType.LEFT_BRACE) {
-      lhs = parseSelectorChainTail(lhs);
+      // A parenthesized primary such as "(a.b.c)" already contributes its own depth, which the
+      // selectors trailing the closing ')' continue to accumulate on top of.
+      lhs = parseSelectorChainTail(lhs, lastParsedDepth);
     }
     return lhs;
   }
 
-  private CelExpr parseSelectorChainTail(CelExpr initialLhs) {
+  private CelExpr parseSelectorChainTail(CelExpr initialLhs, int initialChainDepth) {
     CelExpr lhs = initialLhs;
-    int chainDepth = 0;
+    int chainDepth = initialChainDepth;
     while (true) {
       Lexer.TokenType tok = peekToken.type;
       if (tok == Lexer.TokenType.DOT) {
@@ -566,7 +581,7 @@ final class PrattParser {
             reportSyntaxError(idTok, "expected identifier after '.'");
           }
           synchronizeOnDelimiter();
-          currentLhsDepth = chainDepth;
+          lastParsedDepth = chainDepth;
           return lhs;
         }
         boolean isMemberCall = (peekToken.type == Lexer.TokenType.LEFT_PAREN);
@@ -585,6 +600,10 @@ final class PrattParser {
               expanded.isPresent()
                   ? expanded.get()
                   : CelExpr.ofCall(callId, Optional.of(lhs), idText, args);
+          // parseArguments leaves lastParsedDepth at the deepest argument. Arguments hang one
+          // level below the call node, so "a.f(b.c.d.e)" is 4 deep. The max preserves the
+          // selectors already walked when the arguments are shallower, as in "a.b.c.f(1)".
+          chainDepth = Math.max(chainDepth, lastParsedDepth + 1);
         } else {
           lhs = CelExpr.ofSelect(nextId(dotTok), lhs, idText, /* isTestOnly= */ false);
         }
@@ -608,17 +627,26 @@ final class PrattParser {
         String opName =
             optional ? Operator.OPTIONAL_INDEX.getFunction() : Operator.INDEX.getFunction();
         lhs = buildBinaryCall(opId, opName, lhs, index);
+        // lastParsedDepth is the depth of the index expression just parsed. It hangs one level
+        // below the index node, so "a[b.c.d.e]" is 4 deep. The max preserves the selectors
+        // already walked when the index is shallower, as in "a.b.c[0]".
+        chainDepth = Math.max(chainDepth, lastParsedDepth + 1);
       } else if (tok == Lexer.TokenType.LEFT_BRACE) {
         String structName = extractStructName(lhs);
         if (structName == null) {
           break;
         }
         lhs = parseStruct(nextId(peekToken.start), structName);
+        // parseStruct leaves lastParsedDepth at the deepest field value, which carries through
+        // unchanged: "Msg{f: a.b.c.d}" is 3 deep. There is no +1 here because struct creation is
+        // a primary rather than a chain link, so it adds no level of its own. The max preserves
+        // the selectors already walked when the fields are shallower, as in "a.b.Msg{f: 1}".
+        chainDepth = Math.max(chainDepth, lastParsedDepth);
       } else {
         break;
       }
     }
-    currentLhsDepth = chainDepth;
+    lastParsedDepth = chainDepth;
     return lhs;
   }
 
@@ -713,7 +741,7 @@ final class PrattParser {
           (peekToken.type == Lexer.TokenType.INT)
               ? parseIntLiteral(negativeLiteralOpId, /* isNegative= */ true)
               : parseDoubleLiteral(negativeLiteralOpId, /* isNegative= */ true);
-      operand = parseSelectorChainTail(operand);
+      operand = parseSelectorChainTail(operand, /* initialChainDepth= */ 0);
     } else {
       operand = parseSelectorChain();
     }
@@ -772,17 +800,40 @@ final class PrattParser {
     switch (peekToken.type) {
       case LEFT_PAREN:
         {
-          int groupingParenCount = countGroupingParentheses();
-          if (checkRecursion(groupingParenCount, peekToken)) {
+          if (recursionLimitExceeded || isRecoveryLimitExceeded()) {
             return ERROR;
           }
-          for (int i = 0; i < groupingParenCount; ++i) {
+          // To avoid deep call-stack recursion on heavily nested parentheses (e.g. "((((a))))" or
+          // "((((a + 1) + 1) + 1))"), consume all consecutive leading '(' tokens upfront, parse the
+          // innermost expression once, and then iteratively unwind each enclosing '(' from
+          // innermost to outermost. After consuming each matching ')', if more enclosing '(' remain
+          // open and the next token is not another ')', continue parsing any trailing selectors or
+          // binary/ternary operators belonging to that enclosing parenthesized level using the
+          // already-parsed inner expression as the LHS.
+          Lexer.Token firstParen = peekToken;
+          int openParens = 0;
+          while (peekToken.type == Lexer.TokenType.LEFT_PAREN) {
+            openParens++;
             nextToken();
           }
-          CelExpr expr = parseExpr();
-          for (int i = 0; i < groupingParenCount; ++i) {
-            expect(Lexer.TokenType.RIGHT_PAREN, "");
+          // Every '(' is a nesting level and costs one unit of recursion budget, so charge all of
+          // them here. recursionDepth itself only advances by 1: the parens are unwound
+          // iteratively, so entering parseBinaryAndTernary(0) below adds just one stack frame.
+          if (checkRecursion(openParens, firstParen)) {
+            return ERROR;
           }
+          recursionDepth++;
+          CelExpr expr = parseBinaryAndTernary(0);
+          int chainDepth = lastParsedDepth;
+          for (int i = 0; i < openParens; ++i) {
+            expect(Lexer.TokenType.RIGHT_PAREN, "");
+            if (i < openParens - 1 && peekToken.type != Lexer.TokenType.RIGHT_PAREN) {
+              expr = parseSelectorChainTail(expr, chainDepth);
+              expr = parseBinaryAndTernaryFromLhs(expr, 0, lastParsedDepth);
+              chainDepth = lastParsedDepth;
+            }
+          }
+          recursionDepth--;
           return expr;
         }
       case NULL:
@@ -827,12 +878,25 @@ final class PrattParser {
     }
   }
 
+  /**
+   * Parses one element of a delimited construct, accumulating {@code lastParsedDepth} to the
+   * deepest element seen so far. A construct is as deep as its deepest element, not its last one,
+   * so callers must reset {@code lastParsedDepth} to 0 before the first element.
+   */
+  private CelExpr parseElementExpr() {
+    int maxDepth = lastParsedDepth;
+    CelExpr expr = parseExpr();
+    lastParsedDepth = Math.max(maxDepth, lastParsedDepth);
+    return expr;
+  }
+
   private CelExpr parseList() {
     Lexer.Token openTok = nextToken();
     long listId = nextId(openTok);
     ImmutableList.Builder<CelExpr> elements = ImmutableList.builder();
     ImmutableList.Builder<Integer> optionalIndices = ImmutableList.builder();
     int elemIndex = 0;
+    lastParsedDepth = 0;
     while (peekToken.type != Lexer.TokenType.RIGHT_BRACKET
         && peekToken.type != Lexer.TokenType.END) {
       boolean optional = false;
@@ -843,7 +907,7 @@ final class PrattParser {
           reportError(q.start, "unsupported syntax '?'");
         }
       }
-      elements.add(parseExpr());
+      elements.add(parseElementExpr());
       if (optional) {
         optionalIndices.add(elemIndex);
       }
@@ -862,6 +926,7 @@ final class PrattParser {
     Lexer.Token openTok = nextToken();
     long mapId = nextId(openTok);
     ImmutableList.Builder<CelExpr.CelMap.Entry> entries = ImmutableList.builder();
+    lastParsedDepth = 0;
     while (peekToken.type != Lexer.TokenType.RIGHT_BRACE && peekToken.type != Lexer.TokenType.END) {
       boolean optional = false;
       Lexer.Token keyStart = peekToken;
@@ -874,13 +939,13 @@ final class PrattParser {
         keyStart = peekToken;
       }
       long entryId = nextId();
-      CelExpr key = parseExpr();
+      CelExpr key = parseElementExpr();
       Lexer.Token colon = peekToken;
       if (!expect(Lexer.TokenType.COLON, "expected ':' in map entry")) {
         break;
       }
       setPosition(entryId, colon);
-      CelExpr value = parseExpr();
+      CelExpr value = parseElementExpr();
       entries.add(CelExpr.ofMapEntry(entryId, key, value, optional));
       if (peekToken.type == Lexer.TokenType.COMMA) {
         nextToken();
@@ -895,6 +960,7 @@ final class PrattParser {
   private CelExpr parseStruct(long objId, String structName) {
     nextToken();
     ImmutableList.Builder<CelExpr.CelStruct.Entry> entries = ImmutableList.builder();
+    lastParsedDepth = 0;
     while (peekToken.type != Lexer.TokenType.RIGHT_BRACE && peekToken.type != Lexer.TokenType.END) {
       boolean optional = false;
       if (peekToken.type == Lexer.TokenType.QUESTION) {
@@ -917,7 +983,7 @@ final class PrattParser {
         break;
       }
       long fieldId = nextId(colon);
-      CelExpr value = parseExpr();
+      CelExpr value = parseElementExpr();
       entries.add(CelExpr.ofStructEntry(fieldId, fieldName, value, optional));
       if (peekToken.type == Lexer.TokenType.COMMA) {
         nextToken();
@@ -931,9 +997,10 @@ final class PrattParser {
 
   private ImmutableList<CelExpr> parseArguments(Lexer.TokenType closeToken) {
     ImmutableList.Builder<CelExpr> args = ImmutableList.builder();
+    lastParsedDepth = 0;
     if (peekToken.type != closeToken && peekToken.type != Lexer.TokenType.END) {
       while (true) {
-        args.add(parseExpr());
+        args.add(parseElementExpr());
         if (peekToken.type == Lexer.TokenType.COMMA) {
           nextToken();
           if (peekToken.type == closeToken) {
@@ -1099,8 +1166,7 @@ final class PrattParser {
       return Optional.empty();
     }
     if (nodeLimitExceeded) {
-      reportError(
-          getPosition(exprId), "could not expand macro: expression node limit exceeded");
+      reportError(getPosition(exprId), "could not expand macro: expression node limit exceeded");
       return Optional.empty();
     }
 
@@ -1177,76 +1243,6 @@ final class PrattParser {
       return resultExpr.setCall(callExpr.build()).build();
     }
     return expr;
-  }
-
-  private int countGroupingParentheses() {
-    if (peekToken.type != Lexer.TokenType.LEFT_PAREN) {
-      return 0;
-    }
-
-    // Fast path: if the next non-whitespace character is not '(', leading open parens is 1.
-    int pos = peekToken.end;
-    int size = content.size();
-    while (pos < size) {
-      int c = content.get(pos);
-      if (c != ' ' && c != '\t' && c != '\n' && c != '\r' && c != '\f' && c != 11) {
-        if (c == '/') {
-          // A comment might precede another '('.
-          break;
-        }
-        if (c == '(') {
-          break;
-        }
-        // Next significant token is definitely not '('.
-        return 1;
-      }
-      pos++;
-    }
-
-    int savedPos = lexer.savePosition();
-    try {
-      int leadingOpenParens = 1;
-      Lexer.Token tok = nextSignificantToken(/* reportError= */ false);
-      while (tok.type == Lexer.TokenType.LEFT_PAREN) {
-        leadingOpenParens++;
-        tok = nextSignificantToken(/* reportError= */ false);
-      }
-      if (leadingOpenParens == 1) {
-        return 1;
-      }
-
-      int openParens = leadingOpenParens;
-      int consecutiveLeadingClosed = 0;
-
-      while (openParens > 0) {
-        if (tok.type == Lexer.TokenType.END || tok.type == Lexer.TokenType.ERROR) {
-          return 1;
-        }
-
-        if (tok.type == Lexer.TokenType.LEFT_PAREN) {
-          openParens++;
-          consecutiveLeadingClosed = 0;
-        } else if (tok.type == Lexer.TokenType.RIGHT_PAREN) {
-          if (leadingOpenParens == openParens) {
-            leadingOpenParens--;
-            consecutiveLeadingClosed++;
-          } else {
-            consecutiveLeadingClosed = 0;
-          }
-          openParens--;
-        } else {
-          consecutiveLeadingClosed = 0;
-        }
-
-        if (openParens > 0) {
-          tok = nextSignificantToken(/* reportError= */ false);
-        }
-      }
-
-      return Math.max(1, consecutiveLeadingClosed);
-    } finally {
-      lexer.restorePosition(savedPos);
-    }
   }
 
   private final class PrattMacroExprFactory extends CelMacroExprFactory {
