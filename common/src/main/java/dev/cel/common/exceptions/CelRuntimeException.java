@@ -32,6 +32,11 @@ public abstract class CelRuntimeException extends RuntimeException {
     this.errorCode = errorCode;
   }
 
+  CelRuntimeException(String errorMessage, Throwable cause, CelErrorCode errorCode) {
+    super(errorMessage, cause);
+    this.errorCode = errorCode;
+  }
+
   public CelRuntimeException(Throwable cause, CelErrorCode errorCode) {
     super(cause);
     this.errorCode = errorCode;

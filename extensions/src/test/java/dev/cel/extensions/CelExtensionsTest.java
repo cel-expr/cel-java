@@ -96,11 +96,10 @@ public class CelExtensionsTest {
 
   @Test
   public void addAllMathExtensions_success() throws Exception {
-    CelOptions celOptions = CelOptions.current().build();
     Cel cel =
         CelFactory.standardCelBuilder()
-            .addCompilerLibraries(CelExtensions.math(celOptions))
-            .addRuntimeLibraries(CelExtensions.math(celOptions))
+            .addCompilerLibraries(CelExtensions.math())
+            .addRuntimeLibraries(CelExtensions.math())
             .build();
     String allMathExtExpr = "math.greatest(1, 2.0) == 2.0 && math.least(1, 2.0) == 1";
 
@@ -112,11 +111,10 @@ public class CelExtensionsTest {
 
   @Test
   public void addSubsetOfMathExtensions_success() throws Exception {
-    CelOptions celOptions = CelOptions.current().build();
     Cel cel =
         CelFactory.standardCelBuilder()
-            .addCompilerLibraries(CelExtensions.math(celOptions, CelMathExtensions.Function.MAX))
-            .addRuntimeLibraries(CelExtensions.math(celOptions, CelMathExtensions.Function.MAX))
+            .addCompilerLibraries(CelExtensions.math(CelMathExtensions.Function.MAX))
+            .addRuntimeLibraries(CelExtensions.math(CelMathExtensions.Function.MAX))
             .build();
 
     boolean evaluatedResult =
@@ -130,8 +128,8 @@ public class CelExtensionsTest {
   public void addEncoderExtension_success() throws Exception {
     Cel cel =
         CelFactory.standardCelBuilder()
-            .addCompilerLibraries(CelExtensions.encoders())
-            .addRuntimeLibraries(CelExtensions.encoders())
+            .addCompilerLibraries(CelExtensions.encoders(CelOptions.DEFAULT))
+            .addRuntimeLibraries(CelExtensions.encoders(CelOptions.DEFAULT))
             .build();
 
     boolean evaluatedResult =
@@ -164,6 +162,7 @@ public class CelExtensionsTest {
             "math.bitShiftRight",
             "math.sqrt",
             "charAt",
+            "format",
             "indexOf",
             "join",
             "lastIndexOf",
