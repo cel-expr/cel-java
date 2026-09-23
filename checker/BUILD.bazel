@@ -1,4 +1,5 @@
 load("@rules_java//java:defs.bzl", "java_library")
+load("//:cel_android_rules.bzl", "cel_android_library")
 
 package(
     default_applicable_licenses = ["//:license"],
@@ -35,7 +36,10 @@ java_library(
 java_library(
     name = "checker_legacy_environment",
     deprecation = "See go/cel-java-migration-guide. Please use CEL-Java Fluent APIs //compiler instead",
-    exports = ["//checker/src/main/java/dev/cel/checker:checker_legacy_environment"],
+    exports = [
+        ":type_provider_legacy",
+        "//checker/src/main/java/dev/cel/checker:checker_legacy_environment",
+    ],
 )
 
 java_library(
@@ -52,4 +56,9 @@ java_library(
 java_library(
     name = "standard_decl",
     exports = ["//checker/src/main/java/dev/cel/checker:standard_decl"],
+)
+
+cel_android_library(
+    name = "standard_decl_android",
+    exports = ["//checker/src/main/java/dev/cel/checker:standard_decl_android"],
 )

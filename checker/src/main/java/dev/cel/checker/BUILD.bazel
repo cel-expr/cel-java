@@ -1,4 +1,5 @@
 load("@rules_java//java:defs.bzl", "java_library")
+load("//:cel_android_rules.bzl", "cel_android_library")
 
 package(
     default_applicable_licenses = [
@@ -25,14 +26,11 @@ CHECKER_BUILDER_SOURCES = [
 
 # keep sorted
 CHECKER_LEGACY_ENV_SOURCES = [
-    "DescriptorTypeProvider.java",
     "Env.java",
     "ExprChecker.java",
     "ExprVisitor.java",
     "InferenceContext.java",
     "TypeFormatter.java",
-    "TypeProvider.java",
-    "Types.java",
 ]
 
 java_library(
@@ -69,7 +67,7 @@ java_library(
         ":checker_legacy_environment",
         ":proto_type_mask",
         ":standard_decl",
-        ":type_provider_legacy_impl",
+        ":type_provider_legacy",
         "//common:cel_ast",
         "//common:cel_descriptor_util",
         "//common:cel_function_decl",
@@ -102,9 +100,9 @@ java_library(
     tags = [
     ],
     deps = [
-        ":checker_legacy_environment",
         ":proto_type_mask",
         ":standard_decl",
+        ":type_provider_legacy",
         "//common:cel_ast",
         "//common:cel_function_decl",
         "//common:cel_validation_result",
@@ -137,7 +135,7 @@ java_library(
     tags = [
     ],
     deps = [
-        ":checker_legacy_environment",
+        ":type_provider_legacy",
         "//common/annotations",
         "//common/types",
         "//common/types:cel_proto_types",
@@ -156,6 +154,7 @@ java_library(
     ],
     deps = [
         ":standard_decl",
+        ":type_provider_legacy",
         "//:auto_value",
         "//common:cel_ast",
         "//common:cel_function_decl",
@@ -173,7 +172,6 @@ java_library(
         "//common/ast:expr_converter",
         "//common/ast:mutable_expr",
         "//common/internal:errors",
-        "//common/internal:file_descriptor_converter",
         "//common/types",
         "//common/types:cel_proto_types",
         "//common/types:cel_types",
@@ -183,7 +181,6 @@ java_library(
         "@cel_spec//proto/cel/expr:syntax_java_proto",
         "@maven//:com_google_errorprone_error_prone_annotations",
         "@maven//:com_google_guava_guava",
-        "@maven//:com_google_protobuf_protobuf_java",
         "@maven//:org_jspecify_jspecify",
     ],
 )
@@ -233,5 +230,25 @@ java_library(
         "//common/types:type_providers",
         "@maven//:com_google_errorprone_error_prone_annotations",
         "@maven//:com_google_guava_guava",
+    ],
+)
+
+cel_android_library(
+    name = "standard_decl_android",
+    srcs = [
+        "CelStandardDeclarations.java",
+    ],
+    tags = [
+    ],
+    deps = [
+        "//common:cel_function_decl_android",
+        "//common:cel_overload_decl_android",
+        "//common:cel_var_decl_android",
+        "//common:operator_android",
+        "//common/types:cel_types_android",
+        "//common/types:type_providers_android",
+        "//common/types:types_android",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven_android//:com_google_guava_guava",
     ],
 )

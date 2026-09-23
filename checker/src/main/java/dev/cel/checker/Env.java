@@ -46,8 +46,11 @@ import dev.cel.common.internal.Errors;
 import dev.cel.common.types.CelKind;
 import dev.cel.common.types.CelProtoTypes;
 import dev.cel.common.types.CelType;
+import dev.cel.common.types.CelTypeProvider;
 import dev.cel.common.types.CelTypes;
+import dev.cel.common.types.EnumType;
 import dev.cel.common.types.SimpleType;
+import dev.cel.common.types.TypeType;
 import dev.cel.parser.CelStandardMacro;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -80,8 +83,13 @@ public class Env {
   public static final CelFunctionDecl ERROR_FUNCTION_DECL =
       CelFunctionDecl.newBuilder().setName("*error*").build();
 
-  /** Type provider responsible for resolving CEL message references to strong types. */
-  private final TypeProvider typeProvider;
+  private static final CelTypeProvider EMPTY_TYPE_PROVIDER =
+      new CelTypeProvider.CombinedCelTypeProvider(ImmutableList.of());
+
+  /** Type provider responsible for resolving CEL types. */
+  private final CelTypeProvider celTypeProvider;
+
+  private final @Nullable TypeProvider legacyTypeProvider;
 
   /**
    * Stack of declaration groups where each entry in stack represents a scope capable of hinding
@@ -107,14 +115,6 @@ public class Env {
           .enableNamespacedDeclarations(false)
           .build();
 
-  private Env(
-      Errors errors, TypeProvider typeProvider, DeclGroup declGroup, CelOptions celOptions) {
-    this.celOptions = celOptions;
-    this.errors = Preconditions.checkNotNull(errors);
-    this.typeProvider = Preconditions.checkNotNull(typeProvider);
-    this.decls.add(Preconditions.checkNotNull(declGroup));
-  }
-
   /**
    * @deprecated Do not use. This exists for compatibility reasons. Migrate to CEL-Java fluent APIs.
    *     See {@code CelCompilerFactory}.
@@ -133,6 +133,14 @@ public class Env {
     return unconfigured(errors, new DescriptorTypeProvider(), celOptions);
   }
 
+  static Env unconfigured(
+      Errors errors,
+      CelTypeProvider celTypeProvider,
+      @Nullable TypeProvider legacyTypeProvider,
+      CelOptions celOptions) {
+    return new Env(errors, celTypeProvider, legacyTypeProvider, new DeclGroup(), celOptions);
+  }
+
   /**
    * Creates an unconfigured {@code Env} value without the standard CEL types, functions, and
    * operators using a custom {@code typeProvider}.
@@ -142,7 +150,7 @@ public class Env {
    */
   @Deprecated
   public static Env unconfigured(Errors errors, TypeProvider typeProvider, CelOptions celOptions) {
-    return new Env(errors, typeProvider, new DeclGroup(), celOptions);
+    return unconfigured(errors, EMPTY_TYPE_PROVIDER, typeProvider, celOptions);
   }
 
   /**
@@ -163,6 +171,16 @@ public class Env {
     return standard(errors, typeProvider, LEGACY_TYPE_CHECKER_OPTIONS);
   }
 
+  static Env standard(
+      Errors errors,
+      CelTypeProvider celTypeProvider,
+      @Nullable TypeProvider legacyTypeProvider,
+      CelOptions celOptions) {
+    CelStandardDeclarations celStandardDeclaration = newStandardDeclarations(celOptions);
+    return standard(
+        celStandardDeclaration, errors, celTypeProvider, legacyTypeProvider, celOptions);
+  }
+
   /**
    * Creates an {@code Env} value configured with the standard types, functions, and operators,
    * configured with a custom {@code typeProvider} and a reference to the {@code celOptions} to use
@@ -176,48 +194,17 @@ public class Env {
    */
   @Deprecated
   public static Env standard(Errors errors, TypeProvider typeProvider, CelOptions celOptions) {
-    CelStandardDeclarations celStandardDeclaration =
-        CelStandardDeclarations.newBuilder()
-            .filterFunctions(
-                (function, overload) -> {
-                  switch (function) {
-                    case INT:
-                      if (!celOptions.enableUnsignedLongs()
-                          && overload.equals(Conversions.INT64_TO_INT64)) {
-                        return false;
-                      }
-                      break;
-                    case TIMESTAMP:
-                      // TODO: Remove this flag guard once the feature has been
-                      // auto-enabled.
-                      if (!celOptions.enableTimestampEpoch()
-                          && overload.equals(Conversions.INT64_TO_TIMESTAMP)) {
-                        return false;
-                      }
-                      break;
-                    default:
-                      if (!celOptions.enableHeterogeneousNumericComparisons()
-                          && overload instanceof Comparison) {
-                        Comparison comparison = (Comparison) overload;
-                        if (comparison.isHeterogeneousComparison()) {
-                          return false;
-                        }
-                      }
-                      break;
-                  }
-                  return true;
-                })
-            .build();
-
-    return standard(celStandardDeclaration, errors, typeProvider, celOptions);
+    return standard(
+        newStandardDeclarations(celOptions), errors, EMPTY_TYPE_PROVIDER, typeProvider, celOptions);
   }
 
-  public static Env standard(
+  static Env standard(
       CelStandardDeclarations celStandardDeclaration,
       Errors errors,
-      TypeProvider typeProvider,
+      CelTypeProvider celTypeProvider,
+      @Nullable TypeProvider legacyTypeProvider,
       CelOptions celOptions) {
-    Env env = Env.unconfigured(errors, typeProvider, celOptions);
+    Env env = Env.unconfigured(errors, celTypeProvider, legacyTypeProvider, celOptions);
     // Isolate the standard declarations into their own scope for forward compatibility.
     celStandardDeclaration.functionDecls().forEach(env::add);
     celStandardDeclaration.identifierDecls().forEach(env::add);
@@ -226,14 +213,68 @@ public class Env {
     return env;
   }
 
+  @Deprecated
+  public static Env standard(
+      CelStandardDeclarations celStandardDeclaration,
+      Errors errors,
+      TypeProvider typeProvider,
+      CelOptions celOptions) {
+    return standard(celStandardDeclaration, errors, EMPTY_TYPE_PROVIDER, typeProvider, celOptions);
+  }
+
+  private static CelStandardDeclarations newStandardDeclarations(CelOptions celOptions) {
+    return CelStandardDeclarations.newBuilder()
+        .filterFunctions(
+            (function, overload) -> {
+              switch (function) {
+                case INT:
+                  if (!celOptions.enableUnsignedLongs()
+                      && overload.equals(Conversions.INT64_TO_INT64)) {
+                    return false;
+                  }
+                  break;
+                case TIMESTAMP:
+                  // TODO: Remove this flag guard once the feature has been
+                  // auto-enabled.
+                  if (!celOptions.enableTimestampEpoch()
+                      && overload.equals(Conversions.INT64_TO_TIMESTAMP)) {
+                    return false;
+                  }
+                  break;
+                default:
+                  if (!celOptions.enableHeterogeneousNumericComparisons()
+                      && overload instanceof Comparison) {
+                    Comparison comparison = (Comparison) overload;
+                    if (comparison.isHeterogeneousComparison()) {
+                      return false;
+                    }
+                  }
+                  break;
+              }
+              return true;
+            })
+        .build();
+  }
+
   /** Returns the current Errors object. */
   public Errors getErrorContext() {
     return errors;
   }
 
-  /** Returns the {@code TypeProvider}. */
-  public TypeProvider getTypeProvider() {
-    return typeProvider;
+  /** Returns the {@code CelTypeProvider}. */
+  CelTypeProvider getCelTypeProvider() {
+    return celTypeProvider;
+  }
+
+  /**
+   * Returns the {@code TypeProvider}, or {@code null} if only modern {@link CelTypeProvider} was
+   * configured.
+   *
+   * @deprecated Use {@link #getCelTypeProvider()} instead.
+   */
+  @Deprecated
+  @Nullable TypeProvider getTypeProvider() {
+    return legacyTypeProvider;
   }
 
   /**
@@ -478,7 +519,14 @@ public class Env {
 
     // Next try to import the name as a reference to a message type.
     // This is done via the type provider.
-    Optional<CelType> type = typeProvider.lookupCelType(cand);
+    Optional<CelType> type =
+        celTypeProvider
+            .findType(cand)
+            .filter(t -> !(t instanceof EnumType) || t.name().equals(cand))
+            .map(Env::wrapAsTypeIfNeeded);
+    if (!type.isPresent() && legacyTypeProvider != null) {
+      type = legacyTypeProvider.lookupCelType(cand);
+    }
     if (type.isPresent()) {
       decl = CelVarDecl.newVarDeclaration(cand, type.get());
       decls.get(0).putIdent(decl);
@@ -487,19 +535,51 @@ public class Env {
 
     // Next try to import this as an enum value by splitting the name in a type prefix and
     // the enum inside.
-    Integer enumValue = typeProvider.lookupEnumValue(cand);
-    if (enumValue != null) {
+    Optional<Integer> enumValue = lookupEnumValue(cand);
+    if (enumValue.isPresent()) {
       decl =
           CelVarDecl.newBuilder()
               .setName(cand)
               .setType(SimpleType.INT)
-              .setConstant(CelConstant.ofValue(enumValue))
+              .setConstant(CelConstant.ofValue(enumValue.get()))
               .build();
 
       decls.get(0).putIdent(decl);
       return decl;
     }
     return null;
+  }
+
+  private Optional<Integer> lookupEnumValue(String enumName) {
+    int dotIndex = enumName.lastIndexOf(".");
+    if (dotIndex > 0 && dotIndex < enumName.length() - 1) {
+      String enumTypeName = enumName.substring(0, dotIndex);
+      String localEnumName = enumName.substring(dotIndex + 1);
+      Optional<Integer> enumValue =
+          celTypeProvider
+              .findType(enumTypeName)
+              .filter(t -> t instanceof EnumType)
+              .flatMap(t -> ((EnumType) t).findNumberByName(localEnumName));
+      if (enumValue.isPresent()) {
+        return enumValue;
+      }
+      enumValue =
+          celTypeProvider
+              .findType(enumName)
+              .filter(t -> t instanceof EnumType)
+              .flatMap(t -> ((EnumType) t).findNumberByName(localEnumName));
+      if (enumValue.isPresent()) {
+        return enumValue;
+      }
+    }
+    return Optional.ofNullable(legacyTypeProvider).map(value -> value.lookupEnumValue(enumName));
+  }
+
+  private static CelType wrapAsTypeIfNeeded(CelType type) {
+    if (type instanceof TypeType) {
+      return type;
+    }
+    return TypeType.create(type);
   }
 
   /**
@@ -889,37 +969,21 @@ public class Env {
    *
    * <p>Identifiers and functions can share the same declaration name, so a simple map will not
    * suffice for tracking declaration overloads.
-   *
-   * <p>Whether a given {@code DeclGroup} is mutable or immutable depends on whether the maps
-   * supplied as input to the group are standard {@code Map} implementations or {@code ImmutableMap}
-   * implementations. The {DeclGroup#immutableCopy} method is provided as a convenience to make it
-   * easy to create an instance of the group which will honor the developer's intent.
    */
   public static class DeclGroup {
 
     private final Map<String, CelVarDecl> idents;
     private final Map<String, CelFunctionDecl> functions;
 
-    /** Construct an empty {@code DeclGroup}. */
-    public DeclGroup() {
-      this(new HashMap<>(), new HashMap<>());
-    }
-
-    /** Construct a new {@code DeclGroup} from the input {@code idents} and {@code functions}. */
-    public DeclGroup(Map<String, CelVarDecl> idents, Map<String, CelFunctionDecl> functions) {
-      this.functions = functions;
-      this.idents = idents;
-    }
-
     /**
      * Get an immutable map of the identifiers in the {@code DeclGroup} keyed by declaration name.
      */
-    public Map<String, CelVarDecl> getIdents() {
+    public ImmutableMap<String, CelVarDecl> getIdents() {
       return ImmutableMap.copyOf(idents);
     }
 
     /** Get an immutable map of the functions in the {@code DeclGroup} keyed by declaration name. */
-    public Map<String, CelFunctionDecl> getFunctions() {
+    public ImmutableMap<String, CelFunctionDecl> getFunctions() {
       return ImmutableMap.copyOf(functions);
     }
 
@@ -943,9 +1007,9 @@ public class Env {
       functions.put(function.name(), function);
     }
 
-    /** Create a copy of the {@code DeclGroup} with immutable identifier and function maps. */
-    public DeclGroup immutableCopy() {
-      return new DeclGroup(getIdents(), getFunctions());
+    private DeclGroup() {
+      this.idents = new HashMap<>();
+      this.functions = new HashMap<>();
     }
   }
 
@@ -1014,5 +1078,18 @@ public class Env {
   static CelType getWellKnownType(CelType type) {
     Preconditions.checkArgument(type.kind() == CelKind.STRUCT);
     return CelTypes.getWellKnownCelType(type.name()).get();
+  }
+
+  private Env(
+      Errors errors,
+      CelTypeProvider celTypeProvider,
+      @Nullable TypeProvider legacyTypeProvider,
+      DeclGroup declGroup,
+      CelOptions celOptions) {
+    this.celOptions = Preconditions.checkNotNull(celOptions);
+    this.errors = Preconditions.checkNotNull(errors);
+    this.celTypeProvider = Preconditions.checkNotNull(celTypeProvider);
+    this.legacyTypeProvider = legacyTypeProvider;
+    this.decls.add(Preconditions.checkNotNull(declGroup));
   }
 }

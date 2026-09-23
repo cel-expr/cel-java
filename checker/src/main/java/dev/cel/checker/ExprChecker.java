@@ -50,12 +50,16 @@ import dev.cel.common.ast.CelReference;
 import dev.cel.common.types.CelKind;
 import dev.cel.common.types.CelProtoTypes;
 import dev.cel.common.types.CelType;
+import dev.cel.common.types.CelTypeProvider;
 import dev.cel.common.types.CelTypes;
+import dev.cel.common.types.EnumType;
 import dev.cel.common.types.ListType;
 import dev.cel.common.types.MapType;
 import dev.cel.common.types.OptionalType;
 import dev.cel.common.types.ProtoMessageType;
 import dev.cel.common.types.SimpleType;
+import dev.cel.common.types.StructType;
+import dev.cel.common.types.StructTypeReference;
 import dev.cel.common.types.TypeType;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -168,7 +172,10 @@ public final class ExprChecker {
   }
 
   private final Env env;
-  private final TypeProvider typeProvider;
+  private final CelTypeProvider celTypeProvider;
+
+  private final @Nullable TypeProvider legacyTypeProvider;
+
   private final CelContainer container;
   private final Map<Long, Integer> positionMap;
   private final InferenceContext inferenceContext;
@@ -176,25 +183,6 @@ public final class ExprChecker {
   private final boolean homogeneousLiterals;
   private final boolean namespacedDeclarations;
   private final Set<CelSource.Extension> extensions;
-
-  private ExprChecker(
-      Env env,
-      CelContainer container,
-      Map<Long, Integer> positionMap,
-      InferenceContext inferenceContext,
-      boolean compileTimeOverloadResolution,
-      boolean homogeneousLiterals,
-      boolean namespacedDeclarations) {
-    this.env = checkNotNull(env);
-    this.typeProvider = env.getTypeProvider();
-    this.positionMap = checkNotNull(positionMap);
-    this.container = checkNotNull(container);
-    this.inferenceContext = checkNotNull(inferenceContext);
-    this.compileTimeOverloadResolution = compileTimeOverloadResolution;
-    this.homogeneousLiterals = homogeneousLiterals;
-    this.namespacedDeclarations = namespacedDeclarations;
-    this.extensions = new HashSet<>();
-  }
 
   /** Visit the {@code expr} value, routing to overloads based on the kind of expression. */
   public void visit(CelMutableExpr expr) {
@@ -416,7 +404,7 @@ public final class ExprChecker {
       visit(value);
 
       CelType fieldType =
-          getFieldType(entry.id(), getPosition(entry), messageType, entry.fieldKey()).celType();
+          getFieldType(entry.id(), getPosition(entry), messageType, entry.fieldKey());
       CelType valueType = env.getType(value);
       if (entry.optionalEntry()) {
         if (valueType instanceof OptionalType) {
@@ -691,14 +679,15 @@ public final class ExprChecker {
 
     if (!Types.isDynOrError(operandType)) {
       if (operandType.kind().equals(CelKind.STRUCT)) {
-        TypeProvider.FieldType fieldType =
-            getFieldType(expr.id(), getPosition(expr), operandType, field);
-        ProtoMessageType protoMessageType = resolveProtoMessageType(operandType);
-        if (protoMessageType != null && protoMessageType.isJsonName(field)) {
-          extensions.add(JSON_NAME_EXTENSION);
+        CelType fieldType = getFieldType(expr.id(), getPosition(expr), operandType, field);
+        if (!fieldType.equals(SimpleType.ERROR)) {
+          ProtoMessageType protoMessageType = resolveProtoMessageType(operandType);
+          if (protoMessageType != null && protoMessageType.isJsonName(field)) {
+            extensions.add(JSON_NAME_EXTENSION);
+          }
         }
         // Type of the field
-        resultType = fieldType.celType();
+        resultType = fieldType;
       } else if (operandType.kind().equals(CelKind.MAP)) {
         resultType = ((MapType) operandType).valueType();
       } else if (operandType.kind().equals(CelKind.TYPE_PARAM)) {
@@ -738,20 +727,10 @@ public final class ExprChecker {
 
     if (operandType.kind().equals(CelKind.STRUCT)) {
       // This is either a StructTypeReference or just a Struct. Attempt to search for
-      // ProtoMessageType that may exist in in the type provider.
-      TypeType typeDef =
-          typeProvider
-              .lookupCelType(operandType.name())
-              .filter(t -> t instanceof TypeType)
-              .map(TypeType.class::cast)
-              .orElse(null);
-      if (typeDef == null || typeDef.parameters().size() != 1) {
-        return null;
-      }
-
-      CelType maybeProtoMessageType = typeDef.parameters().get(0);
-      if (maybeProtoMessageType instanceof ProtoMessageType) {
-        return (ProtoMessageType) maybeProtoMessageType;
+      // ProtoMessageType that may exist in the type provider.
+      CelType resolvedType = celTypeProvider.findType(operandType.name()).orElse(null);
+      if (resolvedType instanceof ProtoMessageType) {
+        return (ProtoMessageType) resolvedType;
       }
     }
 
@@ -795,34 +774,106 @@ public final class ExprChecker {
     }
   }
 
-  /** Returns the field type give a type instance and field name. */
-  private TypeProvider.FieldType getFieldType(
-      long exprId, int position, CelType type, String fieldName) {
+  /** Returns the field type given a type instance and field name. */
+  private CelType getFieldType(long exprId, int position, CelType type, String fieldName) {
     String typeName = type.name();
-    if (typeProvider.lookupCelType(typeName).isPresent()) {
-      TypeProvider.FieldType fieldType = typeProvider.lookupFieldType(type, fieldName);
-      if (fieldType != null) {
-        return fieldType;
+    CelType resolvedType = celTypeProvider.findType(typeName).orElse(null);
+    if (resolvedType instanceof StructType) {
+      StructType structType = (StructType) resolvedType;
+      StructType.Field field = structType.findField(fieldName).orElse(null);
+      if (field != null) {
+        return normalizeFieldType(field.type());
       }
-      TypeProvider.ExtensionFieldType extensionFieldType =
-          typeProvider.lookupExtensionType(fieldName);
-      if (extensionFieldType != null) {
-        return extensionFieldType.fieldType();
+      if (structType instanceof ProtoMessageType) {
+        ProtoMessageType.Extension extension =
+            ((ProtoMessageType) structType).findExtension(fieldName).orElse(null);
+        if (extension != null) {
+          return normalizeFieldType(extension.type());
+        }
+      }
+      if (legacyTypeProvider != null) {
+        Optional<CelType> extensionType =
+            lookupLegacyExtensionType(legacyTypeProvider, typeName, fieldName);
+        if (extensionType.isPresent()) {
+          return extensionType.get();
+        }
       }
       env.reportError(exprId, position, "undefined field '%s'", fieldName);
-    } else {
-      // Proto message was added as a variable to the environment but the descriptor was not
-      // provided
-      String errorMessage =
-          String.format("Message type resolution failure while referencing field '%s'.", fieldName);
-      if (type.kind().equals(CelKind.STRUCT)) {
-        errorMessage +=
-            String.format(
-                " Ensure that the descriptor for type '%s' was added to the environment", typeName);
-      }
-      env.reportError(exprId, position, errorMessage, fieldName, typeName);
+      return SimpleType.ERROR;
     }
-    return ERROR;
+
+    if (legacyTypeProvider != null && legacyTypeProvider.lookupCelType(typeName).isPresent()) {
+      Optional<CelType> legacyFieldType =
+          lookupLegacyFieldType(legacyTypeProvider, type, fieldName);
+      if (legacyFieldType.isPresent()) {
+        return legacyFieldType.get();
+      }
+      env.reportError(exprId, position, "undefined field '%s'", fieldName);
+      return SimpleType.ERROR;
+    }
+
+    // Message/Struct was added as a variable to the environment but the descriptor was not
+    // provided
+    String errorMessage =
+        String.format("Message type resolution failure while referencing field '%s'.", fieldName);
+    if (type.kind().equals(CelKind.STRUCT)) {
+      errorMessage +=
+          String.format(
+              " Ensure that the descriptor for type '%s' was added to the environment", typeName);
+    }
+    env.reportError(exprId, position, errorMessage);
+    return SimpleType.ERROR;
+  }
+
+  private static CelType normalizeFieldType(CelType celType) {
+    if (celType instanceof EnumType) {
+      return SimpleType.INT;
+    }
+    if (celType instanceof StructType) {
+      return StructTypeReference.create(celType.name());
+    }
+    if (celType instanceof ListType) {
+      ListType listType = (ListType) celType;
+      if (listType.hasElemType()) {
+        CelType normalizedElemType = normalizeFieldType(listType.elemType());
+        if (!normalizedElemType.equals(listType.elemType())) {
+          return ListType.create(normalizedElemType);
+        }
+      }
+      return listType;
+    }
+    if (celType instanceof MapType) {
+      MapType mapType = (MapType) celType;
+      CelType normalizedKeyType = normalizeFieldType(mapType.keyType());
+      CelType normalizedValueType = normalizeFieldType(mapType.valueType());
+      if (!normalizedKeyType.equals(mapType.keyType())
+          || !normalizedValueType.equals(mapType.valueType())) {
+        return MapType.create(normalizedKeyType, normalizedValueType);
+      }
+      return mapType;
+    }
+    return celType;
+  }
+
+  /** TODO: Remove after cl/984117942 is submitted. */
+  private static Optional<CelType> lookupLegacyFieldType(
+      TypeProvider legacyTypeProvider, CelType type, String fieldName) {
+    TypeProvider.FieldType legacyFieldType = legacyTypeProvider.lookupFieldType(type, fieldName);
+    if (legacyFieldType != null) {
+      return Optional.of(legacyFieldType.celType());
+    }
+    return lookupLegacyExtensionType(legacyTypeProvider, type.name(), fieldName);
+  }
+
+  private static Optional<CelType> lookupLegacyExtensionType(
+      TypeProvider legacyTypeProvider, String typeName, String fieldName) {
+    TypeProvider.ExtensionFieldType extensionFieldType =
+        legacyTypeProvider.lookupExtensionType(fieldName);
+    if (extensionFieldType != null
+        && extensionFieldType.messageType().getMessageType().equals(typeName)) {
+      return Optional.of(extensionFieldType.fieldType().celType());
+    }
+    return Optional.absent();
   }
 
   /** Checks compatibility of joined types, and returns the most general common type. */
@@ -867,6 +918,26 @@ public final class ExprChecker {
     return pos == null ? 0 : pos;
   }
 
+  private ExprChecker(
+      Env env,
+      CelContainer container,
+      Map<Long, Integer> positionMap,
+      InferenceContext inferenceContext,
+      boolean compileTimeOverloadResolution,
+      boolean homogeneousLiterals,
+      boolean namespacedDeclarations) {
+    this.env = checkNotNull(env);
+    this.celTypeProvider = env.getCelTypeProvider();
+    this.legacyTypeProvider = env.getTypeProvider();
+    this.positionMap = checkNotNull(positionMap);
+    this.container = checkNotNull(container);
+    this.inferenceContext = checkNotNull(inferenceContext);
+    this.compileTimeOverloadResolution = compileTimeOverloadResolution;
+    this.homogeneousLiterals = homogeneousLiterals;
+    this.namespacedDeclarations = namespacedDeclarations;
+    this.extensions = new HashSet<>();
+  }
+
   /** Helper object for holding an overload resolution result. */
   @AutoValue
   protected abstract static class OverloadResolution {
@@ -882,7 +953,4 @@ public final class ExprChecker {
       return new AutoValue_ExprChecker_OverloadResolution(reference, type);
     }
   }
-
-  /** Helper object to represent a {@link TypeProvider.FieldType} lookup failure. */
-  private static final TypeProvider.FieldType ERROR = TypeProvider.FieldType.of(Types.ERROR);
 }

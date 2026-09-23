@@ -258,6 +258,45 @@ public final class ProtoMessageTypeProviderTest {
   }
 
   @Test
+  public void findType_combinedWithDynamicProvider_resolvesFromDelegateWithFirstPrecedence() {
+    CelType dynamicType = StructTypeReference.create("custom.DynamicType");
+    CelType overriddenTestAllTypes =
+        StructTypeReference.create("cel.expr.conformance.proto3.TestAllTypes");
+    CelTypeProvider dynamicProvider =
+        new CelTypeProvider() {
+          @Override
+          public ImmutableList<CelType> types() {
+            return ImmutableList.of();
+          }
+
+          @Override
+          public Optional<CelType> findType(String typeName) {
+            if (typeName.equals("custom.DynamicType")) {
+              return Optional.of(dynamicType);
+            }
+            if (typeName.equals("cel.expr.conformance.proto3.TestAllTypes")) {
+              return Optional.of(overriddenTestAllTypes);
+            }
+            return Optional.empty();
+          }
+        };
+    CombinedCelTypeProvider dynamicFirst =
+        new CombinedCelTypeProvider(dynamicProvider, proto3Provider);
+    CombinedCelTypeProvider staticFirst =
+        new CombinedCelTypeProvider(proto3Provider, dynamicProvider);
+
+    assertThat(dynamicFirst.findType("cel.expr.conformance.proto3.TestAllTypes"))
+        .hasValue(overriddenTestAllTypes);
+    assertThat(dynamicFirst.findType("cel.expr.conformance.proto3.TestAllTypes.NestedMessage"))
+        .isPresent();
+    assertThat(dynamicFirst.findType("custom.DynamicType")).hasValue(dynamicType);
+    assertThat(dynamicFirst.findType("custom.UndefinedType")).isEmpty();
+    assertThat(staticFirst.findType("cel.expr.conformance.proto3.TestAllTypes").get())
+        .isInstanceOf(ProtoMessageType.class);
+    assertThat(staticFirst.findType("custom.DynamicType")).hasValue(dynamicType);
+  }
+
+  @Test
   public void findField_withJsonNameOption() {
     ProtoMessageTypeProvider typeProvider =
         ProtoMessageTypeProvider.newBuilder()

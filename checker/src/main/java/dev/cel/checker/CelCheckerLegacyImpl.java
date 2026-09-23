@@ -74,7 +74,7 @@ public final class CelCheckerLegacyImpl implements CelChecker, EnvVisitable {
   private final Optional<CelType> expectedResultType;
 
   @SuppressWarnings("Immutable")
-  private final TypeProvider typeProvider;
+  private final @Nullable TypeProvider typeProvider;
 
   private final CelTypeProvider celTypeProvider;
   private final boolean standardEnvironmentEnabled;
@@ -124,6 +124,10 @@ public final class CelCheckerLegacyImpl implements CelChecker, EnvVisitable {
             .addFileTypes(fileDescriptors)
             .addProtoTypeMasks(protoTypeMasks);
 
+    if (typeProvider != null) {
+      builder.setTypeProvider(typeProvider);
+    }
+
     if (expectedResultType.isPresent()) {
       builder.setResultType(expectedResultType.get());
     }
@@ -162,11 +166,13 @@ public final class CelCheckerLegacyImpl implements CelChecker, EnvVisitable {
   private Env getEnv(Errors errors) {
     Env env;
     if (overriddenStandardDeclarations != null) {
-      env = Env.standard(overriddenStandardDeclarations, errors, typeProvider, celOptions);
+      env =
+          Env.standard(
+              overriddenStandardDeclarations, errors, celTypeProvider, typeProvider, celOptions);
     } else if (standardEnvironmentEnabled) {
-      env = Env.standard(errors, typeProvider, celOptions);
+      env = Env.standard(errors, celTypeProvider, typeProvider, celOptions);
     } else {
-      env = Env.unconfigured(errors, typeProvider, celOptions);
+      env = Env.unconfigured(errors, celTypeProvider, typeProvider, celOptions);
     }
     identDeclarations.forEach(env::add);
     functionDeclarations.forEach(env::add);
@@ -190,7 +196,7 @@ public final class CelCheckerLegacyImpl implements CelChecker, EnvVisitable {
     private CelContainer container;
     private CelOptions celOptions;
     private CelType expectedResultType;
-    private TypeProvider customTypeProvider;
+    private @Nullable TypeProvider customTypeProvider;
     private CelTypeProvider celTypeProvider;
     private boolean standardEnvironmentEnabled;
     private CelStandardDeclarations standardDeclarations;
@@ -401,6 +407,11 @@ public final class CelCheckerLegacyImpl implements CelChecker, EnvVisitable {
     }
 
     @VisibleForTesting
+    @Nullable TypeProvider customTypeProvider() {
+      return this.customTypeProvider;
+    }
+
+    @VisibleForTesting
     CelTypeProvider celTypeProvider() {
       return this.celTypeProvider;
     }
@@ -459,20 +470,13 @@ public final class CelCheckerLegacyImpl implements CelChecker, EnvVisitable {
         messageTypeProvider = protoTypeMaskTypeProvider;
       }
 
-      TypeProvider legacyProvider = new TypeProviderLegacyImpl(messageTypeProvider);
-      if (customTypeProvider != null) {
-        legacyProvider =
-            new TypeProvider.CombinedTypeProvider(
-                ImmutableList.of(customTypeProvider, legacyProvider));
-      }
-
       return new CelCheckerLegacyImpl(
           celOptions,
           container,
           identDeclarationSet,
           functionDeclarations.build(),
           Optional.fromNullable(expectedResultType),
-          legacyProvider,
+          customTypeProvider,
           messageTypeProvider,
           standardEnvironmentEnabled,
           standardDeclarations,
@@ -499,7 +503,7 @@ public final class CelCheckerLegacyImpl implements CelChecker, EnvVisitable {
       ImmutableSet<CelVarDecl> identDeclarations,
       ImmutableSet<CelFunctionDecl> functionDeclarations,
       Optional<CelType> expectedResultType,
-      TypeProvider typeProvider,
+      @Nullable TypeProvider typeProvider,
       CelTypeProvider celTypeProvider,
       boolean standardEnvironmentEnabled,
       @Nullable CelStandardDeclarations overriddenStandardDeclarations,

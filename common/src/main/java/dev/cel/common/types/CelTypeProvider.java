@@ -21,6 +21,7 @@ import com.google.errorprone.annotations.CheckReturnValue;
 import com.google.errorprone.annotations.Immutable;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -47,19 +48,8 @@ public interface CelTypeProvider {
   @Immutable
   final class CombinedCelTypeProvider implements CelTypeProvider {
 
+    private final ImmutableList<CelTypeProvider> typeProviders;
     private final ImmutableMap<String, CelType> allTypes;
-
-    public CombinedCelTypeProvider(CelTypeProvider first, CelTypeProvider second) {
-      this(ImmutableList.of(first, second));
-    }
-
-    public CombinedCelTypeProvider(ImmutableList<CelTypeProvider> typeProviders) {
-      Map<String, CelType> allTypes = new LinkedHashMap<>();
-      typeProviders.forEach(
-          typeProvider ->
-              typeProvider.types().forEach(type -> allTypes.putIfAbsent(type.name(), type)));
-      this.allTypes = ImmutableMap.copyOf(allTypes);
-    }
 
     @Override
     public ImmutableCollection<CelType> types() {
@@ -68,7 +58,26 @@ public interface CelTypeProvider {
 
     @Override
     public Optional<CelType> findType(String typeName) {
-      return Optional.ofNullable(allTypes.get(typeName));
+      for (CelTypeProvider typeProvider : typeProviders) {
+        Optional<CelType> resolvedType = typeProvider.findType(typeName);
+        if (resolvedType.isPresent()) {
+          return resolvedType;
+        }
+      }
+      return Optional.empty();
+    }
+
+    public CombinedCelTypeProvider(CelTypeProvider first, CelTypeProvider second) {
+      this(ImmutableList.of(first, second));
+    }
+
+    public CombinedCelTypeProvider(ImmutableList<CelTypeProvider> typeProviders) {
+      this.typeProviders = Objects.requireNonNull(typeProviders);
+      Map<String, CelType> allTypes = new LinkedHashMap<>();
+      typeProviders.forEach(
+          typeProvider ->
+              typeProvider.types().forEach(type -> allTypes.putIfAbsent(type.name(), type)));
+      this.allTypes = ImmutableMap.copyOf(allTypes);
     }
   }
 }
