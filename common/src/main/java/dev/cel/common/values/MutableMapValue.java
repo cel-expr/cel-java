@@ -105,23 +105,13 @@ public final class MutableMapValue extends CelValue
 
   @Override
   public Object select(Object field) {
-    Object val = internalMap.get(field);
-    if (val != null) {
-      return val;
-    }
-    if (!internalMap.containsKey(field)) {
-      throw CelAttributeNotFoundException.forMissingMapKey(field.toString());
-    }
-    throw CelAttributeNotFoundException.of(
-        String.format("Map value cannot be null for key: %s", field));
+    return CelValueConverter.findMapValue(internalMap, field)
+        .orElseThrow(() -> CelAttributeNotFoundException.forMissingMapKey(field.toString()));
   }
 
   @Override
   public Optional<?> find(Object field) {
-    if (internalMap.containsKey(field)) {
-      return Optional.ofNullable(internalMap.get(field));
-    }
-    return Optional.empty();
+    return CelValueConverter.findMapValue(internalMap, field);
   }
 
   @Override

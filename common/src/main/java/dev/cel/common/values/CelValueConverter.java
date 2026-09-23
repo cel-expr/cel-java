@@ -17,8 +17,10 @@ package dev.cel.common.values;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import com.google.errorprone.annotations.Immutable;
 import dev.cel.common.annotations.Internal;
+import dev.cel.common.exceptions.CelInvalidArgumentException;
 import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
@@ -26,6 +28,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.RandomAccess;
 import java.util.function.Function;
+import org.jspecify.annotations.Nullable;
 
 /**
  * {@code CelValueConverter} handles bidirectional conversion between native Java objects to {@link
@@ -74,7 +77,7 @@ public class CelValueConverter {
     if (value instanceof List && value instanceof RandomAccess) {
       List<Object> list = (List<Object>) value;
       for (int i = 0; i < list.size(); i++) {
-        Object element = list.get(i);
+        Object element = checkListElement(list.get(i), i);
         Object mapped = mapper.apply(element);
 
         if (mapped != element) {
@@ -85,7 +88,7 @@ public class CelValueConverter {
           }
           builder.add(mapped);
           for (int j = i + 1; j < list.size(); j++) {
-            builder.add(mapper.apply(list.get(j)));
+            builder.add(mapper.apply(checkListElement(list.get(j), j)));
           }
           return builder.build();
         }
@@ -100,8 +103,9 @@ public class CelValueConverter {
       Collection<Object> collection = (Collection<Object>) value;
       ImmutableList.Builder<Object> builder =
           ImmutableList.builderWithExpectedSize(collection.size());
+      int index = 0;
       for (Object element : collection) {
-        builder.add(mapper.apply(element));
+        builder.add(mapper.apply(checkListElement(element, index++)));
       }
       return builder.build();
     }
@@ -112,6 +116,7 @@ public class CelValueConverter {
 
       while (iterator.hasNext()) {
         Map.Entry<Object, Object> entry = iterator.next();
+        checkMapEntry(entry);
         Object mappedKey = mapper.apply(entry.getKey());
         Object mappedValue = mapper.apply(entry.getValue());
 
@@ -128,6 +133,7 @@ public class CelValueConverter {
           builder.put(mappedKey, mappedValue);
           while (iterator.hasNext()) {
             Map.Entry<Object, Object> nextEntry = iterator.next();
+            checkMapEntry(nextEntry);
             builder.put(mapper.apply(nextEntry.getKey()), mapper.apply(nextEntry.getValue()));
           }
           return builder.buildOrThrow();
@@ -162,6 +168,59 @@ public class CelValueConverter {
     return normalizePrimitive(value);
   }
 
+  /**
+   * Adapts {@code value} for an intermediate field selection hop.
+   *
+   * <p>{@link Map} instances are returned as-is to avoid O(N) whole-map normalization per hop; the
+   * accessed entry is validated on lookup via {@link #findMapValue} or {@link #containsMapKey}.
+   * Callers materializing a final evaluation result must use {@link #toRuntimeValue} instead.
+   */
+  public final Object toTraversalTarget(Object value) {
+    if (value instanceof Map) {
+      return value;
+    }
+
+    return toRuntimeValue(value);
+  }
+
+  /**
+   * Returns the unadapted value bound to {@code key} in {@code map}, or {@link Optional#empty()} if
+   * absent.
+   *
+   * @throws CelInvalidArgumentException if {@code key} is bound to {@code null}.
+   */
+  public static Optional<Object> findMapValue(Map<?, ?> map, Object key) {
+    Object value = map.get(key);
+    if (value != null) {
+      return Optional.of(value);
+    }
+
+    if (map.containsKey(key)) {
+      throw new CelInvalidArgumentException(
+          String.format("Map value cannot be null for key: %s", key));
+    }
+
+    return Optional.empty();
+  }
+
+  /**
+   * Returns whether {@code key} is present in {@code map}.
+   *
+   * @throws CelInvalidArgumentException if {@code key} is bound to {@code null}.
+   */
+  public static boolean containsMapKey(Map<?, ?> map, Object key) {
+    if (map.get(key) != null) {
+      return true;
+    }
+
+    if (map.containsKey(key)) {
+      throw new CelInvalidArgumentException(
+          String.format("Map value cannot be null for key: %s", key));
+    }
+
+    return false;
+  }
+
   protected Object normalizePrimitive(Object value) {
     Preconditions.checkNotNull(value);
 
@@ -194,6 +253,28 @@ public class CelValueConverter {
     }
 
     return celValue.value();
+  }
+
+  private static void checkMapEntry(Map.Entry<?, ?> entry) {
+    Object key = entry.getKey();
+    if (key == null) {
+      throw new CelInvalidArgumentException("Map key cannot be null.");
+    }
+
+    if (entry.getValue() == null) {
+      throw new CelInvalidArgumentException(
+          String.format("Map value cannot be null for key: %s", key));
+    }
+  }
+
+  @CanIgnoreReturnValue
+  private static Object checkListElement(@Nullable Object element, int index) {
+    if (element == null) {
+      throw new CelInvalidArgumentException(
+          String.format("List element cannot be null at index: %d", index));
+    }
+
+    return element;
   }
 
   protected CelValueConverter() {

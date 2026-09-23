@@ -15,6 +15,7 @@
 package dev.cel.common.values;
 
 import static com.google.common.truth.Truth.assertThat;
+import static org.junit.Assert.assertThrows;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -37,6 +38,7 @@ import com.google.protobuf.UInt32Value;
 import com.google.protobuf.UInt64Value;
 import com.google.testing.junit.testparameterinjector.TestParameter;
 import com.google.testing.junit.testparameterinjector.TestParameterInjector;
+import dev.cel.common.exceptions.CelAttributeNotFoundException;
 import dev.cel.common.internal.CelLiteDescriptorPool;
 import dev.cel.common.internal.DefaultLiteDescriptorPool;
 import dev.cel.expr.conformance.proto3.TestAllTypes;
@@ -46,11 +48,12 @@ import dev.cel.expr.conformance.proto3.TestAllTypesCelDescriptor;
 import java.io.ByteArrayOutputStream;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Optional;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
 @RunWith(TestParameterInjector.class)
-public class ProtoMessageLiteValueTest {
+public final class ProtoMessageLiteValueTest {
   private static final CelLiteDescriptorPool DESCRIPTOR_POOL =
       DefaultLiteDescriptorPool.newInstance(
           ImmutableSet.of(TestAllTypesCelDescriptor.getDescriptor()));
@@ -279,5 +282,323 @@ public class ProtoMessageLiteValueTest {
     assertThat(messageLiteValue.unknownFields())
         .valuesForKey(1000)
         .containsExactly(ByteString.copyFromUtf8("hello unknown"));
+  }
+
+  @Test
+  public void selectByFieldNumber_knownField_returnsValue() {
+    TestAllTypes proto = TestAllTypes.newBuilder().setSingleString("foo").build();
+    ProtoMessageLiteValue val =
+        ProtoMessageLiteValue.create(
+            proto, "cel.expr.conformance.proto3.TestAllTypes", PROTO_LITE_CEL_VALUE_CONVERTER);
+
+    Object result = val.selectByFieldNumber(SelectField.create(14L, "single_string", 9, "default"));
+
+    assertThat(result).isEqualTo("foo");
+  }
+
+  @Test
+  public void selectByFieldNumber_unknownWireField_decoded() throws Exception {
+    ByteArrayOutputStream baos = new ByteArrayOutputStream();
+    CodedOutputStream cos = CodedOutputStream.newInstance(baos);
+    cos.writeInt64(999, 42L);
+    cos.flush();
+    TestAllTypes proto =
+        TestAllTypes.parseFrom(baos.toByteArray(), ExtensionRegistryLite.getEmptyRegistry());
+    ProtoMessageLiteValue val =
+        ProtoMessageLiteValue.create(
+            proto, "cel.expr.conformance.proto3.TestAllTypes", PROTO_LITE_CEL_VALUE_CONVERTER);
+
+    Object result = val.selectByFieldNumber(SelectField.create(999L, "unknown_field", 3, 0L));
+
+    assertThat(result).isEqualTo(42L);
+  }
+
+  @Test
+  public void selectByFieldNumber_unknownRepeatedWireField_decoded() throws Exception {
+    ByteArrayOutputStream baos = new ByteArrayOutputStream();
+    CodedOutputStream cos = CodedOutputStream.newInstance(baos);
+    cos.writeInt64(999, 10L);
+    cos.writeInt64(999, 20L);
+    cos.flush();
+    TestAllTypes proto =
+        TestAllTypes.parseFrom(baos.toByteArray(), ExtensionRegistryLite.getEmptyRegistry());
+    ProtoMessageLiteValue val =
+        ProtoMessageLiteValue.create(
+            proto, "cel.expr.conformance.proto3.TestAllTypes", PROTO_LITE_CEL_VALUE_CONVERTER);
+
+    Object result =
+        val.selectByFieldNumber(
+            SelectField.create(999L, "unknown_repeated", 3, ImmutableList.of()));
+
+    assertThat((Iterable<?>) result).containsExactly(10L, 20L).inOrder();
+  }
+
+  @Test
+  public void selectByFieldNumber_renamedField_resolvesByFieldNumber() {
+    TestAllTypes proto = TestAllTypes.newBuilder().setSingleString("foo").build();
+    ProtoMessageLiteValue val =
+        ProtoMessageLiteValue.create(
+            proto, "cel.expr.conformance.proto3.TestAllTypes", PROTO_LITE_CEL_VALUE_CONVERTER);
+
+    Object result =
+        val.selectByFieldNumber(SelectField.create(14L, "renamed_string", 9, "default"));
+
+    assertThat(result).isEqualTo("foo");
+  }
+
+  @Test
+  public void selectByFieldNumber_unknownFieldCollidesWithKnownFieldName_returnsUnknownFieldValue()
+      throws Exception {
+    ByteArrayOutputStream baos = new ByteArrayOutputStream();
+    CodedOutputStream cos = CodedOutputStream.newInstance(baos);
+    cos.writeInt64(999, 42L);
+    cos.flush();
+    TestAllTypes proto =
+        TestAllTypes.parseFrom(baos.toByteArray(), ExtensionRegistryLite.getEmptyRegistry())
+            .toBuilder()
+            .setSingleString("known_field_14")
+            .build();
+    ProtoMessageLiteValue val =
+        ProtoMessageLiteValue.create(
+            proto, "cel.expr.conformance.proto3.TestAllTypes", PROTO_LITE_CEL_VALUE_CONVERTER);
+
+    Object result = val.selectByFieldNumber(SelectField.create(999L, "single_string", 3, 0L));
+
+    assertThat(result).isEqualTo(42L);
+  }
+
+  @Test
+  public void selectByFieldNumber_renamedMapField_resolvesByFieldNumber() {
+    TestAllTypes proto = TestAllTypes.newBuilder().putMapStringString("k", "v").build();
+    ProtoMessageLiteValue val =
+        ProtoMessageLiteValue.create(
+            proto, "cel.expr.conformance.proto3.TestAllTypes", PROTO_LITE_CEL_VALUE_CONVERTER);
+
+    Object result =
+        val.selectByFieldNumber(SelectField.create(61L, "renamed_map", -1, ImmutableMap.of()));
+
+    assertThat(result).isEqualTo(ImmutableMap.of("k", "v"));
+  }
+
+  @Test
+  public void selectByFieldNumber_renamedRepeatedField_resolvesByFieldNumber() {
+    TestAllTypes proto =
+        TestAllTypes.newBuilder().addRepeatedInt64(10L).addRepeatedInt64(20L).build();
+    ProtoMessageLiteValue val =
+        ProtoMessageLiteValue.create(
+            proto, "cel.expr.conformance.proto3.TestAllTypes", PROTO_LITE_CEL_VALUE_CONVERTER);
+
+    Object result =
+        val.selectByFieldNumber(SelectField.create(32L, "renamed_repeated", 3, ImmutableList.of()));
+
+    assertThat(result).isEqualTo(ImmutableList.of(10L, 20L));
+  }
+
+  @Test
+  public void findByFieldNumber_intermediateUnknownSubmessage_returnsRawProtoMessage()
+      throws Exception {
+    ByteArrayOutputStream subBaos = new ByteArrayOutputStream();
+    CodedOutputStream subCos = CodedOutputStream.newInstance(subBaos);
+    subCos.writeString(1, "inner");
+    subCos.flush();
+    ByteArrayOutputStream baos = new ByteArrayOutputStream();
+    CodedOutputStream cos = CodedOutputStream.newInstance(baos);
+    cos.writeBytes(998, ByteString.copyFrom(subBaos.toByteArray()));
+    cos.flush();
+    TestAllTypes proto =
+        TestAllTypes.parseFrom(baos.toByteArray(), ExtensionRegistryLite.getEmptyRegistry());
+    ProtoMessageLiteValue val =
+        ProtoMessageLiteValue.create(
+            proto, "cel.expr.conformance.proto3.TestAllTypes", PROTO_LITE_CEL_VALUE_CONVERTER);
+
+    Optional<Object> nav = val.findByFieldNumber(SelectField.create(998L, "unknown_submessage"));
+
+    assertThat(nav.map(v -> v instanceof RawProtoMessageLiteValue)).hasValue(true);
+  }
+
+  @Test
+  public void hasFieldByNumber_knownField_returnsTrue() {
+    TestAllTypes proto = TestAllTypes.newBuilder().setSingleString("present").build();
+    ProtoMessageLiteValue val =
+        ProtoMessageLiteValue.create(
+            proto, "cel.expr.conformance.proto3.TestAllTypes", PROTO_LITE_CEL_VALUE_CONVERTER);
+
+    assertThat(val.hasFieldByNumber(SelectField.create(14L, "single_string"))).isTrue();
+  }
+
+  @Test
+  public void hasFieldByNumber_unknownFieldPresent_returnsTrue() throws Exception {
+    ByteArrayOutputStream baos = new ByteArrayOutputStream();
+    CodedOutputStream cos = CodedOutputStream.newInstance(baos);
+    cos.writeInt64(999, 42L);
+    cos.flush();
+    TestAllTypes proto =
+        TestAllTypes.parseFrom(baos.toByteArray(), ExtensionRegistryLite.getEmptyRegistry());
+    ProtoMessageLiteValue val =
+        ProtoMessageLiteValue.create(
+            proto, "cel.expr.conformance.proto3.TestAllTypes", PROTO_LITE_CEL_VALUE_CONVERTER);
+
+    assertThat(val.hasFieldByNumber(SelectField.create(999L, "unknown_present"))).isTrue();
+  }
+
+  @Test
+  public void hasFieldByNumber_unknownFieldAbsent_returnsFalse() {
+    ProtoMessageLiteValue val =
+        ProtoMessageLiteValue.create(
+            TestAllTypes.getDefaultInstance(),
+            "cel.expr.conformance.proto3.TestAllTypes",
+            PROTO_LITE_CEL_VALUE_CONVERTER);
+
+    assertThat(val.hasFieldByNumber(SelectField.create(888L, "unknown_absent"))).isFalse();
+  }
+
+  @Test
+  public void hasFieldByNumber_renamedField_resolvesByFieldNumber() {
+    TestAllTypes proto = TestAllTypes.newBuilder().setSingleString("present").build();
+    ProtoMessageLiteValue val =
+        ProtoMessageLiteValue.create(
+            proto, "cel.expr.conformance.proto3.TestAllTypes", PROTO_LITE_CEL_VALUE_CONVERTER);
+
+    assertThat(val.hasFieldByNumber(SelectField.create(14L, "renamed_string"))).isTrue();
+  }
+
+  @Test
+  public void hasFieldByNumber_renamedMapField_resolvesByFieldNumber() {
+    TestAllTypes proto = TestAllTypes.newBuilder().putMapStringString("k", "v").build();
+    ProtoMessageLiteValue val =
+        ProtoMessageLiteValue.create(
+            proto, "cel.expr.conformance.proto3.TestAllTypes", PROTO_LITE_CEL_VALUE_CONVERTER);
+
+    assertThat(val.hasFieldByNumber(SelectField.create(61L, "renamed_map"))).isTrue();
+  }
+
+  @Test
+  public void hasFieldByNumber_renamedRepeatedField_resolvesByFieldNumber() {
+    TestAllTypes proto = TestAllTypes.newBuilder().addRepeatedInt64(10L).build();
+    ProtoMessageLiteValue val =
+        ProtoMessageLiteValue.create(
+            proto, "cel.expr.conformance.proto3.TestAllTypes", PROTO_LITE_CEL_VALUE_CONVERTER);
+
+    assertThat(val.hasFieldByNumber(SelectField.create(32L, "renamed_repeated"))).isTrue();
+  }
+
+  @Test
+  public void qualify_emptyList_returnsSameInstance() {
+    ProtoMessageLiteValue val =
+        ProtoMessageLiteValue.create(
+            TestAllTypes.getDefaultInstance(),
+            "cel.expr.conformance.proto3.TestAllTypes",
+            PROTO_LITE_CEL_VALUE_CONVERTER);
+
+    assertThat(OptimizedSelectTraversal.qualify(val, ImmutableList.of())).isSameInstanceAs(val);
+  }
+
+  @Test
+  public void hasField_emptyList_returnsFalse() {
+    ProtoMessageLiteValue val =
+        ProtoMessageLiteValue.create(
+            TestAllTypes.getDefaultInstance(),
+            "cel.expr.conformance.proto3.TestAllTypes",
+            PROTO_LITE_CEL_VALUE_CONVERTER);
+
+    assertThat(OptimizedSelectTraversal.hasField(val, ImmutableList.of())).isFalse();
+  }
+
+  @Test
+  public void qualify_mapField_returnsMap() {
+    TestAllTypes proto = TestAllTypes.newBuilder().putMapStringString("k", "v").build();
+    ProtoMessageLiteValue val =
+        ProtoMessageLiteValue.create(
+            proto, "cel.expr.conformance.proto3.TestAllTypes", PROTO_LITE_CEL_VALUE_CONVERTER);
+    ImmutableList<SelectField> fields =
+        ImmutableList.of(
+            SelectField.create(
+                61L, "map_string_string", SelectField.CEL_MAP_TYPE_CODE, ImmutableMap.of()));
+
+    Object result = OptimizedSelectTraversal.qualify(val, fields);
+
+    assertThat(result).isEqualTo(ImmutableMap.of("k", "v"));
+  }
+
+  @Test
+  public void qualify_nestedMessage_resolvesField() {
+    TestAllTypes proto =
+        TestAllTypes.newBuilder()
+            .setSingleNestedMessage(TestAllTypes.NestedMessage.newBuilder().setBb(42))
+            .build();
+    ProtoMessageLiteValue val =
+        ProtoMessageLiteValue.create(
+            proto, "cel.expr.conformance.proto3.TestAllTypes", PROTO_LITE_CEL_VALUE_CONVERTER);
+    ImmutableList<SelectField> fields =
+        ImmutableList.of(
+            SelectField.create(21L, "single_nested_message", 11, null),
+            SelectField.create(1L, "bb", 5, 0));
+
+    Object result = OptimizedSelectTraversal.qualify(val, fields);
+
+    assertThat(result).isEqualTo(42L);
+  }
+
+  @Test
+  public void hasField_nestedMessage_resolvesPresence() {
+    TestAllTypes proto =
+        TestAllTypes.newBuilder()
+            .setSingleNestedMessage(TestAllTypes.NestedMessage.newBuilder().setBb(42))
+            .build();
+    ProtoMessageLiteValue val =
+        ProtoMessageLiteValue.create(
+            proto, "cel.expr.conformance.proto3.TestAllTypes", PROTO_LITE_CEL_VALUE_CONVERTER);
+
+    assertThat(
+            OptimizedSelectTraversal.hasField(
+                val,
+                ImmutableList.of(
+                    SelectField.create(21L, "single_nested_message"),
+                    SelectField.create(1L, "bb"))))
+        .isTrue();
+    assertThat(
+            OptimizedSelectTraversal.hasField(
+                val,
+                ImmutableList.of(
+                    SelectField.create(21L, "single_nested_message"),
+                    SelectField.create(99L, "missing"))))
+        .isFalse();
+  }
+
+  @Test
+  public void qualify_intermediateScalar_throwsCelAttributeNotFoundWithChildFieldName() {
+    TestAllTypes proto = TestAllTypes.newBuilder().setSingleInt64(42L).build();
+    ProtoMessageLiteValue val =
+        ProtoMessageLiteValue.create(
+            proto, "cel.expr.conformance.proto3.TestAllTypes", PROTO_LITE_CEL_VALUE_CONVERTER);
+    ImmutableList<SelectField> fields =
+        ImmutableList.of(
+            SelectField.create(2L, "single_int64", 3, 0L),
+            SelectField.create(3L, "leaf_field", 9, ""));
+
+    CelAttributeNotFoundException thrown =
+        assertThrows(
+            CelAttributeNotFoundException.class,
+            () -> OptimizedSelectTraversal.qualify(val, fields));
+
+    assertThat(thrown).hasMessageThat().contains("leaf_field");
+  }
+
+  @Test
+  public void hasField_intermediateScalar_throwsCelAttributeNotFoundWithChildFieldName() {
+    TestAllTypes proto = TestAllTypes.newBuilder().setSingleInt64(42L).build();
+    ProtoMessageLiteValue val =
+        ProtoMessageLiteValue.create(
+            proto, "cel.expr.conformance.proto3.TestAllTypes", PROTO_LITE_CEL_VALUE_CONVERTER);
+    ImmutableList<SelectField> fields =
+        ImmutableList.of(
+            SelectField.create(2L, "single_int64"), SelectField.create(3L, "leaf_field"));
+
+    CelAttributeNotFoundException thrown =
+        assertThrows(
+            CelAttributeNotFoundException.class,
+            () -> OptimizedSelectTraversal.hasField(val, fields));
+
+    assertThat(thrown).hasMessageThat().contains("leaf_field");
   }
 }

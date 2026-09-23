@@ -182,21 +182,23 @@ final class NamespacedAttribute implements Attribute {
             .build());
   }
 
-  private static Object applyQualifiers(
+  static Object applyQualifiers(
       Object value, CelValueConverter celValueConverter, ImmutableList<Qualifier> qualifiers) {
     if (value instanceof AccumulatedUnknowns) {
       return value;
     }
-    Object obj = celValueConverter.toRuntimeValue(value);
-
-    // Avoid enhanced for loop to prevent UnmodifiableIterator from being allocated
-    for (int i = 0; i < qualifiers.size(); i++) {
-      Qualifier element = qualifiers.get(i);
-      obj = element.qualify(obj);
-      obj = celValueConverter.toRuntimeValue(obj);
+    // Each Qualifier accepts and returns a traversal target, so only the root operand needs
+    // adapting on the way in and only the terminal value is materialized on the way out.
+    Object obj = value;
+    if (!qualifiers.isEmpty()) {
+      obj = celValueConverter.toTraversalTarget(obj);
+      // Avoid enhanced for loop to prevent UnmodifiableIterator from being allocated
+      for (int i = 0; i < qualifiers.size(); i++) {
+        obj = qualifiers.get(i).qualify(obj);
+      }
     }
 
-    return celValueConverter.maybeUnwrap(obj);
+    return celValueConverter.maybeUnwrap(celValueConverter.toRuntimeValue(obj));
   }
 
   private static Optional<CelAttributePattern> findPartialMatchingPattern(

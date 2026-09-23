@@ -17,7 +17,6 @@ package dev.cel.common.values;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.google.auto.value.AutoValue;
-import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Defaults;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableListMultimap;
@@ -26,6 +25,7 @@ import com.google.common.collect.Multimap;
 import com.google.common.collect.Multimaps;
 import com.google.common.primitives.UnsignedLong;
 import com.google.errorprone.annotations.Immutable;
+import com.google.protobuf.ByteString;
 import com.google.protobuf.CodedInputStream;
 import com.google.protobuf.ExtensionRegistryLite;
 import com.google.protobuf.MessageLite;
@@ -62,11 +62,18 @@ import java.util.TreeMap;
 @Immutable
 @Internal
 public final class ProtoLiteCelValueConverter extends BaseProtoCelValueConverter {
+  static final String MAP_KEY_FIELD_NAME = "key";
+  static final String MAP_VALUE_FIELD_NAME = "value";
+
   private final CelLiteDescriptorPool descriptorPool;
 
   public static ProtoLiteCelValueConverter newInstance(
       CelLiteDescriptorPool celLiteDescriptorPool) {
     return new ProtoLiteCelValueConverter(celLiteDescriptorPool);
+  }
+
+  boolean hasDescriptor(String protoTypeName) {
+    return descriptorPool.findDescriptor(protoTypeName).isPresent();
   }
 
   private static Object readPrimitiveField(
@@ -155,22 +162,45 @@ public final class ProtoLiteCelValueConverter extends BaseProtoCelValueConverter
 
   Object getDefaultCelValue(String protoTypeName, String fieldName) {
     MessageLiteDescriptor messageDescriptor = descriptorPool.getDescriptorOrThrow(protoTypeName);
-    FieldLiteDescriptor fieldDescriptor = messageDescriptor.getByFieldNameOrThrow(fieldName);
-
-    Object defaultValue = getDefaultValue(fieldDescriptor);
-
-    return toRuntimeValue(defaultValue);
+    return getDefaultCelValue(messageDescriptor.getByFieldNameOrThrow(fieldName));
   }
 
-  public Optional<FieldLiteDescriptor> findFieldDescriptor(String protoTypeName, int fieldNumber) {
+  Object getDefaultCelValue(FieldLiteDescriptor fieldDescriptor) {
+    return toRuntimeValue(getDefaultValue(fieldDescriptor));
+  }
+
+  Optional<FieldLiteDescriptor> findFieldDescriptor(String protoTypeName, int fieldNumber) {
     return descriptorPool
         .findDescriptor(protoTypeName)
         .flatMap(desc -> desc.findByFieldNumber(fieldNumber));
   }
 
-  public Optional<Object> findDefaultCelValue(String protoTypeName, int fieldNumber) {
-    return findFieldDescriptor(protoTypeName, fieldNumber)
-        .map(fieldDescriptor -> toRuntimeValue(getDefaultValue(fieldDescriptor)));
+  Optional<Object> tryDecodeWellKnownProto(ByteString bytes, String protoTypeName) {
+    Optional<WellKnownProto> wellKnownProto = WellKnownProto.getByTypeName(protoTypeName);
+    if (!wellKnownProto.isPresent()) {
+      return Optional.empty();
+    }
+
+    return descriptorPool
+        .findDescriptor(protoTypeName)
+        .map(
+            descriptor ->
+                decodeWellKnownProto(bytes, protoTypeName, descriptor, wellKnownProto.get()));
+  }
+
+  private Object decodeWellKnownProto(
+      ByteString bytes,
+      String protoTypeName,
+      MessageLiteDescriptor descriptor,
+      WellKnownProto wellKnownProto) {
+    try {
+      MessageLite.Builder builder = descriptor.newMessageBuilder();
+      builder.mergeFrom(bytes, ExtensionRegistryLite.getEmptyRegistry());
+      return fromWellKnownProto(builder.build(), wellKnownProto);
+    } catch (IOException e) {
+      throw new IllegalArgumentException(
+          "Failed to decode well-known proto of type: " + protoTypeName, e);
+    }
   }
 
   @Override
@@ -276,16 +306,21 @@ public final class ProtoLiteCelValueConverter extends BaseProtoCelValueConverter
 
   private Map.Entry<Object, Object> readSingleMapEntry(
       CodedInputStream inputStream, FieldLiteDescriptor fieldDescriptor) throws IOException {
+    String entryTypeName = fieldDescriptor.getFieldProtoTypeName();
     ImmutableMap<String, Object> singleMapEntry =
-        readAllFields(inputStream.readByteArray(), fieldDescriptor.getFieldProtoTypeName())
-            .values();
-    Object key = checkNotNull(singleMapEntry.get("key"));
-    Object value = checkNotNull(singleMapEntry.get("value"));
+        readAllFields(inputStream.readByteArray(), entryTypeName).values();
+    Object key = singleMapEntry.get(MAP_KEY_FIELD_NAME);
+    if (key == null) {
+      key = getDefaultCelValue(entryTypeName, MAP_KEY_FIELD_NAME);
+    }
+    Object value = singleMapEntry.get(MAP_VALUE_FIELD_NAME);
+    if (value == null) {
+      value = getDefaultCelValue(entryTypeName, MAP_VALUE_FIELD_NAME);
+    }
 
     return new AbstractMap.SimpleEntry<>(key, value);
   }
 
-  @VisibleForTesting
   MessageFields readAllFields(byte[] bytes, String protoTypeName) throws IOException {
     MessageLiteDescriptor messageDescriptor = descriptorPool.getDescriptorOrThrow(protoTypeName);
     CodedInputStream inputStream = CodedInputStream.newInstance(bytes);
@@ -360,18 +395,15 @@ public final class ProtoLiteCelValueConverter extends BaseProtoCelValueConverter
       if (fieldDescriptor.getEncodingType().equals(EncodingType.LIST)) {
         String fieldName = fieldDescriptor.getFieldName();
         List<Object> repeatedValues =
-            repeatedFieldValues.computeIfAbsent(
-                fieldNumber,
-                (unused) -> {
-                  List<Object> newList = new ArrayList<>();
-                  fieldValues.put(fieldName, newList);
-                  return newList;
-                });
+            repeatedFieldValues.computeIfAbsent(fieldNumber, (unused) -> new ArrayList<>());
 
         if (payload instanceof Collection) {
           repeatedValues.addAll((Collection<?>) payload);
         } else {
           repeatedValues.add(payload);
+        }
+        if (!repeatedValues.isEmpty()) {
+          fieldValues.put(fieldName, repeatedValues);
         }
       } else {
         fieldValues.put(fieldDescriptor.getFieldName(), payload);

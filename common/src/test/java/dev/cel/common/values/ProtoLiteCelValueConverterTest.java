@@ -15,6 +15,7 @@
 package dev.cel.common.values;
 
 import static com.google.common.truth.Truth.assertThat;
+import static org.junit.Assert.assertThrows;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableListMultimap;
@@ -44,13 +45,36 @@ import dev.cel.common.internal.DefaultLiteDescriptorPool;
 import dev.cel.common.values.ProtoLiteCelValueConverter.MessageFields;
 import dev.cel.expr.conformance.proto3.TestAllTypes;
 import dev.cel.expr.conformance.proto3.TestAllTypesCelDescriptor;
+import dev.cel.protobuf.CelLiteDescriptor.FieldLiteDescriptor;
+import dev.cel.protobuf.CelLiteDescriptor.MessageLiteDescriptor;
+import java.io.IOException;
 import java.time.Instant;
 import java.util.LinkedHashMap;
+import java.util.NoSuchElementException;
+import java.util.Optional;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
 @RunWith(TestParameterInjector.class)
 public class ProtoLiteCelValueConverterTest {
+  private static final CelLiteDescriptorPool EMPTY_DESCRIPTOR_POOL =
+      new CelLiteDescriptorPool() {
+        @Override
+        public Optional<MessageLiteDescriptor> findDescriptor(String protoTypeName) {
+          return Optional.empty();
+        }
+
+        @Override
+        public Optional<MessageLiteDescriptor> findDescriptor(MessageLite messageLite) {
+          return Optional.empty();
+        }
+
+        @Override
+        public MessageLiteDescriptor getDescriptorOrThrow(String protoTypeName) {
+          throw new NoSuchElementException(protoTypeName);
+        }
+      };
+
   private static final CelLiteDescriptorPool DESCRIPTOR_POOL =
       DefaultLiteDescriptorPool.newInstance(
           ImmutableSet.of(TestAllTypesCelDescriptor.getDescriptor()));
@@ -307,7 +331,7 @@ public class ProtoLiteCelValueConverterTest {
     LinkedHashMap<Boolean, Double> mapBoolDoubleValues =
         (LinkedHashMap<Boolean, Double>) fields.values().get("map_bool_double");
     assertThat(mapBoolDoubleValues).containsExactly(true, 1.5d, false, 2.5d).inOrder();
-    Multimap<Integer, Object> unknownValues = fields.unknowns();
+    ImmutableListMultimap<Integer, Object> unknownValues = fields.unknowns();
     assertThat(unknownValues)
         .containsExactly(
             2500,
@@ -325,5 +349,100 @@ public class ProtoLiteCelValueConverterTest {
             2505,
             ByteString.copyFromUtf8("\n\003bar\020\005"))
         .inOrder();
+  }
+
+  @Test
+  public void getDefaultCelValue_fieldDescriptor_returnsDefault() {
+    FieldLiteDescriptor fieldDescriptor =
+        DESCRIPTOR_POOL
+            .getDescriptorOrThrow("cel.expr.conformance.proto3.TestAllTypes")
+            .getByFieldNameOrThrow("single_string");
+
+    Object defaultValue = PROTO_LITE_CEL_VALUE_CONVERTER.getDefaultCelValue(fieldDescriptor);
+
+    assertThat(defaultValue).isEqualTo("");
+  }
+
+  @Test
+  public void getDefaultCelValue_nestedMessageWithoutDescriptor_throwsNoSuchElementException() {
+    FieldLiteDescriptor nestedMsgField =
+        DESCRIPTOR_POOL
+            .getDescriptorOrThrow("cel.expr.conformance.proto3.TestAllTypes")
+            .getByFieldNameOrThrow("single_nested_message");
+    ProtoLiteCelValueConverter converterWithoutNested =
+        ProtoLiteCelValueConverter.newInstance(EMPTY_DESCRIPTOR_POOL);
+
+    assertThrows(
+        NoSuchElementException.class,
+        () -> converterWithoutNested.getDefaultCelValue(nestedMsgField));
+  }
+
+  @Test
+  public void tryDecodeWellKnownProto_validBytes_returnsDecodedValue() {
+    Int32Value int32Value = Int32Value.of(42);
+
+    Optional<Object> decoded =
+        PROTO_LITE_CEL_VALUE_CONVERTER.tryDecodeWellKnownProto(
+            int32Value.toByteString(), "google.protobuf.Int32Value");
+
+    assertThat(decoded).hasValue(42L);
+  }
+
+  @Test
+  public void tryDecodeWellKnownProto_notWellKnownType_returnsEmpty() {
+    Optional<Object> decoded =
+        PROTO_LITE_CEL_VALUE_CONVERTER.tryDecodeWellKnownProto(
+            ByteString.EMPTY, "cel.expr.conformance.proto3.TestAllTypes");
+
+    assertThat(decoded).isEmpty();
+  }
+
+  @Test
+  public void tryDecodeWellKnownProto_missingDescriptor_returnsEmpty() {
+    ProtoLiteCelValueConverter converter =
+        ProtoLiteCelValueConverter.newInstance(EMPTY_DESCRIPTOR_POOL);
+
+    Optional<Object> decoded =
+        converter.tryDecodeWellKnownProto(ByteString.EMPTY, "google.protobuf.Int32Value");
+
+    assertThat(decoded).isEmpty();
+  }
+
+  @Test
+  public void tryDecodeWellKnownProto_invalidBytes_throwsIllegalArgumentException() {
+    ByteString corruptBytes = ByteString.copyFrom(new byte[] {(byte) 0xFF, (byte) 0xFF});
+
+    IllegalArgumentException exception =
+        assertThrows(
+            IllegalArgumentException.class,
+            () ->
+                PROTO_LITE_CEL_VALUE_CONVERTER.tryDecodeWellKnownProto(
+                    corruptBytes, "google.protobuf.Int32Value"));
+
+    assertThat(exception)
+        .hasMessageThat()
+        .contains("Failed to decode well-known proto of type: google.protobuf.Int32Value");
+    assertThat(exception).hasCauseThat().isInstanceOf(IOException.class);
+  }
+
+  @Test
+  public void tryDecodeWellKnownProto_anyType_throwsUnsupportedOperationException() {
+    UnsupportedOperationException exception =
+        assertThrows(
+            UnsupportedOperationException.class,
+            () ->
+                PROTO_LITE_CEL_VALUE_CONVERTER.tryDecodeWellKnownProto(
+                    ByteString.EMPTY, "google.protobuf.Any"));
+
+    assertThat(exception).hasMessageThat().contains("ANY_VALUE");
+  }
+
+  @Test
+  public void hasDescriptor_returnsExpectedResult() {
+    assertThat(
+            PROTO_LITE_CEL_VALUE_CONVERTER.hasDescriptor(
+                "cel.expr.conformance.proto3.TestAllTypes"))
+        .isTrue();
+    assertThat(PROTO_LITE_CEL_VALUE_CONVERTER.hasDescriptor("unknown.Type")).isFalse();
   }
 }
