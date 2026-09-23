@@ -89,6 +89,7 @@ _ALL_TESTS = [
     "@cel_spec//tests/simple:testdata/fp_math.textproto",
     "@cel_spec//tests/simple:testdata/integer_math.textproto",
     "@cel_spec//tests/simple:testdata/lists.textproto",
+    "@cel_spec//tests/simple:testdata/lists_ext.textproto",
     "@cel_spec//tests/simple:testdata/logic.textproto",
     "@cel_spec//tests/simple:testdata/macros.textproto",
     "@cel_spec//tests/simple:testdata/macros2.textproto",

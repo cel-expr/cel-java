@@ -175,11 +175,21 @@ public class CelListsExtensionsTest extends CelExtensionTestBase {
   @Test
   @TestParameters("{expression: 'lists.range(9) == [0,1,2,3,4,5,6,7,8]'}")
   @TestParameters("{expression: 'lists.range(0) == []'}")
-  @TestParameters("{expression: 'lists.range(-1) == []'}")
   public void range_success(String expression) throws Exception {
     boolean result = (boolean) eval(cel, expression);
 
     assertThat(result).isTrue();
+  }
+
+  @Test
+  @TestParameters(
+      "{expression: 'lists.range(-1)', expectedError: 'lists.range: size must be non-negative'}")
+  @TestParameters("{expression: 'lists.range(1000001)', expectedError: 'exceeds maximum allowed'}")
+  public void range_throws(String expression, String expectedError) throws Exception {
+    CelEvaluationException e =
+        assertThrows(CelEvaluationException.class, () -> eval(cel, expression));
+
+    assertThat(e).hasCauseThat().hasMessageThat().contains(expectedError);
   }
 
   @Test
@@ -238,7 +248,10 @@ public class CelListsExtensionsTest extends CelExtensionTestBase {
   @TestParameters(
       "{expression: '[\"d\", \"a\", \"b\", \"c\"].sort()', "
           + "expected: '[\"a\", \"b\", \"c\", \"d\"]'}")
-  @TestParameters("{expression: '[b\"b\", b\"a\"].sort()', " + "expected: '[b\"a\", b\"b\"]'}")
+  @TestParameters("{expression: '[b\"b\", b\"a\"].sort()', expected: '[b\"a\", b\"b\"]'}")
+  @TestParameters(
+      "{expression: '[b\"d\", b\"a\", b\"aa\"].sort()', "
+          + "expected: '[b\"a\", b\"aa\", b\"d\"]'}")
   @TestParameters(
       "{expression: '[duration(\"2s\"), duration(\"1s\")].sort()', "
           + "expected: '[duration(\"1s\"), duration(\"2s\")]'}")
@@ -272,11 +285,19 @@ public class CelListsExtensionsTest extends CelExtensionTestBase {
   @TestParameters(
       "{expression: '[SimpleTest{name: \"a\"}].sort()', "
           + "expectedError: 'List elements must be comparable'}")
+  @TestParameters(
+      "{expression: '[[1, 2, 3]].sort()', " + "expectedError: 'List elements must be comparable'}")
+  @TestParameters(
+      "{expression: '[{1: 2}].sort()', " + "expectedError: 'List elements must be comparable'}")
+  @TestParameters(
+      "{expression: '[1, null].sort()', " + "expectedError: 'List elements must be comparable'}")
+  @TestParameters(
+      "{expression: '[null, 1].sort()', " + "expectedError: 'List elements must be comparable'}")
   public void sort_throws(String expression, String expectedError) throws Exception {
-    assertThat(assertThrows(CelEvaluationException.class, () -> eval(cel, expression)))
-        .hasCauseThat()
-        .hasMessageThat()
-        .contains(expectedError);
+    CelEvaluationException e =
+        assertThrows(CelEvaluationException.class, () -> eval(cel, expression));
+
+    assertThat(e).hasCauseThat().hasMessageThat().contains(expectedError);
   }
 
   @Test
@@ -331,12 +352,16 @@ public class CelListsExtensionsTest extends CelExtensionTestBase {
   @TestParameters(
       "{expression: '[SimpleTest{name: \"a\"}, SimpleTest{name: \"b\"}].sortBy(e, e)', "
           + "expectedError: 'found no matching overload for ''@sortByAssociatedKeys'''}")
+  @TestParameters(
+      "{expression: '[1, 2].sortBy(e, [e])', "
+          + "expectedError: 'found no matching overload for ''@sortByAssociatedKeys'''}")
   public void sortBy_throws_validationException(String expression, String expectedError)
       throws Exception {
     CelValidationResult result = cel.compile(expression);
-    assertThat(assertThrows(CelValidationException.class, () -> result.getAst()))
-        .hasMessageThat()
-        .contains(expectedError);
+
+    CelValidationException e = assertThrows(CelValidationException.class, () -> result.getAst());
+
+    assertThat(e).hasMessageThat().contains(expectedError);
   }
 
   @Test
@@ -345,15 +370,16 @@ public class CelListsExtensionsTest extends CelExtensionTestBase {
         CelValidatorFactory.standardCelValidatorBuilder(cel)
             .addAstValidators(HomogeneousLiteralValidator.newInstance())
             .build();
-
     CelAbstractSyntaxTree ast =
         cel.compile(
                 "[SimpleTest{name: 'baz'}, SimpleTest{name: 'foo'}, SimpleTest{name: 'bar'}]"
                     + ".sortBy(e, e.name)[0].name")
             .getAst();
+
     CelValidationResult result = validator.validate(ast);
+    Object evalResult = cel.createProgram(ast).eval();
 
     assertThat(result.hasError()).isFalse();
-    assertThat(cel.createProgram(ast).eval()).isEqualTo("bar");
+    assertThat(evalResult).isEqualTo("bar");
   }
 }

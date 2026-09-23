@@ -262,7 +262,7 @@ public final class CelListsExtensions
 
   @Override
   public ImmutableSet<CelMacro> macros() {
-    if (version >= 2) {
+    if (functions.contains(Function.SORT_BY)) {
       return ImmutableSet.of(
           CelMacro.newReceiverMacro("sortBy", 2, CelListsExtensions::sortByMacro));
     }
@@ -340,7 +340,10 @@ public final class CelListsExtensions
   }
 
   public static ImmutableList<Long> genRange(long end) {
-    ImmutableList.Builder<Long> builder = ImmutableList.builder();
+    checkArgument(end >= 0, "lists.range: size must be non-negative, got %s", end);
+    checkArgument(end <= 1_000_000, "lists.range: size %s exceeds maximum allowed (1000000)", end);
+
+    ImmutableList.Builder<Long> builder = ImmutableList.builderWithExpectedSize((int) end);
     for (long i = 0; i < end; i++) {
       builder.add(i);
     }
@@ -425,7 +428,7 @@ public final class CelListsExtensions
             .compare((CelByteString) o1, (CelByteString) o2);
       }
 
-      if (!(o1 instanceof Comparable)) {
+      if (!(o1 instanceof Comparable) || !(o2 instanceof Comparable)) {
         throw new IllegalArgumentException("List elements must be comparable");
       }
       if (o1.getClass() != o2.getClass()) {
