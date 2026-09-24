@@ -30,6 +30,7 @@ CHECKER_LEGACY_ENV_SOURCES = [
     "ExprChecker.java",
     "ExprVisitor.java",
     "InferenceContext.java",
+    "LegacyTypeProviderBridge.java",
     "TypeFormatter.java",
 ]
 
@@ -126,24 +127,6 @@ java_library(
         "@maven//:com_google_errorprone_error_prone_annotations",
         "@maven//:com_google_guava_guava",
         "@maven//:com_google_protobuf_protobuf_java",
-    ],
-)
-
-java_library(
-    name = "type_provider_legacy_impl",
-    srcs = ["TypeProviderLegacyImpl.java"],
-    tags = [
-    ],
-    deps = [
-        ":type_provider_legacy",
-        "//common/annotations",
-        "//common/types",
-        "//common/types:cel_proto_types",
-        "//common/types:type_providers",
-        "@cel_spec//proto/cel/expr:checked_java_proto",
-        "@maven//:com_google_errorprone_error_prone_annotations",
-        "@maven//:com_google_guava_guava",
-        "@maven//:org_jspecify_jspecify",
     ],
 )
 

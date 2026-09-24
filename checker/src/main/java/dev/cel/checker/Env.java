@@ -83,13 +83,8 @@ public class Env {
   public static final CelFunctionDecl ERROR_FUNCTION_DECL =
       CelFunctionDecl.newBuilder().setName("*error*").build();
 
-  private static final CelTypeProvider EMPTY_TYPE_PROVIDER =
-      new CelTypeProvider.CombinedCelTypeProvider(ImmutableList.of());
-
   /** Type provider responsible for resolving CEL types. */
   private final CelTypeProvider celTypeProvider;
-
-  private final @Nullable TypeProvider legacyTypeProvider;
 
   /**
    * Stack of declaration groups where each entry in stack represents a scope capable of hinding
@@ -133,12 +128,12 @@ public class Env {
     return unconfigured(errors, new DescriptorTypeProvider(), celOptions);
   }
 
-  static Env unconfigured(
-      Errors errors,
-      CelTypeProvider celTypeProvider,
-      @Nullable TypeProvider legacyTypeProvider,
-      CelOptions celOptions) {
-    return new Env(errors, celTypeProvider, legacyTypeProvider, new DeclGroup(), celOptions);
+  /**
+   * Creates an unconfigured {@code Env} value without the standard CEL types, functions, and
+   * operators using a custom {@code celTypeProvider}.
+   */
+  static Env unconfigured(Errors errors, CelTypeProvider celTypeProvider, CelOptions celOptions) {
+    return new Env(errors, celTypeProvider, new DeclGroup(), celOptions);
   }
 
   /**
@@ -150,7 +145,7 @@ public class Env {
    */
   @Deprecated
   public static Env unconfigured(Errors errors, TypeProvider typeProvider, CelOptions celOptions) {
-    return unconfigured(errors, EMPTY_TYPE_PROVIDER, typeProvider, celOptions);
+    return unconfigured(errors, new LegacyTypeProviderBridge(typeProvider), celOptions);
   }
 
   /**
@@ -171,14 +166,8 @@ public class Env {
     return standard(errors, typeProvider, LEGACY_TYPE_CHECKER_OPTIONS);
   }
 
-  static Env standard(
-      Errors errors,
-      CelTypeProvider celTypeProvider,
-      @Nullable TypeProvider legacyTypeProvider,
-      CelOptions celOptions) {
-    CelStandardDeclarations celStandardDeclaration = newStandardDeclarations(celOptions);
-    return standard(
-        celStandardDeclaration, errors, celTypeProvider, legacyTypeProvider, celOptions);
+  static Env standard(Errors errors, CelTypeProvider celTypeProvider, CelOptions celOptions) {
+    return standard(newStandardDeclarations(celOptions), errors, celTypeProvider, celOptions);
   }
 
   /**
@@ -194,17 +183,15 @@ public class Env {
    */
   @Deprecated
   public static Env standard(Errors errors, TypeProvider typeProvider, CelOptions celOptions) {
-    return standard(
-        newStandardDeclarations(celOptions), errors, EMPTY_TYPE_PROVIDER, typeProvider, celOptions);
+    return standard(errors, new LegacyTypeProviderBridge(typeProvider), celOptions);
   }
 
   static Env standard(
       CelStandardDeclarations celStandardDeclaration,
       Errors errors,
       CelTypeProvider celTypeProvider,
-      @Nullable TypeProvider legacyTypeProvider,
       CelOptions celOptions) {
-    Env env = Env.unconfigured(errors, celTypeProvider, legacyTypeProvider, celOptions);
+    Env env = Env.unconfigured(errors, celTypeProvider, celOptions);
     // Isolate the standard declarations into their own scope for forward compatibility.
     celStandardDeclaration.functionDecls().forEach(env::add);
     celStandardDeclaration.identifierDecls().forEach(env::add);
@@ -219,7 +206,8 @@ public class Env {
       Errors errors,
       TypeProvider typeProvider,
       CelOptions celOptions) {
-    return standard(celStandardDeclaration, errors, EMPTY_TYPE_PROVIDER, typeProvider, celOptions);
+    return standard(
+        celStandardDeclaration, errors, new LegacyTypeProviderBridge(typeProvider), celOptions);
   }
 
   private static CelStandardDeclarations newStandardDeclarations(CelOptions celOptions) {
@@ -264,17 +252,6 @@ public class Env {
   /** Returns the {@code CelTypeProvider}. */
   CelTypeProvider getCelTypeProvider() {
     return celTypeProvider;
-  }
-
-  /**
-   * Returns the {@code TypeProvider}, or {@code null} if only modern {@link CelTypeProvider} was
-   * configured.
-   *
-   * @deprecated Use {@link #getCelTypeProvider()} instead.
-   */
-  @Deprecated
-  @Nullable TypeProvider getTypeProvider() {
-    return legacyTypeProvider;
   }
 
   /**
@@ -524,9 +501,6 @@ public class Env {
             .findType(cand)
             .filter(t -> !(t instanceof EnumType) || t.name().equals(cand))
             .map(Env::wrapAsTypeIfNeeded);
-    if (!type.isPresent() && legacyTypeProvider != null) {
-      type = legacyTypeProvider.lookupCelType(cand);
-    }
     if (type.isPresent()) {
       decl = CelVarDecl.newVarDeclaration(cand, type.get());
       decls.get(0).putIdent(decl);
@@ -551,7 +525,7 @@ public class Env {
   }
 
   private Optional<Integer> lookupEnumValue(String enumName) {
-    int dotIndex = enumName.lastIndexOf(".");
+    int dotIndex = enumName.lastIndexOf('.');
     if (dotIndex > 0 && dotIndex < enumName.length() - 1) {
       String enumTypeName = enumName.substring(0, dotIndex);
       String localEnumName = enumName.substring(dotIndex + 1);
@@ -563,23 +537,36 @@ public class Env {
       if (enumValue.isPresent()) {
         return enumValue;
       }
-      enumValue =
-          celTypeProvider
-              .findType(enumName)
-              .filter(t -> t instanceof EnumType)
-              .flatMap(t -> ((EnumType) t).findNumberByName(localEnumName));
-      if (enumValue.isPresent()) {
-        return enumValue;
-      }
+      return celTypeProvider
+          .findType(enumName)
+          .filter(t -> t instanceof EnumType)
+          .flatMap(t -> ((EnumType) t).findNumberByName(localEnumName));
     }
-    return Optional.ofNullable(legacyTypeProvider).map(value -> value.lookupEnumValue(enumName));
+    return Optional.empty();
   }
 
   private static CelType wrapAsTypeIfNeeded(CelType type) {
     if (type instanceof TypeType) {
       return type;
     }
-    return TypeType.create(type);
+    // CelTypeProvider resolves named types (STRUCT, OPAQUE, EnumType). These are wrapped into
+    // TypeType so that type identifiers imported into the expression scope have type 'type(T)'.
+    // OPAQUE types are wrapped here to support modern opaque type identifiers (e.g.
+    // 'optional_type')
+    // registered via DefaultTypeProvider or CelTypeProvider.
+    //
+    // Note: Legacy TypeProvider implementations (e.g., HierarchicalAttributeTypeProvider) abused
+    // lookupType to declare dynamic variables on the fly, returning variable types like ListType
+    // or SimpleType rather than type definitions. These must not be wrapped into TypeType so that
+    // they remain accessible as variable references rather than type literals. Standard type
+    // identifiers ('int', 'list', etc.) are pre-declared in CelStandardDeclarations and never hit
+    // this path.
+    if (type.kind().equals(CelKind.STRUCT)
+        || type.kind().equals(CelKind.OPAQUE)
+        || type instanceof EnumType) {
+      return TypeType.create(type);
+    }
+    return type;
   }
 
   /**
@@ -1081,15 +1068,10 @@ public class Env {
   }
 
   private Env(
-      Errors errors,
-      CelTypeProvider celTypeProvider,
-      @Nullable TypeProvider legacyTypeProvider,
-      DeclGroup declGroup,
-      CelOptions celOptions) {
+      Errors errors, CelTypeProvider celTypeProvider, DeclGroup declGroup, CelOptions celOptions) {
     this.celOptions = Preconditions.checkNotNull(celOptions);
     this.errors = Preconditions.checkNotNull(errors);
     this.celTypeProvider = Preconditions.checkNotNull(celTypeProvider);
-    this.legacyTypeProvider = legacyTypeProvider;
     this.decls.add(Preconditions.checkNotNull(declGroup));
   }
 }
