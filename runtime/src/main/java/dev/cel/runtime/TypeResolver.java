@@ -122,10 +122,6 @@ public class TypeResolver {
   }
 
   Optional<TypeType> resolveWellKnownObjectType(Object obj) {
-    return findWellKnownObjectType(obj);
-  }
-
-  private static Optional<TypeType> findWellKnownObjectType(Object obj) {
     if (obj instanceof TypeType) {
       return Optional.of(RUNTIME_TYPE_TYPE);
     }
@@ -142,46 +138,6 @@ public class TypeResolver {
       return Optional.of(TypeType.create(ListType.create(SimpleType.DYN)));
     } else if (ImmutableMap.class.isAssignableFrom(currentClass)) {
       return Optional.of(TypeType.create(MapType.create(SimpleType.DYN, SimpleType.DYN)));
-    }
-
-    return Optional.empty();
-  }
-
-  /**
-   * Returns the CEL type name of the runtime value {@code obj}, such as {@code "int"}, {@code
-   * "list"} or {@code "null_type"}.
-   *
-   * <p>Falls back to the Java class name when CEL has no corresponding type (notably protobuf
-   * messages, which need a descriptor to resolve). User-facing errors should report this rather
-   * than the underlying Java class so that they stay consistent across the CEL runtimes.
-   */
-  public static String resolveTypeName(Object obj) {
-    checkNotNull(obj);
-    Optional<TypeType> resolvedType = findWellKnownObjectType(obj);
-    if (!resolvedType.isPresent()) {
-      resolvedType = resolveExtendableObjectType(obj.getClass());
-    }
-
-    return resolvedType.map(TypeType::containingTypeName).orElseGet(() -> obj.getClass().getName());
-  }
-
-  /** Resolves types that the client may have extended, walking superclasses and interfaces. */
-  private static Optional<TypeType> resolveExtendableObjectType(Class<?> clazz) {
-    Class<?> currentClass = clazz;
-    while (currentClass != null) {
-      TypeType runtimeType = EXTENDABLE_TYPES.get(currentClass);
-      if (runtimeType != null) {
-        return Optional.of(runtimeType);
-      }
-
-      // Check interfaces
-      for (Class<?> interfaceClass : currentClass.getInterfaces()) {
-        runtimeType = EXTENDABLE_TYPES.get(interfaceClass);
-        if (runtimeType != null) {
-          return Optional.of(runtimeType);
-        }
-      }
-      currentClass = currentClass.getSuperclass();
     }
 
     return Optional.empty();
@@ -207,10 +163,24 @@ public class TypeResolver {
       throw new UnsupportedOperationException("Not implemented yet");
     }
 
+    Class<?> currentClass = obj.getClass();
+    TypeType runtimeType;
+
     // Handle types that the client may have extended.
-    Optional<TypeType> extendableType = resolveExtendableObjectType(obj.getClass());
-    if (extendableType.isPresent()) {
-      return extendableType.get();
+    while (currentClass != null) {
+      runtimeType = EXTENDABLE_TYPES.get(currentClass);
+      if (runtimeType != null) {
+        return runtimeType;
+      }
+
+      // Check interfaces
+      for (Class<?> interfaceClass : currentClass.getInterfaces()) {
+        runtimeType = EXTENDABLE_TYPES.get(interfaceClass);
+        if (runtimeType != null) {
+          return runtimeType;
+        }
+      }
+      currentClass = currentClass.getSuperclass();
     }
 
     // This is an opaque type, or something CEL doesn't know about.

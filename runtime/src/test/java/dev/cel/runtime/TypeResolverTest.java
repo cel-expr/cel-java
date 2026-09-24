@@ -31,7 +31,6 @@ import dev.cel.common.types.TypeType;
 import dev.cel.common.values.CelValueConverter;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.LinkedHashMap;
 import java.util.Optional;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -62,24 +61,6 @@ public class TypeResolverTest {
     Optional<TypeType> resolvedType = TYPE_RESOLVER.resolveWellKnownObjectType(new Object());
 
     assertThat(resolvedType).isEmpty();
-  }
-
-  @Test
-  public void resolveTypeName_wellKnownObjectType(@TestParameter WellKnownObjectTestCase testCase) {
-    assertThat(TypeResolver.resolveTypeName(testCase.obj))
-        .isEqualTo(testCase.expectedTypeType.containingTypeName());
-  }
-
-  @Test
-  public void resolveTypeName_extendableObjectType() {
-    // LinkedHashMap is not in the exact-class table, so this exercises the interface walk. This is
-    // the concrete type that CEL map literals evaluate to.
-    assertThat(TypeResolver.resolveTypeName(new LinkedHashMap<>())).isEqualTo("map");
-  }
-
-  @Test
-  public void resolveTypeName_unknownObjectType_returnsJavaClassName() {
-    assertThat(TypeResolver.resolveTypeName(new Object())).isEqualTo("java.lang.Object");
   }
 
   @SuppressWarnings("ImmutableEnumChecker") // Test only
