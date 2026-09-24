@@ -14,7 +14,7 @@
 
 package dev.cel.runtime.planner;
 
-import static dev.cel.runtime.planner.EvalHelpers.evalNonstrictly;
+import static dev.cel.runtime.planner.EvalHelpers.evalBooleanNonstrictly;
 
 import com.google.common.base.Preconditions;
 import dev.cel.common.ast.CelExpr;
@@ -32,7 +32,7 @@ final class EvalOr extends PlannedInterpretable {
     ErrorValue errorValue = null;
     AccumulatedUnknowns unknowns = null;
     for (PlannedInterpretable arg : args) {
-      Object argVal = evalNonstrictly(arg, resolver, frame);
+      Object argVal = evalBooleanNonstrictly(arg, resolver, frame);
       if (argVal instanceof Boolean) {
         // Short-circuit on true
         if (((boolean) argVal)) {
@@ -45,12 +45,6 @@ final class EvalOr extends PlannedInterpretable {
         }
       } else if (argVal instanceof AccumulatedUnknowns) {
         unknowns = AccumulatedUnknowns.maybeMerge(unknowns, argVal);
-      } else {
-        errorValue =
-            ErrorValue.create(
-                arg.expr().id(),
-                new IllegalArgumentException(
-                    String.format("Expected boolean value, found: %s", argVal)));
       }
     }
 

@@ -191,8 +191,11 @@ public abstract class CelRuntimeImpl implements CelRuntime {
 
       @Override
       public ListenableFuture<Object> evalAsync(Message message) {
-        throw new UnsupportedOperationException(
-            "evalAsync is not supported by this Program implementation.");
+        checkNotNull(message, "message");
+        return program.evalAsync(
+            ProtoMessageActivationFactory.fromProto(message, program.options()),
+            CelFunctionResolver.EMPTY,
+            /* partialVars= */ null);
       }
 
       @Override
@@ -580,6 +583,7 @@ public abstract class CelRuntimeImpl implements CelRuntime {
               container(),
               options(),
               lateBoundFunctionNamesBuilder().build(),
+              runtimeEquality,
               asyncEvaluationOptions(),
               asyncExecutor().orElse(null));
       setPlanner(planner);
