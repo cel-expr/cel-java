@@ -14,7 +14,8 @@
 
 package dev.cel.runtime.planner;
 
-import com.google.common.base.Preconditions;
+import static com.google.common.base.Preconditions.checkNotNull;
+
 import com.google.errorprone.annotations.Immutable;
 import dev.cel.common.ast.CelExpr;
 import dev.cel.common.values.CelValueConverter;
@@ -22,12 +23,14 @@ import dev.cel.common.values.SelectableValue;
 import dev.cel.runtime.AccumulatedUnknowns;
 import dev.cel.runtime.GlobalResolver;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 
 @Immutable
 final class EvalOptionalSelectField extends PlannedInterpretable {
   private final PlannedInterpretable operand;
   private final PlannedInterpretable selectAttribute;
+  private final PlannedInterpretable presenceAttribute;
   private final String field;
   private final CelValueConverter celValueConverter;
 
@@ -43,14 +46,18 @@ final class EvalOptionalSelectField extends PlannedInterpretable {
       operandValue = opt.get();
     }
 
-    Object runtimeOperandValue = celValueConverter.toRuntimeValue(operandValue);
-    if (runtimeOperandValue instanceof AccumulatedUnknowns) {
-      return runtimeOperandValue;
-    }
-
+    // The operand arrives already adapted, so re-materializing it would re-scan every entry of a
+    // map for nothing. Traversing keeps that O(1); the selected value is materialized by the
+    // attribute below.
+    Object runtimeOperandValue = celValueConverter.toTraversalTarget(operandValue);
     boolean hasField = false;
-
-    if (runtimeOperandValue instanceof SelectableValue<?>) {
+    if (runtimeOperandValue instanceof AccumulatedUnknowns) {
+      Object hasFieldResult = EvalHelpers.evalStrictly(presenceAttribute, resolver, frame);
+      if (hasFieldResult instanceof AccumulatedUnknowns) {
+        return hasFieldResult;
+      }
+      hasField = Objects.equals(hasFieldResult, true);
+    } else if (runtimeOperandValue instanceof SelectableValue<?>) {
       // Guaranteed to be a string. Anything other than string is an error.
       @SuppressWarnings("unchecked")
       SelectableValue<String> selectableValue = (SelectableValue<String>) runtimeOperandValue;
@@ -80,8 +87,10 @@ final class EvalOptionalSelectField extends PlannedInterpretable {
       PlannedInterpretable operand,
       String field,
       PlannedInterpretable selectAttribute,
+      PlannedInterpretable presenceAttribute,
       CelValueConverter celValueConverter) {
-    return new EvalOptionalSelectField(expr, operand, field, selectAttribute, celValueConverter);
+    return new EvalOptionalSelectField(
+        expr, operand, field, selectAttribute, presenceAttribute, celValueConverter);
   }
 
   private EvalOptionalSelectField(
@@ -89,11 +98,13 @@ final class EvalOptionalSelectField extends PlannedInterpretable {
       PlannedInterpretable operand,
       String field,
       PlannedInterpretable selectAttribute,
+      PlannedInterpretable presenceAttribute,
       CelValueConverter celValueConverter) {
     super(expr);
-    this.operand = Preconditions.checkNotNull(operand);
-    this.field = Preconditions.checkNotNull(field);
-    this.selectAttribute = Preconditions.checkNotNull(selectAttribute);
-    this.celValueConverter = Preconditions.checkNotNull(celValueConverter);
+    this.operand = checkNotNull(operand);
+    this.field = checkNotNull(field);
+    this.selectAttribute = checkNotNull(selectAttribute);
+    this.presenceAttribute = checkNotNull(presenceAttribute);
+    this.celValueConverter = checkNotNull(celValueConverter);
   }
 }

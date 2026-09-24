@@ -137,38 +137,44 @@ public final class ProgramPlanner {
     CelSelect select = celExpr.select();
     PlannedInterpretable operand = plan(select.operand(), ctx);
 
-    InterpretableAttribute attribute;
-    if (operand instanceof EvalAttribute) {
-      attribute = (EvalAttribute) operand;
-    } else {
-      attribute = EvalAttribute.create(celExpr, attributeFactory.newRelativeAttribute(operand));
-    }
+    InterpretableAttribute attribute = EvalAttribute.create(celExpr, resolveBaseAttribute(operand));
 
     if (select.testOnly()) {
       attribute = EvalTestOnly.create(celExpr, attribute);
     }
 
-    Qualifier qualifier = StringQualifier.create(select.field());
+    Qualifier qualifier = StringQualifier.create(select.field(), celValueConverter);
 
     return attribute.addQualifier(celExpr, qualifier);
   }
 
+  private Attribute resolveBaseAttribute(PlannedInterpretable operand) {
+    if (operand instanceof EvalAttribute) {
+      return ((EvalAttribute) operand).attribute();
+    }
+    return attributeFactory.newRelativeAttribute(operand);
+  }
+
   private PlannedInterpretable planConstant(CelExpr expr, CelConstant celConstant) {
+    return EvalConstant.create(expr, resolveConstant(celConstant));
+  }
+
+  private static Object resolveConstant(CelConstant celConstant) {
     switch (celConstant.getKind()) {
       case NULL_VALUE:
-        return EvalConstant.create(expr, celConstant.nullValue());
+        return celConstant.nullValue();
       case BOOLEAN_VALUE:
-        return EvalConstant.create(expr, celConstant.booleanValue());
+        return celConstant.booleanValue();
       case INT64_VALUE:
-        return EvalConstant.create(expr, celConstant.int64Value());
+        return celConstant.int64Value();
       case UINT64_VALUE:
-        return EvalConstant.create(expr, celConstant.uint64Value());
+        return celConstant.uint64Value();
       case DOUBLE_VALUE:
-        return EvalConstant.create(expr, celConstant.doubleValue());
+        return celConstant.doubleValue();
       case STRING_VALUE:
-        return EvalConstant.create(expr, celConstant.stringValue());
+        return celConstant.stringValue();
       case BYTES_VALUE:
-        return EvalConstant.create(expr, celConstant.bytesValue());
+        return celConstant.bytesValue();
       default:
         throw new IllegalStateException("Unsupported kind: " + celConstant.getKind());
     }
@@ -411,19 +417,21 @@ public final class ProgramPlanner {
 
     if (functionName.equals(Operator.OPTIONAL_SELECT.getFunction())) {
       String field = expr.call().args().get(1).constant().stringValue();
-      InterpretableAttribute attribute;
-      if (evaluatedArgs[0] instanceof EvalAttribute) {
-        attribute = (EvalAttribute) evaluatedArgs[0];
-      } else {
-        attribute =
-            EvalAttribute.create(expr, attributeFactory.newRelativeAttribute(evaluatedArgs[0]));
-      }
-      Qualifier qualifier = StringQualifier.create(field);
+      InterpretableAttribute attribute =
+          EvalAttribute.create(expr, resolveBaseAttribute(evaluatedArgs[0]));
+      Qualifier qualifier = StringQualifier.create(field, celValueConverter);
       PlannedInterpretable selectAttribute = attribute.addQualifier(expr, qualifier);
+      PlannedInterpretable presenceAttribute =
+          EvalTestOnly.create(expr, attribute).addQualifier(expr, qualifier);
 
       return Optional.of(
           EvalOptionalSelectField.create(
-              expr, evaluatedArgs[0], field, selectAttribute, celValueConverter));
+              expr,
+              evaluatedArgs[0],
+              field,
+              selectAttribute,
+              presenceAttribute,
+              celValueConverter));
     }
 
     return Optional.empty();

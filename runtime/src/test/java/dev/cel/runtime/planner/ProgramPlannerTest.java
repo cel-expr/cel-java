@@ -42,6 +42,7 @@ import dev.cel.common.CelSource;
 import dev.cel.common.ast.CelConstant;
 import dev.cel.common.ast.CelExpr;
 import dev.cel.common.exceptions.CelDivideByZeroException;
+import dev.cel.common.exceptions.CelInvalidArgumentException;
 import dev.cel.common.internal.CelDescriptorPool;
 import dev.cel.common.internal.DefaultDescriptorPool;
 import dev.cel.common.internal.DefaultMessageFactory;
@@ -87,6 +88,9 @@ import dev.cel.runtime.Program;
 import dev.cel.runtime.RuntimeEquality;
 import dev.cel.runtime.RuntimeHelpers;
 import dev.cel.runtime.standard.TypeFunction;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Optional;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
@@ -1572,6 +1576,137 @@ public final class ProgramPlannerTest {
         .isEqualTo(CelUnknownSet.create(CelAttribute.create("custom_x")));
     assertThat(planner.plan(ast2).eval(vars))
         .isEqualTo(CelUnknownSet.create(CelAttribute.create("custom_msg")));
+  }
+
+  @Test
+  public void plan_select_javaMapScalarLeaf_normalizesIntegerToLong() throws Exception {
+    ImmutableMap<String, Object> vars = ImmutableMap.of("map_var", ImmutableMap.of("int_key", 42));
+    CelAbstractSyntaxTree ast = compile("map_var.int_key");
+
+    Object result = PLANNER.plan(ast).eval(vars);
+
+    assertThat(result).isInstanceOf(Long.class);
+    assertThat(result).isEqualTo(42L);
+  }
+
+  @Test
+  public void plan_select_javaMapLeaf_normalizesMapEntriesToLong() throws Exception {
+    ImmutableMap<String, Object> innerMap = ImmutableMap.of("int_key", 42);
+    ImmutableMap<String, Object> vars =
+        ImmutableMap.of("map_var", ImmutableMap.of("inner", innerMap));
+    CelAbstractSyntaxTree ast = compile("map_var.inner");
+
+    Object result = PLANNER.plan(ast).eval(vars);
+
+    assertThat(result).isEqualTo(ImmutableMap.of("int_key", 42L));
+  }
+
+  @Test
+  public void plan_ident_javaMapRoot_normalizesMapEntriesToLong() throws Exception {
+    ImmutableMap<String, Object> vars = ImmutableMap.of("map_var", ImmutableMap.of("int_key", 42));
+    CelAbstractSyntaxTree ast = compile("map_var");
+
+    Object result = PLANNER.plan(ast).eval(vars);
+
+    assertThat(result).isEqualTo(ImmutableMap.of("int_key", 42L));
+  }
+
+  @Test
+  public void plan_presenceTest_javaMapWithAbsentKey_returnsFalse() throws Exception {
+    Program program = PLANNER.plan(compile("has(map_var.absent_key)"));
+
+    Object result = program.eval(ImmutableMap.of("map_var", ImmutableMap.of("present", "value")));
+
+    assertThat(result).isEqualTo(false);
+  }
+
+  @Test
+  public void plan_presenceTest_javaMapWithNullValue_throwsCelInvalidArgumentException()
+      throws Exception {
+    Map<String, Object> mapWithNull = new HashMap<>();
+    mapWithNull.put("null_leaf", null);
+    Program program = PLANNER.plan(compile("has(map_var.null_leaf)"));
+    ImmutableMap<String, Object> input = ImmutableMap.of("map_var", mapWithNull);
+
+    CelEvaluationException e =
+        assertThrows(CelEvaluationException.class, () -> program.eval(input));
+
+    assertThat(e).hasCauseThat().isInstanceOf(CelInvalidArgumentException.class);
+    assertThat(e).hasMessageThat().contains("Map value cannot be null for key: null_leaf");
+  }
+
+  @Test
+  public void plan_optionalSelect_javaMapWithNullValue_throwsCelInvalidArgumentException()
+      throws Exception {
+    // End-to-end behavior only: the operand attribute is materialized before the optional select
+    // inspects it, so the illegal entry is rejected during adaptation rather than by the presence
+    // test itself.
+    Map<String, Object> mapWithNull = new HashMap<>();
+    mapWithNull.put("null_leaf", null);
+    Program program = PLANNER.plan(compile("map_var.?null_leaf"));
+    ImmutableMap<String, Object> input = ImmutableMap.of("map_var", mapWithNull);
+
+    CelEvaluationException e =
+        assertThrows(CelEvaluationException.class, () -> program.eval(input));
+
+    assertThat(e).hasCauseThat().isInstanceOf(CelInvalidArgumentException.class);
+    assertThat(e).hasMessageThat().contains("Map value cannot be null for key: null_leaf");
+  }
+
+  @Test
+  public void plan_optionalSelect_javaMapWithAbsentKey_returnsEmpty() throws Exception {
+    // The operand attribute is materialized rather than traversed, so this map must be free of
+    // illegal entries for the absent-key path to be reachable at all.
+    Program program = PLANNER.plan(compile("map_var.?absent_key"));
+
+    Object result = program.eval(ImmutableMap.of("map_var", ImmutableMap.of("present", "value")));
+
+    assertThat(result).isEqualTo(Optional.empty());
+  }
+
+  @Test
+  public void plan_optionalSelect_withPartialVarsSiblingUnknown_populatedField_returnsValue()
+      throws Exception {
+    Program program = PLANNER.plan(compile("msg.?single_int32"));
+    TestAllTypes msg = TestAllTypes.newBuilder().setSingleInt32(42).build();
+    PartialVars partialVars =
+        PartialVars.of(
+            ImmutableMap.of("msg", msg),
+            CelAttributePattern.fromQualifiedIdentifier("msg.single_string"));
+
+    Object result = program.eval(partialVars);
+
+    assertThat(result).isEqualTo(Optional.of(42L));
+  }
+
+  @Test
+  public void plan_optionalSelect_withPartialVarsSiblingUnknown_unsetField_returnsEmpty()
+      throws Exception {
+    Program program = PLANNER.plan(compile("msg.?single_int32"));
+    PartialVars partialVars =
+        PartialVars.of(
+            ImmutableMap.of("msg", TestAllTypes.getDefaultInstance()),
+            CelAttributePattern.fromQualifiedIdentifier("msg.single_string"));
+
+    Object result = program.eval(partialVars);
+
+    assertThat(result).isEqualTo(Optional.empty());
+  }
+
+  @Test
+  public void plan_optionalSelect_withPartialVarsTargetUnknown_returnsUnknown() throws Exception {
+    Program program = PLANNER.plan(compile("msg.?single_int32"));
+    TestAllTypes msg = TestAllTypes.newBuilder().setSingleInt32(42).build();
+    PartialVars partialVars =
+        PartialVars.of(
+            ImmutableMap.of("msg", msg),
+            CelAttributePattern.fromQualifiedIdentifier("msg.single_int32"));
+
+    Object result = program.eval(partialVars);
+
+    assertThat(result).isInstanceOf(CelUnknownSet.class);
+    assertThat(((CelUnknownSet) result).attributes())
+        .containsExactly(CelAttribute.fromQualifiedIdentifier("msg.single_int32"));
   }
 
   private CelAbstractSyntaxTree compile(String expression) throws Exception {
