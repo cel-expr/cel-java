@@ -54,27 +54,6 @@ final class EvalFold extends PlannedInterpretable {
         expr, accuVar, accuInit, iterVar, iterVar2, iterRange, loopCondition, loopStep, result);
   }
 
-  private EvalFold(
-      CelExpr expr,
-      String accuVar,
-      PlannedInterpretable accuInit,
-      String iterVar,
-      String iterVar2,
-      PlannedInterpretable iterRange,
-      PlannedInterpretable condition,
-      PlannedInterpretable loopStep,
-      PlannedInterpretable result) {
-    super(expr);
-    this.accuVar = accuVar;
-    this.accuInit = accuInit;
-    this.iterVar = iterVar;
-    this.iterVar2 = iterVar2;
-    this.iterRange = iterRange;
-    this.condition = condition;
-    this.loopStep = loopStep;
-    this.result = result;
-  }
-
   @Override
   Object evalInternal(GlobalResolver resolver, ExecutionFrame frame) throws CelEvaluationException {
     Object iterRangeRaw = iterRange.eval(resolver, frame);
@@ -107,7 +86,7 @@ final class EvalFold extends PlannedInterpretable {
 
       Object condResult = condition.eval(folder, frame);
       if (condResult instanceof AccumulatedUnknowns) {
-        return condResult;
+        return mergeAccumulator(folder.accuVal, condResult);
       }
       if (!(condResult instanceof Boolean)) {
         throw new IllegalArgumentException(
@@ -119,7 +98,8 @@ final class EvalFold extends PlannedInterpretable {
         return result.eval(folder, frame);
       }
 
-      folder.accuVal = loopStep.eval(folder, frame);
+      Object stepResult = loopStep.eval(folder, frame);
+      folder.accuVal = mergeAccumulator(folder.accuVal, stepResult);
       folder.initialized = true;
     }
     folder.computeResult = true;
@@ -141,7 +121,7 @@ final class EvalFold extends PlannedInterpretable {
 
       Object condResult = condition.eval(folder, frame);
       if (condResult instanceof AccumulatedUnknowns) {
-        return condResult;
+        return mergeAccumulator(folder.accuVal, condResult);
       }
       if (!(condResult instanceof Boolean)) {
         throw new IllegalArgumentException(
@@ -150,15 +130,23 @@ final class EvalFold extends PlannedInterpretable {
       boolean cond = (boolean) condResult;
       if (!cond) {
         folder.computeResult = true;
-        return maybeUnwrapAccumulator(result.eval(folder, frame));
+        return result.eval(folder, frame);
       }
 
-      folder.accuVal = loopStep.eval(folder, frame);
+      Object stepResult = loopStep.eval(folder, frame);
+      folder.accuVal = mergeAccumulator(folder.accuVal, stepResult);
       folder.initialized = true;
       index++;
     }
     folder.computeResult = true;
-    return maybeUnwrapAccumulator(result.eval(folder, frame));
+    return result.eval(folder, frame);
+  }
+
+  private static Object mergeAccumulator(@Nullable Object currentAccu, Object newVal) {
+    if (newVal instanceof AccumulatedUnknowns && currentAccu instanceof AccumulatedUnknowns) {
+      return ((AccumulatedUnknowns) currentAccu).merge((AccumulatedUnknowns) newVal);
+    }
+    return newVal;
   }
 
   private static Object maybeWrapAccumulator(Object val) {
@@ -181,7 +169,28 @@ final class EvalFold extends PlannedInterpretable {
     return val;
   }
 
-  private static class Folder implements ActivationWrapper {
+  private EvalFold(
+      CelExpr expr,
+      String accuVar,
+      PlannedInterpretable accuInit,
+      String iterVar,
+      String iterVar2,
+      PlannedInterpretable iterRange,
+      PlannedInterpretable condition,
+      PlannedInterpretable loopStep,
+      PlannedInterpretable result) {
+    super(expr);
+    this.accuVar = accuVar;
+    this.accuInit = accuInit;
+    this.iterVar = iterVar;
+    this.iterVar2 = iterVar2;
+    this.iterRange = iterRange;
+    this.condition = condition;
+    this.loopStep = loopStep;
+    this.result = result;
+  }
+
+  private static final class Folder implements ActivationWrapper {
     private final GlobalResolver resolver;
     private final ExecutionFrame frame;
     private final PlannedInterpretable accuInit;
@@ -189,26 +198,11 @@ final class EvalFold extends PlannedInterpretable {
     private final String iterVar;
     private final String iterVar2;
 
-    private Object iterVarVal;
-    private Object iterVar2Val;
-    private Object accuVal;
+    private @Nullable Object iterVarVal;
+    private @Nullable Object iterVar2Val;
+    private @Nullable Object accuVal;
     private boolean initialized = false;
     private boolean computeResult = false;
-
-    private Folder(
-        GlobalResolver resolver,
-        ExecutionFrame frame,
-        PlannedInterpretable accuInit,
-        String accuVar,
-        String iterVar,
-        String iterVar2) {
-      this.resolver = resolver;
-      this.frame = frame;
-      this.accuInit = accuInit;
-      this.accuVar = accuVar;
-      this.iterVar = iterVar;
-      this.iterVar2 = iterVar2;
-    }
 
     @Override
     public GlobalResolver unwrap() {
@@ -246,9 +240,24 @@ final class EvalFold extends PlannedInterpretable {
 
       return resolver.resolve(name);
     }
+
+    private Folder(
+        GlobalResolver resolver,
+        ExecutionFrame frame,
+        PlannedInterpretable accuInit,
+        String accuVar,
+        String iterVar,
+        String iterVar2) {
+      this.resolver = resolver;
+      this.frame = frame;
+      this.accuInit = accuInit;
+      this.accuVar = accuVar;
+      this.iterVar = iterVar;
+      this.iterVar2 = iterVar2;
+    }
   }
 
-  private static class LazyEvaluationRuntimeException extends CelRuntimeException {
+  private static final class LazyEvaluationRuntimeException extends CelRuntimeException {
     private LazyEvaluationRuntimeException(CelEvaluationException cause) {
       super(cause, cause.getErrorCode());
     }

@@ -43,8 +43,7 @@ final class EvalIndex extends PlannedInterpretable {
         isStrict ? evalStrictly(index, resolver, frame) : evalNonstrictly(index, resolver, frame);
 
     if (isStrict) {
-      AccumulatedUnknowns unknowns = AccumulatedUnknowns.maybeMerge(null, targetVal);
-      unknowns = AccumulatedUnknowns.maybeMerge(unknowns, indexVal);
+      AccumulatedUnknowns unknowns = AccumulatedUnknowns.maybeMerge(targetVal, indexVal);
       if (unknowns != null) {
         return unknowns;
       }

@@ -40,8 +40,7 @@ final class EvalBinary extends PlannedInterpretable {
     Object argVal2 =
         isStrict ? evalStrictly(arg2, resolver, frame) : evalNonstrictly(arg2, resolver, frame);
     if (isStrict) {
-      AccumulatedUnknowns unknowns = AccumulatedUnknowns.maybeMerge(null, argVal1);
-      unknowns = AccumulatedUnknowns.maybeMerge(unknowns, argVal2);
+      AccumulatedUnknowns unknowns = AccumulatedUnknowns.maybeMerge(argVal1, argVal2);
       if (unknowns != null) {
         return unknowns;
       }

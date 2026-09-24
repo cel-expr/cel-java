@@ -36,7 +36,7 @@ public abstract class ErrorValue extends CelValue {
   public abstract long exprId();
 
   @Override
-  public abstract Exception value();
+  public abstract RuntimeException value();
 
   @Override
   public boolean isZeroValue() {
@@ -48,7 +48,9 @@ public abstract class ErrorValue extends CelValue {
     return SimpleType.ERROR;
   }
 
-  public static ErrorValue create(long exprId, Exception value) {
+  public static ErrorValue create(long exprId, RuntimeException value) {
     return new AutoValue_ErrorValue(exprId, value);
   }
+
+  ErrorValue() {}
 }

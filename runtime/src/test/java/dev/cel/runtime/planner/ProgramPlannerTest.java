@@ -127,6 +127,7 @@ public final class ProgramPlannerTest {
           CEL_CONTAINER,
           CEL_OPTIONS,
           ImmutableSet.of("late_bound_func"),
+          RUNTIME_EQUALITY,
           CelAsyncEvaluationOptions.defaultOptions(),
           /* asyncExecutor= */ null);
 
@@ -328,6 +329,7 @@ public final class ProgramPlannerTest {
             container,
             CEL_OPTIONS,
             ImmutableSet.of(),
+            RUNTIME_EQUALITY,
             CelAsyncEvaluationOptions.defaultOptions(),
             /* asyncExecutor= */ null);
 
@@ -1033,6 +1035,7 @@ public final class ProgramPlannerTest {
             CEL_CONTAINER,
             options,
             ImmutableSet.of(),
+            RuntimeEquality.create(RuntimeHelpers.create(), options),
             CelAsyncEvaluationOptions.defaultOptions(),
             /* asyncExecutor= */ null);
     CelAbstractSyntaxTree ast = compile(expression);
@@ -1056,6 +1059,7 @@ public final class ProgramPlannerTest {
             CEL_CONTAINER,
             options,
             /* lateBoundFunctionNames= */ ImmutableSet.of(),
+            RuntimeEquality.create(RuntimeHelpers.create(), options),
             CelAsyncEvaluationOptions.defaultOptions(),
             /* asyncExecutor= */ null);
     CelAbstractSyntaxTree ast = compile("[1, 2, 3].map(x, [1, 2].map(y, x + y))");
@@ -1216,6 +1220,34 @@ public final class ProgramPlannerTest {
   }
 
   @Test
+  public void plan_foldFilter_withInterleavedUnknownAndConcreteElements_accumulatesAllUnknowns(
+      @TestParameter({
+            "[unk1, 1, -1, unk2].filter(x, x > 0)",
+            "{'a': unk1, 'b': 1, 'c': -1, 'd': unk2}.filter(k, {'a': unk1, 'b': 1, 'c': -1, 'd':"
+                + " unk2}[k] > 0)"
+          })
+          String expr)
+      throws Exception {
+    CelCompiler compiler =
+        CelCompilerFactory.standardCelCompilerBuilder()
+            .setStandardMacros(CelStandardMacro.STANDARD_MACROS)
+            .addVar("unk1", SimpleType.INT)
+            .addVar("unk2", SimpleType.INT)
+            .build();
+    CelAbstractSyntaxTree ast = compile(compiler, expr);
+    Program program = PLANNER.plan(ast);
+
+    CelUnknownSet result =
+        (CelUnknownSet)
+            program.eval(
+                PartialVars.of(
+                    CelAttributePattern.create("unk1"), CelAttributePattern.create("unk2")));
+
+    assertThat(result.attributes())
+        .containsExactly(CelAttribute.create("unk1"), CelAttribute.create("unk2"));
+  }
+
+  @Test
   public void newPlanner_withAsyncOptionsAndExecutor_plansSuccessfully() throws Exception {
     ListeningExecutorService executor = newDirectExecutorService();
     try {
@@ -1230,6 +1262,7 @@ public final class ProgramPlannerTest {
               CEL_CONTAINER,
               CEL_OPTIONS,
               ImmutableSet.of(),
+              RUNTIME_EQUALITY,
               asyncOptions,
               executor);
       CelAbstractSyntaxTree ast = compile("1 + 2");
@@ -1245,8 +1278,10 @@ public final class ProgramPlannerTest {
   }
 
   @Test
-  public void newPlanner_nullAsyncOptions_throwsNullPointerException() {
+  public void newPlanner_nullRuntimeEquality_throwsNullPointerException() {
     DefaultDispatcher dispatcher = newDispatcher();
+    ImmutableSet<String> customOverloads = ImmutableSet.of();
+    CelAsyncEvaluationOptions asyncOptions = CelAsyncEvaluationOptions.defaultOptions();
 
     assertThrows(
         NullPointerException.class,
@@ -1258,7 +1293,29 @@ public final class ProgramPlannerTest {
                 CEL_VALUE_CONVERTER,
                 CEL_CONTAINER,
                 CEL_OPTIONS,
-                ImmutableSet.of(),
+                customOverloads,
+                /* runtimeEquality= */ null,
+                asyncOptions,
+                /* asyncExecutor= */ null));
+  }
+
+  @Test
+  public void newPlanner_nullAsyncOptions_throwsNullPointerException() {
+    DefaultDispatcher dispatcher = newDispatcher();
+    ImmutableSet<String> customOverloads = ImmutableSet.of();
+
+    assertThrows(
+        NullPointerException.class,
+        () ->
+            ProgramPlanner.newPlanner(
+                TYPE_PROVIDER,
+                VALUE_PROVIDER,
+                dispatcher,
+                CEL_VALUE_CONVERTER,
+                CEL_CONTAINER,
+                CEL_OPTIONS,
+                customOverloads,
+                RUNTIME_EQUALITY,
                 /* asyncOptions= */ null,
                 /* asyncExecutor= */ null));
   }
@@ -1288,6 +1345,7 @@ public final class ProgramPlannerTest {
             CEL_CONTAINER,
             CEL_OPTIONS,
             ImmutableSet.of(),
+            RUNTIME_EQUALITY,
             CelAsyncEvaluationOptions.defaultOptions(),
             /* asyncExecutor= */ null);
     Program program = planner.plan(ast);
@@ -1362,6 +1420,7 @@ public final class ProgramPlannerTest {
             CelContainer.ofName("cel.example"),
             CEL_OPTIONS,
             /* lateBoundFunctionNames= */ ImmutableSet.of(),
+            RUNTIME_EQUALITY,
             CelAsyncEvaluationOptions.defaultOptions(),
             /* asyncExecutor= */ null);
     CelAbstractSyntaxTree ast = compile(celCompiler, "[{'z': 0}].exists(y, y.z == 0)");
@@ -1389,6 +1448,7 @@ public final class ProgramPlannerTest {
             CelContainer.ofName("y"),
             CEL_OPTIONS,
             /* lateBoundFunctionNames= */ ImmutableSet.of(),
+            RUNTIME_EQUALITY,
             CelAsyncEvaluationOptions.defaultOptions(),
             /* asyncExecutor= */ null);
     CelAbstractSyntaxTree ast = compile(celCompiler, "[{'z': 0}].exists(y, y.z == 0 && .y.z == 1)");
@@ -1415,6 +1475,7 @@ public final class ProgramPlannerTest {
             CelContainer.newBuilder().build(),
             CEL_OPTIONS,
             /* lateBoundFunctionNames= */ ImmutableSet.of(),
+            RUNTIME_EQUALITY,
             CelAsyncEvaluationOptions.defaultOptions(),
             /* asyncExecutor= */ null);
     CelAbstractSyntaxTree ast = compile(celCompiler, "[0].exists(x, x == 0 && .x == 1)");
@@ -1441,6 +1502,7 @@ public final class ProgramPlannerTest {
             CelContainer.newBuilder().build(),
             CEL_OPTIONS,
             /* lateBoundFunctionNames= */ ImmutableSet.of(),
+            RUNTIME_EQUALITY,
             CelAsyncEvaluationOptions.defaultOptions(),
             /* asyncExecutor= */ null);
     CelAbstractSyntaxTree ast = compile(celCompiler, "[0].exists(x, [x+1].exists(x, x == .x))");
@@ -1483,6 +1545,7 @@ public final class ProgramPlannerTest {
             CEL_CONTAINER,
             CEL_OPTIONS,
             ImmutableSet.of(),
+            RUNTIME_EQUALITY,
             CelAsyncEvaluationOptions.defaultOptions(),
             /* asyncExecutor= */ null);
 
@@ -1525,6 +1588,7 @@ public final class ProgramPlannerTest {
             CEL_CONTAINER,
             CEL_OPTIONS,
             ImmutableSet.of(),
+            RUNTIME_EQUALITY,
             CelAsyncEvaluationOptions.defaultOptions(),
             /* asyncExecutor= */ null);
 
@@ -1560,6 +1624,7 @@ public final class ProgramPlannerTest {
             CEL_CONTAINER,
             CEL_OPTIONS,
             ImmutableSet.of(),
+            RUNTIME_EQUALITY,
             CelAsyncEvaluationOptions.defaultOptions(),
             /* asyncExecutor= */ null);
 
@@ -1687,5 +1752,184 @@ public final class ProgramPlannerTest {
       this.inputParam = inputParam;
       this.expected = expected;
     }
+  }
+
+  @Test
+  public void plan_exhaustiveLogicalOr_shortCircuitDominatesError(
+      @TestParameter({"true || (1 / 0 == 0)", "(1 / 0 == 0) || true"}) String expression)
+      throws Exception {
+    CelAbstractSyntaxTree ast = CEL_COMPILER.compile(expression).getAst();
+    ProgramPlanner planner =
+        newPlannerWithOptions(
+            CelOptions.current()
+                .enableHeterogeneousNumericComparisons(true)
+                .enableShortCircuiting(false)
+                .build());
+    Program program = planner.plan(ast);
+
+    Object result = program.eval();
+
+    assertThat(result).isEqualTo(true);
+  }
+
+  @Test
+  public void plan_exhaustiveLogicalAnd_shortCircuitDominatesError(
+      @TestParameter({"false && (1 / 0 == 0)", "(1 / 0 == 0) && false"}) String expression)
+      throws Exception {
+    CelAbstractSyntaxTree ast = CEL_COMPILER.compile(expression).getAst();
+    ProgramPlanner planner =
+        newPlannerWithOptions(
+            CelOptions.current()
+                .enableHeterogeneousNumericComparisons(true)
+                .enableShortCircuiting(false)
+                .build());
+    Program program = planner.plan(ast);
+
+    Object result = program.eval();
+
+    assertThat(result).isEqualTo(false);
+  }
+
+  @Test
+  public void plan_exhaustiveConditional_nonStrictConditionError() throws Exception {
+    CelAbstractSyntaxTree ast = CEL_COMPILER.compile("(1 / 0 == 0) ? 'a' : 'b'").getAst();
+    ProgramPlanner planner =
+        newPlannerWithOptions(CelOptions.current().enableShortCircuiting(false).build());
+    Program program = planner.plan(ast);
+
+    CelEvaluationException e = assertThrows(CelEvaluationException.class, program::eval);
+
+    assertThat(e.getErrorCode()).isEqualTo(CelErrorCode.DIVIDE_BY_ZERO);
+  }
+
+  @Test
+  public void plan_exhaustiveLogicalOps_invalidNonBooleanTypeThrows(
+      @TestParameter({"true && x", "x && true", "false || x", "x || false"}) String expression)
+      throws Exception {
+    CelCompiler compiler =
+        CelCompilerFactory.standardCelCompilerBuilder().addVar("x", SimpleType.DYN).build();
+    CelAbstractSyntaxTree ast = compiler.compile(expression).getAst();
+    ProgramPlanner planner =
+        newPlannerWithOptions(CelOptions.current().enableShortCircuiting(false).build());
+    Program program = planner.plan(ast);
+
+    CelEvaluationException e =
+        assertThrows(CelEvaluationException.class, () -> program.eval(ImmutableMap.of("x", 1L)));
+
+    assertThat(e.getErrorCode()).isEqualTo(CelErrorCode.INTERNAL_ERROR);
+    assertThat(e).hasCauseThat().isInstanceOf(IllegalArgumentException.class);
+    assertThat(e).hasCauseThat().hasMessageThat().contains("Expected boolean value, found: 1");
+  }
+
+  @Test
+  public void plan_exhaustiveLogicalOr_shortCircuitValueDominatesInvalidNonBooleanType(
+      @TestParameter({"true || x", "x || true"}) String expression) throws Exception {
+    CelCompiler compiler =
+        CelCompilerFactory.standardCelCompilerBuilder().addVar("x", SimpleType.DYN).build();
+    CelAbstractSyntaxTree ast = compiler.compile(expression).getAst();
+    ProgramPlanner planner =
+        newPlannerWithOptions(CelOptions.current().enableShortCircuiting(false).build());
+    Program program = planner.plan(ast);
+
+    Object result = program.eval(ImmutableMap.of("x", 1L));
+
+    assertThat(result).isEqualTo(true);
+  }
+
+  @Test
+  public void plan_exhaustiveLogicalAnd_shortCircuitValueDominatesInvalidNonBooleanType(
+      @TestParameter({"false && x", "x && false"}) String expression) throws Exception {
+    CelCompiler compiler =
+        CelCompilerFactory.standardCelCompilerBuilder().addVar("x", SimpleType.DYN).build();
+    CelAbstractSyntaxTree ast = compiler.compile(expression).getAst();
+    ProgramPlanner planner =
+        newPlannerWithOptions(CelOptions.current().enableShortCircuiting(false).build());
+    Program program = planner.plan(ast);
+
+    Object result = program.eval(ImmutableMap.of("x", 1L));
+
+    assertThat(result).isEqualTo(false);
+  }
+
+  @Test
+  public void plan_conditional_unwrapsErrorValue() throws Exception {
+    CelAbstractSyntaxTree ast = CEL_COMPILER.compile("(1 / 0 == 0) ? 'a' : 'b'").getAst();
+    Program program = PLANNER.plan(ast);
+
+    CelEvaluationException e = assertThrows(CelEvaluationException.class, program::eval);
+
+    assertThat(e.getErrorCode()).isEqualTo(CelErrorCode.DIVIDE_BY_ZERO);
+  }
+
+  @Test
+  @SuppressWarnings("Immutable") // Test only
+  public void plan_functionThrowsWithCause_unwrapsOriginalCause() throws Exception {
+    IllegalArgumentException rootCause = new IllegalArgumentException("nested root cause");
+    CelCompiler compiler =
+        CelCompilerFactory.standardCelCompilerBuilder()
+            .addFunctionDeclarations(
+                newFunctionDeclaration(
+                    "throw", newGlobalOverload("throw_int", SimpleType.INT, SimpleType.INT)))
+            .build();
+    DefaultDispatcher.Builder builder = DefaultDispatcher.newBuilder();
+    addBindingsToDispatcher(
+        builder,
+        CelFunctionBinding.fromOverloads(
+            "throw",
+            CelFunctionBinding.from(
+                "throw_int",
+                Long.class,
+                (Long arg) -> {
+                  throw new RuntimeException("outer wrapper", rootCause);
+                })));
+    ProgramPlanner planner =
+        ProgramPlanner.newPlanner(
+            TYPE_PROVIDER,
+            VALUE_PROVIDER,
+            builder.build(),
+            CEL_VALUE_CONVERTER,
+            CEL_CONTAINER,
+            CEL_OPTIONS,
+            ImmutableSet.of(),
+            RUNTIME_EQUALITY,
+            CelAsyncEvaluationOptions.defaultOptions(),
+            /* asyncExecutor= */ null);
+    Program program = planner.plan(compiler.compile("throw(1)").getAst());
+
+    CelEvaluationException e = assertThrows(CelEvaluationException.class, program::eval);
+
+    assertThat(e).hasCauseThat().hasCauseThat().isSameInstanceAs(rootCause);
+  }
+
+  @Test
+  public void plan_exhaustiveConditional_untakenBranchError_evaluatesSuccessfully(
+      @TestParameter({"true ? 42 : (1 / 0)", "false ? (1 / 0) : 42"}) String expression)
+      throws Exception {
+    CelAbstractSyntaxTree ast = CEL_COMPILER.compile(expression).getAst();
+    ProgramPlanner planner =
+        newPlannerWithOptions(
+            CelOptions.current()
+                .enableHeterogeneousNumericComparisons(true)
+                .enableShortCircuiting(false)
+                .build());
+    Program program = planner.plan(ast);
+
+    Object result = program.eval();
+
+    assertThat(result).isEqualTo(42L);
+  }
+
+  private static ProgramPlanner newPlannerWithOptions(CelOptions options) {
+    return ProgramPlanner.newPlanner(
+        TYPE_PROVIDER,
+        VALUE_PROVIDER,
+        newDispatcher(),
+        CEL_VALUE_CONVERTER,
+        CEL_CONTAINER,
+        options,
+        ImmutableSet.of("late_bound_func"),
+        RuntimeEquality.create(RuntimeHelpers.create(), options),
+        CelAsyncEvaluationOptions.defaultOptions(),
+        /* asyncExecutor= */ null);
   }
 }
