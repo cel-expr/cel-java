@@ -56,7 +56,7 @@ final class TypeFormatter {
    * is useful for computing overload signatures.
    *
    * <p>When {@code typeParamToDyn} is {@code true}, parameterized type argument are represented as
-   * {@code Types.DYN} values.
+   * {@code SimpleType.DYN} values.
    */
   static String formatFunction(
       @Nullable CelType resultType,
