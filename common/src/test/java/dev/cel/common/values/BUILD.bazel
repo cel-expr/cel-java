@@ -22,6 +22,7 @@ java_library(
         "//common/internal:default_message_factory",
         "//common/internal:dynamic_proto",
         "//common/internal:proto_message_factory",
+        "//common/internal:proto_time_utils",
         "//common/types",
         "//common/types:type_providers",
         "//common/values",
