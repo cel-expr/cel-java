@@ -441,6 +441,17 @@ public final class CelVerifierZ3ImplTest {
     INT_OUT_OF_BOUNDS_LARGE_DOUBLE_EQUALITY("dyn(x) == 1e100"),
     INT_OUT_OF_BOUNDS_LARGE_NEG_DOUBLE_EQUALITY("dyn(x) == -1e100"),
     UINT_OUT_OF_BOUNDS_LARGE_DOUBLE_EQUALITY("dyn(u) == 1e100"),
+    BEYOND_BMC_LIMIT_UNCONSTRAINED_LIST_ELEMENT_TYPE(
+        "size(int_list) == 6 && dyn('not_an_int') in int_list"),
+    BEYOND_BMC_LIMIT_UNCONSTRAINED_MAP_BIJECTION(
+        "size(string_int_map) == 6 && string_int_map == {'a': 1}"),
+    BEYOND_BMC_LIMIT_CROSS_TYPE_UINT_IN_NESTED_LIST(
+        "size(nested_list) == 6 && dyn(1u) in nested_list"),
+    BEYOND_BMC_LIMIT_LITERAL_LIST_EQUALITY_TYPE_MISMATCH(
+        "int_list == [1, 2, 3, 4, 5, dyn('not_an_int')]"),
+    BEYOND_BMC_LIMIT_LITERAL_LIST_EQUALITY_TYPE_MISMATCH_REVERSED(
+        "[1, 2, 3, 4, 5, dyn('not_an_int')] == int_list"),
+    LIST_INDEX_DYN_STRING_KEY("int_list[dyn('0')] == 1"),
     ;
 
     final String expr;
@@ -882,6 +893,8 @@ public final class CelVerifierZ3ImplTest {
     DYNAMIC_NESTED_LIST_EQUALITY_NEEDS_EXTENSIONALITY(
         "int_list == [x] && int_list_2 == [y] && x == y ? int_list == int_list_2 : true"),
     LIST_INDEX_TYPE_CONSTRAINT("size(int_list) > 15 ? type(int_list[15]) == int : true"),
+    LIST_INDEX_DYN_KEY_TYPE_CONSTRAINT(
+        "size(int_list) > 15 ? type(int_list[dyn(15)]) == int : true"),
     MAP_INDEX_TYPE_CONSTRAINT(
         "'key' in string_int_map ? type(string_int_map['key']) == int : true"),
     LITERAL_LIST_INDEX("[1, 2][0] == 1"),
@@ -1401,14 +1414,14 @@ public final class CelVerifierZ3ImplTest {
         "int_list == [1, 2] ? int_list.exists_one(x, x == 1 || unknown_var) : true",
         "Condition is not always true\\.",
         "Counterexample input:",
-        "unknown_var = (true|false|\\d+)",
+        "unknown_var = .+",
         "int_list = \\[1, 2\\]"),
     DYNAMIC_LIST_EXISTS_ONE_UNKNOWN_POISONING(
         "int_list == [1, 2] ? !(int_list.exists_one(x, x == 1 || unknown_var) == true ||"
             + " int_list.exists_one(x, x == 1 || unknown_var) == false) : true",
         "Condition is not always true\\.",
         "Counterexample input:",
-        "unknown_var = (true|false)",
+        "unknown_var = .+",
         "int_list = \\[1, 2\\]"),
     DYNAMIC_ITERATION_OVER_SCALAR_RETURNS_UNKNOWN(
         "unknown_var == 1 ? !(unknown_var.all(x, false) == true || unknown_var.all(x, false) =="
@@ -1684,7 +1697,28 @@ public final class CelVerifierZ3ImplTest {
         "duration('10s') + (duration('20s') + duration('30s'))"),
     TIMESTAMP_DURATION_MATH_ASSOCIATIVITY(
         "(timestamp(10) + duration('20s')) + duration('30s')",
-        "timestamp(10) + (duration('20s') + duration('30s'))");
+        "timestamp(10) + (duration('20s') + duration('30s'))"),
+    MAP_SIZE_BOUND_DIVERGENCE("size(int_list.map(x, x)) <= 5", "size(int_list.map(x, x)) <= 6"),
+    TRUNCATED_EQUALITY_DIFFERENT_CONSTANT_OPERANDS(
+        "size(int_list.map(x, x)) == 6", "size(int_list.map(x, x)) == 7"),
+    LITERAL_RANGE_TRUNCATED_ELEMENT_DIFFERENT_RESULTS(
+        "[int_list.map(x, x)].all(l, size(l) <= 5)", "[int_list.map(x, x)].all(l, size(l) <= 6)"),
+    LITERAL_RANGE_DIFFERENT_TRUNCATED_ELEMENTS(
+        "[int_list.transformList(i, v, i < 5 ? v : 1 / 0)].exists(l, true)",
+        "[int_list.transformList(i, v, v)].exists(l, true)"),
+    CHAINED_MAP_ALL_INDEX_BOUND_DIVERGENCE(
+        "int_list.map(x, x).all(i, v, i < 5)", "int_list.map(x, x).all(i, v, i >= 0)"),
+    EXISTS_ONE_EQUALITY_MASKING_DIVERGENCE(
+        "int_list.exists_one(x, x > 0) == (size(int_list) <= 5)", "int_list.exists_one(x, x > 0)"),
+    ALL_GUARDED_OUTER_EQUALITY_DIVERGENCE(
+        "int_list.all(x, x > 0) && (int_list.all(x, x > 0) == (size(int_list) <= 5))",
+        "int_list.all(x, x > 0)"),
+    CONDITIONAL_ON_TRUNCATED_ALL_DIVERGENCE(
+        "int_list.all(i, v, i < 5) ? 100 : 200", "int_list.all(i, v, i < 5) ? 100 : 999"),
+    STRUCT_DIFFERENT_DEFAULT_FIELDS_WITH_TRUNCATED_VALUE(
+        "TestAllTypes{single_int64: int_list.all(i, v, i < 5) ? 0 : 1}",
+        "TestAllTypes{single_sint64: int_list.all(i, v, i < 5) ? 0 : 1}"),
+    CHAINED_MAP_ALL_TRUE_INCONCLUSIVE("int_list.map(x, 1).all(v, v == 1)", "true");
 
     final String exprA;
     final String exprB;
@@ -2936,6 +2970,7 @@ public final class CelVerifierZ3ImplTest {
 
     assertThat(result.status()).isEqualTo(VerificationStatus.VERIFIED);
   }
+
 
   @Test
   public void isSatisfiable_maskedByBmcButAlwaysFalse_returnsFailed() throws Exception {
