@@ -15,10 +15,20 @@
 package dev.cel.runtime.planner;
 
 import static com.google.common.base.Preconditions.checkNotNull;
+import static dev.cel.runtime.planner.EvalHelpers.evalStrictly;
 
+import com.google.common.collect.ImmutableList;
 import com.google.errorprone.annotations.Immutable;
+import dev.cel.common.CelErrorCode;
 import dev.cel.common.ast.CelExpr;
+import dev.cel.common.exceptions.CelOverloadNotFoundException;
+import dev.cel.common.exceptions.CelRuntimeException;
+import dev.cel.common.values.CelValueConverter;
+import dev.cel.runtime.AccumulatedUnknowns;
+import dev.cel.runtime.CelAsyncFunctionOverload;
 import dev.cel.runtime.CelEvaluationException;
+import dev.cel.runtime.CelFunctionOverload;
+import dev.cel.runtime.CelResolvedOverload;
 import dev.cel.runtime.GlobalResolver;
 
 /** Evaluates an asynchronous function call within a planned program. */
@@ -26,22 +36,85 @@ import dev.cel.runtime.GlobalResolver;
 final class EvalAsyncCall extends PlannedInterpretable {
 
   private final String functionName;
+  private final CelResolvedOverload resolvedOverload;
+  private final CelAsyncFunctionOverload overload;
 
-  static EvalAsyncCall create(CelExpr expr, String functionName) {
-    return new EvalAsyncCall(expr, functionName);
+  @SuppressWarnings("Immutable") // Array not mutated
+  private final PlannedInterpretable[] args;
+
+  private final CelValueConverter celValueConverter;
+
+  static EvalAsyncCall create(
+      CelExpr expr,
+      String functionName,
+      CelResolvedOverload resolvedOverload,
+      CelAsyncFunctionOverload overload,
+      PlannedInterpretable[] args,
+      CelValueConverter celValueConverter) {
+    return new EvalAsyncCall(
+        expr, functionName, resolvedOverload, overload, args, celValueConverter);
   }
 
   @Override
   Object evalInternal(GlobalResolver resolver, ExecutionFrame frame) throws CelEvaluationException {
-    throw new CelEvaluationException(
-        String.format(
-            "Async function '%s' evaluated in synchronous mode. Asynchronous functions are only"
-                + " supported via evalAsync.",
-            functionName));
+    if (!frame.isAsync()) {
+      throw new CelEvaluationException(
+          String.format(
+              "Async function '%s' evaluated in synchronous mode. Asynchronous functions are only"
+                  + " supported via evalAsync.",
+              functionName));
+    }
+
+    Object[] evaluatedArgs = new Object[args.length];
+    AccumulatedUnknowns accumulatedUnknowns = null;
+
+    for (int i = 0; i < args.length; i++) {
+      Object argVal = evalStrictly(args[i], resolver, frame);
+      accumulatedUnknowns = AccumulatedUnknowns.maybeMerge(accumulatedUnknowns, argVal);
+      evaluatedArgs[i] = argVal;
+    }
+
+    if (accumulatedUnknowns != null) {
+      return accumulatedUnknowns;
+    }
+
+    if (!CelFunctionOverload.canHandle(
+        evaluatedArgs, resolvedOverload.getParameterTypes(), /* isStrict= */ true)) {
+      throw new LocalizedEvaluationException(
+          new CelOverloadNotFoundException(
+              functionName, ImmutableList.of(resolvedOverload.getOverloadId())),
+          expr().id());
+    }
+
+    try {
+      return frame
+          .asyncTracker()
+          .recordOrGet(
+              expr().id(),
+              functionName,
+              resolvedOverload.getOverloadId(),
+              evaluatedArgs,
+              overload,
+              celValueConverter);
+    } catch (CelRuntimeException e) {
+      throw new LocalizedEvaluationException(e, expr().id());
+    } catch (RuntimeException e) {
+      throw new LocalizedEvaluationException(e, CelErrorCode.INTERNAL_ERROR, expr().id());
+    }
   }
 
-  private EvalAsyncCall(CelExpr expr, String functionName) {
+  private EvalAsyncCall(
+      CelExpr expr,
+      String functionName,
+      CelResolvedOverload resolvedOverload,
+      CelAsyncFunctionOverload overload,
+      PlannedInterpretable[] args,
+      CelValueConverter celValueConverter) {
     super(expr);
     this.functionName = checkNotNull(functionName);
+    this.resolvedOverload = checkNotNull(resolvedOverload);
+    this.overload = checkNotNull(overload);
+    this.args = checkNotNull(args);
+    this.celValueConverter = checkNotNull(celValueConverter);
   }
 }
