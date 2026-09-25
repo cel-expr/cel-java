@@ -20,8 +20,11 @@ import dev.cel.common.exceptions.CelAttributeNotFoundException;
 import java.util.Optional;
 
 /**
- * Walks a sequence of {@link SelectField} selections, dispatching each field over {@link
- * OptimizedSelectable} or {@link SelectableValue}.
+ * Walks a sequence of {@link SelectField} selections over a struct target.
+ *
+ * <p>Each hop resolves by field number through {@link OptimizedSelectable} when the target
+ * implements it, and otherwise by field name through {@link StructValue}. Any other target,
+ * including maps and optional values, raises {@link CelAttributeNotFoundException}.
  *
  * <p>CEL Library Internals. Do Not Use.
  */
@@ -41,8 +44,6 @@ public final class OptimizedSelectTraversal {
 
   /**
    * Presence tests the terminal field of {@code fields}, navigating through all preceding fields.
-   *
-   * <p>Absence of any intermediate field short-circuits to {@code false}.
    */
   public static boolean hasField(Object target, ImmutableList<SelectField> fields) {
     if (fields.isEmpty()) {
@@ -64,7 +65,7 @@ public final class OptimizedSelectTraversal {
     return hasTerminalField(current, fields.get(terminalIndex));
   }
 
-  // SelectableValue is only ever instantiated with String keys in the select path.
+  // StructValue is only ever instantiated with String keys in the select path.
   @SuppressWarnings("unchecked")
   private static Object qualifyField(Object target, SelectField field) {
     if (target instanceof ErrorValue) {
@@ -73,8 +74,8 @@ public final class OptimizedSelectTraversal {
     if (target instanceof OptimizedSelectable) {
       return ((OptimizedSelectable) target).selectByFieldNumber(field);
     }
-    if (target instanceof SelectableValue) {
-      SelectableValue<String> selectable = (SelectableValue<String>) target;
+    if (target instanceof StructValue) {
+      StructValue<String, ?> selectable = (StructValue<String, ?>) target;
       if (field.defaultValue() != null) {
         return selectable
             .find(field.fieldName())
@@ -86,7 +87,7 @@ public final class OptimizedSelectTraversal {
     throw CelAttributeNotFoundException.forFieldResolution(field.fieldName());
   }
 
-  // SelectableValue is only ever instantiated with String keys in the select path.
+  // StructValue is only ever instantiated with String keys in the select path.
   @SuppressWarnings("unchecked")
   private static Optional<Object> navigateField(Object target, SelectField field) {
     if (target instanceof ErrorValue) {
@@ -95,13 +96,13 @@ public final class OptimizedSelectTraversal {
     if (target instanceof OptimizedSelectable) {
       return ((OptimizedSelectable) target).findByFieldNumber(field);
     }
-    if (target instanceof SelectableValue) {
-      return ((SelectableValue<String>) target).find(field.fieldName()).map(Object.class::cast);
+    if (target instanceof StructValue) {
+      return ((StructValue<String, ?>) target).find(field.fieldName()).map(Object.class::cast);
     }
     throw CelAttributeNotFoundException.forFieldResolution(field.fieldName());
   }
 
-  // SelectableValue is only ever instantiated with String keys in the select path.
+  // StructValue is only ever instantiated with String keys in the select path.
   @SuppressWarnings("unchecked")
   private static boolean hasTerminalField(Object target, SelectField field) {
     if (target instanceof ErrorValue) {
@@ -110,8 +111,8 @@ public final class OptimizedSelectTraversal {
     if (target instanceof OptimizedSelectable) {
       return ((OptimizedSelectable) target).hasFieldByNumber(field);
     }
-    if (target instanceof SelectableValue) {
-      return ((SelectableValue<String>) target).find(field.fieldName()).isPresent();
+    if (target instanceof StructValue) {
+      return ((StructValue<String, ?>) target).find(field.fieldName()).isPresent();
     }
     throw CelAttributeNotFoundException.forFieldResolution(field.fieldName());
   }

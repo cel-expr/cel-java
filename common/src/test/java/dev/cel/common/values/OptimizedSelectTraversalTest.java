@@ -22,6 +22,8 @@ import com.google.common.collect.ImmutableMap;
 import com.google.testing.junit.testparameterinjector.TestParameter;
 import com.google.testing.junit.testparameterinjector.TestParameterInjector;
 import dev.cel.common.exceptions.CelAttributeNotFoundException;
+import dev.cel.common.types.CelType;
+import dev.cel.common.types.StructTypeReference;
 import java.util.Map;
 import java.util.Optional;
 import org.junit.Test;
@@ -43,16 +45,15 @@ public final class OptimizedSelectTraversalTest {
             ImmutableMap.of("outer_key", new FakeOptimizedSelectable(innerData)));
       }
     },
-    SELECTABLE_VALUE {
+    STRUCT_VALUE {
       @Override
       Object createTarget(Map<String, Object> data) {
-        return new FakeSelectableValue(data);
+        return new FakeStructValue(data);
       }
 
       @Override
       Object createNestedTarget(Map<String, Object> innerData) {
-        return new FakeSelectableValue(
-            ImmutableMap.of("outer_key", new FakeSelectableValue(innerData)));
+        return new FakeStructValue(ImmutableMap.of("outer_key", new FakeStructValue(innerData)));
       }
     };
 
@@ -151,8 +152,8 @@ public final class OptimizedSelectTraversalTest {
   }
 
   @Test
-  public void qualify_selectableValue_absentWithDefaultValue_returnsDefault() {
-    FakeSelectableValue selectable = new FakeSelectableValue(ImmutableMap.of());
+  public void qualify_structValue_absentWithDefaultValue_returnsDefault() {
+    FakeStructValue selectable = new FakeStructValue(ImmutableMap.of());
     ImmutableList<SelectField> fields =
         ImmutableList.of(SelectField.create(1L, "absent", 9, "default_fallback"));
 
@@ -304,8 +305,23 @@ public final class OptimizedSelectTraversalTest {
   }
 
   @SuppressWarnings("Immutable")
-  private static final class FakeSelectableValue implements SelectableValue<String> {
+  private static final class FakeStructValue extends StructValue<String, Object> {
     private final ImmutableMap<String, Object> values;
+
+    @Override
+    public Object value() {
+      return values;
+    }
+
+    @Override
+    public boolean isZeroValue() {
+      return values.isEmpty();
+    }
+
+    @Override
+    public CelType celType() {
+      return StructTypeReference.create("test.FakeStruct");
+    }
 
     @Override
     public Object select(String field) {
@@ -321,7 +337,7 @@ public final class OptimizedSelectTraversalTest {
       return Optional.ofNullable(values.get(field));
     }
 
-    FakeSelectableValue(Map<String, Object> values) {
+    FakeStructValue(Map<String, Object> values) {
       this.values = ImmutableMap.copyOf(values);
     }
   }
