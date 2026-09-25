@@ -133,6 +133,7 @@ java_library(
         "//common/ast:mutable_expr",
         "//common/internal:cel_descriptor_pools",
         "//common/navigation:common",
+        "//common/navigation:expr_util",
         "//common/navigation:mutable_navigation",
         "//common/types",
         "//common/types:cel_types",

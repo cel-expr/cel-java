@@ -15,6 +15,7 @@
 package dev.cel.runtime.planner;
 
 import com.google.errorprone.annotations.Immutable;
+import dev.cel.common.values.CelValueConverter;
 
 /**
  * Represents a qualification step (such as a field selection or map key lookup) applied to an
@@ -22,7 +23,17 @@ import com.google.errorprone.annotations.Immutable;
  */
 @Immutable
 interface Qualifier {
+  /**
+   * Returns the qualifier value (such as a field name or map key) identifying this qualification
+   * step.
+   */
   Object value();
 
-  Object qualify(Object value);
+  /**
+   * Applies this qualification step to {@code operand} and returns the qualified value.
+   *
+   * <p>Both the input {@code operand} and the returned value must be traversal targets (see {@link
+   * CelValueConverter#toTraversalTarget}).
+   */
+  Object qualify(Object operand);
 }

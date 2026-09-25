@@ -22,6 +22,7 @@ java_library(
         "//common/ast",
         "//common/navigation:mutable_navigation",
         "//common/types",
+        "//common/values:cel_byte_string",
         "//extensions",
         "//extensions:optional_library",
         #         "//java/com/google/testing/testsize:annotations",
