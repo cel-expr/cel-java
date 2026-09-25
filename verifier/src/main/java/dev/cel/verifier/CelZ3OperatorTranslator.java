@@ -56,8 +56,8 @@ final class CelZ3OperatorTranslator {
   private final CelZ3TypeSystem typeSystem;
   private final Consumer<BoolExpr> constraintSink;
   private final BiFunction<Expr<?>, CelType, BoolExpr> typeConstraintGenerator;
-  private final boolean allowUnknowns;
   private final CelZ3FunctionRegistry functionRegistry;
+  private final int comprehensionUnrollLimit;
 
   Optional<TranslatedValue> translateFunctionCall(
       String functionName, List<TranslatedValue> args, long exprId, CelAbstractSyntaxTree ast) {
@@ -71,7 +71,9 @@ final class CelZ3OperatorTranslator {
         opOpt
             .map(op -> translateOperatorCall(op, args, ast))
             .orElseGet(
-                () -> TranslatedValue.propagateStrict(ctx, typeSystem, typeSystem.mkError(), args));
+                () ->
+                    TranslatedValue.propagateStrict(
+                        ctx, typeSystem, functionName, typeSystem.mkError(), args));
 
     CelReference reference = ast.getReferenceMap().get(exprId);
     CelFunctionDecl decl = functionRegistry.getDeclaration(functionName).orElse(null);
@@ -128,11 +130,60 @@ final class CelZ3OperatorTranslator {
       return opOpt.isPresent() ? Optional.of(resultChain) : Optional.empty();
     }
 
+    if (opOpt.isPresent() && opOpt.get() == Operator.IN) {
+      constrainInWitnessTypes(
+          z3Args.get(0), z3Args.get(1), extractAstTypeOrDefault(args.get(1), ast));
+    }
+
     return Optional.of(
         TranslatedValue.create(
-            typeSystem.propagateErrorAndUnknown(currentZ3Result, z3Args),
+            typeSystem.propagateErrorAndUnknown(functionName, currentZ3Result, z3Args, z3Args),
             typeSystem,
             currentApprox));
+  }
+
+  /**
+   * Constrains every value that {@code InAxiom} may find in {@code rhs} to the static element (or
+   * key) type.
+   *
+   * <p>Container type constraints are only unrolled up to the comprehension unroll limit, so
+   * without this, a match beyond it could be an ill-typed value (e.g. a string found in a list of
+   * ints).
+   */
+  private void constrainInWitnessTypes(Expr<?> lhs, Expr<?> rhs, CelType rhsType) {
+    if (rhsType instanceof ListType) {
+      // IN_LIST probes lhs itself, its int/uint reinterpretation for cross-type numeric equality,
+      // and every zero (0.0 == -0.0 == 0 == 0u).
+      IntExpr intVal =
+          (IntExpr)
+              ctx.mkITE(typeSystem.isInt(lhs), typeSystem.getInt(lhs), typeSystem.getUint(lhs));
+      ImmutableList<Expr<?>> candidates =
+          ImmutableList.of(
+              lhs,
+              typeSystem.wrapInt(intVal),
+              typeSystem.wrapUint(intVal),
+              typeSystem.mkDouble(0.0),
+              typeSystem.mkDouble(-0.0),
+              typeSystem.mkInt(0),
+              typeSystem.mkUint(0));
+      CelType elemType = ((ListType) rhsType).elemType();
+      SeqExpr<?> seq = typeSystem.getSeq(typeSystem.getListRef(rhs));
+      for (Expr<?> cand : candidates) {
+        BoolExpr structContains = ctx.mkContains((Expr) seq, (Expr) ctx.mkUnit(cand));
+        constraintSink.accept(
+            ctx.mkImplies(
+                ctx.mkAnd(typeSystem.isList(rhs), structContains),
+                typeConstraintGenerator.apply(cand, elemType)));
+      }
+    } else if (rhsType instanceof MapType) {
+      // IN_MAP only probes the presence of lhs itself.
+      ArrayExpr mapPresence = (ArrayExpr) typeSystem.getMapPresence(typeSystem.getMapRef(rhs));
+      BoolExpr inMap = (BoolExpr) ctx.mkSelect(mapPresence, lhs);
+      constraintSink.accept(
+          ctx.mkImplies(
+              ctx.mkAnd(typeSystem.isMap(rhs), inMap),
+              typeConstraintGenerator.apply(lhs, ((MapType) rhsType).keyType())));
+    }
   }
 
   private BoolExpr mkTypeGuard(Expr<?> arg, CelType expectedType) {
@@ -241,7 +292,8 @@ final class CelZ3OperatorTranslator {
       case IN:
         // Indicates a type-mismatch in an operator that's not handled
         // by our axioms
-        return TranslatedValue.propagateStrict(ctx, typeSystem, typeSystem.mkError(), args);
+        return TranslatedValue.propagateStrict(
+            ctx, typeSystem, op.getFunction(), typeSystem.mkError(), args);
       case INDEX:
         return translateIndex(args, ast, false);
       case OPTIONAL_INDEX:
@@ -253,7 +305,8 @@ final class CelZ3OperatorTranslator {
         return translateNotStrictlyFalse(args);
       default:
         // For operators we haven't implemented cleanly, just wrap uninterpreted for now.
-        return TranslatedValue.propagateStrict(ctx, typeSystem, typeSystem.mkUnknown(), args)
+        return TranslatedValue.propagateStrict(
+                ctx, typeSystem, op.getFunction(), typeSystem.mkUnknown(), args)
             .withApproximation(ctx.mkTrue());
     }
   }
@@ -297,7 +350,11 @@ final class CelZ3OperatorTranslator {
             ctx.mkAnd(a.isZ3Unknown(), ctx.mkNot(a.isApproximate())),
             ctx.mkAnd(b.isZ3Unknown(), ctx.mkNot(b.isApproximate())));
 
-    Expr<?> unknownResult = ctx.mkITE(a.isZ3Unknown(), a.z3Expr(), b.z3Expr());
+    String opName = isAnd ? Operator.LOGICAL_AND.getFunction() : Operator.LOGICAL_OR.getFunction();
+    Expr<?> unknownResult =
+        typeSystem.isParameterizingUnknowns()
+            ? typeSystem.mkPropagatedUnknown(opName, ImmutableList.of(a.z3Expr(), b.z3Expr()))
+            : ctx.mkITE(a.isZ3Unknown(), a.z3Expr(), b.z3Expr());
 
     Expr<?> resultZ3 =
         CelZ3TypeSystem.SwitchBuilder.newBuilder(ctx)
@@ -306,11 +363,16 @@ final class CelZ3OperatorTranslator {
             .addCase(hasError, typeSystem.mkError())
             .build(typeSystem.mkBool(isAnd));
 
+    BoolExpr unknownTaint =
+        typeSystem.isParameterizingUnknowns()
+            ? ctx.mkOr(a.isApproximate(), b.isApproximate())
+            : ctx.mkNot(hasSafeUnknown);
+
     BoolExpr resultTaint =
         (BoolExpr)
             CelZ3TypeSystem.SwitchBuilder.newBuilder(ctx)
                 .addCase(hasMatch, ctx.mkNot(hasSafeMatch))
-                .addCase(hasUnknown, ctx.mkNot(hasSafeUnknown))
+                .addCase(hasUnknown, unknownTaint)
                 .addCase(hasError, ctx.mkNot(hasSafeError))
                 .build(ctx.mkOr(a.isApproximate(), b.isApproximate()));
 
@@ -327,7 +389,8 @@ final class CelZ3OperatorTranslator {
       baseResult = typeSystem.withRuntimeError(baseResult, ctx.mkNot(arg.isZ3Bool()));
     }
 
-    return TranslatedValue.propagateStrict(ctx, typeSystem, baseResult, args);
+    return TranslatedValue.propagateStrict(
+        ctx, typeSystem, Operator.LOGICAL_NOT.getFunction(), baseResult, args);
   }
 
   private TranslatedValue translateNegate(TranslatedValue arg, CelAbstractSyntaxTree ast) {
@@ -354,7 +417,8 @@ final class CelZ3OperatorTranslator {
               .addCase(typeSystem.isDouble(z3Expr), doubleResult)
               .build(typeSystem.mkError());
     }
-    return TranslatedValue.propagateStrict(ctx, typeSystem, result, arg);
+    return TranslatedValue.propagateStrict(
+        ctx, typeSystem, Operator.NEGATE.getFunction(), result, arg);
   }
 
   private BoolExpr isNumeric(Expr<?> arg) {
@@ -542,6 +606,8 @@ final class CelZ3OperatorTranslator {
       TranslatedValue listA, TranslatedValue listB, CelAbstractSyntaxTree ast) {
     CelExpr literalListAst =
         listA.isLiteral(ExprKind.Kind.LIST) ? listA.celExpr().get() : listB.celExpr().get();
+    CelType type0 = extractAstTypeOrDefault(listA, ast);
+    CelType type1 = extractAstTypeOrDefault(listB, ast);
 
     SeqExpr<?> seq0 = typeSystem.getSeq(typeSystem.getListRef(listA.z3Expr()));
     SeqExpr<?> seq1 = typeSystem.getSeq(typeSystem.getListRef(listB.z3Expr()));
@@ -551,8 +617,14 @@ final class CelZ3OperatorTranslator {
 
     int size = literalListAst.list().elements().size();
     for (int i = 0; i < size; i++) {
-      Expr<?> elem0 = ctx.mkNth(seq0, ctx.mkInt(i));
-      Expr<?> elem1 = ctx.mkNth(seq1, ctx.mkInt(i));
+      IntExpr idx = ctx.mkInt(i);
+      Expr<?> elem0 = ctx.mkNth(seq0, idx);
+      Expr<?> elem1 = ctx.mkNth(seq1, idx);
+
+      if (i >= comprehensionUnrollLimit) {
+        constrainListElement(seq0, idx, elem0, type0);
+        constrainListElement(seq1, idx, elem1, type1);
+      }
 
       TranslatedValue elemA =
           TranslatedValue.create(elem0, listA.listElementAt(i), typeSystem, listA.isApproximate());
@@ -569,6 +641,15 @@ final class CelZ3OperatorTranslator {
     }
 
     return CelZ3TypeSystem.mkAndFlattened(ctx, equalities);
+  }
+
+  private void constrainListElement(SeqExpr<?> seq, IntExpr idx, Expr<?> elem, CelType listType) {
+    if (listType instanceof ListType) {
+      constraintSink.accept(
+          ctx.mkImplies(
+              ctx.mkLt(idx, ctx.mkLength(seq)),
+              typeConstraintGenerator.apply(elem, ((ListType) listType).elemType())));
+    }
   }
 
   private TranslatedValue translateEquality(
@@ -622,19 +703,9 @@ final class CelZ3OperatorTranslator {
     }
 
     Expr<?> equalityExpr = typeSystem.wrapBool(equality);
+    String opName = isEquals ? Operator.EQUALS.getFunction() : Operator.NOT_EQUALS.getFunction();
 
-    // If the operands are structurally identical, the equality result is exact (not approximated)
-    // because X == X is a tautology (or propagates errors/unknowns exactly).
-    if (z3Arg0.equals(z3Arg1)) {
-      Expr<?> finalResult = typeSystem.propagateErrorAndUnknown(equalityExpr, z3Arg0);
-      return TranslatedValue.create(
-          finalResult, typeSystem, ctx.mkOr(arg0.isApproximate(), arg1.isApproximate()));
-    }
-
-    return TranslatedValue.propagateStrict(ctx, typeSystem, equalityExpr, arg0, arg1)
-        // Mathematically redundant, but needed to prevent exponentially branching Z3 logic tree of
-        // mkOr tracking exact unknowns and errors
-        .withApproximation(ctx.mkFalse());
+    return TranslatedValue.propagateStrict(ctx, typeSystem, opName, equalityExpr, arg0, arg1);
   }
 
   private Expr<?> buildListIndex(
@@ -648,12 +719,7 @@ final class CelZ3OperatorTranslator {
             ctx.mkLt((ArithExpr) index, ctx.mkLength(seq)));
 
     Expr<?> val = ctx.mkNth(seq, (ArithExpr) index);
-    BoolExpr valNotError = ctx.mkNot(ctx.mkEq(val, typeSystem.mkError()));
-    constraintSink.accept(ctx.mkImplies(ctx.mkAnd(typeGuard, inBounds), valNotError));
-    if (!allowUnknowns) {
-      BoolExpr valNotUnknown = ctx.mkNot(typeSystem.isUnknown(val));
-      constraintSink.accept(ctx.mkImplies(ctx.mkAnd(typeGuard, inBounds), valNotUnknown));
-    }
+    constrainValidElement(ctx.mkAnd(typeGuard, inBounds), val);
 
     if (isOptional) {
       Expr<?> resultOptRef = ctx.mkApp(typeSystem.optionalOfRefFunc(), val);
@@ -664,6 +730,10 @@ final class CelZ3OperatorTranslator {
     }
 
     return ctx.mkITE(inBounds, val, typeSystem.mkError());
+  }
+
+  private void constrainValidElement(BoolExpr guard, Expr<?> val) {
+    constraintSink.accept(ctx.mkImplies(guard, ctx.mkNot(typeSystem.isErrorOrUnknown(val))));
   }
 
   private Optional<Long> extractIntNumSafe(Expr<?> expr) {
@@ -686,10 +756,10 @@ final class CelZ3OperatorTranslator {
   }
 
   private static final class ProbeResult {
-    final BoolExpr altInMap;
-    final Expr<?> altVal;
+    private final BoolExpr altInMap;
+    private final Expr<?> altVal;
 
-    ProbeResult(BoolExpr altInMap, Expr<?> altVal) {
+    private ProbeResult(BoolExpr altInMap, Expr<?> altVal) {
       this.altInMap = altInMap;
       this.altVal = altVal;
     }
@@ -820,12 +890,7 @@ final class CelZ3OperatorTranslator {
             .addCase(isDouble, doubleProbe.altVal)
             .build(valOrig);
 
-    BoolExpr valNotError = ctx.mkNot(ctx.mkEq(finalVal, typeSystem.mkError()));
-    constraintSink.accept(ctx.mkImplies(ctx.mkAnd(typeGuard, finalInMap), valNotError));
-    if (!allowUnknowns) {
-      BoolExpr valNotUnknown = ctx.mkNot(typeSystem.isUnknown(finalVal));
-      constraintSink.accept(ctx.mkImplies(ctx.mkAnd(typeGuard, finalInMap), valNotUnknown));
-    }
+    constrainValidElement(ctx.mkAnd(typeGuard, finalInMap), finalVal);
 
     if (isOptional) {
       Expr<?> resultOptRef = ctx.mkApp(typeSystem.optionalOfRefFunc(), finalVal);
@@ -843,7 +908,6 @@ final class CelZ3OperatorTranslator {
     TranslatedValue lhs = args.get(0);
     TranslatedValue rhs = args.get(1);
     CelType lhsType = extractAstTypeOrDefault(lhs, ast);
-    CelType rhsType = extractAstTypeOrDefault(rhs, ast);
 
     Expr<?> lhsTrans = lhs.z3Expr();
     Expr<?> rhsTrans = rhs.z3Expr();
@@ -866,7 +930,7 @@ final class CelZ3OperatorTranslator {
     }
 
     Expr<?> actualValue =
-        buildAndConstrainIndex(lhsTrans, rhsTrans, lhsType, rhsType, shouldEvaluate, isOptional);
+        buildAndConstrainIndex(lhsTrans, rhsTrans, lhsType, shouldEvaluate, isOptional);
 
     if (isOptional) {
       actualValue =
@@ -876,28 +940,54 @@ final class CelZ3OperatorTranslator {
               actualValue);
     }
 
-    return TranslatedValue.propagateStrict(ctx, typeSystem, actualValue, args);
+    String opName =
+        isOptional ? Operator.OPTIONAL_INDEX.getFunction() : Operator.INDEX.getFunction();
+    BoolExpr isListIndexTruncated =
+        ctx.mkAnd(
+            shouldEvaluate,
+            typeSystem.isList(lhsTrans),
+            typeSystem.isInt(rhsTrans),
+            ctx.mkGe(typeSystem.getInt(rhsTrans), ctx.mkInt(comprehensionUnrollLimit)),
+            ctx.mkLt(
+                typeSystem.getInt(rhsTrans),
+                ctx.mkLength(typeSystem.getSeq(typeSystem.getListRef(lhsTrans)))));
+    BoolExpr isMapIndexTruncated =
+        ctx.mkAnd(
+            shouldEvaluate,
+            typeSystem.isMap(lhsTrans),
+            ctx.mkGt(
+                ctx.mkLength(typeSystem.getMapKeys(typeSystem.getMapRef(lhsTrans))),
+                ctx.mkInt(comprehensionUnrollLimit)));
+    return TranslatedValue.propagateStrict(ctx, typeSystem, opName, actualValue, args)
+        .withApproximation(ctx.mkOr(isListIndexTruncated, isMapIndexTruncated));
   }
 
   private Expr<?> buildAndConstrainIndex(
       Expr<?> lhsTrans,
       Expr<?> rhsTrans,
       CelType lhsType,
-      CelType rhsType,
       BoolExpr shouldEvaluate,
       boolean isOptional) {
     CelType expectedElemType = null;
-    if (lhsType.kind() == CelKind.LIST && rhsType.kind() == CelKind.INT) {
+    if (lhsType.kind() == CelKind.LIST) {
       expectedElemType = ((ListType) lhsType).elemType();
     } else if (lhsType.kind() == CelKind.MAP) {
       expectedElemType = ((MapType) lhsType).valueType();
     }
 
     if (expectedElemType != null) {
-      Expr<?> actualValue =
-          lhsType.kind() == CelKind.LIST
-              ? buildListIndex(lhsTrans, rhsTrans, shouldEvaluate, isOptional)
-              : buildMapIndex(lhsTrans, rhsTrans, shouldEvaluate, isOptional);
+      Expr<?> actualValue;
+      if (lhsType.kind() == CelKind.MAP) {
+        actualValue = buildMapIndex(lhsTrans, rhsTrans, shouldEvaluate, isOptional);
+      } else {
+        BoolExpr isIntIndex = typeSystem.isInt(rhsTrans);
+        actualValue =
+            ctx.mkITE(
+                isIntIndex,
+                buildListIndex(
+                    lhsTrans, rhsTrans, ctx.mkAnd(shouldEvaluate, isIntIndex), isOptional),
+                typeSystem.mkError());
+      }
 
       CelType finalType = isOptional ? OptionalType.create(expectedElemType) : expectedElemType;
 
@@ -934,20 +1024,32 @@ final class CelZ3OperatorTranslator {
       hasError = ctx.mkOr(hasError, ctx.mkNot(cond.isZ3Bool()));
     }
 
+    Expr<?> unknownResult =
+        typeSystem.isParameterizingUnknowns()
+            ? typeSystem.mkPropagatedUnknown(
+                Operator.CONDITIONAL.getFunction(),
+                ImmutableList.of(cond.z3Expr(), trueBranch.z3Expr(), falseBranch.z3Expr()))
+            : cond.z3Expr();
+
     Expr<?> resultZ3 =
         CelZ3TypeSystem.SwitchBuilder.newBuilder(ctx)
-            .addCase(hasUnknown, cond.z3Expr())
+            .addCase(hasUnknown, unknownResult)
             .addCase(hasError, typeSystem.mkError())
             .addCase(condTrue, trueBranch.z3Expr())
             .build(falseBranch.z3Expr());
 
     BoolExpr hasSafeError = ctx.mkAnd(hasError, ctx.mkNot(cond.isApproximate()));
     BoolExpr hasSafeUnknown = ctx.mkAnd(hasUnknown, ctx.mkNot(cond.isApproximate()));
+    BoolExpr unknownTaint =
+        typeSystem.isParameterizingUnknowns()
+            ? ctx.mkOr(
+                cond.isApproximate(), trueBranch.isApproximate(), falseBranch.isApproximate())
+            : ctx.mkNot(hasSafeUnknown);
 
     BoolExpr resultTaint =
         (BoolExpr)
             CelZ3TypeSystem.SwitchBuilder.newBuilder(ctx)
-                .addCase(hasUnknown, ctx.mkNot(hasSafeUnknown))
+                .addCase(hasUnknown, unknownTaint)
                 .addCase(hasError, ctx.mkNot(hasSafeError))
                 .addCase(condTrue, ctx.mkOr(cond.isApproximate(), trueBranch.isApproximate()))
                 .build(ctx.mkOr(cond.isApproximate(), falseBranch.isApproximate()));
@@ -981,13 +1083,13 @@ final class CelZ3OperatorTranslator {
       CelZ3TypeSystem typeSystem,
       Consumer<BoolExpr> constraintSink,
       BiFunction<Expr<?>, CelType, BoolExpr> typeConstraintGenerator,
-      boolean allowUnknowns,
-      CelZ3FunctionRegistry functionRegistry) {
+      CelZ3FunctionRegistry functionRegistry,
+      int comprehensionUnrollLimit) {
     this.ctx = ctx;
     this.typeSystem = typeSystem;
     this.constraintSink = constraintSink;
     this.typeConstraintGenerator = typeConstraintGenerator;
-    this.allowUnknowns = allowUnknowns;
     this.functionRegistry = functionRegistry;
+    this.comprehensionUnrollLimit = comprehensionUnrollLimit;
   }
 }

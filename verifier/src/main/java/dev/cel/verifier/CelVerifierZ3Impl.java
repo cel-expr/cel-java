@@ -14,8 +14,10 @@
 
 package dev.cel.verifier;
 
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
+
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -38,9 +40,7 @@ import dev.cel.optimizer.CelOptimizerFactory;
 import dev.cel.verifier.axioms.CelZ3FunctionAxiom;
 import dev.cel.verifier.axioms.CelZ3StandardAxioms;
 import java.time.Duration;
-import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
@@ -78,7 +78,7 @@ final class CelVerifierZ3Impl implements CelVerifier {
   }
 
   static Builder newBuilder(Cel cel) {
-    return new Builder(Preconditions.checkNotNull(cel));
+    return new Builder(checkNotNull(cel));
   }
 
   static final class Builder implements CelVerifierBuilder {
@@ -88,15 +88,6 @@ final class CelVerifierZ3Impl implements CelVerifier {
     private final ImmutableList.Builder<CelZ3FunctionAxiom> functionAxioms;
     private final Cel cel;
     private CelTypeProvider typeProvider;
-
-    private Builder(Cel cel) {
-      this.timeout = Duration.ofSeconds(10);
-      this.comprehensionUnrollLimit = 5;
-      this.unknownIdentifiers = ImmutableSet.builder();
-      this.functionAxioms = ImmutableList.builder();
-      this.typeProvider = EMPTY_TYPE_PROVIDER;
-      this.cel = cel;
-    }
 
     @Override
     @CanIgnoreReturnValue
@@ -118,14 +109,14 @@ final class CelVerifierZ3Impl implements CelVerifier {
     @Override
     @CanIgnoreReturnValue
     public CelVerifierBuilder setTypeProvider(CelTypeProvider typeProvider) {
-      this.typeProvider = Preconditions.checkNotNull(typeProvider);
+      this.typeProvider = checkNotNull(typeProvider);
       return this;
     }
 
     @Override
     @CanIgnoreReturnValue
     public CelVerifierBuilder setComprehensionUnrollLimit(int unrollLimit) {
-      Preconditions.checkArgument(unrollLimit >= 0, "unrollLimit must be non-negative");
+      checkArgument(unrollLimit >= 0, "unrollLimit must be non-negative");
       this.comprehensionUnrollLimit = unrollLimit;
       return this;
     }
@@ -158,27 +149,36 @@ final class CelVerifierZ3Impl implements CelVerifier {
           typeProvider,
           cel);
     }
+
+    private Builder(Cel cel) {
+      this.timeout = Duration.ofSeconds(10);
+      this.comprehensionUnrollLimit = 5;
+      this.unknownIdentifiers = ImmutableSet.builder();
+      this.functionAxioms = ImmutableList.builder();
+      this.typeProvider = EMPTY_TYPE_PROVIDER;
+      this.cel = cel;
+    }
   }
 
   @Override
   public CelVerificationResult isSatisfiable(CelAbstractSyntaxTree ast)
       throws CelVerificationException {
-    Preconditions.checkArgument(ast.isChecked(), "AST must be type-checked.");
+    checkArgument(ast.isChecked(), "AST must be type-checked.");
     return checkSatisfiability(ast, /* searchForCounterexample= */ false);
   }
 
   @Override
   public CelVerificationResult isAlwaysTrue(CelAbstractSyntaxTree ast)
       throws CelVerificationException {
-    Preconditions.checkArgument(ast.isChecked(), "AST must be type-checked.");
+    checkArgument(ast.isChecked(), "AST must be type-checked.");
     return checkSatisfiability(ast, /* searchForCounterexample= */ true);
   }
 
   @Override
   public CelVerificationResult verifyEquivalence(
       CelAbstractSyntaxTree astA, CelAbstractSyntaxTree astB) throws CelVerificationException {
-    Preconditions.checkArgument(astA.isChecked(), "astA must be type-checked.");
-    Preconditions.checkArgument(astB.isChecked(), "astB must be type-checked.");
+    checkArgument(astA.isChecked(), "astA must be type-checked.");
+    checkArgument(astB.isChecked(), "astB must be type-checked.");
     CelOptimizer optimizer =
         CelOptimizerFactory.standardCelOptimizerBuilder(cel)
             .addAstOptimizers(
@@ -195,6 +195,7 @@ final class CelVerifierZ3Impl implements CelVerifier {
       CelAstToZ3Translator translator =
           new CelAstToZ3Translator(
               ctx, comprehensionUnrollLimit, unknownIdentifiers, functionRegistry, typeProvider);
+      translator.getTypeSystem().enableParameterizedUnknownPropagation();
 
       TranslatedValue tvA = translator.translate(astA);
       TranslatedValue tvB = translator.translate(astB);
@@ -262,10 +263,10 @@ final class CelVerifierZ3Impl implements CelVerifier {
       Map<String, CelAbstractSyntaxTree> boundSymbols,
       String subjectName)
       throws CelVerificationException {
-    Preconditions.checkArgument(assumeAst.isChecked(), "assumeAst must be type-checked.");
-    Preconditions.checkArgument(assertAst.isChecked(), "assertAst must be type-checked.");
+    checkArgument(assumeAst.isChecked(), "assumeAst must be type-checked.");
+    checkArgument(assertAst.isChecked(), "assertAst must be type-checked.");
     for (Map.Entry<String, CelAbstractSyntaxTree> entry : boundSymbols.entrySet()) {
-      Preconditions.checkArgument(
+      checkArgument(
           entry.getValue().isChecked(),
           "boundSymbol AST for '%s' must be type-checked.",
           entry.getKey());
@@ -276,7 +277,6 @@ final class CelVerifierZ3Impl implements CelVerifier {
           new CelAstToZ3Translator(
               ctx, comprehensionUnrollLimit, unknownIdentifiers, functionRegistry, typeProvider);
 
-      List<BoolExpr> taints = new ArrayList<>();
       for (Map.Entry<String, CelAbstractSyntaxTree> entry : boundSymbols.entrySet()) {
         TranslatedValue tv = translator.translate(entry.getValue());
         translator.bindSymbol(entry.getKey(), tv);
@@ -284,14 +284,13 @@ final class CelVerifierZ3Impl implements CelVerifier {
 
       TranslatedValue assumeTv = translator.translate(assumeAst);
       TranslatedValue assertTv = translator.translate(assertAst);
-      taints.add(assumeTv.isApproximate());
-      taints.add(assertTv.isApproximate());
 
       BoolExpr assumeCondition = translator.isTrue(assumeTv.z3Expr());
       BoolExpr assertCondition = translator.isTrue(assertTv.z3Expr());
       BoolExpr violationCondition = ctx.mkAnd(assumeCondition, ctx.mkNot(assertCondition));
 
-      BoolExpr combinedTaint = CelZ3TypeSystem.mkOrFlattened(ctx, taints);
+      BoolExpr combinedTaint =
+          CelZ3TypeSystem.mkOrFlattened(ctx, assumeTv.isApproximate(), assertTv.isApproximate());
       BoolExpr unknownCondition =
           ctx.mkOr(
               translator.getTypeSystem().isUnknown(assumeTv.z3Expr()),
@@ -513,21 +512,6 @@ final class CelVerifierZ3Impl implements CelVerifier {
         ctx, typeSystem, model, isApproximate, isCounterexample);
   }
 
-  CelVerifierZ3Impl(
-      Duration timeout,
-      int comprehensionUnrollLimit,
-      ImmutableSet<String> unknownIdentifiers,
-      CelZ3FunctionRegistry functionRegistry,
-      CelTypeProvider typeProvider,
-      Cel cel) {
-    this.timeout = timeout;
-    this.comprehensionUnrollLimit = comprehensionUnrollLimit;
-    this.unknownIdentifiers = unknownIdentifiers;
-    this.functionRegistry = functionRegistry;
-    this.typeProvider = typeProvider;
-    this.cel = cel;
-  }
-
   private enum SolverOutcome {
     EXACT_MATCH,
     APPROXIMATE_MATCH,
@@ -537,9 +521,9 @@ final class CelVerifierZ3Impl implements CelVerifier {
   }
 
   private static final class SolverRunResult {
-    final SolverOutcome outcome;
-    final @Nullable Model model;
-    final @Nullable String reason;
+    private final SolverOutcome outcome;
+    private final @Nullable Model model;
+    private final @Nullable String reason;
 
     static SolverRunResult exactMatch(Model model) {
       return new SolverRunResult(SolverOutcome.EXACT_MATCH, model, null);
@@ -566,5 +550,20 @@ final class CelVerifierZ3Impl implements CelVerifier {
       this.model = model;
       this.reason = reason;
     }
+  }
+
+  private CelVerifierZ3Impl(
+      Duration timeout,
+      int comprehensionUnrollLimit,
+      ImmutableSet<String> unknownIdentifiers,
+      CelZ3FunctionRegistry functionRegistry,
+      CelTypeProvider typeProvider,
+      Cel cel) {
+    this.timeout = timeout;
+    this.comprehensionUnrollLimit = comprehensionUnrollLimit;
+    this.unknownIdentifiers = unknownIdentifiers;
+    this.functionRegistry = functionRegistry;
+    this.typeProvider = typeProvider;
+    this.cel = cel;
   }
 }
