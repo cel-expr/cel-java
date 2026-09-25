@@ -16,6 +16,7 @@ package dev.cel.runtime.planner;
 
 import com.google.errorprone.annotations.Immutable;
 import dev.cel.common.exceptions.CelAttributeNotFoundException;
+import dev.cel.common.values.CelValueConverter;
 import dev.cel.common.values.OptionalValue;
 import dev.cel.common.values.SelectableValue;
 import java.util.Map;
@@ -25,6 +26,7 @@ import java.util.Map;
 final class StringQualifier implements Qualifier {
 
   private final String value;
+  private final CelValueConverter celValueConverter;
 
   @Override
   public String value() {
@@ -32,8 +34,14 @@ final class StringQualifier implements Qualifier {
   }
 
   @Override
+  public Object qualify(Object operand) {
+    // Single exit point: the map branch below surfaces a raw entry, so the result is adapted here
+    // rather than in each branch, which keeps the traversal-target contract impossible to miss.
+    return celValueConverter.toTraversalTarget(select(operand));
+  }
+
   @SuppressWarnings("unchecked") // Qualifications on maps/structs must be a string
-  public Object qualify(Object obj) {
+  private Object select(Object obj) {
     if (obj instanceof OptionalValue) {
       OptionalValue<?, ?> opt = (OptionalValue<?, ?>) obj;
       if (!opt.isZeroValue()) {
@@ -49,29 +57,19 @@ final class StringQualifier implements Qualifier {
     }
 
     if (obj instanceof Map) {
-      Map<?, ?> map = (Map<?, ?>) obj;
-      Object mapVal = map.get(value);
-
-      if (mapVal != null) {
-        return mapVal;
-      }
-
-      if (!map.containsKey(value)) {
-        throw CelAttributeNotFoundException.forMissingMapKey(value);
-      }
-
-      throw CelAttributeNotFoundException.of(
-          String.format("Map value cannot be null for key: %s", value));
+      return CelValueConverter.findMapValue((Map<?, ?>) obj, value)
+          .orElseThrow(() -> CelAttributeNotFoundException.forMissingMapKey(value));
     }
 
     throw CelAttributeNotFoundException.forFieldResolution(value);
   }
 
-  static StringQualifier create(String value) {
-    return new StringQualifier(value);
+  static StringQualifier create(String value, CelValueConverter celValueConverter) {
+    return new StringQualifier(value, celValueConverter);
   }
 
-  private StringQualifier(String value) {
+  private StringQualifier(String value, CelValueConverter celValueConverter) {
     this.value = value;
+    this.celValueConverter = celValueConverter;
   }
 }

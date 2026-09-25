@@ -39,6 +39,10 @@ final class EvalAttribute extends InterpretableAttribute {
     return create(expr, newAttribute);
   }
 
+  Attribute attribute() {
+    return attr;
+  }
+
   static EvalAttribute create(CelExpr expr, Attribute attr) {
     return new EvalAttribute(expr, attr);
   }

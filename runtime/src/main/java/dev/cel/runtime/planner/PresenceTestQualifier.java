@@ -17,6 +17,7 @@ package dev.cel.runtime.planner;
 import static dev.cel.runtime.planner.MissingAttribute.newMissingField;
 
 import com.google.errorprone.annotations.Immutable;
+import dev.cel.common.values.CelValueConverter;
 import dev.cel.common.values.SelectableValue;
 import java.util.Map;
 
@@ -32,14 +33,21 @@ final class PresenceTestQualifier implements Qualifier {
     return value;
   }
 
+  /**
+   * Returns a boolean, or a {@link MissingAttribute} sentinel when the operand cannot be presence
+   * tested. Both are already traversal targets, so no adaptation is required.
+   *
+   * <p>Throws {@code CelInvalidArgumentException} when the key is bound to an illegal Java {@code
+   * null}. The type is named in prose rather than an {@code @throws} tag so that this package need
+   * not depend on the exception target purely for documentation.
+   */
   @Override
   @SuppressWarnings("unchecked") // SelectableValue cast is safe
-  public Object qualify(Object obj) {
-    if (obj instanceof SelectableValue) {
-      return ((SelectableValue<Object>) obj).find(value).isPresent();
-    } else if (obj instanceof Map) {
-      Map<?, ?> map = (Map<?, ?>) obj;
-      return map.containsKey(value);
+  public Object qualify(Object operand) {
+    if (operand instanceof SelectableValue) {
+      return ((SelectableValue<Object>) operand).find(value).isPresent();
+    } else if (operand instanceof Map) {
+      return CelValueConverter.containsMapKey((Map<?, ?>) operand, value);
     }
 
     return newMissingField(value.toString());
