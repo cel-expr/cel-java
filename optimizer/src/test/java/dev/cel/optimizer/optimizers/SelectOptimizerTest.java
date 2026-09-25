@@ -18,11 +18,14 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.truth.Truth.assertThat;
 import static com.google.common.truth.extensions.proto.ProtoTruth.assertThat;
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.Assert.assertThrows;
+import static org.junit.Assume.assumeTrue;
 
 import dev.cel.expr.ParsedExpr;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.primitives.UnsignedLong;
 import com.google.protobuf.Descriptors.Descriptor;
 import com.google.protobuf.Descriptors.FileDescriptor;
 import com.google.protobuf.TextFormat;
@@ -42,9 +45,11 @@ import dev.cel.common.navigation.CelNavigableMutableAst;
 import dev.cel.common.types.MapType;
 import dev.cel.common.types.SimpleType;
 import dev.cel.common.types.StructTypeReference;
+import dev.cel.common.values.CelByteString;
 import dev.cel.expr.conformance.proto2.NestedTestAllTypes;
 import dev.cel.expr.conformance.proto2.TestAllTypesProto;
 import dev.cel.expr.conformance.proto3.TestAllTypes;
+import dev.cel.extensions.CelExtensions;
 import dev.cel.optimizer.CelAstOptimizer;
 import dev.cel.optimizer.CelOptimizer;
 import dev.cel.optimizer.CelOptimizerFactory;
@@ -53,10 +58,10 @@ import dev.cel.parser.CelStandardMacro;
 import dev.cel.parser.CelUnparser;
 import dev.cel.parser.CelUnparserFactory;
 import dev.cel.runtime.CelEvaluationException;
-import dev.cel.runtime.CelFunctionBinding;
 import dev.cel.runtime.CelRuntime.Program;
 import dev.cel.testing.CelRuntimeFlavor;
-import java.util.List;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.stream.LongStream;
 import org.junit.Before;
 import org.junit.Test;
@@ -480,190 +485,198 @@ public final class SelectOptimizerTest {
   }
 
   @Test
-  public void optimizeAndEvaluate_withAttributeFunctionBinding_evaluatesSuccessfully()
+  public void optimizeAndEvaluate_legacyRuntime_throwsEvaluationException(
+      @TestParameter({"msg.single_int64", "has(msg.single_int64)"}) String expression)
       throws Exception {
-    Cel celWithBinding =
-        cel.toCelBuilder()
-            .addFunctionDeclarations(SelectOptimizer.CEL_ATTRIBUTE_FUNCTION_DECL)
-            .addFunctionBindings(
-                CelFunctionBinding.from(
-                    "cel_attribute_list",
-                    ImmutableList.of(Object.class, List.class, Object.class),
-                    args -> 42L))
-            .build();
-    CelOptimizer optimizer =
-        CelOptimizerFactory.standardCelOptimizerBuilder(celWithBinding)
-            .addAstOptimizers(
-                SelectOptimizer.newInstance(
-                    SelectOptimizerOptions.newBuilder().build(),
-                    TestAllTypes.getDescriptor().getFile()))
-            .build();
-    CelAbstractSyntaxTree ast = celWithBinding.compile("msg.single_int64").getAst();
+    assumeTrue(runtimeFlavor == CelRuntimeFlavor.LEGACY);
+    CelAbstractSyntaxTree ast = cel.compile(expression).getAst();
+    CelAbstractSyntaxTree optimizedAst = celOptimizer.optimize(ast);
+    Program optimizedProgram = cel.createProgram(optimizedAst);
 
-    CelAbstractSyntaxTree optimizedAst = optimizer.optimize(ast);
-    Object result =
-        celWithBinding
-            .createProgram(optimizedAst)
-            .eval(ImmutableMap.of("msg", TestAllTypes.getDefaultInstance()));
+    CelEvaluationException e =
+        assertThrows(
+            CelEvaluationException.class,
+            () -> optimizedProgram.eval(ImmutableMap.of("msg", TestAllTypes.getDefaultInstance())));
 
-    assertThat(result).isEqualTo(42L);
+    assertThat(e).hasMessageThat().contains("No matching overload for function");
+  }
+
+  @SuppressWarnings("ImmutableEnumChecker") // Test only
+  private enum NativeSelectEvaluationTestCase {
+    POPULATED_PROTO3_MESSAGE(
+        "msg.single_nested_message.bb",
+        ImmutableMap.of(
+            "msg",
+            TestAllTypes.newBuilder()
+                .setSingleNestedMessage(TestAllTypes.NestedMessage.newBuilder().setBb(42))
+                .build()),
+        42L),
+    UNSET_INTERMEDIATE_PROTO3_MESSAGE(
+        "msg.single_nested_message.bb",
+        ImmutableMap.of("msg", TestAllTypes.getDefaultInstance()),
+        0L),
+    PROTO2_CUSTOM_DEFAULT(
+        "proto2_msg.single_int64",
+        ImmutableMap.of(
+            "proto2_msg", dev.cel.expr.conformance.proto2.TestAllTypes.getDefaultInstance()),
+        -64L),
+    PROTO2_CUSTOM_DEFAULT_INT32(
+        "proto2_msg.single_int32",
+        ImmutableMap.of(
+            "proto2_msg", dev.cel.expr.conformance.proto2.TestAllTypes.getDefaultInstance()),
+        -32L),
+    PROTO2_CUSTOM_DEFAULT_UINT64(
+        "proto2_msg.single_uint64",
+        ImmutableMap.of(
+            "proto2_msg", dev.cel.expr.conformance.proto2.TestAllTypes.getDefaultInstance()),
+        UnsignedLong.valueOf(64)),
+    PROTO2_CUSTOM_DEFAULT_DOUBLE(
+        "proto2_msg.single_double",
+        ImmutableMap.of(
+            "proto2_msg", dev.cel.expr.conformance.proto2.TestAllTypes.getDefaultInstance()),
+        6.4d),
+    PROTO2_CUSTOM_DEFAULT_BOOL(
+        "proto2_msg.single_bool",
+        ImmutableMap.of(
+            "proto2_msg", dev.cel.expr.conformance.proto2.TestAllTypes.getDefaultInstance()),
+        true),
+    PROTO2_CUSTOM_DEFAULT_STRING(
+        "proto2_msg.single_string",
+        ImmutableMap.of(
+            "proto2_msg", dev.cel.expr.conformance.proto2.TestAllTypes.getDefaultInstance()),
+        "empty"),
+    PROTO2_CUSTOM_DEFAULT_BYTES(
+        "proto2_msg.single_bytes",
+        ImmutableMap.of(
+            "proto2_msg", dev.cel.expr.conformance.proto2.TestAllTypes.getDefaultInstance()),
+        CelByteString.of("none".getBytes(UTF_8))),
+    PROTO3_DEFAULT_MAP(
+        "msg.map_string_string",
+        ImmutableMap.of("msg", TestAllTypes.getDefaultInstance()),
+        ImmutableMap.of()),
+    PROTO3_DEFAULT_LIST(
+        "msg.repeated_int32",
+        ImmutableMap.of("msg", TestAllTypes.getDefaultInstance()),
+        ImmutableList.of()),
+    PROTO3_DEFAULT_DURATION(
+        "msg.single_duration",
+        ImmutableMap.of("msg", TestAllTypes.getDefaultInstance()),
+        Duration.ZERO),
+    PROTO3_DEFAULT_TIMESTAMP(
+        "msg.single_timestamp",
+        ImmutableMap.of("msg", TestAllTypes.getDefaultInstance()),
+        Instant.EPOCH),
+    DEEPLY_NESTED_PROTO2_MESSAGE_POPULATED(
+        "nested_msg.child.payload.single_int64",
+        ImmutableMap.of(
+            "nested_msg",
+            NestedTestAllTypes.newBuilder()
+                .setChild(
+                    NestedTestAllTypes.newBuilder()
+                        .setPayload(
+                            dev.cel.expr.conformance.proto2.TestAllTypes.newBuilder()
+                                .setSingleInt64(999L)))
+                .build()),
+        999L),
+    DEEPLY_NESTED_PROTO2_MESSAGE_UNSET(
+        "nested_msg.child.payload.single_int64",
+        ImmutableMap.of("nested_msg", NestedTestAllTypes.getDefaultInstance()),
+        -64L),
+    HAS_FIELD_INTERMEDIATE_UNSET(
+        "has(msg.single_nested_message.bb)",
+        ImmutableMap.of("msg", TestAllTypes.getDefaultInstance()),
+        false),
+    HAS_FIELD_PROTO3_IMPLICIT_PRESENCE_DEFAULT(
+        "has(msg.single_nested_message.bb)",
+        ImmutableMap.of(
+            "msg",
+            TestAllTypes.newBuilder()
+                .setSingleNestedMessage(TestAllTypes.NestedMessage.newBuilder().setBb(0))
+                .build()),
+        false),
+    HAS_FIELD_PROTO3_FIELD_PRESENT(
+        "has(msg.single_nested_message.bb)",
+        ImmutableMap.of(
+            "msg",
+            TestAllTypes.newBuilder()
+                .setSingleNestedMessage(TestAllTypes.NestedMessage.newBuilder().setBb(42))
+                .build()),
+        true),
+    HAS_FIELD_PROTO3_OPTIONAL_SCALAR_EXPLICIT_PRESENCE(
+        "has(msg.optional_bool)",
+        ImmutableMap.of("msg", TestAllTypes.newBuilder().setOptionalBool(false).build()),
+        true),
+    HAS_FIELD_PROTO3_OPTIONAL_SCALAR_UNSET(
+        "has(msg.optional_bool)", ImmutableMap.of("msg", TestAllTypes.getDefaultInstance()), false),
+    HAS_FIELD_PROTO2_SCALAR_SET_TO_DEFAULT(
+        "has(proto2_msg.single_int32)",
+        ImmutableMap.of(
+            "proto2_msg",
+            dev.cel.expr.conformance.proto2.TestAllTypes.newBuilder().setSingleInt32(-32).build()),
+        true),
+    HAS_FIELD_PROTO2_SCALAR_UNSET(
+        "has(proto2_msg.single_int32)",
+        ImmutableMap.of(
+            "proto2_msg", dev.cel.expr.conformance.proto2.TestAllTypes.getDefaultInstance()),
+        false),
+    SELECT_ON_MAP_VALUE_POPULATED(
+        "map_var_msg.key.single_nested_message.bb",
+        ImmutableMap.of(
+            "map_var_msg",
+            ImmutableMap.of(
+                "key",
+                TestAllTypes.newBuilder()
+                    .setSingleNestedMessage(TestAllTypes.NestedMessage.newBuilder().setBb(42))
+                    .build())),
+        42L),
+    SELECT_ON_MAP_VALUE_UNSET(
+        "map_var_msg.key.single_nested_message.bb",
+        ImmutableMap.of("map_var_msg", ImmutableMap.of("key", TestAllTypes.getDefaultInstance())),
+        0L),
+    HAS_FIELD_ON_MAP_VALUE_PRESENT(
+        "has(map_var_msg.key.single_nested_message)",
+        ImmutableMap.of(
+            "map_var_msg",
+            ImmutableMap.of(
+                "key",
+                TestAllTypes.newBuilder()
+                    .setSingleNestedMessage(TestAllTypes.NestedMessage.newBuilder().setBb(42))
+                    .build())),
+        true),
+    HAS_FIELD_ON_MAP_VALUE_ABSENT(
+        "has(map_var_msg.key.single_nested_message)",
+        ImmutableMap.of("map_var_msg", ImmutableMap.of("key", TestAllTypes.getDefaultInstance())),
+        false);
+
+    private final String expression;
+    private final ImmutableMap<String, Object> input;
+    private final Object expectedResult;
+
+    NativeSelectEvaluationTestCase(
+        String expression, ImmutableMap<String, Object> input, Object expectedResult) {
+      this.expression = expression;
+      this.input = input;
+      this.expectedResult = expectedResult;
+    }
   }
 
   @Test
-  public void optimizeAndEvaluate_withChainedMessageSelect_unpacksTuplesSuccessfully()
-      throws Exception {
-    Cel celWithBinding =
-        cel.toCelBuilder()
-            .addFunctionDeclarations(SelectOptimizer.CEL_ATTRIBUTE_FUNCTION_DECL)
-            .addFunctionBindings(
-                CelFunctionBinding.from(
-                    "cel_attribute_list",
-                    ImmutableList.of(Object.class, List.class, Object.class),
-                    args -> args[1]))
-            .build();
-    CelOptimizer optimizer =
-        CelOptimizerFactory.standardCelOptimizerBuilder(celWithBinding)
-            .addAstOptimizers(
-                SelectOptimizer.newInstance(
-                    SelectOptimizerOptions.newBuilder().build(),
-                    TestAllTypes.getDescriptor().getFile()))
-            .build();
-    CelAbstractSyntaxTree ast = celWithBinding.compile("msg.single_nested_message.bb").getAst();
+  public void optimizeAndEvaluate_nativeSelectAndHasField_matchesUnoptimized(
+      @TestParameter NativeSelectEvaluationTestCase testCase) throws Exception {
+    assumeTrue(runtimeFlavor == CelRuntimeFlavor.PLANNER);
+    CelAbstractSyntaxTree ast = cel.compile(testCase.expression).getAst();
+    CelAbstractSyntaxTree optimizedAst = celOptimizer.optimize(ast);
+    Program unoptimizedProgram = cel.createProgram(ast);
+    Program optimizedProgram = cel.createProgram(optimizedAst);
 
-    CelAbstractSyntaxTree optimizedAst = optimizer.optimize(ast);
-    Object result =
-        celWithBinding
-            .createProgram(optimizedAst)
-            .eval(ImmutableMap.of("msg", TestAllTypes.getDefaultInstance()));
+    Object unoptimizedResult = unoptimizedProgram.eval(testCase.input);
+    Object optimizedResult = optimizedProgram.eval(testCase.input);
 
-    assertThat((List<?>) result)
-        .containsExactly(
-            ImmutableList.of(21L, "single_nested_message", 11L), ImmutableList.of(1L, "bb", 5L, 0L))
-        .inOrder();
+    assertThat(unoptimizedResult).isEqualTo(testCase.expectedResult);
+    assertThat(optimizedResult).isEqualTo(testCase.expectedResult);
+    assertThat(optimizedResult).isEqualTo(unoptimizedResult);
   }
 
-  @Test
-  public void optimizeAndEvaluate_withHasFieldFunctionBinding_evaluatesSuccessfully()
-      throws Exception {
-    Cel celWithBinding =
-        cel.toCelBuilder()
-            .addFunctionDeclarations(SelectOptimizer.CEL_HAS_FIELD_FUNCTION_DECL)
-            .addFunctionBindings(
-                CelFunctionBinding.from(
-                    "cel_has_field_list", Object.class, List.class, (target, path) -> true))
-            .build();
-    CelOptimizer optimizer =
-        CelOptimizerFactory.standardCelOptimizerBuilder(celWithBinding)
-            .addAstOptimizers(
-                SelectOptimizer.newInstance(
-                    SelectOptimizerOptions.newBuilder().build(),
-                    TestAllTypes.getDescriptor().getFile()))
-            .build();
-    CelAbstractSyntaxTree ast = celWithBinding.compile("has(msg.single_int64)").getAst();
-
-    CelAbstractSyntaxTree optimizedAst = optimizer.optimize(ast);
-    Object result =
-        celWithBinding
-            .createProgram(optimizedAst)
-            .eval(ImmutableMap.of("msg", TestAllTypes.getDefaultInstance()));
-
-    assertThat(result).isEqualTo(true);
-  }
-
-  @Test
-  public void optimizeAndEvaluate_withSelectOnMapValue_evaluatesSuccessfully() throws Exception {
-    Cel celWithBinding =
-        cel.toCelBuilder()
-            .addFunctionDeclarations(SelectOptimizer.CEL_ATTRIBUTE_FUNCTION_DECL)
-            .addFunctionBindings(
-                CelFunctionBinding.from(
-                    "cel_attribute_list",
-                    ImmutableList.of(Object.class, List.class, Object.class),
-                    args -> 42L))
-            .build();
-    CelOptimizer optimizer =
-        CelOptimizerFactory.standardCelOptimizerBuilder(celWithBinding)
-            .addAstOptimizers(
-                SelectOptimizer.newInstance(
-                    SelectOptimizerOptions.newBuilder().build(),
-                    TestAllTypes.getDescriptor().getFile()))
-            .build();
-    CelAbstractSyntaxTree ast = celWithBinding.compile("map_var_msg.key.single_int64").getAst();
-
-    CelAbstractSyntaxTree optimizedAst = optimizer.optimize(ast);
-    Object result =
-        celWithBinding
-            .createProgram(optimizedAst)
-            .eval(
-                ImmutableMap.of(
-                    "map_var_msg", ImmutableMap.of("key", TestAllTypes.getDefaultInstance())));
-
-    assertThat(result).isEqualTo(42L);
-    assertThat(optimizedAst.getSource().getExtensions())
-        .contains(SelectOptimizer.SELECT_OPTIMIZATION_AST_EXTENSION_TAG);
-  }
-
-  @Test
-  public void optimizeAndEvaluate_withHasOnMapValue_evaluatesSuccessfully() throws Exception {
-    Cel celWithBinding =
-        cel.toCelBuilder()
-            .addFunctionDeclarations(SelectOptimizer.CEL_HAS_FIELD_FUNCTION_DECL)
-            .addFunctionBindings(
-                CelFunctionBinding.from(
-                    "cel_has_field_list", Object.class, List.class, (target, path) -> true))
-            .build();
-    CelOptimizer optimizer =
-        CelOptimizerFactory.standardCelOptimizerBuilder(celWithBinding)
-            .addAstOptimizers(
-                SelectOptimizer.newInstance(
-                    SelectOptimizerOptions.newBuilder().build(),
-                    TestAllTypes.getDescriptor().getFile()))
-            .build();
-    CelAbstractSyntaxTree ast =
-        celWithBinding.compile("has(map_var_msg.key.single_nested_message)").getAst();
-
-    CelAbstractSyntaxTree optimizedAst = optimizer.optimize(ast);
-    Object result =
-        celWithBinding
-            .createProgram(optimizedAst)
-            .eval(
-                ImmutableMap.of(
-                    "map_var_msg", ImmutableMap.of("key", TestAllTypes.getDefaultInstance())));
-
-    assertThat(result).isEqualTo(true);
-    assertThat(optimizedAst.getSource().getExtensions())
-        .contains(SelectOptimizer.SELECT_OPTIMIZATION_AST_EXTENSION_TAG);
-  }
-
-  @Test
-  public void optimizeAndEvaluate_withMissingMapKey_throwsEvaluationException() throws Exception {
-    Cel celWithBinding =
-        cel.toCelBuilder()
-            .addFunctionDeclarations(SelectOptimizer.CEL_ATTRIBUTE_FUNCTION_DECL)
-            .addFunctionBindings(
-                CelFunctionBinding.from(
-                    "cel_attribute_list",
-                    ImmutableList.of(Object.class, List.class, Object.class),
-                    args -> 42L))
-            .build();
-    CelOptimizer optimizer =
-        CelOptimizerFactory.standardCelOptimizerBuilder(celWithBinding)
-            .addAstOptimizers(
-                SelectOptimizer.newInstance(
-                    SelectOptimizerOptions.newBuilder().build(),
-                    TestAllTypes.getDescriptor().getFile()))
-            .build();
-    CelAbstractSyntaxTree ast = celWithBinding.compile("map_var_msg.key.single_int64").getAst();
-
-    CelAbstractSyntaxTree optimizedAst = optimizer.optimize(ast);
-    Program program = celWithBinding.createProgram(optimizedAst);
-    ImmutableMap<String, Object> input = ImmutableMap.of("map_var_msg", ImmutableMap.of());
-
-    CelEvaluationException exception =
-        assertThrows(CelEvaluationException.class, () -> program.eval(input));
-
-    assertThat(exception).hasMessageThat().contains("key 'key' is not present in map");
-  }
 
   @Test
   public void options_toBuilder_preservesValues() {
@@ -1038,5 +1051,26 @@ public final class SelectOptimizerTest {
     assertThat(optimizedAst.getResultType()).isEqualTo(SimpleType.INT);
     CelReference addReference = optimizedAst.getReferenceOrThrow(optimizedAst.getExpr().id());
     assertThat(addReference.overloadIds()).containsExactly("add_int64");
+  }
+
+  @Test
+  public void optimize_optionalSelect_passesThroughUntouched() throws Exception {
+    Cel celWithOptional =
+        cel.toCelBuilder()
+            .addCompilerLibraries(CelExtensions.optional())
+            .addRuntimeLibraries(CelExtensions.optional())
+            .build();
+    CelOptimizer optimizer =
+        CelOptimizerFactory.standardCelOptimizerBuilder(celWithOptional)
+            .addAstOptimizers(
+                SelectOptimizer.newInstance(
+                    SelectOptimizerOptions.newBuilder().build(),
+                    TestAllTypes.getDescriptor().getFile()))
+            .build();
+    CelAbstractSyntaxTree ast = celWithOptional.compile("msg.?single_nested_message.bb").getAst();
+
+    CelAbstractSyntaxTree optimizedAst = optimizer.optimize(ast);
+
+    assertThat(optimizedAst.getExpr()).isEqualTo(ast.getExpr());
   }
 }

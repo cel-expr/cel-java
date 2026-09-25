@@ -167,6 +167,7 @@ java_library(
         ":preadapted_list",
         "//:auto_value",
         "//common/annotations",
+        "//common/exceptions:invalid_argument",
         "//common/types",
         "//common/types:type_providers",
         "@maven//:com_google_errorprone_error_prone_annotations",
@@ -218,6 +219,7 @@ cel_android_library(
         ":preadapted_list_android",
         "//:auto_value",
         "//common/annotations",
+        "//common/exceptions:invalid_argument",
         "//common/types:type_providers_android",
         "//common/types:types_android",
         "@maven//:com_google_errorprone_error_prone_annotations",
@@ -323,6 +325,8 @@ java_library(
     ],
     deps = [
         ":base_proto_cel_value_converter",
+        ":optimized_selectable",
+        ":select_field",
         ":values",
         "//:auto_value",
         "//common/annotations",
@@ -351,6 +355,8 @@ cel_android_library(
     ],
     deps = [
         ":base_proto_cel_value_converter_android",
+        ":optimized_selectable_android",
+        ":select_field_android",
         ":values_android",
         "//:auto_value",
         "//common/annotations",
