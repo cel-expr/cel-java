@@ -744,7 +744,7 @@ final class CelAstToZ3Translator {
               boolean isDynamic = ast.getTypeOrThrow(exprId).equals(SimpleType.DYN);
               BoolExpr isApprox = ctx.mkBool(!isDynamic);
               return TranslatedValue.propagateStrict(
-                  ctx, typeSystem, callRes, Optional.of(expr), isApprox, args);
+                  ctx, typeSystem, functionName, callRes, Optional.of(expr), isApprox, args);
             });
   }
 
@@ -877,7 +877,9 @@ final class CelAstToZ3Translator {
     ArrayExpr mapPresence =
         isMap ? (ArrayExpr) typeSystem.getMapPresence(typeSystem.getMapRef(iterRange)) : null;
 
-    BoolExpr isTruncated = ctx.mkGt(lengthExpr, ctx.mkInt(comprehensionUnrollLimit));
+    BoolExpr isValidRange = isMap ? typeSystem.isMap(iterRange) : typeSystem.isList(iterRange);
+    BoolExpr isTruncated =
+        ctx.mkAnd(isValidRange, ctx.mkGt(lengthExpr, ctx.mkInt(comprehensionUnrollLimit)));
     truncationConditions.add(isTruncated);
 
     if (isAllMacro(comp) || isExistsMacro(comp)) {
@@ -1011,13 +1013,7 @@ final class CelAstToZ3Translator {
       iterations.add(new BoundedIteration(inBounds, condAndStep[1]));
     }
 
-    TranslatedValue reducedTv =
-        reduceAllOrExists(iterations, isTruncated, iterRangeTv, isAllMacro(comp), celExpr, ast);
-    return TranslatedValue.create(
-        typeSystem.propagateErrorAndUnknown(reducedTv.z3Expr(), iterRangeTv.z3Expr()),
-        celExpr,
-        typeSystem,
-        reducedTv.isApproximate());
+    return reduceAllOrExists(iterations, isTruncated, iterRangeTv, isAllMacro(comp), celExpr, ast);
   }
 
   private TranslatedValue unrollMapAndFilter(
@@ -1089,19 +1085,29 @@ final class CelAstToZ3Translator {
             TranslatedValue.create(chainedAccu, typeSystem, ctx.mkFalse()),
             () -> translateExpr(comp.result(), ast));
 
-    taints.add(resultTv.isApproximate());
-
+    Expr<?> iterRangeExpr = iterRangeTv.z3Expr();
+    BoolExpr rangeIsError = typeSystem.isError(iterRangeExpr);
+    BoolExpr rangeIsUnknown = typeSystem.isUnknown(iterRangeExpr);
     BoolExpr isNotError = ctx.mkNot(typeSystem.isError(resultTv.z3Expr()));
     BoolExpr shouldYieldUnknown = ctx.mkAnd(isTruncated, isNotError);
+    taints.add(resultTv.isApproximate());
     taints.add(shouldYieldUnknown);
 
-    return TranslatedValue.create(
-        typeSystem.propagateErrorAndUnknown(
-            ctx.mkITE(shouldYieldUnknown, mkParameterizedUnknown(celExpr, ast), resultTv.z3Expr()),
-            iterRangeTv.z3Expr()),
-        celExpr,
-        typeSystem,
-        CelZ3TypeSystem.mkOrFlattened(ctx, taints));
+    Expr<?> finalResult =
+        CelZ3TypeSystem.SwitchBuilder.newBuilder(ctx)
+            .addCase(rangeIsError, typeSystem.mkError())
+            .addCase(
+                ctx.mkOr(rangeIsUnknown, shouldYieldUnknown), mkParameterizedUnknown(celExpr, ast))
+            .build(resultTv.z3Expr());
+
+    BoolExpr finalTaint =
+        (BoolExpr)
+            ctx.mkITE(
+                ctx.mkOr(rangeIsError, rangeIsUnknown),
+                iterRangeTv.isApproximate(),
+                CelZ3TypeSystem.mkOrFlattened(ctx, taints));
+
+    return TranslatedValue.create(finalResult, celExpr, typeSystem, finalTaint);
   }
 
   private void constrainIterationElement(
@@ -1170,16 +1176,21 @@ final class CelAstToZ3Translator {
     BoolExpr hasMatch = CelZ3TypeSystem.mkOrFlattened(ctx, hasMatchList);
     BoolExpr hasError = CelZ3TypeSystem.mkOrFlattened(ctx, hasErrorList);
     BoolExpr hasUnknown = CelZ3TypeSystem.mkOrFlattened(ctx, hasUnknownList);
+    BoolExpr rangeIsError = typeSystem.isError(iterRangeTv.z3Expr());
+    BoolExpr rangeIsUnknown = typeSystem.isUnknown(iterRangeTv.z3Expr());
 
     BoolExpr hasSafeMatch = CelZ3TypeSystem.mkOrFlattened(ctx, hasSafeMatchList);
     BoolExpr hasSafeError = CelZ3TypeSystem.mkOrFlattened(ctx, hasSafeErrorList);
     BoolExpr hasSafeUnknown = CelZ3TypeSystem.mkOrFlattened(ctx, hasSafeUnknownList);
     BoolExpr anyActiveTaint = CelZ3TypeSystem.mkOrFlattened(ctx, activeTaints);
 
+    Expr<?> comprehensionUnknown = mkParameterizedUnknown(compExpr, ast);
     Expr<?> result =
         CelZ3TypeSystem.SwitchBuilder.newBuilder(ctx)
+            .addCase(rangeIsError, typeSystem.mkError())
+            .addCase(rangeIsUnknown, comprehensionUnknown)
             .addCase(hasMatch, typeSystem.mkBool(!isAll))
-            .addCase(ctx.mkOr(hasUnknown, isTruncated), mkParameterizedUnknown(compExpr, ast))
+            .addCase(ctx.mkOr(hasUnknown, isTruncated), comprehensionUnknown)
             .addCase(hasError, typeSystem.mkError())
             .build(typeSystem.mkBool(isAll));
 
@@ -1191,14 +1202,15 @@ final class CelAstToZ3Translator {
     BoolExpr resultTaint =
         (BoolExpr)
             CelZ3TypeSystem.SwitchBuilder.newBuilder(ctx)
-                .addCase(hasMatch, ctx.mkNot(hasSafeMatch))
+                .addCase(ctx.mkOr(rangeIsError, rangeIsUnknown), iterRangeTv.isApproximate())
+                .addCase(hasMatch, ctx.mkOr(iterRangeTv.isApproximate(), ctx.mkNot(hasSafeMatch)))
                 .addCase(
                     ctx.mkOr(hasUnknown, isTruncated),
-                    ctx.mkOr(isTruncated, ctx.mkNot(hasSafeUnknown)))
-                .addCase(hasError, ctx.mkNot(hasSafeError))
+                    ctx.mkOr(iterRangeTv.isApproximate(), isTruncated, ctx.mkNot(hasSafeUnknown)))
+                .addCase(hasError, ctx.mkOr(iterRangeTv.isApproximate(), ctx.mkNot(hasSafeError)))
                 .build(baseTaint);
 
-    return TranslatedValue.create(result, typeSystem, resultTaint);
+    return TranslatedValue.create(result, compExpr, typeSystem, resultTaint);
   }
 
   private static boolean isAllMacro(CelComprehension comp) {
@@ -1382,32 +1394,6 @@ final class CelAstToZ3Translator {
     return ctx.mkTrue();
   }
 
-  CelAstToZ3Translator(
-      Context ctx,
-      int comprehensionUnrollLimit,
-      ImmutableSet<String> unknownIdentifiers,
-      CelZ3FunctionRegistry functionRegistry,
-      CelTypeProvider typeProvider) {
-    this.ctx = ctx;
-    this.comprehensionUnrollLimit = comprehensionUnrollLimit;
-    this.typeSystem = new CelZ3TypeSystem(ctx);
-    this.typeConstraints = new LinkedHashSet<>();
-    this.operatorTranslator =
-        new CelZ3OperatorTranslator(
-            ctx,
-            typeSystem,
-            this.typeConstraints::add,
-            this::createTypeConstraintForType,
-            !unknownIdentifiers.isEmpty(),
-            functionRegistry);
-    this.symbolTable = new HashMap<>();
-    this.unknownIdentifiers = unknownIdentifiers;
-    this.emptyMessageCache = new HashMap<>();
-    this.listLiteralCache = new HashMap<>();
-    this.typeProvider = typeProvider;
-    this.truncationConditions = new ArrayList<>();
-  }
-
   private static class IterationElement {
     final Expr<?> keyOrIndex;
     final Expr<?> value;
@@ -1452,5 +1438,32 @@ final class CelAstToZ3Translator {
     }
 
     return typeSystem.mkParameterizedUnknown(sig.staticHash(), smtArgs.build());
+  }
+
+  CelAstToZ3Translator(
+      Context ctx,
+      int comprehensionUnrollLimit,
+      ImmutableSet<String> unknownIdentifiers,
+      CelZ3FunctionRegistry functionRegistry,
+      CelTypeProvider typeProvider) {
+    this.ctx = ctx;
+    this.comprehensionUnrollLimit = comprehensionUnrollLimit;
+    this.typeSystem = new CelZ3TypeSystem(ctx);
+    this.typeConstraints = new LinkedHashSet<>();
+    this.operatorTranslator =
+        new CelZ3OperatorTranslator(
+            ctx,
+            typeSystem,
+            this.typeConstraints::add,
+            this::createTypeConstraintForType,
+            !unknownIdentifiers.isEmpty(),
+            functionRegistry,
+            comprehensionUnrollLimit);
+    this.symbolTable = new HashMap<>();
+    this.unknownIdentifiers = unknownIdentifiers;
+    this.emptyMessageCache = new HashMap<>();
+    this.listLiteralCache = new HashMap<>();
+    this.typeProvider = typeProvider;
+    this.truncationConditions = new ArrayList<>();
   }
 }

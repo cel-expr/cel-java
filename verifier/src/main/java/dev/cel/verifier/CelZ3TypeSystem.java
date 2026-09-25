@@ -35,7 +35,6 @@ import com.microsoft.z3.Sort;
 import dev.cel.common.internal.ProtoTimeUtils;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -138,12 +137,6 @@ public final class CelZ3TypeSystem {
     private final Sort[] domain;
     private final Sort range;
 
-    FuncDeclKey(String name, Sort[] domain, Sort range) {
-      this.name = name;
-      this.domain = domain;
-      this.range = range;
-    }
-
     @Override
     public boolean equals(Object o) {
       if (this == o) {
@@ -165,9 +158,15 @@ public final class CelZ3TypeSystem {
       result = 31 * result + range.hashCode();
       return result;
     }
+
+    FuncDeclKey(String name, Sort[] domain, Sort range) {
+      this.name = name;
+      this.domain = domain;
+      this.range = range;
+    }
   }
 
-  private final Map<FuncDeclKey, FuncDecl<?>> funcDeclCache = new HashMap<>();
+  private final Map<FuncDeclKey, FuncDecl<?>> funcDeclCache;
 
   private final DatatypeSort celValueSort;
   private final Constructor boolCons;
@@ -203,6 +202,8 @@ public final class CelZ3TypeSystem {
   private final FuncDecl msgValuesFunc;
   private final FuncDecl msgPresenceFunc;
   private final FuncDecl msgTypeNameFunc;
+
+  private boolean propagateParameterizedUnknowns;
 
   public Expr<?> mkListRefConst(String prefix) {
     return ctx.mkFreshConst(prefix, listRefSort);
@@ -500,6 +501,29 @@ public final class CelZ3TypeSystem {
     return mkUnknown(uniqueUnknownId);
   }
 
+  void enableParameterizedUnknownPropagation() {
+    this.propagateParameterizedUnknowns = true;
+  }
+
+  boolean isParameterizingUnknowns() {
+    return propagateParameterizedUnknowns;
+  }
+
+  /**
+   * Creates a parameterized unknown representing an operation applied to one or more unknown
+   * values, preserving EUF congruence only when both the operation and all arguments match.
+   *
+   * <p>Only use this when {@link #isParameterizingUnknowns()} is true. Otherwise, verification only
+   * observes whether a value is unknown, not which unknown it is.
+   */
+  Expr<?> mkPropagatedUnknown(String opName, List<Expr<?>> allArgs) {
+    Sort[] domain = new Sort[allArgs.size()];
+    Arrays.fill(domain, celValueSort());
+    FuncDecl<?> propUf =
+        internFuncDecl("!prop_" + opName + "_" + allArgs.size(), domain, unknownIdSort());
+    return mkUnknown(ctx.mkApp(propUf, allArgs.toArray(new Expr<?>[0])));
+  }
+
   /** Gets the sort used for unknown identifiers. */
   public Sort unknownIdSort() {
     return unknownIdSort;
@@ -508,7 +532,7 @@ public final class CelZ3TypeSystem {
   /**
    * Wraps the result in an ITE expression that short-circuits to Error or Unknown.
    *
-   * @see #propagateErrorAndUnknown(Expr, Collection)
+   * @see #propagateErrorAndUnknown(Expr, List)
    */
   Expr<?> propagateErrorAndUnknown(Expr<?> result, Expr<?>... args) {
     return propagateErrorAndUnknown(result, Arrays.asList(args));
@@ -517,24 +541,41 @@ public final class CelZ3TypeSystem {
   /**
    * Wraps the result in an ITE expression that short-circuits to Error or Unknown if any of the
    * provided arguments evaluate to Error or Unknown.
+   *
+   * <p>Without an operation name, {@code result} is added to the parameterized unknown's key to
+   * tell apart different operations over the same arguments.
    */
-  Expr<?> propagateErrorAndUnknown(Expr<?> result, Collection<Expr<?>> args) {
-    if (args.isEmpty()) {
+  Expr<?> propagateErrorAndUnknown(Expr<?> result, List<Expr<?>> args) {
+    List<Expr<?>> signatureArgs = new ArrayList<>(args.size() + 1);
+    signatureArgs.add(result);
+    signatureArgs.addAll(args);
+    return propagateErrorAndUnknown("default", result, args, signatureArgs);
+  }
+
+  /**
+   * Wraps the result in an ITE expression that short-circuits to Unknown, or else Error, if any of
+   * {@code checkArgs} evaluates to Unknown or Error.
+   *
+   * @param opName names the operation when unknowns are parameterized
+   * @param checkArgs the arguments that may evaluate to Unknown or Error
+   * @param allArgs the terms keying the parameterized unknown: every operand, including any omitted
+   *     from {@code checkArgs}
+   */
+  Expr<?> propagateErrorAndUnknown(
+      String opName, Expr<?> result, List<Expr<?>> checkArgs, List<Expr<?>> allArgs) {
+    if (checkArgs.isEmpty()) {
       return result;
     }
-    List<Expr<?>> argsList = new ArrayList<>(args);
-    BoolExpr[] errors = new BoolExpr[argsList.size()];
-    BoolExpr[] unknowns = new BoolExpr[argsList.size()];
-    Expr<?> unknownResult = mkUnknown();
-    // Walk backwards to preserve the earliest unknown in case of multiple unknowns (applicable for
-    // nested ITE chain)
-    for (int i = argsList.size() - 1; i >= 0; i--) {
-      Expr<?> arg = argsList.get(i);
-      errors[i] = isError(arg);
-      BoolExpr isUnknown = isUnknown(arg);
-      unknowns[i] = isUnknown;
-      unknownResult = ctx.mkITE(isUnknown, arg, unknownResult);
+    BoolExpr[] errors = new BoolExpr[checkArgs.size()];
+    BoolExpr[] unknowns = new BoolExpr[checkArgs.size()];
+    for (int i = 0; i < checkArgs.size(); i++) {
+      errors[i] = isError(checkArgs.get(i));
+      unknowns[i] = isUnknown(checkArgs.get(i));
     }
+    // Only equivalence checks, which parameterize unknowns, can tell unknowns apart. The other
+    // checks only observe whether a value is unknown, so the generic unknown suffices for them.
+    Expr<?> unknownResult =
+        propagateParameterizedUnknowns ? mkPropagatedUnknown(opName, allArgs) : mkUnknown();
     BoolExpr hasError = ctx.mkOr(errors);
     BoolExpr hasUnknown = ctx.mkOr(unknowns);
     // Unknowns have higher precedence than error
@@ -968,6 +1009,7 @@ public final class CelZ3TypeSystem {
 
   CelZ3TypeSystem(Context ctx) {
     this.ctx = ctx;
+    this.funcDeclCache = new HashMap<>();
     this.boolCons =
         ctx.mkConstructor(
             CONS_BOOL, IS_BOOL, new String[] {GET_BOOL}, new Sort[] {ctx.getBoolSort()}, null);
@@ -1106,5 +1148,6 @@ public final class CelZ3TypeSystem {
             ctx.mkArraySort(ctx.getStringSort(), ctx.getBoolSort()));
     this.msgTypeNameFunc =
         ctx.mkFuncDecl(FUNC_MSG_TYPE_NAME, new Sort[] {this.messageRefSort}, ctx.getStringSort());
+    this.propagateParameterizedUnknowns = false;
   }
 }
