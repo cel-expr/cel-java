@@ -1688,4 +1688,181 @@ public final class ProgramPlannerTest {
       this.expected = expected;
     }
   }
+
+  @Test
+  public void plan_exhaustiveLogicalOr_shortCircuitDominatesError(
+      @TestParameter({"true || (1 / 0 == 0)", "(1 / 0 == 0) || true"}) String expression)
+      throws Exception {
+    CelAbstractSyntaxTree ast = CEL_COMPILER.compile(expression).getAst();
+    ProgramPlanner planner =
+        newPlannerWithOptions(
+            CelOptions.current()
+                .enableHeterogeneousNumericComparisons(true)
+                .enableShortCircuiting(false)
+                .build());
+    Program program = planner.plan(ast);
+
+    Object result = program.eval();
+
+    assertThat(result).isEqualTo(true);
+  }
+
+  @Test
+  public void plan_exhaustiveLogicalAnd_shortCircuitDominatesError(
+      @TestParameter({"false && (1 / 0 == 0)", "(1 / 0 == 0) && false"}) String expression)
+      throws Exception {
+    CelAbstractSyntaxTree ast = CEL_COMPILER.compile(expression).getAst();
+    ProgramPlanner planner =
+        newPlannerWithOptions(
+            CelOptions.current()
+                .enableHeterogeneousNumericComparisons(true)
+                .enableShortCircuiting(false)
+                .build());
+    Program program = planner.plan(ast);
+
+    Object result = program.eval();
+
+    assertThat(result).isEqualTo(false);
+  }
+
+  @Test
+  public void plan_exhaustiveConditional_nonStrictConditionError() throws Exception {
+    CelAbstractSyntaxTree ast = CEL_COMPILER.compile("(1 / 0 == 0) ? 'a' : 'b'").getAst();
+    ProgramPlanner planner =
+        newPlannerWithOptions(CelOptions.current().enableShortCircuiting(false).build());
+    Program program = planner.plan(ast);
+
+    CelEvaluationException e = assertThrows(CelEvaluationException.class, program::eval);
+
+    assertThat(e.getErrorCode()).isEqualTo(CelErrorCode.DIVIDE_BY_ZERO);
+  }
+
+  @Test
+  public void plan_exhaustiveLogicalOps_invalidNonBooleanTypeThrows(
+      @TestParameter({"true && x", "x && true", "false || x", "x || false"}) String expression)
+      throws Exception {
+    CelCompiler compiler =
+        CelCompilerFactory.standardCelCompilerBuilder().addVar("x", SimpleType.DYN).build();
+    CelAbstractSyntaxTree ast = compiler.compile(expression).getAst();
+    ProgramPlanner planner =
+        newPlannerWithOptions(CelOptions.current().enableShortCircuiting(false).build());
+    Program program = planner.plan(ast);
+
+    CelEvaluationException e =
+        assertThrows(CelEvaluationException.class, () -> program.eval(ImmutableMap.of("x", 1L)));
+
+    assertThat(e.getErrorCode()).isEqualTo(CelErrorCode.INTERNAL_ERROR);
+    assertThat(e).hasCauseThat().isInstanceOf(IllegalArgumentException.class);
+    assertThat(e).hasCauseThat().hasMessageThat().contains("Expected boolean value, found: 1");
+  }
+
+  @Test
+  public void plan_exhaustiveLogicalOr_shortCircuitValueDominatesInvalidNonBooleanType(
+      @TestParameter({"true || x", "x || true"}) String expression) throws Exception {
+    CelCompiler compiler =
+        CelCompilerFactory.standardCelCompilerBuilder().addVar("x", SimpleType.DYN).build();
+    CelAbstractSyntaxTree ast = compiler.compile(expression).getAst();
+    ProgramPlanner planner =
+        newPlannerWithOptions(CelOptions.current().enableShortCircuiting(false).build());
+    Program program = planner.plan(ast);
+
+    Object result = program.eval(ImmutableMap.of("x", 1L));
+
+    assertThat(result).isEqualTo(true);
+  }
+
+  @Test
+  public void plan_exhaustiveLogicalAnd_shortCircuitValueDominatesInvalidNonBooleanType(
+      @TestParameter({"false && x", "x && false"}) String expression) throws Exception {
+    CelCompiler compiler =
+        CelCompilerFactory.standardCelCompilerBuilder().addVar("x", SimpleType.DYN).build();
+    CelAbstractSyntaxTree ast = compiler.compile(expression).getAst();
+    ProgramPlanner planner =
+        newPlannerWithOptions(CelOptions.current().enableShortCircuiting(false).build());
+    Program program = planner.plan(ast);
+
+    Object result = program.eval(ImmutableMap.of("x", 1L));
+
+    assertThat(result).isEqualTo(false);
+  }
+
+  @Test
+  public void plan_conditional_unwrapsErrorValue() throws Exception {
+    CelAbstractSyntaxTree ast = CEL_COMPILER.compile("(1 / 0 == 0) ? 'a' : 'b'").getAst();
+    Program program = PLANNER.plan(ast);
+
+    CelEvaluationException e = assertThrows(CelEvaluationException.class, program::eval);
+
+    assertThat(e.getErrorCode()).isEqualTo(CelErrorCode.DIVIDE_BY_ZERO);
+  }
+
+  @Test
+  @SuppressWarnings("Immutable") // Test only
+  public void plan_functionThrowsWithCause_unwrapsOriginalCause() throws Exception {
+    IllegalArgumentException rootCause = new IllegalArgumentException("nested root cause");
+    CelCompiler compiler =
+        CelCompilerFactory.standardCelCompilerBuilder()
+            .addFunctionDeclarations(
+                newFunctionDeclaration(
+                    "throw", newGlobalOverload("throw_int", SimpleType.INT, SimpleType.INT)))
+            .build();
+    DefaultDispatcher.Builder builder = DefaultDispatcher.newBuilder();
+    addBindingsToDispatcher(
+        builder,
+        CelFunctionBinding.fromOverloads(
+            "throw",
+            CelFunctionBinding.from(
+                "throw_int",
+                Long.class,
+                (Long arg) -> {
+                  throw new RuntimeException("outer wrapper", rootCause);
+                })));
+    ProgramPlanner planner =
+        ProgramPlanner.newPlanner(
+            TYPE_PROVIDER,
+            VALUE_PROVIDER,
+            builder.build(),
+            CEL_VALUE_CONVERTER,
+            CEL_CONTAINER,
+            CEL_OPTIONS,
+            ImmutableSet.of(),
+            CelAsyncEvaluationOptions.defaultOptions(),
+            /* asyncExecutor= */ null);
+    Program program = planner.plan(compiler.compile("throw(1)").getAst());
+
+    CelEvaluationException e = assertThrows(CelEvaluationException.class, program::eval);
+
+    assertThat(e).hasCauseThat().hasCauseThat().isSameInstanceAs(rootCause);
+  }
+
+  @Test
+  public void plan_exhaustiveConditional_untakenBranchError_evaluatesSuccessfully(
+      @TestParameter({"true ? 42 : (1 / 0)", "false ? (1 / 0) : 42"}) String expression)
+      throws Exception {
+    CelAbstractSyntaxTree ast = CEL_COMPILER.compile(expression).getAst();
+    ProgramPlanner planner =
+        newPlannerWithOptions(
+            CelOptions.current()
+                .enableHeterogeneousNumericComparisons(true)
+                .enableShortCircuiting(false)
+                .build());
+    Program program = planner.plan(ast);
+
+    Object result = program.eval();
+
+    assertThat(result).isEqualTo(42L);
+  }
+
+  private static ProgramPlanner newPlannerWithOptions(CelOptions options) {
+    return ProgramPlanner.newPlanner(
+        TYPE_PROVIDER,
+        VALUE_PROVIDER,
+        newDispatcher(),
+        CEL_VALUE_CONVERTER,
+        CEL_CONTAINER,
+        options,
+        ImmutableSet.of("late_bound_func"),
+        CelAsyncEvaluationOptions.defaultOptions(),
+        /* asyncExecutor= */ null);
+  }
 }

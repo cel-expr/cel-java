@@ -336,6 +336,7 @@ java_library(
     name = "eval_conditional",
     srcs = ["EvalConditional.java"],
     deps = [
+        ":eval_helpers",
         ":planned_interpretable",
         "//common/ast",
         "//runtime:accumulated_unknowns",
@@ -373,6 +374,7 @@ java_library(
         "//runtime:accumulated_unknowns",
         "//runtime:interpretable",
         "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:com_google_guava_guava",
     ],
 )
 
@@ -383,10 +385,11 @@ java_library(
         ":eval_helpers",
         ":planned_interpretable",
         "//common/ast",
+        "//common/values",
         "//runtime:accumulated_unknowns",
-        "//runtime:evaluation_exception",
         "//runtime:interpretable",
         "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:com_google_guava_guava",
     ],
 )
 
@@ -401,6 +404,7 @@ java_library(
         "//runtime:accumulated_unknowns",
         "//runtime:interpretable",
         "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:com_google_guava_guava",
     ],
 )
 
@@ -942,6 +946,7 @@ cel_android_library(
     name = "eval_conditional_android",
     srcs = ["EvalConditional.java"],
     deps = [
+        ":eval_helpers_android",
         ":planned_interpretable_android",
         "//common/ast:ast_android",
         "//runtime:evaluation_exception",
@@ -979,6 +984,7 @@ cel_android_library(
         "//runtime:interpretable_android",
         "//runtime/src/main/java/dev/cel/runtime:accumulated_unknowns_android",
         "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven_android//:com_google_guava_guava",
     ],
 )
 
@@ -989,10 +995,11 @@ cel_android_library(
         ":eval_helpers_android",
         ":planned_interpretable_android",
         "//common/ast:ast_android",
-        "//runtime:evaluation_exception",
+        "//common/values:values_android",
         "//runtime:interpretable_android",
         "//runtime/src/main/java/dev/cel/runtime:accumulated_unknowns_android",
         "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven_android//:com_google_guava_guava",
     ],
 )
 
@@ -1007,6 +1014,7 @@ cel_android_library(
         "//runtime:interpretable_android",
         "//runtime/src/main/java/dev/cel/runtime:accumulated_unknowns_android",
         "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven_android//:com_google_guava_guava",
     ],
 )
 

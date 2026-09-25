@@ -14,7 +14,9 @@
 
 package dev.cel.runtime.planner;
 
-import com.google.common.base.Preconditions;
+import static com.google.common.base.Preconditions.checkArgument;
+import static dev.cel.runtime.planner.EvalHelpers.evalStrictly;
+
 import dev.cel.common.ast.CelExpr;
 import dev.cel.runtime.AccumulatedUnknowns;
 import dev.cel.runtime.CelEvaluationException;
@@ -30,16 +32,15 @@ final class EvalConditional extends PlannedInterpretable {
     PlannedInterpretable condition = args[0];
     PlannedInterpretable truthy = args[1];
     PlannedInterpretable falsy = args[2];
-    Object condResult = condition.eval(resolver, frame);
+    Object condResult = evalStrictly(condition, resolver, frame);
     if (condResult instanceof AccumulatedUnknowns) {
       return condResult;
     }
     if (!(condResult instanceof Boolean)) {
       throw new IllegalArgumentException(
-          String.format("Expected boolean value, found :%s", condResult));
+          String.format("Expected boolean value, found: %s", condResult));
     }
 
-    // TODO: Handle exhaustive eval
     if ((boolean) condResult) {
       return truthy.eval(resolver, frame);
     }
@@ -53,7 +54,7 @@ final class EvalConditional extends PlannedInterpretable {
 
   private EvalConditional(CelExpr expr, PlannedInterpretable[] args) {
     super(expr);
-    Preconditions.checkArgument(args.length == 3);
+    checkArgument(args.length == 3);
     this.args = args;
   }
 }

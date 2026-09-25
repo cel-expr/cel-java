@@ -31,20 +31,33 @@ final class EvalHelpers {
   static Object evalNonstrictly(
       PlannedInterpretable interpretable, GlobalResolver resolver, ExecutionFrame frame) {
     try {
-      return interpretable.eval(resolver, frame);
+      return evalStrictly(interpretable, resolver, frame);
     } catch (LocalizedEvaluationException e) {
-      // Intercept the localized exception to get a more specific expr ID for error reporting
-      // Example: foo [1] && strict_err [2] -> ID 2 is propagated.
       return ErrorValue.create(e.exprId(), e);
-    } catch (Exception e) {
-      return ErrorValue.create(interpretable.expr().id(), e);
+    }
+  }
+
+  static Object evalBooleanNonstrictly(
+      PlannedInterpretable interpretable, GlobalResolver resolver, ExecutionFrame frame) {
+    try {
+      Object val = evalStrictly(interpretable, resolver, frame);
+      if (!(val instanceof Boolean) && !(val instanceof AccumulatedUnknowns)) {
+        throw new LocalizedEvaluationException(
+            new IllegalArgumentException(String.format("Expected boolean value, found: %s", val)),
+            CelErrorCode.INTERNAL_ERROR,
+            interpretable.expr().id());
+      }
+      return val;
+    } catch (LocalizedEvaluationException e) {
+      return ErrorValue.create(e.exprId(), e);
     }
   }
 
   static Object evalStrictly(
       PlannedInterpretable interpretable, GlobalResolver resolver, ExecutionFrame frame) {
+    Object val;
     try {
-      return interpretable.eval(resolver, frame);
+      val = interpretable.eval(resolver, frame);
     } catch (LocalizedEvaluationException e) {
       // Already localized - propagate as-is to preserve inner expression ID
       throw e;
@@ -56,6 +69,10 @@ final class EvalHelpers {
       throw new LocalizedEvaluationException(
           e, CelErrorCode.INTERNAL_ERROR, interpretable.expr().id());
     }
+    if (val instanceof ErrorValue) {
+      throw ((ErrorValue) val).value();
+    }
+    return val;
   }
 
   static Object dispatch(

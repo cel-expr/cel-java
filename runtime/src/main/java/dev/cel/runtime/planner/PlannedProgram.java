@@ -175,7 +175,6 @@ public abstract class PlannedProgram implements Program {
         ErrorValue errorValue = (ErrorValue) evalResult;
         throw newCelEvaluationException(errorValue.exprId(), errorValue.value());
       }
-
       return InterpreterUtil.maybeAdaptToCelUnknownSet(evalResult);
     } catch (RuntimeException e) {
       throw newCelEvaluationException(interpretable().expr().id(), e);
@@ -192,21 +191,17 @@ public abstract class PlannedProgram implements Program {
   }
 
   private CelEvaluationException newCelEvaluationException(long exprId, Throwable e) {
-    if (e instanceof CelEvaluationException) {
-      return (CelEvaluationException) e;
-    }
-    CelEvaluationExceptionBuilder builder;
     if (e instanceof LocalizedEvaluationException) {
       // Use the localized expr ID (most specific error location)
       LocalizedEvaluationException localized = (LocalizedEvaluationException) e;
       exprId = localized.exprId();
-      Throwable cause = localized.getCause();
-      if (cause instanceof CelRuntimeException) {
-        builder = CelEvaluationExceptionBuilder.newBuilder((CelRuntimeException) cause);
-      } else {
-        builder = CelEvaluationExceptionBuilder.newBuilder(cause.getMessage()).setCause(cause);
-      }
-    } else if (e instanceof CelRuntimeException) {
+      e = localized.getCause();
+    }
+    if (e instanceof CelEvaluationException) {
+      return (CelEvaluationException) e;
+    }
+    CelEvaluationExceptionBuilder builder;
+    if (e instanceof CelRuntimeException) {
       builder = CelEvaluationExceptionBuilder.newBuilder((CelRuntimeException) e);
     } else {
       // Unhandled function dispatch failures wraps the original exception with a descriptive
