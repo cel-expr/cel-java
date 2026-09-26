@@ -108,13 +108,18 @@ abstract class TranslatedValue {
    * <p>Otherwise, it computes whether the final result is tainted by any approximate values.
    */
   static TranslatedValue propagateStrict(
-      Context ctx, CelZ3TypeSystem ts, Expr<?> baseResult, Collection<TranslatedValue> args) {
-    return propagateStrict(ctx, ts, baseResult, Optional.empty(), args);
+      Context ctx,
+      CelZ3TypeSystem ts,
+      String opName,
+      Expr<?> baseResult,
+      Collection<TranslatedValue> args) {
+    return propagateStrict(ctx, ts, opName, baseResult, Optional.empty(), ctx.mkFalse(), args);
   }
 
   static TranslatedValue propagateStrict(
-      Context ctx, CelZ3TypeSystem ts, Expr<?> baseResult, TranslatedValue... args) {
-    return propagateStrict(ctx, ts, baseResult, Optional.empty(), Arrays.asList(args));
+      Context ctx, CelZ3TypeSystem ts, String opName, Expr<?> baseResult, TranslatedValue... args) {
+    return propagateStrict(
+        ctx, ts, opName, baseResult, Optional.empty(), ctx.mkFalse(), Arrays.asList(args));
   }
 
   static TranslatedValue propagateStrict(
@@ -123,21 +128,14 @@ abstract class TranslatedValue {
       Expr<?> baseResult,
       CelExpr celExpr,
       Collection<TranslatedValue> args) {
-    return propagateStrict(ctx, ts, baseResult, Optional.of(celExpr), args);
+    return propagateStrict(
+        ctx, ts, extractOpName(celExpr), baseResult, Optional.of(celExpr), ctx.mkFalse(), args);
   }
 
   static TranslatedValue propagateStrict(
       Context ctx,
       CelZ3TypeSystem ts,
-      Expr<?> baseResult,
-      Optional<CelExpr> celExpr,
-      Collection<TranslatedValue> args) {
-    return propagateStrict(ctx, ts, baseResult, celExpr, ctx.mkFalse(), args);
-  }
-
-  static TranslatedValue propagateStrict(
-      Context ctx,
-      CelZ3TypeSystem ts,
+      String opName,
       Expr<?> baseResult,
       Optional<CelExpr> celExpr,
       BoolExpr baseTaint,
@@ -145,50 +143,49 @@ abstract class TranslatedValue {
     List<BoolExpr> exactErrors = new ArrayList<>();
     List<BoolExpr> exactUnknowns = new ArrayList<>();
     List<BoolExpr> unknowns = new ArrayList<>();
-    List<BoolExpr> taints = new ArrayList<>();
-    taints.add(baseTaint);
+    List<BoolExpr> argTaints = new ArrayList<>(args.size());
+    List<Expr<?>> nonConstZ3Args = new ArrayList<>();
+    List<Expr<?>> allZ3Args = new ArrayList<>(args.size());
 
-    boolean hasNonConstantArgs = false;
-    List<TranslatedValue> argsList = new ArrayList<>(args);
-    for (int i = argsList.size() - 1; i >= 0; i--) {
-      TranslatedValue arg = argsList.get(i);
-      taints.add(arg.isApproximate());
+    for (TranslatedValue arg : args) {
+      Expr<?> z3Expr = arg.z3Expr();
+      BoolExpr isApprox = arg.isApproximate();
+      allZ3Args.add(z3Expr);
+      argTaints.add(isApprox);
       if (arg.isLiteral(ExprKind.Kind.CONSTANT)) {
         continue;
       }
-      hasNonConstantArgs = true;
+      nonConstZ3Args.add(z3Expr);
 
-      Expr<?> z3Expr = arg.z3Expr();
-      BoolExpr isApprox = arg.isApproximate();
       BoolExpr isError = ts.isError(z3Expr);
       BoolExpr isUnknown = ts.isUnknown(z3Expr);
+      BoolExpr isExact = CelZ3TypeSystem.mkNotFlattened(ctx, isApprox);
 
       unknowns.add(isUnknown);
-
-      exactErrors.add(
-          CelZ3TypeSystem.mkAndFlattened(
-              ctx, Arrays.asList(isError, CelZ3TypeSystem.mkNotFlattened(ctx, isApprox))));
-      exactUnknowns.add(
-          CelZ3TypeSystem.mkAndFlattened(
-              ctx, Arrays.asList(isUnknown, CelZ3TypeSystem.mkNotFlattened(ctx, isApprox))));
+      exactErrors.add(CelZ3TypeSystem.mkAndFlattened(ctx, isError, isExact));
+      if (!ts.isParameterizingUnknowns()) {
+        exactUnknowns.add(CelZ3TypeSystem.mkAndFlattened(ctx, isUnknown, isExact));
+      }
     }
 
-    BoolExpr anyTaint = CelZ3TypeSystem.mkOrFlattened(ctx, taints);
-    if (!hasNonConstantArgs) {
+    BoolExpr anyArgTaint = CelZ3TypeSystem.mkOrFlattened(ctx, argTaints);
+    BoolExpr anyTaint = CelZ3TypeSystem.mkOrFlattened(ctx, baseTaint, anyArgTaint);
+    if (nonConstZ3Args.isEmpty()) {
       return create(baseResult, celExpr, ts, anyTaint);
     }
 
-    List<Expr<?>> z3Args = new ArrayList<>();
-    for (TranslatedValue arg : argsList) {
-      if (!arg.isLiteral(ExprKind.Kind.CONSTANT)) {
-        z3Args.add(arg.z3Expr());
-      }
-    }
-    Expr<?> finalResult = ts.propagateErrorAndUnknown(baseResult, z3Args);
+    Expr<?> finalResult =
+        ts.propagateErrorAndUnknown(opName, baseResult, nonConstZ3Args, allZ3Args);
 
     BoolExpr hasExactError = CelZ3TypeSystem.mkOrFlattened(ctx, exactErrors);
-    BoolExpr hasExactUnknown = CelZ3TypeSystem.mkOrFlattened(ctx, exactUnknowns);
     BoolExpr hasUnknown = CelZ3TypeSystem.mkOrFlattened(ctx, unknowns);
+    // A parameterized unknown is keyed on every argument, so it is only exact if no argument (not
+    // just the unknown one) is approximate.
+    BoolExpr hasExactUnknown =
+        ts.isParameterizingUnknowns()
+            ? CelZ3TypeSystem.mkAndFlattened(
+                ctx, hasUnknown, CelZ3TypeSystem.mkNotFlattened(ctx, anyArgTaint))
+            : CelZ3TypeSystem.mkOrFlattened(ctx, exactUnknowns);
 
     BoolExpr isSafe =
         CelZ3TypeSystem.mkOrFlattened(
@@ -202,6 +199,32 @@ abstract class TranslatedValue {
   }
 
   /**
+   * Names the operation performed by {@code expr} for parameterized unknowns. The name encodes the
+   * expression's shape so that EUF does not equate unknowns produced by different expressions over
+   * the same arguments.
+   */
+  private static String extractOpName(CelExpr expr) {
+    switch (expr.exprKind().getKind()) {
+      case SELECT:
+        return "select_" + expr.select().field() + "_" + expr.select().testOnly();
+      case STRUCT:
+        StringBuilder structSb = new StringBuilder("struct_").append(expr.struct().messageName());
+        for (CelExpr.CelStruct.Entry entry : expr.struct().entries()) {
+          structSb.append('_').append(entry.fieldKey()).append(':').append(entry.optionalEntry());
+        }
+        return structSb.toString();
+      case MAP:
+        StringBuilder mapSb = new StringBuilder("MAP");
+        for (CelExpr.CelMap.Entry entry : expr.map().entries()) {
+          mapSb.append('_').append(entry.optionalEntry());
+        }
+        return mapSb.toString();
+      default:
+        return "LIST_" + expr.list().optionalIndices();
+    }
+  }
+
+  /**
    * Returns a new TranslatedValue with an additional approximation condition OR'd into the
    * approximation flag.
    */
@@ -210,7 +233,7 @@ abstract class TranslatedValue {
         z3Expr(),
         celExpr(),
         typeSystem(),
-        typeSystem().ctx().mkOr(isApproximate(), approxCondition));
+        CelZ3TypeSystem.mkOrFlattened(typeSystem().ctx(), isApproximate(), approxCondition));
   }
 }
 

@@ -14,6 +14,8 @@
 
 package dev.cel.verifier;
 
+import com.google.auto.value.AutoValue;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.ObjectArrays;
 import com.google.common.primitives.UnsignedLongs;
@@ -35,7 +37,6 @@ import com.microsoft.z3.Sort;
 import dev.cel.common.internal.ProtoTimeUtils;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -132,42 +133,7 @@ public final class CelZ3TypeSystem {
   private static final String FUNC_MSG_TYPE_NAME = "msg_type_name";
 
   private final Context ctx;
-
-  private static final class FuncDeclKey {
-    private final String name;
-    private final Sort[] domain;
-    private final Sort range;
-
-    FuncDeclKey(String name, Sort[] domain, Sort range) {
-      this.name = name;
-      this.domain = domain;
-      this.range = range;
-    }
-
-    @Override
-    public boolean equals(Object o) {
-      if (this == o) {
-        return true;
-      }
-      if (!(o instanceof FuncDeclKey)) {
-        return false;
-      }
-      FuncDeclKey that = (FuncDeclKey) o;
-      return name.equals(that.name)
-          && Arrays.equals(domain, that.domain)
-          && range.equals(that.range);
-    }
-
-    @Override
-    public int hashCode() {
-      int result = name.hashCode();
-      result = 31 * result + Arrays.hashCode(domain);
-      result = 31 * result + range.hashCode();
-      return result;
-    }
-  }
-
-  private final Map<FuncDeclKey, FuncDecl<?>> funcDeclCache = new HashMap<>();
+  private final Map<FuncDeclKey, FuncDecl<?>> funcDeclCache;
 
   private final DatatypeSort celValueSort;
   private final Constructor boolCons;
@@ -204,6 +170,8 @@ public final class CelZ3TypeSystem {
   private final FuncDecl msgPresenceFunc;
   private final FuncDecl msgTypeNameFunc;
 
+  private boolean propagateParameterizedUnknowns;
+
   public Expr<?> mkListRefConst(String prefix) {
     return ctx.mkFreshConst(prefix, listRefSort);
   }
@@ -223,7 +191,7 @@ public final class CelZ3TypeSystem {
    * avoiding redundant JNI calls to Z3.
    */
   public FuncDecl<?> internFuncDecl(String name, Sort[] domain, Sort range) {
-    FuncDeclKey cacheKey = new FuncDeclKey(name, domain, range);
+    FuncDeclKey cacheKey = FuncDeclKey.create(name, domain, range);
     return funcDeclCache.computeIfAbsent(cacheKey, k -> ctx.mkFuncDecl(name, domain, range));
   }
 
@@ -241,40 +209,52 @@ public final class CelZ3TypeSystem {
     return listRefSort;
   }
 
-  public Constructor boolCons() {
+  Constructor boolCons() {
     return boolCons;
   }
 
-  public Constructor intCons() {
+  Constructor intCons() {
     return intCons;
   }
 
-  public Constructor uintCons() {
+  Constructor uintCons() {
     return uintCons;
   }
 
-  public Constructor doubleCons() {
+  Constructor doubleCons() {
     return doubleCons;
   }
 
-  public Constructor stringCons() {
+  Constructor stringCons() {
     return stringCons;
   }
 
-  public Constructor bytesCons() {
+  Constructor bytesCons() {
     return bytesCons;
   }
 
-  public Constructor timestampCons() {
+  Constructor timestampCons() {
     return timestampCons;
   }
 
-  public Constructor durationCons() {
+  Constructor durationCons() {
     return durationCons;
   }
 
   Constructor optionalCons() {
     return optionalCons;
+  }
+
+  Constructor errorCons() {
+    return errorCons;
+  }
+
+  Constructor nullCons() {
+    return nullCons;
+  }
+
+  Constructor unknownCons() {
+    return unknownCons;
   }
 
   /**
@@ -464,77 +444,80 @@ public final class CelZ3TypeSystem {
     return ctx.mkConst(nullCons.ConstructorDecl());
   }
 
-  public Constructor errorCons() {
-    return errorCons;
-  }
-
-  public Constructor nullCons() {
-    return nullCons;
-  }
-
   /** Creates a CelValue representing an unknown value. */
   public Expr<?> mkUnknown() {
     return mkUnknown(ctx.mkConst(GENERIC_UNKNOWN_ID, unknownIdSort));
   }
 
   /** Creates a CelValue representing an unknown value with a specific ID. */
-  public Expr<?> mkUnknown(Expr<?> unknownId) {
+  private Expr<?> mkUnknown(Expr<?> unknownId) {
     return ctx.mkApp(unknownCons.ConstructorDecl(), unknownId);
   }
 
   /** Creates a parameterized unknown representing a truncated comprehension. */
-  public Expr<?> mkParameterizedUnknown(long staticHash, List<Expr<?>> smtArgs) {
+  Expr<?> mkParameterizedUnknown(long staticHash, List<Expr<?>> smtArgs) {
     Sort[] domain = new Sort[smtArgs.size()];
     for (int i = 0; i < smtArgs.size(); i++) {
       domain[i] = celValueSort();
     }
 
     String ufName = "!trunc_" + Long.toHexString(staticHash);
-    FuncDecl<?> truncUf = internFuncDecl(ufName, domain, unknownIdSort());
+    FuncDecl<?> truncUf = internFuncDecl(ufName, domain, unknownIdSort);
 
     Expr<?> uniqueUnknownId =
         smtArgs.isEmpty()
-            ? ctx.mkConst(ufName, unknownIdSort())
+            ? ctx.mkConst(ufName, unknownIdSort)
             : ctx.mkApp(truncUf, smtArgs.toArray(new Expr<?>[0]));
 
     return mkUnknown(uniqueUnknownId);
   }
 
-  /** Gets the sort used for unknown identifiers. */
-  public Sort unknownIdSort() {
-    return unknownIdSort;
+  void enableParameterizedUnknownPropagation() {
+    this.propagateParameterizedUnknowns = true;
+  }
+
+  boolean isParameterizingUnknowns() {
+    return propagateParameterizedUnknowns;
   }
 
   /**
-   * Wraps the result in an ITE expression that short-circuits to Error or Unknown.
+   * Creates a parameterized unknown representing an operation applied to one or more unknown
+   * values, preserving EUF congruence only when both the operation and all arguments match.
    *
-   * @see #propagateErrorAndUnknown(Expr, Collection)
+   * <p>Only use this when {@link #isParameterizingUnknowns()} is true. Otherwise, verification only
+   * observes whether a value is unknown, not which unknown it is.
    */
-  Expr<?> propagateErrorAndUnknown(Expr<?> result, Expr<?>... args) {
-    return propagateErrorAndUnknown(result, Arrays.asList(args));
+  Expr<?> mkPropagatedUnknown(String opName, List<Expr<?>> allArgs) {
+    Sort[] domain = new Sort[allArgs.size()];
+    Arrays.fill(domain, celValueSort());
+    FuncDecl<?> propUf = internFuncDecl(opName, domain, unknownIdSort);
+    return mkUnknown(ctx.mkApp(propUf, allArgs.toArray(new Expr<?>[0])));
   }
 
   /**
-   * Wraps the result in an ITE expression that short-circuits to Error or Unknown if any of the
-   * provided arguments evaluate to Error or Unknown.
+   * Wraps the result in an ITE expression that short-circuits to Unknown, or else Error, if any of
+   * {@code checkArgs} evaluates to Unknown or Error.
+   *
+   * @param opName names the operation when unknowns are parameterized
+   * @param checkArgs the arguments that may evaluate to Unknown or Error
+   * @param allArgs the terms keying the parameterized unknown: every operand, including any omitted
+   *     from {@code checkArgs}
    */
-  Expr<?> propagateErrorAndUnknown(Expr<?> result, Collection<Expr<?>> args) {
-    if (args.isEmpty()) {
+  Expr<?> propagateErrorAndUnknown(
+      String opName, Expr<?> result, List<Expr<?>> checkArgs, List<Expr<?>> allArgs) {
+    if (checkArgs.isEmpty()) {
       return result;
     }
-    List<Expr<?>> argsList = new ArrayList<>(args);
-    BoolExpr[] errors = new BoolExpr[argsList.size()];
-    BoolExpr[] unknowns = new BoolExpr[argsList.size()];
-    Expr<?> unknownResult = mkUnknown();
-    // Walk backwards to preserve the earliest unknown in case of multiple unknowns (applicable for
-    // nested ITE chain)
-    for (int i = argsList.size() - 1; i >= 0; i--) {
-      Expr<?> arg = argsList.get(i);
-      errors[i] = isError(arg);
-      BoolExpr isUnknown = isUnknown(arg);
-      unknowns[i] = isUnknown;
-      unknownResult = ctx.mkITE(isUnknown, arg, unknownResult);
+    BoolExpr[] errors = new BoolExpr[checkArgs.size()];
+    BoolExpr[] unknowns = new BoolExpr[checkArgs.size()];
+    for (int i = 0; i < checkArgs.size(); i++) {
+      errors[i] = isError(checkArgs.get(i));
+      unknowns[i] = isUnknown(checkArgs.get(i));
     }
+    // Only equivalence checks, which parameterize unknowns, can tell unknowns apart. The other
+    // checks only observe whether a value is unknown, so the generic unknown suffices for them.
+    Expr<?> unknownResult =
+        propagateParameterizedUnknowns ? mkPropagatedUnknown(opName, allArgs) : mkUnknown();
     BoolExpr hasError = ctx.mkOr(errors);
     BoolExpr hasUnknown = ctx.mkOr(unknowns);
     // Unknowns have higher precedence than error
@@ -555,10 +538,6 @@ public final class CelZ3TypeSystem {
             ? firstCondition
             : ctx.mkOr(ObjectArrays.concat(firstCondition, remainingConditions));
     return ctx.mkITE(condition, mkError(), result);
-  }
-
-  public Constructor unknownCons() {
-    return unknownCons;
   }
 
   /** Checks if the given CelValue is an error. */
@@ -846,10 +825,10 @@ public final class CelZ3TypeSystem {
   public static final class SwitchBuilder {
 
     private static final class SwitchCase {
-      final BoolExpr condition;
-      final Expr<?> value;
+      private final BoolExpr condition;
+      private final Expr<?> value;
 
-      SwitchCase(BoolExpr condition, Expr<?> value) {
+      private SwitchCase(BoolExpr condition, Expr<?> value) {
         this.condition = condition;
         this.value = value;
       }
@@ -887,6 +866,19 @@ public final class CelZ3TypeSystem {
     private SwitchBuilder(Context ctx) {
       this.ctx = ctx;
       this.cases = new ArrayList<>();
+    }
+  }
+
+  @AutoValue
+  abstract static class FuncDeclKey {
+    abstract String name();
+
+    abstract ImmutableList<Sort> domain();
+
+    abstract Sort range();
+
+    private static FuncDeclKey create(String name, Sort[] domain, Sort range) {
+      return new AutoValue_CelZ3TypeSystem_FuncDeclKey(name, ImmutableList.copyOf(domain), range);
     }
   }
 
@@ -968,6 +960,7 @@ public final class CelZ3TypeSystem {
 
   CelZ3TypeSystem(Context ctx) {
     this.ctx = ctx;
+    this.funcDeclCache = new HashMap<>();
     this.boolCons =
         ctx.mkConstructor(
             CONS_BOOL, IS_BOOL, new String[] {GET_BOOL}, new Sort[] {ctx.getBoolSort()}, null);
@@ -1106,5 +1099,6 @@ public final class CelZ3TypeSystem {
             ctx.mkArraySort(ctx.getStringSort(), ctx.getBoolSort()));
     this.msgTypeNameFunc =
         ctx.mkFuncDecl(FUNC_MSG_TYPE_NAME, new Sort[] {this.messageRefSort}, ctx.getStringSort());
+    this.propagateParameterizedUnknowns = false;
   }
 }
