@@ -16,6 +16,7 @@ package dev.cel.optimizer.optimizers;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 
 import com.google.auto.value.AutoValue;
@@ -52,6 +53,7 @@ import dev.cel.common.internal.CelDescriptorPool;
 import dev.cel.common.internal.CombinedDescriptorPool;
 import dev.cel.common.internal.DefaultDescriptorPool;
 // CEL-Internal-1
+import dev.cel.common.navigation.CelNavigableExprUtil;
 import dev.cel.common.navigation.CelNavigableMutableAst;
 import dev.cel.common.navigation.CelNavigableMutableExpr;
 import dev.cel.common.navigation.TraversalOrder;
@@ -115,6 +117,17 @@ import java.util.Optional;
  * </pre>
  *
  * <p>Map indexing and non-protobuf selects pass through untouched.
+ *
+ * <p><b>Rename Resilience & Dynamic Type Limitations:</b>
+ *
+ * <ul>
+ *   <li><b>Protobuf Extensions:</b> Extension fields are not rename-resilient; runtime lookup
+ *       resolves extensions by their fully qualified name rather than field number.
+ *   <li><b>Dynamic & Unpacked Payloads:</b> When traversing values typed as {@code dyn}, unpacked
+ *       from {@code google.protobuf.Any}, or evaluated via classless wire payloads ({@code
+ *       RawProtoMessageLiteValue}), no cross-check between the embedded field number and field name
+ *       is performed at runtime.
+ * </ul>
  */
 public final class SelectOptimizer implements CelAstOptimizer {
 
@@ -131,6 +144,14 @@ public final class SelectOptimizer implements CelAstOptimizer {
 
   private static final TypeParamType TYPE_PARAM_T = TypeParamType.create("T");
 
+  /**
+   * Declaration for {@code cel.@attribute(operand, qualifiers, typeIdent) -> T}.
+   *
+   * <p>The 3rd argument ({@code TypeType.create(TYPE_PARAM_T)}) binds type parameter {@code T} to
+   * the static type identifier of the leaf field so that type checking preserves the exact result
+   * type rather than erasing to {@code dyn}, and enables plan-time integrity validation between the
+   * leaf hop's wire type code and its static type.
+   */
   @VisibleForTesting
   static final CelFunctionDecl CEL_ATTRIBUTE_FUNCTION_DECL =
       CelFunctionDecl.newFunctionDeclaration(
@@ -186,6 +207,8 @@ public final class SelectOptimizer implements CelAstOptimizer {
 
   @Override
   public OptimizationResult optimize(CelAbstractSyntaxTree ast, Cel cel) {
+    checkNotNull(ast);
+    checkNotNull(cel);
     checkArgument(ast.isChecked(), "AST must be type-checked.");
 
     CelMutableAst astToModify = CelMutableAst.fromCelAst(ast);
@@ -305,8 +328,9 @@ public final class SelectOptimizer implements CelAstOptimizer {
           .expr()
           .setCall(CelMutableCall.create(CEL_HAS_FIELD_FUNCTION_NAME, currentExpr, qualifiersExpr));
     } else {
-      CelMutableExpr typeExpr =
-          CelMutableExpr.ofIdent(idGenerator.nextExprId(), resolveTypeIdent(topField));
+      String typeIdent = resolveTypeIdent(topField);
+      assertNotShadowed(topNode, typeIdent);
+      CelMutableExpr typeExpr = CelMutableExpr.ofIdent(idGenerator.nextExprId(), typeIdent);
       topNode
           .expr()
           .setCall(
@@ -362,6 +386,18 @@ public final class SelectOptimizer implements CelAstOptimizer {
   private boolean isTopOfSelectChain(CelNavigableMutableAst navAst, CelNavigableMutableExpr node) {
     return getOptimizableField(navAst, node).isPresent()
         && !node.parent().flatMap(parent -> getOptimizableField(navAst, parent)).isPresent();
+  }
+
+  // TODO: Mangle comprehension variables.
+  private static void assertNotShadowed(CelNavigableMutableExpr node, String typeIdent) {
+    int dotIndex = typeIdent.indexOf('.');
+    String rootSegment = dotIndex < 0 ? typeIdent : typeIdent.substring(0, dotIndex);
+    checkState(
+        !CelNavigableExprUtil.isVariableShadowed(node, rootSegment),
+        "cel.@attribute type identifier '%s' is shadowed by an enclosing comprehension variable"
+            + " '%s'. Rename the comprehension variable.",
+        typeIdent,
+        rootSegment);
   }
 
   private Optional<FieldDescriptor> getOptimizableField(
