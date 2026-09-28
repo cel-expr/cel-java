@@ -610,7 +610,7 @@ final class CelAstToZ3Translator {
     typeConstraints.add(
         ctx.mkImplies(
             CelZ3TypeSystem.mkAndFlattened(ctx, typeGuard, (BoolExpr) presence), valNotError));
-    if (unknownIdentifiers.isEmpty()) {
+    if (!unknownIdentifiers.contains(field)) {
       BoolExpr valNotUnknown = ctx.mkNot(typeSystem.isUnknown(value));
       typeConstraints.add(
           ctx.mkImplies(
@@ -630,7 +630,7 @@ final class CelAstToZ3Translator {
     typeConstraints.add(
         ctx.mkImplies(
             CelZ3TypeSystem.mkAndFlattened(ctx, typeGuard, (BoolExpr) presence), valNotError));
-    if (unknownIdentifiers.isEmpty()) {
+    if (!unknownIdentifiers.contains(field)) {
       BoolExpr valNotUnknown = ctx.mkNot(typeSystem.isUnknown(value));
       typeConstraints.add(
           ctx.mkImplies(

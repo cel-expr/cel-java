@@ -82,6 +82,23 @@ public interface CelVerifierBuilder {
   @CanIgnoreReturnValue
   CelVerifierBuilder setComprehensionUnrollLimit(int unrollLimit);
 
+  /**
+   * Enables or disables Counterexample-Guided Abstraction Refinement (CEGAR).
+   *
+   * <p>When enabled, if the SMT solver returns an approximate model (e.g., due to unmodeled custom
+   * functions, approximations, or bounded loops), the candidate inputs are validated using concrete
+   * {@link dev.cel.bundle.Cel} program execution. If concrete evaluation confirms an invariant
+   * violation or equivalence divergence, the result is upgraded from {@code INCONCLUSIVE} to {@code
+   * VIOLATED}.
+   *
+   * <p><strong>Note:</strong> This option requires an execution-ready CEL environment where any
+   * custom functions referenced in the policy have registered runtime {@link
+   * dev.cel.runtime.CelFunctionBinding} implementations. In declaration-only environments (e.g.,
+   * static linters without runtime bindings), this should remain disabled.
+   */
+  @CanIgnoreReturnValue
+  CelVerifierBuilder setEnableCegarRefinement(boolean enableCegarRefinement);
+
   /** Builds the {@link CelVerifier} instance. */
   CelVerifier build();
 }

@@ -56,6 +56,9 @@ import dev.cel.optimizer.CelOptimizerFactory;
 import dev.cel.optimizer.optimizers.ConstantFoldingOptimizer;
 import dev.cel.parser.CelMacro;
 import dev.cel.parser.CelStandardMacro;
+import dev.cel.runtime.CelEvaluationException;
+import dev.cel.runtime.CelFunctionBinding;
+import dev.cel.verifier.CelCounterexample.Binding;
 import dev.cel.verifier.CelVerificationResult.VerificationStatus;
 import dev.cel.verifier.axioms.CelZ3FunctionAxiom;
 import dev.cel.verifier.axioms.CelZ3OverloadResult;
@@ -3189,5 +3192,378 @@ public final class CelVerifierZ3ImplTest {
             .verifyImplication(assumeAst, assertAst, ImmutableMap.of(), "Implication");
     assertThat(result.status()).isEqualTo(VerificationStatus.VERIFIED);
   }
-}
 
+  @Test
+  public void cegarRefinement_unmodeledFunction_upgradesInconclusiveToViolated() throws Exception {
+    CelFunctionDecl customHash =
+        CelFunctionDecl.newFunctionDeclaration(
+            "customHash",
+            CelOverloadDecl.newGlobalOverload(
+                "customHash_string", SimpleType.STRING, SimpleType.STRING));
+    Cel cel =
+        CelFactory.plannerCelBuilder()
+            .addFunctionDeclarations(customHash)
+            .addFunctionBindings(
+                CelFunctionBinding.from(
+                    "customHash_string", String.class, (String s) -> "hash_" + s))
+            .addVar("token", SimpleType.STRING)
+            .build();
+
+    CelAbstractSyntaxTree ast =
+        cel.compile("token == 'admin' ? customHash(token) != 'hash_admin' : true").getAst();
+
+    // Pure SMT verifier without CEGAR returns INCONCLUSIVE
+    CelVerifier verifierWithoutCegar = CelVerifierFactory.newVerifier(cel).build();
+    CelVerificationResult resultWithoutCegar = verifierWithoutCegar.isAlwaysTrue(ast);
+    assertThat(resultWithoutCegar.status()).isEqualTo(VerificationStatus.INCONCLUSIVE);
+
+    // Verifier with CEGAR refinement enabled evaluates candidate model concretely and proves
+    // violation
+    CelVerifier verifierWithCegar =
+        CelVerifierFactory.newVerifier(cel).setEnableCegarRefinement(true).build();
+    CelVerificationResult resultWithCegar = verifierWithCegar.isAlwaysTrue(ast);
+    assertThat(resultWithCegar.status()).isEqualTo(VerificationStatus.VIOLATED);
+    assertThat(resultWithCegar.counterexampleModel()).isPresent();
+    assertThat(resultWithCegar.counterexampleModel().get().get("token"))
+        .hasValue(Binding.of("token", SimpleType.STRING, "admin", "\"admin\""));
+  }
+
+  @Test
+  public void cegarRefinement_equivalence_upgradesInconclusiveToViolated() throws Exception {
+    CelFunctionDecl customHash =
+        CelFunctionDecl.newFunctionDeclaration(
+            "customHash",
+            CelOverloadDecl.newGlobalOverload(
+                "customHash_string", SimpleType.STRING, SimpleType.STRING));
+    Cel cel =
+        CelFactory.plannerCelBuilder()
+            .addFunctionDeclarations(customHash)
+            .addFunctionBindings(
+                CelFunctionBinding.from(
+                    "customHash_string", String.class, (String s) -> "hash_" + s))
+            .addVar("token", SimpleType.STRING)
+            .build();
+
+    CelAbstractSyntaxTree astA =
+        cel.compile("token == 'admin' && customHash(token) == 'hash_admin'").getAst();
+    CelAbstractSyntaxTree astB = cel.compile("false").getAst();
+
+    // Pure SMT verifier without CEGAR returns INCONCLUSIVE because customHash is unmodeled
+    CelVerifier verifierWithoutCegar = CelVerifierFactory.newVerifier(cel).build();
+    CelVerificationResult resultWithoutCegar = verifierWithoutCegar.verifyEquivalence(astA, astB);
+    assertThat(resultWithoutCegar.status()).isEqualTo(VerificationStatus.INCONCLUSIVE);
+
+    // Verifier with CEGAR refinement enabled evaluates candidate model concretely and proves
+    // divergence
+    CelVerifier verifierWithCegar =
+        CelVerifierFactory.newVerifier(cel).setEnableCegarRefinement(true).build();
+    CelVerificationResult resultWithCegar = verifierWithCegar.verifyEquivalence(astA, astB);
+    assertThat(resultWithCegar.status()).isEqualTo(VerificationStatus.VIOLATED);
+    assertThat(resultWithCegar.counterexampleModel()).isPresent();
+    assertThat(resultWithCegar.counterexampleModel().get().get("token"))
+        .hasValue(Binding.of("token", SimpleType.STRING, "admin", "\"admin\""));
+  }
+
+  @Test
+  public void cegarRefinement_implication_upgradesInconclusiveToViolated() throws Exception {
+    CelFunctionDecl customHash =
+        CelFunctionDecl.newFunctionDeclaration(
+            "customHash",
+            CelOverloadDecl.newGlobalOverload(
+                "customHash_string", SimpleType.STRING, SimpleType.STRING));
+    Cel cel =
+        CelFactory.plannerCelBuilder()
+            .addFunctionDeclarations(customHash)
+            .addFunctionBindings(
+                CelFunctionBinding.from(
+                    "customHash_string", String.class, (String s) -> "hash_" + s))
+            .addVar("token", SimpleType.STRING)
+            .build();
+
+    CelAbstractSyntaxTree assumeAst = cel.compile("token == 'admin'").getAst();
+    CelAbstractSyntaxTree assertAst = cel.compile("customHash(token) != 'hash_admin'").getAst();
+
+    // Pure SMT verifier without CEGAR returns INCONCLUSIVE
+    CelVerifierZ3Impl verifierWithoutCegar =
+        (CelVerifierZ3Impl) CelVerifierFactory.newVerifier(cel).build();
+    CelVerificationResult resultWithoutCegar =
+        verifierWithoutCegar.verifyImplication(
+            assumeAst, assertAst, ImmutableMap.of(), "Condition");
+    assertThat(resultWithoutCegar.status()).isEqualTo(VerificationStatus.INCONCLUSIVE);
+
+    // Verifier with CEGAR refinement enabled evaluates candidate model concretely and proves
+    // violation
+    CelVerifierZ3Impl verifierWithCegar =
+        (CelVerifierZ3Impl)
+            CelVerifierFactory.newVerifier(cel).setEnableCegarRefinement(true).build();
+    CelVerificationResult resultWithCegar =
+        verifierWithCegar.verifyImplication(assumeAst, assertAst, ImmutableMap.of(), "Condition");
+    assertThat(resultWithCegar.status()).isEqualTo(VerificationStatus.VIOLATED);
+    assertThat(resultWithCegar.counterexampleModel()).isPresent();
+    assertThat(resultWithCegar.counterexampleModel().get().get("token"))
+        .hasValue(Binding.of("token", SimpleType.STRING, "admin", "\"admin\""));
+  }
+
+  @Test
+  public void cegarRefinement_implication_spuriousCounterexample_remainsInconclusive()
+      throws Exception {
+    CelFunctionDecl customHash =
+        CelFunctionDecl.newFunctionDeclaration(
+            "customHash",
+            CelOverloadDecl.newGlobalOverload(
+                "customHash_string", SimpleType.STRING, SimpleType.STRING));
+    Cel cel =
+        CelFactory.plannerCelBuilder()
+            .addFunctionDeclarations(customHash)
+            .addFunctionBindings(
+                CelFunctionBinding.from(
+                    "customHash_string", String.class, (String s) -> "hash_" + s))
+            .addVar("token", SimpleType.STRING)
+            .build();
+
+    // The implication token == 'admin' ==> customHash(token) == 'hash_admin' is mathematically
+    // true.
+    // Pure SMT without customHash theory finds a spurious counterexample model, which CEGAR
+    // refutes.
+    CelAbstractSyntaxTree assumeAst = cel.compile("token == 'admin'").getAst();
+    CelAbstractSyntaxTree assertAst = cel.compile("customHash(token) == 'hash_admin'").getAst();
+
+    CelVerifierZ3Impl verifierWithCegar =
+        (CelVerifierZ3Impl)
+            CelVerifierFactory.newVerifier(cel).setEnableCegarRefinement(true).build();
+    CelVerificationResult result =
+        verifierWithCegar.verifyImplication(assumeAst, assertAst, ImmutableMap.of(), "Condition");
+    assertThat(result.status()).isEqualTo(VerificationStatus.INCONCLUSIVE);
+  }
+
+  @Test
+  public void cegarRefinement_equivalence_spuriousCounterexample_remainsInconclusive()
+      throws Exception {
+    CelFunctionDecl customHash =
+        CelFunctionDecl.newFunctionDeclaration(
+            "customHash",
+            CelOverloadDecl.newGlobalOverload(
+                "customHash_string", SimpleType.STRING, SimpleType.STRING));
+    Cel cel =
+        CelFactory.plannerCelBuilder()
+            .addFunctionDeclarations(customHash)
+            .addFunctionBindings(
+                CelFunctionBinding.from(
+                    "customHash_string", String.class, (String s) -> "hash_" + s))
+            .addVar("token", SimpleType.STRING)
+            .build();
+
+    // customHash(token) == 'hash_admin' and token == 'admin' are semantically equivalent.
+    // Pure SMT finds a spurious divergence model, which CEGAR refutes upon concrete evaluation.
+    CelAbstractSyntaxTree astA = cel.compile("customHash(token) == 'hash_admin'").getAst();
+    CelAbstractSyntaxTree astB = cel.compile("token == 'admin'").getAst();
+
+    CelVerifier verifierWithCegar =
+        CelVerifierFactory.newVerifier(cel).setEnableCegarRefinement(true).build();
+    CelVerificationResult result = verifierWithCegar.verifyEquivalence(astA, astB);
+    assertThat(result.status()).isEqualTo(VerificationStatus.INCONCLUSIVE);
+  }
+
+  @Test
+  public void cegarRefinement_equivalence_evaluationException_returnsInconclusiveWithErrorMessage()
+      throws Exception {
+    CelFunctionDecl customFailing =
+        CelFunctionDecl.newFunctionDeclaration(
+            "customFailing",
+            CelOverloadDecl.newGlobalOverload(
+                "customFailing_string", SimpleType.STRING, SimpleType.STRING));
+    Cel cel =
+        CelFactory.plannerCelBuilder()
+            .addFunctionDeclarations(customFailing)
+            .addFunctionBindings(
+                CelFunctionBinding.from(
+                    "customFailing_string",
+                    String.class,
+                    (String s) -> {
+                      throw new CelEvaluationException("Custom runtime failure for " + s);
+                    }))
+            .addVar("token", SimpleType.STRING)
+            .build();
+
+    CelAbstractSyntaxTree astA = cel.compile("customFailing(token) == 'expected'").getAst();
+    CelAbstractSyntaxTree astB = cel.compile("token == 'expected'").getAst();
+
+    CelVerifier verifierWithCegar =
+        CelVerifierFactory.newVerifier(cel).setEnableCegarRefinement(true).build();
+    CelVerificationResult result = verifierWithCegar.verifyEquivalence(astA, astB);
+
+    assertThat(result.status()).isEqualTo(VerificationStatus.INCONCLUSIVE);
+    assertThat(result.message()).contains("concrete evaluation produced an error:");
+    assertThat(result.message()).contains("Custom runtime failure");
+    assertThat(result.counterexampleModel()).isPresent();
+  }
+
+  @Test
+  public void cegarRefinement_isAlwaysTrue_evaluationException_returnsInconclusiveWithErrorMessage()
+      throws Exception {
+    CelFunctionDecl customFailing =
+        CelFunctionDecl.newFunctionDeclaration(
+            "customFailing",
+            CelOverloadDecl.newGlobalOverload(
+                "customFailing_string", SimpleType.STRING, SimpleType.STRING));
+    Cel cel =
+        CelFactory.plannerCelBuilder()
+            .addFunctionDeclarations(customFailing)
+            .addFunctionBindings(
+                CelFunctionBinding.from(
+                    "customFailing_string",
+                    String.class,
+                    (String s) -> {
+                      throw new CelEvaluationException("Custom runtime failure for " + s);
+                    }))
+            .addVar("token", SimpleType.STRING)
+            .build();
+
+    CelAbstractSyntaxTree ast = cel.compile("customFailing(token) == 'expected'").getAst();
+
+    CelVerifier verifierWithCegar =
+        CelVerifierFactory.newVerifier(cel).setEnableCegarRefinement(true).build();
+    CelVerificationResult result = verifierWithCegar.isAlwaysTrue(ast);
+
+    assertThat(result.status()).isEqualTo(VerificationStatus.INCONCLUSIVE);
+    assertThat(result.message()).contains("concrete evaluation produced an error:");
+    assertThat(result.message()).contains("Custom runtime failure");
+    assertThat(result.counterexampleModel()).isPresent();
+  }
+
+  @Test
+  public void cegarRefinement_protoMessage_upgradesInconclusiveToViolated() throws Exception {
+    CelFunctionDecl customHash =
+        CelFunctionDecl.newFunctionDeclaration(
+            "customHash",
+            CelOverloadDecl.newGlobalOverload(
+                "customHash_string", SimpleType.STRING, SimpleType.STRING));
+    Cel cel =
+        CelFactory.plannerCelBuilder()
+            .setContainer(CelContainer.ofName("cel.expr.conformance.proto3"))
+            .addMessageTypes(TestAllTypes.getDescriptor())
+            .setTypeProvider(TYPE_PROVIDER)
+            .addFunctionDeclarations(customHash)
+            .addFunctionBindings(
+                CelFunctionBinding.from(
+                    "customHash_string", String.class, (String s) -> "hash_" + s))
+            .addVar("msg", StructTypeReference.create(TestAllTypes.getDescriptor().getFullName()))
+            .build();
+
+    CelAbstractSyntaxTree ast =
+        cel.compile(
+                "msg == TestAllTypes{single_string: 'admin'} ? customHash(msg.single_string) !="
+                    + " 'hash_admin' : true")
+            .getAst();
+
+    CelVerifier verifierWithCegar =
+        CelVerifierFactory.newVerifier(cel)
+            .setTypeProvider(TYPE_PROVIDER)
+            .setEnableCegarRefinement(true)
+            .build();
+    CelVerificationResult resultWithCegar = verifierWithCegar.isAlwaysTrue(ast);
+    assertWithMessage(resultWithCegar.message())
+        .that(resultWithCegar.status())
+        .isEqualTo(VerificationStatus.VIOLATED);
+    assertThat(resultWithCegar.counterexampleModel()).isPresent();
+    CelCounterexample ce = resultWithCegar.counterexampleModel().get();
+    assertThat(ce.get("msg")).isPresent();
+    assertThat(ce.get("msg").get().nativeValue().orElse(null)).isInstanceOf(TestAllTypes.class);
+    TestAllTypes proto = (TestAllTypes) ce.get("msg").get().nativeValue().get();
+    assertThat(proto.getSingleString()).isEqualTo("admin");
+  }
+
+  @Test
+  public void cegarRefinement_implication_evaluationException_returnsInconclusiveWithErrorMessage()
+      throws Exception {
+    CelFunctionDecl customFailing =
+        CelFunctionDecl.newFunctionDeclaration(
+            "customFailing",
+            CelOverloadDecl.newGlobalOverload(
+                "customFailing_string", SimpleType.STRING, SimpleType.STRING));
+    Cel cel =
+        CelFactory.plannerCelBuilder()
+            .addFunctionDeclarations(customFailing)
+            .addFunctionBindings(
+                CelFunctionBinding.from(
+                    "customFailing_string",
+                    String.class,
+                    (String s) -> {
+                      throw new CelEvaluationException("Implication runtime failure for " + s);
+                    }))
+            .addVar("token", SimpleType.STRING)
+            .build();
+
+    CelAbstractSyntaxTree assumeAst = cel.compile("token == 'admin'").getAst();
+    CelAbstractSyntaxTree assertAst = cel.compile("customFailing(token) != 'expected'").getAst();
+
+    CelVerifierZ3Impl verifierWithCegar =
+        (CelVerifierZ3Impl)
+            CelVerifierFactory.newVerifier(cel).setEnableCegarRefinement(true).build();
+    CelVerificationResult result =
+        verifierWithCegar.verifyImplication(assumeAst, assertAst, ImmutableMap.of(), "Condition");
+
+    assertThat(result.status()).isEqualTo(VerificationStatus.INCONCLUSIVE);
+    assertThat(result.message()).contains("concrete evaluation produced an error:");
+    assertThat(result.message()).contains("Implication runtime failure for admin");
+    assertThat(result.counterexampleModel()).isPresent();
+  }
+
+  @Test
+  public void cegarRefinement_implication_withBoundSymbols_evaluatesBoundSymbolsInRefinement()
+      throws Exception {
+    CelFunctionDecl customHash =
+        CelFunctionDecl.newFunctionDeclaration(
+            "customHash",
+            CelOverloadDecl.newGlobalOverload(
+                "customHash_string", SimpleType.STRING, SimpleType.STRING));
+    Cel cel =
+        CelFactory.plannerCelBuilder()
+            .addFunctionDeclarations(customHash)
+            .addFunctionBindings(
+                CelFunctionBinding.from(
+                    "customHash_string", String.class, (String s) -> "hash_" + s))
+            .addVar("token", SimpleType.STRING)
+            .addVar("computed", SimpleType.STRING)
+            .build();
+
+    CelAbstractSyntaxTree assumeAst = cel.compile("token == 'admin'").getAst();
+    CelAbstractSyntaxTree assertAst = cel.compile("computed != 'hash_admin'").getAst();
+    CelAbstractSyntaxTree boundExpr = cel.compile("customHash(token)").getAst();
+    ImmutableMap<String, CelAbstractSyntaxTree> boundSymbols =
+        ImmutableMap.of("computed", boundExpr);
+
+    CelVerifierZ3Impl verifierWithCegar =
+        (CelVerifierZ3Impl)
+            CelVerifierFactory.newVerifier(cel).setEnableCegarRefinement(true).build();
+    CelVerificationResult result =
+        verifierWithCegar.verifyImplication(assumeAst, assertAst, boundSymbols, "BoundCondition");
+
+    assertThat(result.status()).isEqualTo(VerificationStatus.VIOLATED);
+    assertThat(result.counterexampleModel()).isPresent();
+    assertThat(result.counterexampleModel().get().get("token"))
+        .hasValue(Binding.of("token", SimpleType.STRING, "admin", "\"admin\""));
+  }
+
+  @Test
+  public void cegarRefinement_zeroArityFunction_isViolation() throws Exception {
+    CelFunctionDecl zeroArityFn =
+        CelFunctionDecl.newFunctionDeclaration(
+            "customConstant",
+            CelOverloadDecl.newGlobalOverload("customConstant_void", SimpleType.DYN));
+    Cel cel =
+        CelFactory.plannerCelBuilder()
+            .addFunctionDeclarations(zeroArityFn)
+            .addFunctionBindings(
+                CelFunctionBinding.from("customConstant_void", ImmutableList.of(), unused -> 42L))
+            .build();
+
+    CelAbstractSyntaxTree ast = cel.compile("customConstant() == 1").getAst();
+    CelVerifier verifierWithCegar =
+        CelVerifierFactory.newVerifier(cel).setEnableCegarRefinement(true).build();
+
+    CelVerificationResult result = verifierWithCegar.isAlwaysTrue(ast);
+
+    assertThat(result.status()).isEqualTo(VerificationStatus.VIOLATED);
+  }
+}
