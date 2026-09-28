@@ -19,22 +19,13 @@ import dev.cel.expr.Type.PrimitiveType;
 import dev.cel.expr.Type.TypeKindCase;
 import dev.cel.expr.Type.WellKnownType;
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.protobuf.DescriptorProtos.FieldDescriptorProto;
 import com.google.protobuf.Empty;
 import com.google.protobuf.NullValue;
 import dev.cel.common.annotations.Internal;
-import dev.cel.common.types.CelKind;
 import dev.cel.common.types.CelProtoTypes;
 import dev.cel.common.types.CelType;
-import dev.cel.common.types.ListType;
-import dev.cel.common.types.MapType;
-import dev.cel.common.types.NullableType;
-import dev.cel.common.types.OpaqueType;
-import dev.cel.common.types.OptionalType;
-import dev.cel.common.types.SimpleType;
-import dev.cel.common.types.TypeType;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -182,45 +173,16 @@ public final class Types {
 
   /** Tests whether the type has error or dyn kind. Both have the property to match any type. */
   public static boolean isDynOrError(CelType type) {
-    switch (type.kind()) {
-      case ERROR:
-        return true;
-      default:
-        return isDyn(type);
-    }
+    return TypeInference.isDynOrError(type);
   }
 
   public static boolean isDyn(CelType type) {
-    switch (type.kind()) {
-      case DYN:
-      case ANY:
-        return true;
-      default:
-        return false;
-    }
-  }
-
-  /** Tests whether the {@code type} is a type param. */
-  private static boolean isTypeParam(CelType type) {
-    return type.kind().equals(CelKind.TYPE_PARAM);
-  }
-
-  /** Tests whether the {@code type} contains any type params directly or transitively. */
-  private static boolean hasTypeParam(CelType type) {
-    if (isTypeParam(type)) {
-      return true;
-    }
-    for (CelType param : type.parameters()) {
-      if (hasTypeParam(param)) {
-        return true;
-      }
-    }
-    return false;
+    return TypeInference.isDyn(type);
   }
 
   /** Returns the more general of two types which are known to unify. */
   public static CelType mostGeneral(CelType type1, CelType type2) {
-    return isEqualOrLessSpecific(type1, type2) ? type1 : type2;
+    return TypeInference.mostGeneral(type1, type2);
   }
 
   /**
@@ -230,11 +192,7 @@ public final class Types {
    */
   public static @Nullable Map<CelType, CelType> isAssignable(
       Map<CelType, CelType> subs, CelType type1, CelType type2) {
-    Map<CelType, CelType> subsCopy = new HashMap<>(subs);
-    if (internalIsAssignable(subsCopy, type1, type2)) {
-      return subsCopy;
-    }
-    return null;
+    return TypeInference.isAssignable(subs, type1, type2);
   }
 
   /**
@@ -256,9 +214,11 @@ public final class Types {
                     (prev, next) -> next,
                     HashMap::new));
 
-    if (internalIsAssignable(
-        subsCopy, CelProtoTypes.typeToCelType(type1), CelProtoTypes.typeToCelType(type2))) {
-      return subsCopy.entrySet().stream()
+    Map<CelType, CelType> result =
+        TypeInference.isAssignable(
+            subsCopy, CelProtoTypes.typeToCelType(type1), CelProtoTypes.typeToCelType(type2));
+    if (result != null) {
+      return result.entrySet().stream()
           .collect(
               Collectors.toMap(
                   k -> CelProtoTypes.celTypeToType(k.getKey()),
@@ -275,131 +235,7 @@ public final class Types {
    */
   public static @Nullable Map<CelType, CelType> isAssignable(
       Map<CelType, CelType> subs, List<CelType> list1, List<CelType> list2) {
-    Map<CelType, CelType> subsCopy = new HashMap<>(subs);
-    if (internalIsAssignable(subsCopy, list1, list2)) {
-      return subsCopy;
-    }
-    return null;
-  }
-
-  private static boolean internalIsAssignable(
-      Map<CelType, CelType> subs, CelType type1, CelType type2) {
-    // A type is always assignable to itself.
-    // Early terminate the call to avoid cases of infinite recursion.
-    if (type1.equals(type2)) {
-      return true;
-    }
-    // Process type parameters.
-    if (isTypeParam(type2)) {
-      if (subs.containsKey(type2)) {
-        CelType t2Sub = subs.get(type2);
-        // Continue regular process with the assignment for type2.
-        if (!internalIsAssignable(subs, type1, t2Sub)) {
-          return false;
-        }
-        CelType t2New = mostGeneral(type1, t2Sub);
-        if (notReferencedIn(subs, type2, t2New)) {
-          subs.put(type2, t2New);
-        }
-        return true;
-      }
-      if (notReferencedIn(subs, type2, type1)) {
-        subs.put(type2, type1);
-        return true;
-      }
-    }
-    if (isTypeParam(type1)) {
-      if (subs.containsKey(type1)) {
-        CelType t1Sub = subs.get(type1);
-        // Continue regular process with the assignment for type1.
-        if (!internalIsAssignable(subs, t1Sub, type2)) {
-          return false;
-        }
-        CelType t1New = mostGeneral(t1Sub, type2);
-        if (notReferencedIn(subs, type1, t1New)) {
-          subs.put(type1, t1New);
-        }
-        return true;
-      }
-      if (notReferencedIn(subs, type1, type2)) {
-        subs.put(type1, type2);
-        return true;
-      }
-    }
-    // Next check for wildcard types.
-    if (isDynOrError(type1) || isDynOrError(type2)) {
-      return true;
-    }
-
-    // Preserve the nullness checks of the legacy type-checker.
-    if (type1.kind() == CelKind.NULL_TYPE) {
-      return isAssignableFromNull(type2);
-    }
-    if (type2.kind() == CelKind.NULL_TYPE) {
-      return isAssignableFromNull(type1);
-    }
-
-    if (type1.kind() != type2.kind()) {
-      return false;
-    }
-
-    switch (type1.kind()) {
-      case TYPE:
-        if (!(type1 instanceof TypeType) || !(type2 instanceof TypeType)) {
-          return type2.isAssignableFrom(type1);
-        }
-        TypeType fromType = (TypeType) type1;
-        TypeType toType = (TypeType) type2;
-        // If either type contains a type parameter (e.g., type(T) in foo(data, type(T)) -> T),
-        // delegate to inner type unification to bind or validate type parameter substitutions.
-        // Returns true if the inner types structurally match, unify with an unbound type param,
-        // or conform to an existing binding in 'subs'. Returns false on structural/kind mismatches
-        // (e.g., int vs list(T)), occurs-check cycles, or conflicting type param bindings.
-
-        if (hasTypeParam(fromType.type()) || hasTypeParam(toType.type())) {
-          return internalIsAssignable(subs, fromType.type(), toType.type());
-        }
-        // Concrete types are coassignable in CEL (e.g., type(1) == type("a"), type([1]) == list).
-        return true;
-      case OPAQUE:
-      case LIST:
-      case MAP:
-        return internalIsCandidateAssignableToTarget(subs, type1, type2);
-      default:
-        return type2.isAssignableFrom(type1);
-    }
-  }
-
-  private static boolean internalIsAssignable(
-      Map<CelType, CelType> subs, List<CelType> list1, List<CelType> list2) {
-    if (list1.size() != list2.size()) {
-      return false;
-    }
-    int i = 0;
-    for (CelType type : list1) {
-      if (!internalIsAssignable(subs, type, list2.get(i++))) {
-        return false;
-      }
-    }
-    return true;
-  }
-
-  private static boolean internalIsCandidateAssignableToTarget(
-      Map<CelType, CelType> subs, CelType candidate, CelType target) {
-    return candidate.name().equals(target.name())
-        && internalIsAssignable(subs, candidate.parameters(), target.parameters());
-  }
-
-  private static boolean isAssignableFromNull(CelType targetType) {
-    switch (targetType.kind()) {
-      case OPAQUE:
-      case STRUCT:
-      case DURATION:
-      case TIMESTAMP:
-        return true;
-      default:
-        return targetType.isAssignableFrom(SimpleType.NULL_TYPE);
-    }
+    return TypeInference.isAssignable(subs, list1, list2);
   }
 
   /**
@@ -419,95 +255,7 @@ public final class Types {
    * it matches the other type using the DYN type.
    */
   public static boolean isEqualOrLessSpecific(CelType type1, CelType type2) {
-    // The first type is less specific.
-    if (isDyn(type1) || isTypeParam(type1)) {
-      return true;
-    }
-    // The first type is not less specific.
-    if (isDyn(type2) || isTypeParam(type2)) {
-      return false;
-    }
-    // Types must be of the same kind to be equal.
-    if (type1.kind() != type2.kind()) {
-      return false;
-    }
-
-    // With limited exceptions for ANY and JSON values, the types must agree and be equivalent in
-    // order to return true.
-    switch (type1.kind()) {
-      case OPAQUE:
-      case LIST:
-      case MAP:
-        // Both types must have the same kind and have the same name in order to be equal or less
-        // specific.
-        if (!type1.kind().equals(type2.kind())) {
-          return false;
-        }
-        if (!type1.name().equals(type2.name())) {
-          return false;
-        }
-        return isEqualOrLessSpecific(type1.parameters(), type2.parameters());
-      case TYPE:
-        // Type values must have equal or less specific internal types.
-        TypeType typeType1 = (TypeType) type1;
-        TypeType typeType2 = (TypeType) type2;
-        return isEqualOrLessSpecific(typeType1.type(), typeType2.type());
-
-      // Message, primitive, well-known, and wrapper type names must be equal to be equivalent.
-      default:
-        return type1.equals(type2);
-    }
-  }
-
-  private static boolean isEqualOrLessSpecific(List<CelType> types1, List<CelType> types2) {
-    if (types1.size() != types2.size()) {
-      return false;
-    }
-    for (int i = 0; i < types1.size(); i++) {
-      if (!isEqualOrLessSpecific(types1.get(i), types2.get(i))) {
-        return false;
-      }
-    }
-    return true;
-  }
-
-  /**
-   * Check whether the type doesn't appear directly or transitively within other type. This is a
-   * standard requirement for type unification, commonly referred to as the "occurs check".
-   */
-  private static boolean notReferencedIn(
-      Map<CelType, CelType> subs, CelType type, CelType withinType) {
-    if (type.equals(withinType)) {
-      return false;
-    }
-
-    if (withinType instanceof NullableType) {
-      return notReferencedIn(subs, type, ((NullableType) withinType).targetType());
-    }
-
-    switch (withinType.kind()) {
-      case TYPE_PARAM:
-        return !subs.containsKey(withinType) || notReferencedIn(subs, type, subs.get(withinType));
-      case OPAQUE:
-        for (CelType typeArg : withinType.parameters()) {
-          if (!notReferencedIn(subs, type, typeArg)) {
-            return false;
-          }
-        }
-        return true;
-      case LIST:
-        ListType listType = (ListType) withinType;
-        return notReferencedIn(subs, type, listType.elemType());
-      case MAP:
-        MapType mapType = (MapType) withinType;
-        return notReferencedIn(subs, type, mapType.keyType())
-            && notReferencedIn(subs, type, mapType.valueType());
-      case TYPE:
-        TypeType typeType = (TypeType) withinType;
-        return notReferencedIn(subs, type, typeType.type());
-      default:
-        return true;
-    }
+    return TypeInference.isEqualOrLessSpecific(type1, type2);
   }
 
   /**
@@ -533,37 +281,7 @@ public final class Types {
    */
   public static CelType substitute(
       Map<CelType, CelType> subs, CelType type, boolean typeParamToDyn) {
-    if (subs.containsKey(type)) {
-      return substitute(subs, subs.get(type), typeParamToDyn);
-    }
-    if (typeParamToDyn && isTypeParam(type)) {
-      return SimpleType.DYN;
-    }
-    switch (type.kind()) {
-      case OPAQUE:
-        ImmutableList.Builder<CelType> parameterTypes = new ImmutableList.Builder<>();
-        for (int i = 0; i < type.parameters().size(); i++) {
-          parameterTypes.add(substitute(subs, type.parameters().get(i), typeParamToDyn));
-        }
-
-        if (type instanceof OptionalType) {
-          return OptionalType.create(parameterTypes.build().get(0));
-        }
-        return OpaqueType.create(type.name()).withParameters(parameterTypes.build());
-      case LIST:
-        ListType listType = (ListType) type;
-        return ListType.create(substitute(subs, listType.elemType(), typeParamToDyn));
-      case MAP:
-        MapType mapType = (MapType) type;
-        return MapType.create(
-            substitute(subs, mapType.keyType(), typeParamToDyn),
-            substitute(subs, mapType.valueType(), typeParamToDyn));
-      case TYPE:
-        TypeType newType = (TypeType) type;
-        return TypeType.create(substitute(subs, newType.type(), typeParamToDyn));
-      default:
-        return type;
-    }
+    return TypeInference.substitute(subs, type, typeParamToDyn);
   }
 
   private Types() {}

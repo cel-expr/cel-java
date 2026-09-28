@@ -56,7 +56,7 @@ public class InferenceContext {
     for (String typeParam : typeParams) {
       subs.put(TypeParamType.create(typeParam), newTypeVar(typeParam));
     }
-    return Types.substitute(subs, type, false);
+    return TypeInference.substitute(subs, type, false);
   }
 
   /**
@@ -66,7 +66,7 @@ public class InferenceContext {
    */
   @CanIgnoreReturnValue
   public boolean isAssignable(CelType type1, CelType type2) {
-    Map<CelType, CelType> newSubs = Types.isAssignable(substitution, type1, type2);
+    Map<CelType, CelType> newSubs = TypeInference.isAssignable(substitution, type1, type2);
     if (newSubs != null) {
       substitution = newSubs;
       return true;
@@ -77,7 +77,7 @@ public class InferenceContext {
 
   /** Same as {@link #isAssignable(CelType, CelType)} for lists of types. */
   public boolean isAssignable(List<CelType> list1, List<CelType> list2) {
-    Map<CelType, CelType> newSubs = Types.isAssignable(substitution, list1, list2);
+    Map<CelType, CelType> newSubs = TypeInference.isAssignable(substitution, list1, list2);
     if (newSubs != null) {
       substitution = newSubs;
       return true;
@@ -88,7 +88,7 @@ public class InferenceContext {
 
   /** Specializes the given type using the substitution of this context. */
   public CelType specialize(CelType type) {
-    return Types.substitute(substitution, type, false);
+    return TypeInference.substitute(substitution, type, false);
   }
 
   /** Specializes using given type list of types using the substitution of this context. */
@@ -105,6 +105,6 @@ public class InferenceContext {
    * type parameters to DYN.
    */
   public CelType finalize(CelType type) {
-    return Types.substitute(substitution, type, true);
+    return TypeInference.substitute(substitution, type, true);
   }
 }
