@@ -14,10 +14,14 @@
 
 package dev.cel.common.types;
 
+import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.Preconditions.checkState;
+
 import com.google.auto.value.AutoValue;
 import com.google.common.collect.ImmutableSet;
 import com.google.errorprone.annotations.CheckReturnValue;
 import com.google.errorprone.annotations.Immutable;
+import dev.cel.common.annotations.Internal;
 import java.util.Optional;
 
 /**
@@ -30,16 +34,29 @@ public final class ProtoMessageType extends StructType {
 
   private final StructType.FieldResolver extensionResolver;
   private final JsonNameResolver jsonNameResolver;
+  private final boolean fieldNamesEnumerable;
 
-  ProtoMessageType(
-      String name,
-      ImmutableSet<String> fieldNames,
-      StructType.FieldResolver fieldResolver,
-      StructType.FieldResolver extensionResolver,
-      JsonNameResolver jsonNameResolver) {
-    super(name, fieldNames, fieldResolver);
-    this.extensionResolver = extensionResolver;
-    this.jsonNameResolver = jsonNameResolver;
+  @Override
+  public Optional<Field> findField(String fieldName) {
+    if (fieldNamesEnumerable) {
+      return super.findField(fieldName);
+    }
+    // The set of declared field names is unknown, so the resolver is the sole source of truth.
+    return fieldResolver.findField(fieldName).map(type -> Field.of(fieldName, type));
+  }
+
+  @Override
+  public ImmutableSet<String> fieldNames() {
+    checkState(
+        fieldNamesEnumerable, "fields of '%s' cannot be enumerated; use findField instead", name);
+    return super.fieldNames();
+  }
+
+  @Override
+  public ImmutableSet<Field> fields() {
+    checkState(
+        fieldNamesEnumerable, "fields of '%s' cannot be enumerated; use findField instead", name);
+    return super.fields();
   }
 
   /** Find an {@code Extension} by its fully-qualified {@code extensionName}. */
@@ -57,6 +74,9 @@ public final class ProtoMessageType extends StructType {
   /**
    * Create a new instance of the {@code ProtoMessageType} using the {@code visibleFields} set as a
    * mask of the fields from the backing proto.
+   *
+   * <p>The returned type is always enumerable, including when this type is not: {@code
+   * visibleFields} is by definition the complete set of field names the masked type exposes.
    */
   public ProtoMessageType withVisibleFields(ImmutableSet<String> visibleFields) {
     return new ProtoMessageType(
@@ -71,6 +91,74 @@ public final class ProtoMessageType extends StructType {
       JsonNameResolver jsonNameResolver) {
     return new ProtoMessageType(
         name, fieldNames, fieldResolver, extensionResolver, jsonNameResolver);
+  }
+
+  /**
+   * Creates a {@code ProtoMessageType} for a message whose set of field names cannot be enumerated
+   * ahead of time, such as one backed by a lazily populated descriptor pool or by a deprecated
+   * {@code dev.cel.checker.TypeProvider}.
+   *
+   * <p>{@link #findField} delegates every lookup directly to {@code fieldResolver} rather than
+   * first consulting {@link #fieldNames()}. Enumerating the resulting type via {@link #fieldNames}
+   * or {@link #fields} throws, so such a type must not be handed to utilities that iterate fields
+   * (for example {@code ProtoTypeMaskTypeProvider} or {@code ConstantFoldingOptimizer}).
+   *
+   * <p>CEL Library Internals. Do Not Use.
+   */
+  @Internal
+  public static ProtoMessageType createWithUnenumerableFields(
+      String name, FieldResolver fieldResolver, FieldResolver extensionResolver) {
+    return createWithUnenumerableFields(
+        name, fieldResolver, extensionResolver, /* jsonNameResolver= */ fieldName -> false);
+  }
+
+  /**
+   * Creates a {@code ProtoMessageType} for a message whose set of field names cannot be enumerated
+   * ahead of time, with a custom {@code jsonNameResolver}.
+   *
+   * <p>CEL Library Internals. Do Not Use.
+   */
+  @Internal
+  public static ProtoMessageType createWithUnenumerableFields(
+      String name,
+      FieldResolver fieldResolver,
+      FieldResolver extensionResolver,
+      JsonNameResolver jsonNameResolver) {
+    return new ProtoMessageType(
+        checkNotNull(name),
+        ImmutableSet.of(),
+        checkNotNull(fieldResolver),
+        checkNotNull(extensionResolver),
+        checkNotNull(jsonNameResolver),
+        /* fieldNamesEnumerable= */ false);
+  }
+
+  private ProtoMessageType(
+      String name,
+      ImmutableSet<String> fieldNames,
+      FieldResolver fieldResolver,
+      FieldResolver extensionResolver,
+      JsonNameResolver jsonNameResolver) {
+    this(
+        name,
+        fieldNames,
+        fieldResolver,
+        extensionResolver,
+        jsonNameResolver,
+        /* fieldNamesEnumerable= */ true);
+  }
+
+  private ProtoMessageType(
+      String name,
+      ImmutableSet<String> fieldNames,
+      FieldResolver fieldResolver,
+      FieldResolver extensionResolver,
+      JsonNameResolver jsonNameResolver,
+      boolean fieldNamesEnumerable) {
+    super(name, fieldNames, fieldResolver);
+    this.extensionResolver = extensionResolver;
+    this.jsonNameResolver = jsonNameResolver;
+    this.fieldNamesEnumerable = fieldNamesEnumerable;
   }
 
   /** Functional interface for resolving whether a field name is a json name. */

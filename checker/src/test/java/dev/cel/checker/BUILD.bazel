@@ -20,7 +20,6 @@ java_library(
         "//checker:proto_type_mask",
         "//checker:standard_decl",
         "//checker:type_inferencer",
-        "//checker:type_provider_legacy_impl",
         "//common:cel_ast",
         "//common:cel_function_decl",
         "//common:cel_issue",

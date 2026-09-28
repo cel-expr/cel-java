@@ -21,11 +21,11 @@ import dev.cel.expr.ParsedExpr;
 import dev.cel.expr.Type;
 import com.google.auto.value.AutoValue;
 import com.google.common.base.Joiner;
-import com.google.common.base.Optional;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
 import com.google.errorprone.annotations.CheckReturnValue;
+import com.google.errorprone.annotations.InlineMe;
 import dev.cel.common.CelAbstractSyntaxTree;
 import dev.cel.common.CelContainer;
 import dev.cel.common.CelFunctionDecl;
@@ -65,6 +65,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import org.jspecify.annotations.Nullable;
 
@@ -93,7 +94,7 @@ public final class ExprChecker {
   @CheckReturnValue
   @Deprecated
   public static CheckedExpr check(Env env, String inContainer, ParsedExpr parsedExpr) {
-    return typecheck(env, inContainer, parsedExpr, Optional.absent());
+    return typecheck(env, inContainer, parsedExpr, com.google.common.base.Optional.absent());
   }
 
   /**
@@ -105,11 +106,11 @@ public final class ExprChecker {
   @CheckReturnValue
   @Deprecated
   public static CheckedExpr typecheck(
-      Env env, String inContainer, ParsedExpr parsedExpr, Optional<Type> expectedResultType) {
-    Optional<CelType> type =
-        expectedResultType.isPresent()
-            ? Optional.of(CelProtoTypes.typeToCelType(expectedResultType.get()))
-            : Optional.absent();
+      Env env,
+      String inContainer,
+      ParsedExpr parsedExpr,
+      com.google.common.base.Optional<Type> expectedResultType) {
+    Optional<CelType> type = expectedResultType.toJavaUtil().map(CelProtoTypes::typeToCelType);
     CelAbstractSyntaxTree ast =
         typecheck(
             env,
@@ -171,11 +172,25 @@ public final class ExprChecker {
         typeMap);
   }
 
+  /**
+   * @deprecated Use {@link #typecheck(Env, CelContainer, CelAbstractSyntaxTree, Optional)} instead.
+   */
+  @CheckReturnValue
+  @Internal
+  @Deprecated
+  @InlineMe(
+      replacement = "ExprChecker.typecheck(env, container, ast, expectedResultType.toJavaUtil())",
+      imports = "dev.cel.checker.ExprChecker")
+  public static CelAbstractSyntaxTree typecheck(
+      Env env,
+      CelContainer container,
+      CelAbstractSyntaxTree ast,
+      com.google.common.base.Optional<CelType> expectedResultType) {
+    return typecheck(env, container, ast, expectedResultType.toJavaUtil());
+  }
+
   private final Env env;
   private final CelTypeProvider celTypeProvider;
-
-  private final @Nullable TypeProvider legacyTypeProvider;
-
   private final CelContainer container;
   private final Map<Long, Integer> positionMap;
   private final InferenceContext inferenceContext;
@@ -791,23 +806,7 @@ public final class ExprChecker {
           return normalizeFieldType(extension.type());
         }
       }
-      if (legacyTypeProvider != null) {
-        Optional<CelType> extensionType =
-            lookupLegacyExtensionType(legacyTypeProvider, typeName, fieldName);
-        if (extensionType.isPresent()) {
-          return extensionType.get();
-        }
-      }
-      env.reportError(exprId, position, "undefined field '%s'", fieldName);
-      return SimpleType.ERROR;
-    }
 
-    if (legacyTypeProvider != null && legacyTypeProvider.lookupCelType(typeName).isPresent()) {
-      Optional<CelType> legacyFieldType =
-          lookupLegacyFieldType(legacyTypeProvider, type, fieldName);
-      if (legacyFieldType.isPresent()) {
-        return legacyFieldType.get();
-      }
       env.reportError(exprId, position, "undefined field '%s'", fieldName);
       return SimpleType.ERROR;
     }
@@ -853,27 +852,6 @@ public final class ExprChecker {
       return mapType;
     }
     return celType;
-  }
-
-  /** TODO: Remove after cl/984117942 is submitted. */
-  private static Optional<CelType> lookupLegacyFieldType(
-      TypeProvider legacyTypeProvider, CelType type, String fieldName) {
-    TypeProvider.FieldType legacyFieldType = legacyTypeProvider.lookupFieldType(type, fieldName);
-    if (legacyFieldType != null) {
-      return Optional.of(legacyFieldType.celType());
-    }
-    return lookupLegacyExtensionType(legacyTypeProvider, type.name(), fieldName);
-  }
-
-  private static Optional<CelType> lookupLegacyExtensionType(
-      TypeProvider legacyTypeProvider, String typeName, String fieldName) {
-    TypeProvider.ExtensionFieldType extensionFieldType =
-        legacyTypeProvider.lookupExtensionType(fieldName);
-    if (extensionFieldType != null
-        && extensionFieldType.messageType().getMessageType().equals(typeName)) {
-      return Optional.of(extensionFieldType.fieldType().celType());
-    }
-    return Optional.absent();
   }
 
   /** Checks compatibility of joined types, and returns the most general common type. */
@@ -928,7 +906,6 @@ public final class ExprChecker {
       boolean namespacedDeclarations) {
     this.env = checkNotNull(env);
     this.celTypeProvider = env.getCelTypeProvider();
-    this.legacyTypeProvider = env.getTypeProvider();
     this.positionMap = checkNotNull(positionMap);
     this.container = checkNotNull(container);
     this.inferenceContext = checkNotNull(inferenceContext);

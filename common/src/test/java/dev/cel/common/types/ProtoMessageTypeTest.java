@@ -15,16 +15,18 @@
 package dev.cel.common.types;
 
 import static com.google.common.truth.Truth.assertThat;
+import static org.junit.Assert.assertThrows;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.testing.junit.testparameterinjector.TestParameter;
+import com.google.testing.junit.testparameterinjector.TestParameterInjector;
 import java.util.Optional;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-import org.junit.runners.JUnit4;
 
-@RunWith(JUnit4.class)
+@RunWith(TestParameterInjector.class)
 public final class ProtoMessageTypeTest {
 
   private static final ImmutableMap<String, CelType> FIELD_MAP =
@@ -42,7 +44,7 @@ public final class ProtoMessageTypeTest {
   @Before
   public void setUp() {
     testMessage =
-        new ProtoMessageType(
+        ProtoMessageType.create(
             "my.package.TestMessage",
             FIELD_MAP.keySet(),
             (field) -> Optional.ofNullable(FIELD_MAP.get(field)),
@@ -74,5 +76,90 @@ public final class ProtoMessageTypeTest {
           .hasValue(
               ProtoMessageType.Extension.of(extName, EXTENSION_MAP.get(extName), testMessage));
     }
+  }
+
+  @Test
+  public void createWithUnenumerableFields_findField_delegatesToResolver(
+      @TestParameter({"bool_value", "int_value", "string_value", "map_value"}) String fieldName) {
+    ProtoMessageType unenumerableMessage = newUnenumerableTestMessage();
+
+    assertThat(unenumerableMessage.findField(fieldName))
+        .hasValue(StructType.Field.of(fieldName, FIELD_MAP.get(fieldName)));
+  }
+
+  @Test
+  public void createWithUnenumerableFields_findField_undefinedField_returnsEmpty() {
+    ProtoMessageType unenumerableMessage = newUnenumerableTestMessage();
+
+    assertThat(unenumerableMessage.findField("undefined_field")).isEmpty();
+  }
+
+  @Test
+  public void createWithUnenumerableFields_findExtension_delegatesToResolver() {
+    ProtoMessageType unenumerableMessage = newUnenumerableTestMessage();
+
+    assertThat(
+            unenumerableMessage
+                .findExtension("my.package.int_extension")
+                .map(ProtoMessageType.Extension::type))
+        .hasValue(SimpleType.INT);
+  }
+
+  @Test
+  public void createWithUnenumerableFields_findExtension_undefinedExtension_returnsEmpty() {
+    ProtoMessageType unenumerableMessage = newUnenumerableTestMessage();
+
+    assertThat(unenumerableMessage.findExtension("my.package.undefined_extension")).isEmpty();
+  }
+
+  @Test
+  public void createWithUnenumerableFields_fieldNames_throws() {
+    ProtoMessageType unenumerableMessage = newUnenumerableTestMessage();
+
+    assertThrows(IllegalStateException.class, unenumerableMessage::fieldNames);
+  }
+
+  @Test
+  public void createWithUnenumerableFields_fields_throws() {
+    ProtoMessageType unenumerableMessage = newUnenumerableTestMessage();
+
+    assertThrows(IllegalStateException.class, unenumerableMessage::fields);
+  }
+
+  @Test
+  public void createWithUnenumerableFields_withVisibleFields_becomesEnumerable() {
+    ProtoMessageType maskedMessage =
+        newUnenumerableTestMessage().withVisibleFields(ImmutableSet.of("bool_value"));
+
+    assertThat(maskedMessage.fieldNames()).containsExactly("bool_value");
+    assertThat(maskedMessage.findField("int_value")).isEmpty();
+  }
+
+  @Test
+  public void createWithUnenumerableFields_withJsonNameResolver_resolvesJsonName() {
+    ProtoMessageType message =
+        ProtoMessageType.createWithUnenumerableFields(
+            "my.package.TestMessage",
+            (field) -> Optional.ofNullable(FIELD_MAP.get(field)),
+            (extension) -> Optional.ofNullable(EXTENSION_MAP.get(extension)),
+            "boolValue"::equals);
+
+    assertThat(message.isJsonName("boolValue")).isTrue();
+    assertThat(message.isJsonName("bool_value")).isFalse();
+  }
+
+  @Test
+  public void createWithUnenumerableFields_defaultJsonNameResolver_returnsFalse() {
+    ProtoMessageType message = newUnenumerableTestMessage();
+
+    assertThat(message.isJsonName("boolValue")).isFalse();
+    assertThat(message.isJsonName("bool_value")).isFalse();
+  }
+
+  private static ProtoMessageType newUnenumerableTestMessage() {
+    return ProtoMessageType.createWithUnenumerableFields(
+        "my.package.TestMessage",
+        (field) -> Optional.ofNullable(FIELD_MAP.get(field)),
+        (extension) -> Optional.ofNullable(EXTENSION_MAP.get(extension)));
   }
 }

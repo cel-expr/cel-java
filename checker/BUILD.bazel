@@ -28,12 +28,6 @@ java_library(
 )
 
 java_library(
-    name = "type_provider_legacy_impl",
-    visibility = ["//:internal"],
-    exports = ["//checker/src/main/java/dev/cel/checker:type_provider_legacy_impl"],
-)
-
-java_library(
     name = "checker_legacy_environment",
     deprecation = "See go/cel-java-migration-guide. Please use CEL-Java Fluent APIs //compiler instead",
     exports = [

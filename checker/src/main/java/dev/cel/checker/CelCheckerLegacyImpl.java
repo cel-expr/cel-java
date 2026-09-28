@@ -21,7 +21,7 @@ import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import dev.cel.expr.Decl;
 import dev.cel.expr.Type;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Optional;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
@@ -48,10 +48,13 @@ import dev.cel.common.internal.Errors;
 import dev.cel.common.types.CelProtoTypes;
 import dev.cel.common.types.CelType;
 import dev.cel.common.types.CelTypeProvider;
+import dev.cel.common.types.ProtoMessageType;
 import dev.cel.common.types.ProtoMessageTypeProvider;
+import dev.cel.common.types.StructType;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Optional;
 import java.util.SortedSet;
 import java.util.TreeSet;
 import org.jspecify.annotations.Nullable;
@@ -73,10 +76,28 @@ public final class CelCheckerLegacyImpl implements CelChecker, EnvVisitable {
   private final ImmutableSet<CelFunctionDecl> functionDeclarations;
   private final Optional<CelType> expectedResultType;
 
+  /**
+   * Preserved exclusively so {@link #toCheckerBuilder()} can round-trip caller-supplied legacy
+   * {@link TypeProvider} instances. Checker execution itself interacts strictly with {@link
+   * #celTypeProvider}.
+   */
   @SuppressWarnings("Immutable")
-  private final @Nullable TypeProvider typeProvider;
+  private final @Nullable TypeProvider legacyTypeProvider;
 
   private final CelTypeProvider celTypeProvider;
+
+  /**
+   * The type provider handed to {@link Env}. Identical to {@link #celTypeProvider}, except that a
+   * caller-supplied legacy {@link TypeProvider} is adapted onto it.
+   *
+   * <p>This is deliberately kept separate from {@link #celTypeProvider}: a {@link
+   * LegacyTypeProviderBridge} resolves types lazily and cannot enumerate them, so it must not
+   * escape through {@link #getTypeProvider()} into callers that iterate {@code types()} or {@code
+   * fieldNames()} (for example {@code ConstantFoldingOptimizer}), nor through {@link
+   * #toCheckerBuilder()}.
+   */
+  private final CelTypeProvider envCelTypeProvider;
+
   private final boolean standardEnvironmentEnabled;
 
   private final CelStandardDeclarations overriddenStandardDeclarations;
@@ -124,12 +145,10 @@ public final class CelCheckerLegacyImpl implements CelChecker, EnvVisitable {
             .addFileTypes(fileDescriptors)
             .addProtoTypeMasks(protoTypeMasks);
 
-    if (typeProvider != null) {
-      builder.setTypeProvider(typeProvider);
-    }
+    expectedResultType.ifPresent(builder::setResultType);
 
-    if (expectedResultType.isPresent()) {
-      builder.setResultType(expectedResultType.get());
+    if (legacyTypeProvider != null) {
+      builder.setTypeProvider(legacyTypeProvider);
     }
 
     if (overriddenStandardDeclarations != null) {
@@ -166,13 +185,11 @@ public final class CelCheckerLegacyImpl implements CelChecker, EnvVisitable {
   private Env getEnv(Errors errors) {
     Env env;
     if (overriddenStandardDeclarations != null) {
-      env =
-          Env.standard(
-              overriddenStandardDeclarations, errors, celTypeProvider, typeProvider, celOptions);
+      env = Env.standard(overriddenStandardDeclarations, errors, envCelTypeProvider, celOptions);
     } else if (standardEnvironmentEnabled) {
-      env = Env.standard(errors, celTypeProvider, typeProvider, celOptions);
+      env = Env.standard(errors, envCelTypeProvider, celOptions);
     } else {
-      env = Env.unconfigured(errors, celTypeProvider, typeProvider, celOptions);
+      env = Env.unconfigured(errors, envCelTypeProvider, celOptions);
     }
     identDeclarations.forEach(env::add);
     functionDeclarations.forEach(env::add);
@@ -475,7 +492,7 @@ public final class CelCheckerLegacyImpl implements CelChecker, EnvVisitable {
           container,
           identDeclarationSet,
           functionDeclarations.build(),
-          Optional.fromNullable(expectedResultType),
+          Optional.ofNullable(expectedResultType),
           customTypeProvider,
           messageTypeProvider,
           standardEnvironmentEnabled,
@@ -497,34 +514,6 @@ public final class CelCheckerLegacyImpl implements CelChecker, EnvVisitable {
     }
   }
 
-  private CelCheckerLegacyImpl(
-      CelOptions celOptions,
-      CelContainer container,
-      ImmutableSet<CelVarDecl> identDeclarations,
-      ImmutableSet<CelFunctionDecl> functionDeclarations,
-      Optional<CelType> expectedResultType,
-      @Nullable TypeProvider typeProvider,
-      CelTypeProvider celTypeProvider,
-      boolean standardEnvironmentEnabled,
-      @Nullable CelStandardDeclarations overriddenStandardDeclarations,
-      ImmutableSet<CelCheckerLibrary> checkerLibraries,
-      ImmutableSet<FileDescriptor> fileDescriptors,
-      ImmutableSet<ProtoTypeMask> protoTypeMasks) {
-
-    this.celOptions = celOptions;
-    this.container = container;
-    this.identDeclarations = identDeclarations;
-    this.functionDeclarations = functionDeclarations;
-    this.expectedResultType = expectedResultType;
-    this.typeProvider = typeProvider;
-    this.celTypeProvider = celTypeProvider;
-    this.standardEnvironmentEnabled = standardEnvironmentEnabled;
-    this.overriddenStandardDeclarations = overriddenStandardDeclarations;
-    this.checkerLibraries = checkerLibraries;
-    this.fileDescriptors = fileDescriptors;
-    this.protoTypeMasks = protoTypeMasks;
-  }
-
   private static ImmutableList<CelIssue> errorsToIssues(Errors errors) {
     ImmutableList<Errors.Error> errorList = errors.getErrors();
     CelIssue.Builder issueBuilder = CelIssue.newBuilder().setSeverity(CelIssue.Severity.ERROR);
@@ -540,5 +529,119 @@ public final class CelCheckerLegacyImpl implements CelChecker, EnvVisitable {
                   .build();
             })
         .collect(toImmutableList());
+  }
+
+  private CelCheckerLegacyImpl(
+      CelOptions celOptions,
+      CelContainer container,
+      ImmutableSet<CelVarDecl> identDeclarations,
+      ImmutableSet<CelFunctionDecl> functionDeclarations,
+      Optional<CelType> expectedResultType,
+      @Nullable TypeProvider legacyTypeProvider,
+      CelTypeProvider celTypeProvider,
+      boolean standardEnvironmentEnabled,
+      @Nullable CelStandardDeclarations overriddenStandardDeclarations,
+      ImmutableSet<CelCheckerLibrary> checkerLibraries,
+      ImmutableSet<FileDescriptor> fileDescriptors,
+      ImmutableSet<ProtoTypeMask> protoTypeMasks) {
+
+    this.celOptions = celOptions;
+    this.container = container;
+    this.identDeclarations = identDeclarations;
+    this.functionDeclarations = functionDeclarations;
+    this.expectedResultType = expectedResultType;
+    this.legacyTypeProvider = legacyTypeProvider;
+    this.celTypeProvider = celTypeProvider;
+    this.envCelTypeProvider =
+        legacyTypeProvider == null
+            ? celTypeProvider
+            : new LegacyBridgeCombinedTypeProvider(
+                celTypeProvider, new LegacyTypeProviderBridge(legacyTypeProvider));
+    this.standardEnvironmentEnabled = standardEnvironmentEnabled;
+    this.overriddenStandardDeclarations = overriddenStandardDeclarations;
+    this.checkerLibraries = checkerLibraries;
+    this.fileDescriptors = fileDescriptors;
+    this.protoTypeMasks = protoTypeMasks;
+  }
+
+  @VisibleForTesting
+  @Immutable
+  static final class LegacyBridgeCombinedTypeProvider implements CelTypeProvider {
+    private final CelTypeProvider modernTypeProvider;
+    private final LegacyTypeProviderBridge legacyTypeProviderBridge;
+    private final CelTypeProvider.CombinedCelTypeProvider delegate;
+
+    @Override
+    public ImmutableCollection<CelType> types() {
+      return delegate.types();
+    }
+
+    @Override
+    public Optional<CelType> findType(String typeName) {
+      return resolveType(typeName);
+    }
+
+    private Optional<CelType> resolveType(String typeName) {
+      Optional<CelType> modernType = modernTypeProvider.findType(typeName);
+      if (modernType.isPresent()) {
+        CelType type = modernType.get();
+        if (type instanceof ProtoMessageType) {
+          Optional<CelType> legacyType = legacyTypeProviderBridge.findType(typeName);
+          if (legacyType.isPresent() && legacyType.get() instanceof ProtoMessageType) {
+            return Optional.of(
+                combineProtoMessageTypes(
+                    (ProtoMessageType) type, (ProtoMessageType) legacyType.get()));
+          }
+        }
+        return modernType;
+      }
+      return legacyTypeProviderBridge.findType(typeName);
+    }
+
+    private static ProtoMessageType combineProtoMessageTypes(
+        ProtoMessageType modern, ProtoMessageType legacy) {
+      boolean isEnumerable = true;
+      ImmutableSet<String> fieldNames;
+      try {
+        fieldNames = modern.fieldNames();
+      } catch (IllegalStateException e) {
+        isEnumerable = false;
+        fieldNames = ImmutableSet.of();
+      }
+
+      StructType.FieldResolver combinedExtensionResolver =
+          extensionName -> {
+            Optional<CelType> modernExt =
+                modern.findExtension(extensionName).map(ProtoMessageType.Extension::type);
+            if (modernExt.isPresent()) {
+              return modernExt;
+            }
+            return legacy.findExtension(extensionName).map(ProtoMessageType.Extension::type);
+          };
+
+      if (!isEnumerable) {
+        return ProtoMessageType.createWithUnenumerableFields(
+            modern.name(),
+            fieldName -> modern.findField(fieldName).map(StructType.Field::type),
+            combinedExtensionResolver,
+            modern::isJsonName);
+      }
+
+      return ProtoMessageType.create(
+          modern.name(),
+          fieldNames,
+          fieldName -> modern.findField(fieldName).map(StructType.Field::type),
+          combinedExtensionResolver,
+          modern::isJsonName);
+    }
+
+    @VisibleForTesting
+    LegacyBridgeCombinedTypeProvider(
+        CelTypeProvider modernTypeProvider, LegacyTypeProviderBridge legacyTypeProviderBridge) {
+      this.modernTypeProvider = checkNotNull(modernTypeProvider);
+      this.legacyTypeProviderBridge = checkNotNull(legacyTypeProviderBridge);
+      this.delegate =
+          new CelTypeProvider.CombinedCelTypeProvider(modernTypeProvider, legacyTypeProviderBridge);
+    }
   }
 }
