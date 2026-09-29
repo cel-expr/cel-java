@@ -89,7 +89,6 @@ def conformance_test(name, data, mode = MODE.TEST, skip_tests = [], use_planner 
             data = [":_" + name],
             tags = [
                 "guitar",
-                "manual",
                 "notap",
             ],
         )
