@@ -30,12 +30,14 @@ import com.google.testing.junit.testparameterinjector.TestParameterInjector;
 import dev.cel.common.exceptions.CelAttributeNotFoundException;
 import dev.cel.common.internal.DefaultLiteDescriptorPool;
 import dev.cel.common.internal.ProtoTimeUtils;
+import dev.cel.expr.conformance.proto3.NestedTestAllTypes;
 import dev.cel.expr.conformance.proto3.TestAllTypes;
 import dev.cel.protobuf.CelLiteDescriptor.FieldLiteDescriptor;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Map;
 import java.util.Optional;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -55,10 +57,6 @@ public final class RawProtoMessageLiteValueTest {
   private static Object decodeWireValue(
       Object raw, WireFormat.FieldType fieldType, String protoTypeName) {
     return RawProtoMessageLiteValue.decodeWireValue(raw, fieldType, protoTypeName, EMPTY_CONVERTER);
-  }
-
-  private static Object decodeWireValue(Object raw, int typeCode, String protoTypeName) {
-    return RawProtoMessageLiteValue.decodeWireValue(raw, typeCode, protoTypeName, EMPTY_CONVERTER);
   }
 
   @Test
@@ -583,13 +581,6 @@ public final class RawProtoMessageLiteValueTest {
   }
 
   @Test
-  public void decodeWireValue_invalidTypeCode_throws() {
-    assertThrows(IllegalArgumentException.class, () -> decodeWireValue(42L, 0, "custom.Message"));
-
-    assertThrows(IllegalArgumentException.class, () -> decodeWireValue(42L, 999, "custom.Message"));
-  }
-
-  @Test
   public void decodeWireValue_int32HighBits_truncatedToSigned32Bit() {
     Object decodedHigh =
         decodeWireValue(0x100000005L, WireFormat.FieldType.INT32, "custom.Message");
@@ -998,6 +989,19 @@ public final class RawProtoMessageLiteValueTest {
             FieldLiteDescriptor.Type.STRING.getNumber(),
             ""),
         "hello"),
+    MAP_STRING_STRING(
+        SelectField.createMap(
+            TestAllTypes.MAP_STRING_STRING_FIELD_NUMBER,
+            "map_string_string",
+            SelectField.MapEntrySpec.create(9, 9)),
+        ImmutableMap.of("k1", "v1", "k2", "v2")),
+    MAP_INT32_BYTES(
+        SelectField.createMap(
+            TestAllTypes.MAP_INT32_BYTES_FIELD_NUMBER,
+            "map_int32_bytes",
+            SelectField.MapEntrySpec.create(5, 12)),
+        ImmutableMap.of(
+            0L, CelByteString.copyFromUtf8("val_for_default_key"), 42L, CelByteString.EMPTY)),
     DURATION(
         SelectField.create(
             TestAllTypes.SINGLE_DURATION_FIELD_NUMBER,
@@ -1023,6 +1027,10 @@ public final class RawProtoMessageLiteValueTest {
         TestAllTypes.newBuilder()
             .setSingleInt64(99L)
             .setSingleString("hello")
+            .putMapStringString("k1", "v1")
+            .putMapStringString("k2", "v2")
+            .putMapInt32Bytes(0, ByteString.copyFromUtf8("val_for_default_key"))
+            .putMapInt32Bytes(42, ByteString.EMPTY)
             .setSingleDuration(ProtoTimeUtils.toProtoDuration(Duration.ofSeconds(10L, 500L)))
             .build();
     RawProtoMessageLiteValue raw =
@@ -1074,7 +1082,7 @@ public final class RawProtoMessageLiteValueTest {
     Object selected =
         raw.selectByFieldNumber(
             SelectField.create(
-                21L, "single_nested_message", FieldLiteDescriptor.Type.MESSAGE.getNumber(), null));
+                21L, "single_nested_message", FieldLiteDescriptor.Type.MESSAGE.getNumber()));
 
     assertThat(selected).isInstanceOf(RawProtoMessageLiteValue.class);
     RawProtoMessageLiteValue message = (RawProtoMessageLiteValue) selected;
@@ -1083,25 +1091,337 @@ public final class RawProtoMessageLiteValueTest {
   }
 
   @Test
+  public void selectByFieldNumber_unknownMapFieldWithMapEntrySpec_success(
+      @TestParameter({"", "cel.@unknownMessage", "cel.expr.conformance.proto3.TestAllTypes"})
+          String receiverTypeName) {
+    TestAllTypes proto =
+        TestAllTypes.newBuilder()
+            .putMapStringString("key1", "val1")
+            .putMapStringString("key2", "val2")
+            .build();
+    RawProtoMessageLiteValue raw =
+        RawProtoMessageLiteValue.create(proto.toByteString(), receiverTypeName, EMPTY_CONVERTER);
+    SelectField field =
+        SelectField.createMap(
+            TestAllTypes.MAP_STRING_STRING_FIELD_NUMBER,
+            "map_string_string",
+            SelectField.MapEntrySpec.create(9, 9));
+
+    Object result = raw.selectByFieldNumber(field);
+
+    assertThat(result).isEqualTo(ImmutableMap.of("key1", "val1", "key2", "val2"));
+  }
+
+  @Test
   public void
-      selectByFieldNumber_unknownMapFieldWithWireEntries_throwsUnsupportedOperationException() {
-    TestAllTypes proto = TestAllTypes.newBuilder().putMapStringString("key", "val").build();
+      selectByFieldNumber_mapFieldWithMessageValueWithoutDescriptor_returnsMapOfRawMessage() {
+    TestAllTypes proto =
+        TestAllTypes.newBuilder()
+            .putMapInt64NestedType(
+                42L,
+                NestedTestAllTypes.newBuilder()
+                    .setPayload(TestAllTypes.newBuilder().setSingleInt64(100L))
+                    .build())
+            .build();
     RawProtoMessageLiteValue raw =
         RawProtoMessageLiteValue.create(
             proto.toByteString(), "cel.expr.conformance.proto3.TestAllTypes", EMPTY_CONVERTER);
-    SelectField field =
+    SelectField field = newMapInt64NestedTypeField();
+
+    Object result = raw.selectByFieldNumber(field);
+
+    assertThat(result).isInstanceOf(Map.class);
+    Map<?, ?> map = (Map<?, ?>) result;
+    assertThat(map).containsKey(42L);
+    Object val = map.get(42L);
+    assertThat(val).isInstanceOf(RawProtoMessageLiteValue.class);
+    RawProtoMessageLiteValue nested = (RawProtoMessageLiteValue) val;
+    assertThat(nested.celType().name()).isEqualTo("cel.expr.conformance.proto3.NestedTestAllTypes");
+  }
+
+  @Test
+  public void selectByFieldNumber_unknownMapFieldWithMessageValue_multiHopTraversalSuccess() {
+    TestAllTypes proto =
+        TestAllTypes.newBuilder()
+            .putMapInt64NestedType(
+                42L,
+                NestedTestAllTypes.newBuilder()
+                    .setPayload(TestAllTypes.newBuilder().setSingleInt64(100L))
+                    .build())
+            .build();
+    RawProtoMessageLiteValue raw =
+        RawProtoMessageLiteValue.create(
+            proto.toByteString(), "cel.expr.conformance.proto3.TestAllTypes", EMPTY_CONVERTER);
+    SelectField mapField =
+        SelectField.createMap(
+            TestAllTypes.MAP_INT64_NESTED_TYPE_FIELD_NUMBER,
+            "map_int64_nested_type",
+            SelectField.MapEntrySpec.create(
+                FieldLiteDescriptor.Type.INT64.getNumber(), SelectField.MESSAGE_TYPE_CODE),
+            "cel.expr.conformance.proto3.NestedTestAllTypes");
+    SelectField payloadField =
         SelectField.create(
+            NestedTestAllTypes.PAYLOAD_FIELD_NUMBER,
+            "payload",
+            SelectField.MESSAGE_TYPE_CODE,
+            null,
+            "cel.expr.conformance.proto3.TestAllTypes");
+    SelectField int64Field =
+        SelectField.create(
+            TestAllTypes.SINGLE_INT64_FIELD_NUMBER,
+            "single_int64",
+            FieldLiteDescriptor.Type.INT64.getNumber(),
+            0L);
+
+    Map<?, ?> map = (Map<?, ?>) raw.selectByFieldNumber(mapField);
+    RawProtoMessageLiteValue nested = (RawProtoMessageLiteValue) map.get(42L);
+    RawProtoMessageLiteValue payload =
+        (RawProtoMessageLiteValue) nested.selectByFieldNumber(payloadField);
+    Object selectedInt64 = payload.selectByFieldNumber(int64Field);
+
+    assertThat(selectedInt64).isEqualTo(100L);
+  }
+
+  @Test
+  public void selectByFieldNumber_absentMapFieldWithMapEntrySpec_returnsEmptyMap() {
+    RawProtoMessageLiteValue raw =
+        RawProtoMessageLiteValue.create(
+            ByteString.EMPTY, "cel.expr.conformance.proto3.TestAllTypes", EMPTY_CONVERTER);
+    SelectField field =
+        SelectField.createMap(
             TestAllTypes.MAP_STRING_STRING_FIELD_NUMBER,
             "map_string_string",
-            SelectField.CEL_MAP_TYPE_CODE,
-            ImmutableMap.of());
+            SelectField.MapEntrySpec.create(9, 9));
 
-    UnsupportedOperationException e =
-        assertThrows(UnsupportedOperationException.class, () -> raw.selectByFieldNumber(field));
+    Object result = raw.selectByFieldNumber(field);
 
-    assertThat(e)
-        .hasMessageThat()
-        .contains("Decoding unknown map field from wire bytes is unsupported");
+    assertThat(result).isEqualTo(ImmutableMap.of());
+  }
+
+  @Test
+  public void selectByFieldNumber_mapEntrySpecMissingKeyOrValue_usesTypedZeroDefaults()
+      throws Exception {
+    ByteString valueOnlyEntry = encode(out -> out.writeDouble(2, 1.5d));
+    ByteString keyOnlyEntry = encode(out -> out.writeUInt32(1, 7));
+    ByteString wire =
+        encode(
+            out -> {
+              out.writeBytes(TestAllTypes.MAP_UINT32_DOUBLE_FIELD_NUMBER, valueOnlyEntry);
+              out.writeBytes(TestAllTypes.MAP_UINT32_DOUBLE_FIELD_NUMBER, keyOnlyEntry);
+            });
+    RawProtoMessageLiteValue raw =
+        RawProtoMessageLiteValue.create(
+            wire, "cel.expr.conformance.proto3.TestAllTypes", EMPTY_CONVERTER);
+    SelectField field =
+        SelectField.createMap(
+            TestAllTypes.MAP_UINT32_DOUBLE_FIELD_NUMBER,
+            "map_uint32_double",
+            SelectField.MapEntrySpec.create(
+                FieldLiteDescriptor.Type.UINT32.getNumber(),
+                FieldLiteDescriptor.Type.DOUBLE.getNumber()));
+
+    Object result = raw.selectByFieldNumber(field);
+
+    assertThat(result)
+        .isEqualTo(ImmutableMap.of(UnsignedLong.ZERO, 1.5d, UnsignedLong.valueOf(7), 0.0d));
+  }
+
+  @SuppressWarnings("ImmutableEnumChecker") // Test only
+  private enum MapScalarDefaultTestCase {
+    BOOL(FieldLiteDescriptor.Type.BOOL, false),
+    INT32(FieldLiteDescriptor.Type.INT32, 0L),
+    SINT64(FieldLiteDescriptor.Type.SINT64, 0L),
+    ENUM(FieldLiteDescriptor.Type.ENUM, 0L),
+    FIXED32(FieldLiteDescriptor.Type.FIXED32, UnsignedLong.ZERO),
+    UINT64(FieldLiteDescriptor.Type.UINT64, UnsignedLong.ZERO),
+    FLOAT(FieldLiteDescriptor.Type.FLOAT, 0.0d),
+    STRING(FieldLiteDescriptor.Type.STRING, ""),
+    BYTES(FieldLiteDescriptor.Type.BYTES, CelByteString.EMPTY);
+
+    private final FieldLiteDescriptor.Type valueType;
+    private final Object expectedDefault;
+
+    MapScalarDefaultTestCase(FieldLiteDescriptor.Type valueType, Object expectedDefault) {
+      this.valueType = valueType;
+      this.expectedDefault = expectedDefault;
+    }
+  }
+
+  @Test
+  public void selectByFieldNumber_mapEntrySpecMissingScalarValue_usesTypedZeroDefault(
+      @TestParameter MapScalarDefaultTestCase testCase) throws Exception {
+    ByteString keyOnlyEntry = encode(out -> out.writeString(1, "k"));
+    ByteString wire = encode(out -> out.writeBytes(1, keyOnlyEntry));
+    RawProtoMessageLiteValue raw =
+        RawProtoMessageLiteValue.create(
+            wire, "cel.expr.conformance.proto3.TestAllTypes", EMPTY_CONVERTER);
+    SelectField field =
+        SelectField.createMap(
+            1L,
+            "unknown_map",
+            SelectField.MapEntrySpec.create(
+                FieldLiteDescriptor.Type.STRING.getNumber(), testCase.valueType.getNumber()));
+
+    Object result = raw.selectByFieldNumber(field);
+
+    assertThat(result).isEqualTo(ImmutableMap.of("k", testCase.expectedDefault));
+  }
+
+  @Test
+  public void selectByFieldNumber_mapEntrySpecMissingMessageValue_returnsEmptyMessage()
+      throws Exception {
+    ByteString keyOnlyEntry = encode(out -> out.writeInt64(1, 42L));
+    ByteString wire =
+        encode(
+            out -> out.writeBytes(TestAllTypes.MAP_INT64_NESTED_TYPE_FIELD_NUMBER, keyOnlyEntry));
+    RawProtoMessageLiteValue raw =
+        RawProtoMessageLiteValue.create(
+            wire, "cel.expr.conformance.proto3.TestAllTypes", EMPTY_CONVERTER);
+
+    Object result = raw.selectByFieldNumber(newMapInt64NestedTypeField());
+
+    assertThat(result)
+        .isEqualTo(
+            ImmutableMap.of(
+                42L,
+                RawProtoMessageLiteValue.create(
+                    ByteString.EMPTY,
+                    "cel.expr.conformance.proto3.NestedTestAllTypes",
+                    EMPTY_CONVERTER)));
+  }
+
+  @Test
+  public void selectByFieldNumber_mapEntrySpecRepeatedMessageValue_mergesFragments()
+      throws Exception {
+    ByteString fragment1 =
+        NestedTestAllTypes.newBuilder()
+            .setPayload(TestAllTypes.newBuilder().setSingleInt64(100L))
+            .build()
+            .toByteString();
+    ByteString fragment2 =
+        NestedTestAllTypes.newBuilder()
+            .setPayload(TestAllTypes.newBuilder().setSingleBool(true))
+            .build()
+            .toByteString();
+    ByteString entry =
+        encode(
+            out -> {
+              out.writeInt64(1, 42L);
+              out.writeBytes(2, fragment1);
+              out.writeBytes(2, fragment2);
+            });
+    ByteString wire =
+        encode(out -> out.writeBytes(TestAllTypes.MAP_INT64_NESTED_TYPE_FIELD_NUMBER, entry));
+    RawProtoMessageLiteValue raw =
+        RawProtoMessageLiteValue.create(
+            wire, "cel.expr.conformance.proto3.TestAllTypes", EMPTY_CONVERTER);
+
+    Object result = raw.selectByFieldNumber(newMapInt64NestedTypeField());
+
+    assertThat(result)
+        .isEqualTo(
+            ImmutableMap.of(
+                42L,
+                RawProtoMessageLiteValue.create(
+                    fragment1.concat(fragment2),
+                    "cel.expr.conformance.proto3.NestedTestAllTypes",
+                    EMPTY_CONVERTER)));
+  }
+
+  @Test
+  public void selectByFieldNumber_mapEntrySpecRepeatedScalarValue_lastOneWins() throws Exception {
+    ByteString entry =
+        encode(
+            out -> {
+              out.writeString(1, "k");
+              out.writeString(2, "first");
+              out.writeString(2, "last");
+            });
+    ByteString wire =
+        encode(out -> out.writeBytes(TestAllTypes.MAP_STRING_STRING_FIELD_NUMBER, entry));
+    RawProtoMessageLiteValue raw =
+        RawProtoMessageLiteValue.create(
+            wire, "cel.expr.conformance.proto3.TestAllTypes", EMPTY_CONVERTER);
+    SelectField field =
+        SelectField.createMap(
+            TestAllTypes.MAP_STRING_STRING_FIELD_NUMBER,
+            "map_string_string",
+            SelectField.MapEntrySpec.create(9, 9));
+
+    Object result = raw.selectByFieldNumber(field);
+
+    assertThat(result).isEqualTo(ImmutableMap.of("k", "last"));
+  }
+
+  @Test
+  public void selectByFieldNumber_mapEntrySpecDuplicateKeysAcrossEntries_lastEntryWins()
+      throws Exception {
+    ByteString entry1 =
+        encode(
+            out -> {
+              out.writeString(1, "dup");
+              out.writeString(2, "first");
+            });
+    ByteString entry2 =
+        encode(
+            out -> {
+              out.writeString(1, "dup");
+              out.writeString(2, "second");
+            });
+    ByteString wire =
+        encode(
+            out -> {
+              out.writeBytes(TestAllTypes.MAP_STRING_STRING_FIELD_NUMBER, entry1);
+              out.writeBytes(TestAllTypes.MAP_STRING_STRING_FIELD_NUMBER, entry2);
+            });
+    RawProtoMessageLiteValue raw =
+        RawProtoMessageLiteValue.create(
+            wire, "cel.expr.conformance.proto3.TestAllTypes", EMPTY_CONVERTER);
+    SelectField field =
+        SelectField.createMap(
+            TestAllTypes.MAP_STRING_STRING_FIELD_NUMBER,
+            "map_string_string",
+            SelectField.MapEntrySpec.create(9, 9));
+
+    Object result = raw.selectByFieldNumber(field);
+
+    assertThat(result).isEqualTo(ImmutableMap.of("dup", "second"));
+  }
+
+  @Test
+  public void selectByFieldNumber_mapEntrySpecUnexpectedFieldNumber_throwsIllegalStateException()
+      throws Exception {
+    ByteString entry =
+        encode(
+            out -> {
+              out.writeString(1, "k");
+              out.writeString(2, "v");
+              out.writeString(3, "unexpected");
+            });
+    ByteString wire =
+        encode(out -> out.writeBytes(TestAllTypes.MAP_STRING_STRING_FIELD_NUMBER, entry));
+    RawProtoMessageLiteValue raw =
+        RawProtoMessageLiteValue.create(
+            wire, "cel.expr.conformance.proto3.TestAllTypes", EMPTY_CONVERTER);
+    SelectField field =
+        SelectField.createMap(
+            TestAllTypes.MAP_STRING_STRING_FIELD_NUMBER,
+            "map_string_string",
+            SelectField.MapEntrySpec.create(9, 9));
+
+    IllegalStateException thrown =
+        assertThrows(IllegalStateException.class, () -> raw.selectByFieldNumber(field));
+
+    assertThat(thrown).hasMessageThat().contains("Unexpected field number in map entry: 3");
+  }
+
+  private static SelectField newMapInt64NestedTypeField() {
+    return SelectField.createMap(
+        TestAllTypes.MAP_INT64_NESTED_TYPE_FIELD_NUMBER,
+        "map_int64_nested_type",
+        SelectField.MapEntrySpec.create(
+            FieldLiteDescriptor.Type.INT64.getNumber(), SelectField.MESSAGE_TYPE_CODE),
+        "cel.expr.conformance.proto3.NestedTestAllTypes");
   }
 
   private interface WireWriter {

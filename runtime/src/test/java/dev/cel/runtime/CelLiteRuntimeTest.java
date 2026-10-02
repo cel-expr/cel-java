@@ -173,9 +173,17 @@ public class CelLiteRuntimeTest {
   @Test
   @TestParameters("{expression: 'msg.single_uint32'}")
   @TestParameters("{expression: 'msg.single_uint64'}")
+  @TestParameters("{expression: 'msg.single_fixed32'}")
+  @TestParameters("{expression: 'msg.single_fixed64'}")
   public void fieldSelection_unsigned(String expression) throws Exception {
     CelAbstractSyntaxTree ast = CEL_COMPILER.compile(expression).getAst();
-    TestAllTypes msg = TestAllTypes.newBuilder().setSingleUint32(4).setSingleUint64(4L).build();
+    TestAllTypes msg =
+        TestAllTypes.newBuilder()
+            .setSingleUint32(4)
+            .setSingleUint64(4L)
+            .setSingleFixed32(4)
+            .setSingleFixed64(4L)
+            .build();
 
     Object result = CEL_RUNTIME.createProgram(ast).eval(ImmutableMap.of("msg", msg));
 
@@ -556,8 +564,8 @@ public class CelLiteRuntimeTest {
     UINT64("msg.single_uint64", UnsignedLong.ZERO),
     SINT32("msg.single_sint32", 0L),
     SINT64("msg.single_sint64", 0L),
-    FIXED32("msg.single_fixed32", 0L),
-    FIXED64("msg.single_fixed64", 0L),
+    FIXED32("msg.single_fixed32", UnsignedLong.ZERO),
+    FIXED64("msg.single_fixed64", UnsignedLong.ZERO),
     SFIXED32("msg.single_sfixed32", 0L),
     SFIXED64("msg.single_sfixed64", 0L),
     FLOAT("msg.single_float", 0.0d),

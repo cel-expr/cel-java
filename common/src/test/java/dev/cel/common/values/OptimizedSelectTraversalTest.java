@@ -118,8 +118,7 @@ public final class OptimizedSelectTraversalTest {
     Object target = targetType.createNestedTarget(ImmutableMap.of("inner_key", "nested_value"));
     ImmutableList<SelectField> fields =
         ImmutableList.of(
-            SelectField.create(1L, "outer_key", 11, null),
-            SelectField.create(2L, "inner_key", 9, ""));
+            SelectField.create(1L, "outer_key", 11), SelectField.create(2L, "inner_key", 9, ""));
 
     Object result = OptimizedSelectTraversal.qualify(target, fields);
 
@@ -129,8 +128,7 @@ public final class OptimizedSelectTraversalTest {
   @Test
   public void qualify_singleField_missingThrowsException(@TestParameter TargetType targetType) {
     Object target = targetType.createTarget(ImmutableMap.of("present", "value"));
-    ImmutableList<SelectField> fields =
-        ImmutableList.of(SelectField.create(1L, "missing", 9, null));
+    ImmutableList<SelectField> fields = ImmutableList.of(SelectField.create(1L, "missing", 9));
 
     CelAttributeNotFoundException thrown =
         assertThrows(
