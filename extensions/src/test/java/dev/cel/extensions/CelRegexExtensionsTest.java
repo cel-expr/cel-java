@@ -17,13 +17,23 @@ import static com.google.common.truth.Truth.assertThat;
 import static org.junit.Assert.assertThrows;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.testing.junit.testparameterinjector.TestParameter;
 import com.google.testing.junit.testparameterinjector.TestParameterInjector;
 import com.google.testing.junit.testparameterinjector.TestParameters;
 import dev.cel.bundle.Cel;
+import dev.cel.bundle.CelFactory;
+import dev.cel.common.CelAbstractSyntaxTree;
 import dev.cel.common.CelFunctionDecl;
 import dev.cel.common.CelOptions;
+import dev.cel.common.CelValidationException;
+import dev.cel.compiler.CelCompiler;
+import dev.cel.compiler.CelCompilerFactory;
 import dev.cel.runtime.CelEvaluationException;
+import dev.cel.runtime.CelLiteRuntime;
+import dev.cel.runtime.CelLiteRuntimeFactory;
+import dev.cel.runtime.CelRuntime;
+import dev.cel.runtime.CelRuntimeFactory;
 import java.util.Optional;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -264,5 +274,150 @@ public final class CelRegexExtensionsTest extends CelExtensionTestBase {
         .contains("Regular expression has more than one capturing group:");
   }
 
+  @Test
+  public void separateLibraryAndRuntime_allFunctions_success() throws Exception {
+    CelCompiler celCompiler =
+        CelCompilerFactory.standardCelCompilerBuilder()
+            .addLibraries(CelRegexCompilerLibrary.regex())
+            .build();
+    CelLiteRuntime celLiteRuntime =
+        CelLiteRuntimeFactory.newLiteRuntimeBuilder()
+            .addLibraries(CelRegexRuntimeLibrary.regex())
+            .build();
 
+    CelAbstractSyntaxTree ast =
+        celCompiler.compile("regex.replace('hello world', 'world', 'cel')").getAst();
+    Object result = celLiteRuntime.createProgram(ast).eval();
+
+    assertThat(result).isEqualTo("hello cel");
+  }
+
+  @Test
+  public void separateLibraryAndRuntime_versioned_success() throws Exception {
+    CelCompiler celCompiler =
+        CelCompilerFactory.standardCelCompilerBuilder()
+            .addLibraries(CelRegexCompilerLibrary.regex(0))
+            .build();
+    CelRuntime celRuntime =
+        CelRuntimeFactory.standardCelRuntimeBuilder()
+            .addFunctionBindings(CelRegexRuntimeLibrary.regex(0).newFunctionBindings())
+            .build();
+
+    CelAbstractSyntaxTree ast =
+        celCompiler.compile("regex.replace('hello world', 'world', 'cel')").getAst();
+    Object result = celRuntime.createProgram(ast).eval();
+
+    assertThat(result).isEqualTo("hello cel");
+  }
+
+  @Test
+  public void separateLibraryAndRuntime_subsetOfFunctions_success() throws Exception {
+    CelCompiler celCompiler =
+        CelCompilerFactory.standardCelCompilerBuilder()
+            .addLibraries(CelRegexCompilerLibrary.regex(CelRegexCompilerLibrary.Function.REPLACE))
+            .build();
+    CelRuntime celRuntime =
+        CelRuntimeFactory.standardCelRuntimeBuilder()
+            .addFunctionBindings(
+                CelRegexRuntimeLibrary.regex(CelRegexRuntimeLibrary.Function.REPLACE)
+                    .newFunctionBindings())
+            .build();
+
+    CelAbstractSyntaxTree ast =
+        celCompiler.compile("regex.replace('hello world', 'world', 'cel')").getAst();
+    Object result = celRuntime.createProgram(ast).eval();
+
+    assertThat(result).isEqualTo("hello cel");
+    assertThrows(
+        CelValidationException.class,
+        () -> celCompiler.compile("regex.extract('hello world', 'world')").getAst());
+  }
+
+  @Test
+  public void separateLibraryAndRuntime_setOfFunctions_success() throws Exception {
+    CelCompiler celCompiler =
+        CelCompilerFactory.standardCelCompilerBuilder()
+            .addLibraries(
+                CelRegexCompilerLibrary.regex(
+                    ImmutableSet.of(CelRegexCompilerLibrary.Function.REPLACE)))
+            .build();
+    CelRuntime celRuntime =
+        CelRuntimeFactory.standardCelRuntimeBuilder()
+            .addFunctionBindings(
+                CelRegexRuntimeLibrary.regex(
+                        ImmutableSet.of(CelRegexRuntimeLibrary.Function.REPLACE))
+                    .newFunctionBindings())
+            .build();
+
+    CelAbstractSyntaxTree ast =
+        celCompiler.compile("regex.replace('hello world', 'world', 'cel')").getAst();
+    Object result = celRuntime.createProgram(ast).eval();
+
+    assertThat(result).isEqualTo("hello cel");
+  }
+
+  @Test
+  public void separateLibraryAndRuntime_unsupportedVersion_throws() {
+    assertThrows(IllegalArgumentException.class, () -> CelRegexCompilerLibrary.regex(99));
+    assertThrows(IllegalArgumentException.class, () -> CelRegexRuntimeLibrary.regex(99));
+  }
+
+  @Test
+  public void regex_subsetOfFunctions_success() throws Exception {
+    Cel cel =
+        CelFactory.standardCelBuilder()
+            .addCompilerLibraries(CelExtensions.regex(CelRegexExtensions.Function.REPLACE))
+            .addRuntimeLibraries(CelExtensions.regex(CelRegexExtensions.Function.REPLACE))
+            .build();
+
+    CelAbstractSyntaxTree ast =
+        cel.compile("regex.replace('hello world', 'world', 'cel')").getAst();
+    Object result = cel.createProgram(ast).eval();
+
+    assertThat(result).isEqualTo("hello cel");
+    assertThrows(
+        CelValidationException.class,
+        () -> cel.compile("regex.extract('hello world', 'world')").getAst());
+  }
+
+  @Test
+  public void regex_setOfFunctions_success() throws Exception {
+    Cel cel =
+        CelFactory.standardCelBuilder()
+            .addCompilerLibraries(
+                CelExtensions.regex(ImmutableSet.of(CelRegexExtensions.Function.REPLACE)))
+            .addRuntimeLibraries(
+                CelExtensions.regex(ImmutableSet.of(CelRegexExtensions.Function.REPLACE)))
+            .build();
+
+    CelAbstractSyntaxTree ast =
+        cel.compile("regex.replace('hello world', 'world', 'cel')").getAst();
+    Object result = cel.createProgram(ast).eval();
+
+    assertThat(result).isEqualTo("hello cel");
+  }
+
+  @Test
+  public void regex_versioned_success() throws Exception {
+    Cel cel =
+        CelFactory.standardCelBuilder()
+            .addCompilerLibraries(CelExtensions.regex(0))
+            .addRuntimeLibraries(CelExtensions.regex(0))
+            .build();
+
+    CelAbstractSyntaxTree ast =
+        cel.compile("regex.replace('hello world', 'world', 'cel')").getAst();
+    Object result = cel.createProgram(ast).eval();
+
+    assertThat(result).isEqualTo("hello cel");
+  }
+
+  @Test
+  public void regex_noArgConstructor_success() {
+    CelRegexExtensions extensions = new CelRegexExtensions();
+
+    assertThat(extensions.version()).isEqualTo(CelRegexCompilerLibrary.regex().version());
+    assertThat(extensions.functions()).isNotEmpty();
+    assertThat(extensions.macros()).isEmpty();
+  }
 }

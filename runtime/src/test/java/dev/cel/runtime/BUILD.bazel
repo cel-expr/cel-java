@@ -197,6 +197,7 @@ cel_android_local_test(
         "//extensions:encoders_runtime_library_android",
         "//extensions:lists_runtime_library_android",
         "//extensions:math_runtime_library_android",
+        "//extensions:regex_runtime_library_android",
         "//extensions:sets_runtime_library_android",
         "//extensions:strings_runtime_library_android",
         "//runtime:evaluation_exception",
