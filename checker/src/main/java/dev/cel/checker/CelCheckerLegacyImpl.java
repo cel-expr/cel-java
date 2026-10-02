@@ -446,7 +446,7 @@ public final class CelCheckerLegacyImpl implements CelChecker, EnvVisitable {
       } else if (celTypeProvider != null) {
         messageTypeProvider =
             new CelTypeProvider.CombinedCelTypeProvider(
-                ImmutableList.of(celTypeProvider, messageTypeProvider));
+                ImmutableList.of(messageTypeProvider, celTypeProvider));
       }
 
       // Configure the declaration set, and possibly alter the type provider if ProtoDecl values
