@@ -46,7 +46,7 @@ final class ExecutionFrame {
       @Nullable CelEvaluationListener listener) {
     return new ExecutionFrame(
         functionResolver,
-        celOptions.comprehensionMaxIterations(),
+        getComprehensionMaxIterations(celOptions),
         partialVars,
         listener,
         /* asyncTracker= */ null);
@@ -61,10 +61,14 @@ final class ExecutionFrame {
     checkNotNull(asyncTracker, "asyncTracker");
     return new ExecutionFrame(
         functionResolver,
-        celOptions.comprehensionMaxIterations(),
+        getComprehensionMaxIterations(celOptions),
         partialVars,
         listener,
         asyncTracker);
+  }
+
+  private static int getComprehensionMaxIterations(CelOptions celOptions) {
+    return celOptions.enableComprehension() ? celOptions.comprehensionMaxIterations() : 0;
   }
 
   Optional<CelResolvedOverload> findOverload(

@@ -1982,10 +1982,13 @@ public final class CelImplTest {
 
   @Test
   public void program_comprehensionDisabled_throws() throws Exception {
-    // TODO: Planner ExecutionFrame ignores CelOptions.enableComprehension(false).
     Cel cel =
-        legacyCelBuilderWithMacros()
-            .setOptions(CelOptions.current().enableComprehension(false).build())
+        plannerCelBuilderWithMacros()
+            .setOptions(
+                CelOptions.current()
+                    .enableHeterogeneousNumericComparisons(true)
+                    .enableComprehension(false)
+                    .build())
             .build();
     CelAbstractSyntaxTree ast = cel.compile("['foo', 'bar'].map(x, x)").getAst();
 
