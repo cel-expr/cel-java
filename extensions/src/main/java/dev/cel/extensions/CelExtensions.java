@@ -342,6 +342,39 @@ public final class CelExtensions {
   }
 
   /**
+   * Extended functions for Regular Expressions.
+   *
+   * <p>Refer to README.md for available functions.
+   */
+  public static CelRegexExtensions regex(int version) {
+    return CelRegexExtensions.library().version(version);
+  }
+
+  /**
+   * Extended functions for Regular Expressions.
+   *
+   * <p>Refer to README.md for available functions.
+   *
+   * <p>This will include only the specific functions denoted by {@link
+   * CelRegexExtensions.Function}.
+   */
+  public static CelRegexExtensions regex(CelRegexExtensions.Function... functions) {
+    return regex(ImmutableSet.copyOf(functions));
+  }
+
+  /**
+   * Extended functions for Regular Expressions.
+   *
+   * <p>Refer to README.md for available functions.
+   *
+   * <p>This will include only the specific functions denoted by {@link
+   * CelRegexExtensions.Function}.
+   */
+  public static CelRegexExtensions regex(Set<CelRegexExtensions.Function> functions) {
+    return new CelRegexExtensions(functions);
+  }
+
+  /**
    * Extended functions for Two Variable Comprehensions Expressions.
    *
    * <p>Refer to README.md for available functions.
@@ -351,6 +384,41 @@ public final class CelExtensions {
    */
   public static CelComprehensionsExtensions comprehensions() {
     return COMPREHENSIONS_EXTENSIONS;
+  }
+
+  /**
+   * Extended functions for Two Variable Comprehensions Expressions.
+   *
+   * <p>Refer to README.md for functions available in each version.
+   */
+  public static CelComprehensionsExtensions comprehensions(int version) {
+    return CelComprehensionsExtensions.library().version(version);
+  }
+
+  /**
+   * Extended functions for Two Variable Comprehensions Expressions.
+   *
+   * <p>Refer to README.md for available functions.
+   *
+   * <p>This will include only the specific functions denoted by {@link
+   * CelComprehensionsExtensions.Function}.
+   */
+  public static CelComprehensionsExtensions comprehensions(
+      CelComprehensionsExtensions.Function... functions) {
+    return comprehensions(ImmutableSet.copyOf(functions));
+  }
+
+  /**
+   * Extended functions for Two Variable Comprehensions Expressions.
+   *
+   * <p>Refer to README.md for available functions.
+   *
+   * <p>This will include only the specific functions denoted by {@link
+   * CelComprehensionsExtensions.Function}.
+   */
+  public static CelComprehensionsExtensions comprehensions(
+      Set<CelComprehensionsExtensions.Function> functions) {
+    return new CelComprehensionsExtensions(functions);
   }
 
   /**
@@ -419,6 +487,7 @@ public final class CelExtensions {
         return CelSetsExtensions.library(options);
       case "strings":
         return CelStringExtensions.library();
+      case "two-var-comprehensions":
       case "comprehensions":
         return CelComprehensionsExtensions.library();
       // TODO: add support for remaining standard extensions

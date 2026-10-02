@@ -483,39 +483,143 @@ cel_android_library(
 java_library(
     name = "regex",
     srcs = ["CelRegexExtensions.java"],
+    tags = [
+    ],
     deps = [
+        ":extension_library",
+        ":regex_compiler_library",
+        ":regex_runtime_library",
         "//checker:checker_builder",
-        "//common:compiler_common",
+        "//common:cel_function_decl",
+        "//compiler:compiler_builder",
+        "//runtime",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:com_google_guava_guava",
+    ],
+)
+
+java_library(
+    name = "regex_compiler_library",
+    srcs = ["CelRegexCompilerLibrary.java"],
+    tags = [
+    ],
+    deps = [
+        ":extension_library",
+        "//checker:checker_builder",
+        "//common:cel_function_decl",
+        "//common:cel_overload_decl",
         "//common/types",
         "//compiler:compiler_builder",
-        "//extensions:extension_library",
-        "//runtime",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:com_google_guava_guava",
+    ],
+)
+
+java_library(
+    name = "regex_runtime_library",
+    srcs = ["CelRegexRuntimeLibrary.java"],
+    tags = [
+    ],
+    deps = [
         "//runtime:function_binding",
+        "//runtime:lite_runtime",
         "@maven//:com_google_errorprone_error_prone_annotations",
         "@maven//:com_google_guava_guava",
         "@maven//:com_google_re2j_re2j",
     ],
 )
 
+cel_android_library(
+    name = "regex_runtime_library_android",
+    srcs = ["CelRegexRuntimeLibrary.java"],
+    tags = [
+    ],
+    deps = [
+        "//runtime:function_binding_android",
+        "//runtime:lite_runtime_android",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:com_google_re2j_re2j",
+        "@maven_android//:com_google_guava_guava",
+    ],
+)
+
 java_library(
     name = "comprehensions",
     srcs = ["CelComprehensionsExtensions.java"],
+    tags = [
+    ],
     deps = [
+        ":comprehensions_compiler_library",
+        ":comprehensions_runtime_library",
+        ":extension_library",
         "//checker:checker_builder",
-        "//common:compiler_common",
-        "//common:operator",
+        "//common:cel_function_decl",
         "//common:options",
-        "//common/ast",
-        "//common/types",
-        "//common/values:mutable_map_value",
         "//compiler:compiler_builder",
-        "//extensions:extension_library",
         "//parser:macro",
         "//parser:parser_builder",
         "//runtime",
-        "//runtime:function_binding",
         "//runtime:runtime_equality",
+        "@maven//:com_google_errorprone_error_prone_annotations",
         "@maven//:com_google_guava_guava",
+    ],
+)
+
+java_library(
+    name = "comprehensions_compiler_library",
+    srcs = ["CelComprehensionsCompilerLibrary.java"],
+    tags = [
+        "alt_dep=//extensions:comprehensions_compiler_library",
+    ],
+    deps = [
+        ":extension_library",
+        "//checker:checker_builder",
+        "//common:cel_function_decl",
+        "//common:cel_issue",
+        "//common:cel_overload_decl",
+        "//common:operator",
+        "//common/ast",
+        "//common/types",
+        "//compiler:compiler_builder",
+        "//parser:macro",
+        "//parser:parser_builder",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:com_google_guava_guava",
+    ],
+)
+
+java_library(
+    name = "comprehensions_runtime_library",
+    srcs = ["CelComprehensionsRuntimeLibrary.java"],
+    tags = [
+        "alt_dep=//extensions:comprehensions_runtime_library",
+    ],
+    deps = [
+        "//common:options",
+        "//common/values:mutable_map_value",
+        "//runtime:function_binding",
+        "//runtime:lite_runtime",
+        "//runtime:runtime_equality",
+        "//runtime:runtime_helpers",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:com_google_guava_guava",
+    ],
+)
+
+cel_android_library(
+    name = "comprehensions_runtime_library_android",
+    srcs = ["CelComprehensionsRuntimeLibrary.java"],
+    tags = [
+    ],
+    deps = [
+        "//common:options",
+        "//common/values:mutable_map_value_android",
+        "//runtime:function_binding_android",
+        "//runtime:lite_runtime_android",
+        "//runtime:runtime_equality_android",
+        "//runtime:runtime_helpers_android",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven_android//:com_google_guava_guava",
     ],
 )
 

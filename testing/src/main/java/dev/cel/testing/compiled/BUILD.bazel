@@ -44,6 +44,7 @@ java_library(
     resources = [
         ":compiled_comprehension",
         ":compiled_comprehension_exists",
+        ":compiled_comprehensions_transform_map",
         ":compiled_custom_functions",
         ":compiled_encoders_encode",
         ":compiled_extended_env",
@@ -67,6 +68,7 @@ java_library(
         ":compiled_proto3_select_repeated_fields",
         ":compiled_proto3_select_wrappers",
         ":compiled_proto_message",
+        ":compiled_regex_replace",
         ":compiled_sets_contains",
         ":compiled_string_lower_ascii",
     ],
@@ -110,6 +112,12 @@ compile_cel(
 )
 
 compile_cel(
+    name = "compiled_comprehensions_transform_map",
+    environment = "//testing/environment:all_extensions",
+    expression = "[1, 2, 3].transformMap(i, v, v)",
+)
+
+compile_cel(
     name = "compiled_encoders_encode",
     environment = "//testing/environment:all_extensions",
     expression = "base64.encode(b'hello')",
@@ -131,6 +139,12 @@ compile_cel(
     name = "compiled_lists_slice",
     environment = "//testing/environment:all_extensions",
     expression = "[1, 2, 3].slice(0, 2)",
+)
+
+compile_cel(
+    name = "compiled_regex_replace",
+    environment = "//testing/environment:all_extensions",
+    expression = "regex.replace('hello world', 'world', 'cel')",
 )
 
 compile_cel(
