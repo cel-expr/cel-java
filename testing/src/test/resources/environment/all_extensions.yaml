@@ -20,5 +20,6 @@ extensions:
 - name: "math"
 - name: "optional"
 - name: "protos"
+- name: "regex"
 - name: "sets"
 - name: "strings"
