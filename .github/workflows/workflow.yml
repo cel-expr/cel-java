@@ -14,6 +14,9 @@ concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
     cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   Bazel-Build-Java8:
     runs-on: ubuntu-latest
@@ -21,18 +24,18 @@ jobs:
     steps:
       - run: echo "🎉 The job was automatically triggered by a ${{ github.event_name }} event."
       - run: echo "🐧 Job is running on a ${{ runner.os }} server!"
-      - run: echo "🔎 The name of your branch is ${{ github.ref }} and your repository is ${{ github.repository }}."
+      - run: echo "🔎 The name of your branch is ${GITHUB_REF} and your repository is ${GITHUB_REPOSITORY}."
       - name: Check out repository code
-        uses: actions/checkout@v6
-      - name: Setup Bazel
-        uses: bazel-contrib/setup-bazel@0.18.0
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-            # Avoid downloading Bazel every time.
-            bazelisk-cache: true
+          persist-credentials: false
+      - name: Mark job start
+        run: touch "$RUNNER_TEMP/job-start"
+      - name: Setup Bazel
+        uses: bazel-contrib/setup-bazel@083175551ceeceebc757ebee2127fde78840ca77 # 0.18.0
+        with:
             # Store build cache per workflow.
             disk-cache: ${{ github.workflow }}-${{ github.job }}
-            # Share repository cache between workflows.
-            repository-cache: true
             # Prevent PRs from polluting cache
             cache-save: ${{ github.event_name != 'pull_request' }}
       - name: Bazel Output Version
@@ -43,7 +46,16 @@ jobs:
         run: .github/workflows/unwanted_deps.sh
       - name: Cross-artifact Duplicate Classes Check
         run: .github/workflows/cross_artifact_dependencies_check.sh
-      - run: echo "🍏 This job's status is ${{ job.status }}."
+      - name: Prune disk cache entries not used by this job
+        # Bazel bumps mtimes on use; drop stale entries so the saved cache doesn't grow unbounded.
+        if: github.event_name != 'pull_request'
+        run: |
+          du -sh ~/.cache/bazel-disk
+          find ~/.cache/bazel-disk -type f ! -newer "$RUNNER_TEMP/job-start" -delete
+          du -sh ~/.cache/bazel-disk
+      - run: echo "🍏 This job's status is ${JOB_STATUS}."
+        env:
+          JOB_STATUS: ${{ job.status }}
 
   Bazel-Tests:
     runs-on: ubuntu-latest
@@ -51,18 +63,18 @@ jobs:
     steps:
       - run: echo "🎉 The job was automatically triggered by a ${{ github.event_name }} event."
       - run: echo "🐧 Job is running on a ${{ runner.os }} server!"
-      - run: echo "🔎 The name of your branch is ${{ github.ref }} and your repository is ${{ github.repository }}."
+      - run: echo "🔎 The name of your branch is ${GITHUB_REF} and your repository is ${GITHUB_REPOSITORY}."
       - name: Check out repository code
-        uses: actions/checkout@v6
-      - name: Setup Bazel
-        uses: bazel-contrib/setup-bazel@0.18.0
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-            # Avoid downloading Bazel every time.
-            bazelisk-cache: true
+          persist-credentials: false
+      - name: Mark job start
+        run: touch "$RUNNER_TEMP/job-start"
+      - name: Setup Bazel
+        uses: bazel-contrib/setup-bazel@083175551ceeceebc757ebee2127fde78840ca77 # 0.18.0
+        with:
             # Store build cache per workflow.
             disk-cache: ${{ github.workflow }}-${{ github.job }}
-            # Share repository cache between workflows.
-            repository-cache: true
             # Prevent PRs from polluting cache
             cache-save: ${{ github.event_name != 'pull_request' }}
       - name: Bazel Output Version
@@ -71,7 +83,16 @@ jobs:
         # Exclude codelab exercises as they are intentionally made to fail
         # Exclude maven conformance tests. They are only executed when there's version change.
         run: bazelisk test ... --deleted_packages=//codelab/src/test/codelab --test_output=errors --test_tag_filters=-conformance_maven --build_tag_filters=-conformance_maven
-      - run: echo "🍏 This job's status is ${{ job.status }}."
+      - name: Prune disk cache entries not used by this job
+        # Bazel bumps mtimes on use; drop stale entries so the saved cache doesn't grow unbounded.
+        if: github.event_name != 'pull_request'
+        run: |
+          du -sh ~/.cache/bazel-disk
+          find ~/.cache/bazel-disk -type f ! -newer "$RUNNER_TEMP/job-start" -delete
+          du -sh ~/.cache/bazel-disk
+      - run: echo "🍏 This job's status is ${JOB_STATUS}."
+        env:
+          JOB_STATUS: ${{ job.status }}
 
   # -- Start of Maven Conformance Tests (Ran only when there's version changes) --
   Maven-Conformance:
@@ -80,24 +101,24 @@ jobs:
     steps:
       - run: echo "🎉 The job was automatically triggered by a ${{ github.event_name }} event."
       - run: echo "🐧 Job is running on a ${{ runner.os }} server!"
-      - run: echo "🔎 The name of your branch is ${{ github.ref }} and your repository is ${{ github.repository }}."
+      - run: echo "🔎 The name of your branch is ${GITHUB_REF} and your repository is ${GITHUB_REPOSITORY}."
       - name: Check out repository code
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          # Full history so changed-files doesn't need credentials to fetch more.
+          fetch-depth: 0
+          persist-credentials: false
       - name: Get changed files
         id: changed_file
-        uses: tj-actions/changed-files@v47
+        uses: tj-actions/changed-files@24d32ffd492484c1d75e0c0b894501ddb9d30d62 # v47.0.0
         with:
           files: publish/cel_version.bzl
       - name: Setup Bazel
         if: steps.changed_file.outputs.any_changed == 'true'
-        uses: bazel-contrib/setup-bazel@0.18.0
+        uses: bazel-contrib/setup-bazel@083175551ceeceebc757ebee2127fde78840ca77 # 0.18.0
         with:
-            # Avoid downloading Bazel every time.
-            bazelisk-cache: true
             # Store build cache per workflow.
             disk-cache: ${{ github.workflow }}-${{ github.job }}
-            # Share repository cache between workflows.
-            repository-cache: true
             # Never write to the cache, strictly read-only
             cache-save: false
       - name: Verify Version Consistency
