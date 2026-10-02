@@ -44,7 +44,7 @@ import dev.cel.common.types.SimpleType;
 import dev.cel.common.types.StructTypeReference;
 import dev.cel.common.values.CelByteString;
 import dev.cel.common.values.ProtoMessageLiteValueProvider;
-import dev.cel.common.values.RawProtoMessageLiteValue;
+import dev.cel.common.values.WireMessageLite;
 import dev.cel.expr.conformance.proto3.NestedTestAllTypes;
 import dev.cel.expr.conformance.proto3.NestedTestAllTypesCelDescriptor;
 import dev.cel.expr.conformance.proto3.TestAllTypes;
@@ -535,15 +535,86 @@ public final class CelLiteRuntimeVersionSkewTest {
   }
 
   @Test
-  public void select_populatedUnknownSubmessageLeaf_returnsRawMessage() throws Exception {
-    TestAllTypes msg =
-        TestAllTypes.newBuilder()
-            .setSingleNestedMessage(NestedMessage.newBuilder().setBb(123).build())
-            .build();
+  public void select_populatedUnknownSubmessageLeaf_withKnownSubmessageType_returnsMessageLite()
+      throws Exception {
+    NestedMessage nested = NestedMessage.newBuilder().setBb(123).build();
+    TestAllTypes msg = TestAllTypes.newBuilder().setSingleNestedMessage(nested).build();
 
     Object result = eval("msg.single_nested_message", msg);
 
-    assertThat(result).isInstanceOf(RawProtoMessageLiteValue.class);
+    assertThat(result).isEqualTo(nested);
+  }
+
+  @Test
+  public void select_unsetUnknownSubmessageLeaf_withKnownSubmessageType_returnsDefaultMessageLite()
+      throws Exception {
+    TestAllTypes msg = TestAllTypes.getDefaultInstance();
+
+    Object result = eval("msg.single_nested_message", msg);
+
+    assertThat(result).isEqualTo(NestedMessage.getDefaultInstance());
+  }
+
+  @Test
+  public void
+      select_populatedUnknownSubmessageLeaf_withoutSubmessageDescriptor_returnsWireMessageLite()
+          throws Exception {
+    NestedMessage nested = NestedMessage.newBuilder().setBb(123).build();
+    TestAllTypes msg = TestAllTypes.newBuilder().setSingleNestedMessage(nested).build();
+    CelLiteRuntime runtimeWithoutNestedDesc = newRuntimeWithoutNestedMessageDescriptor();
+    CelAbstractSyntaxTree optimizedAst =
+        serverOptimizer.optimize(serverCompiler.compile("msg.single_nested_message").getAst());
+    Program program = runtimeWithoutNestedDesc.createProgram(optimizedAst);
+
+    Object result = program.eval(ImmutableMap.of("msg", msg));
+
+    assertThat(result).isInstanceOf(WireMessageLite.class);
+    WireMessageLite wireMsg = (WireMessageLite) result;
+    assertThat(wireMsg.protoTypeName())
+        .isEqualTo("cel.expr.conformance.proto3.TestAllTypes.NestedMessage");
+    assertThat(wireMsg.toByteString()).isEqualTo(nested.toByteString());
+  }
+
+  @Test
+  public void
+      select_unsetUnknownSubmessageLeaf_withoutSubmessageDescriptor_returnsEmptyWireMessageLite()
+          throws Exception {
+    TestAllTypes msg = TestAllTypes.getDefaultInstance();
+    CelLiteRuntime runtimeWithoutNestedDesc = newRuntimeWithoutNestedMessageDescriptor();
+    CelAbstractSyntaxTree optimizedAst =
+        serverOptimizer.optimize(serverCompiler.compile("msg.single_nested_message").getAst());
+    Program program = runtimeWithoutNestedDesc.createProgram(optimizedAst);
+
+    Object result = program.eval(ImmutableMap.of("msg", msg));
+
+    assertThat(result).isInstanceOf(WireMessageLite.class);
+    WireMessageLite wireMsg = (WireMessageLite) result;
+    assertThat(wireMsg.protoTypeName())
+        .isEqualTo("cel.expr.conformance.proto3.TestAllTypes.NestedMessage");
+    assertThat(wireMsg.toByteString()).isEqualTo(ByteString.EMPTY);
+  }
+
+  @Test
+  public void
+      select_populatedUnknownRepeatedSubmessageLeaf_withKnownSubmessageType_returnsMessageLiteList()
+          throws Exception {
+    Object result = eval("msg.repeated_nested_message", POPULATED_SERVER_MESSAGE);
+
+    assertThat(result)
+        .isEqualTo(
+            ImmutableList.of(
+                NestedMessage.newBuilder().setBb(10).build(),
+                NestedMessage.newBuilder().setBb(20).build()));
+  }
+
+  @Test
+  public void
+      select_populatedUnknownMapSubmessageLeaf_withKnownSubmessageType_returnsMessageLiteMap()
+          throws Exception {
+    Object result = eval("msg.map_string_message", POPULATED_SERVER_MESSAGE);
+
+    assertThat(result)
+        .isEqualTo(ImmutableMap.of("m1", NestedMessage.newBuilder().setBb(55).build()));
   }
 
   @Test
@@ -1111,69 +1182,49 @@ public final class CelLiteRuntimeVersionSkewTest {
   }
 
   @Test
-  public void submessageEquality_populatedSelfComparison_evaluatesTrue() throws Exception {
-    Object result =
-        eval("msg.single_nested_message == msg.single_nested_message", POPULATED_SERVER_MESSAGE);
-
-    assertThat(result).isEqualTo(true);
-  }
-
-  @Test
-  public void submessageEquality_unsetSelfComparison_evaluatesTrue() throws Exception {
-    Object result =
-        eval(
+  public void submessageEquality_withKnownSubmessageDescriptor_throwsUnsupportedOperationException(
+      @TestParameter({
             "msg.single_nested_message == msg.single_nested_message",
-            TestAllTypes.getDefaultInstance());
-
-    assertThat(result).isEqualTo(true);
-  }
-
-  @Test
-  public void submessageEquality_identicalSubmessagesAcrossDistinctPaths_evaluatesTrue()
+            "msg.repeated_nested_message == msg.repeated_nested_message"
+          })
+          String expr)
       throws Exception {
-    NestedTestAllTypes nestedMsg =
-        NestedTestAllTypes.newBuilder()
-            .setPayload(POPULATED_SERVER_MESSAGE)
-            .setChild(NestedTestAllTypes.newBuilder().setPayload(POPULATED_SERVER_MESSAGE))
-            .build();
+    CelAbstractSyntaxTree optimizedAst =
+        serverOptimizer.optimize(serverCompiler.compile(expr).getAst());
+    Program program = clientRuntime.createProgram(optimizedAst);
 
-    Object result =
-        evalNested(
-            "nested_msg.payload.single_nested_message =="
-                + " nested_msg.child.payload.single_nested_message",
-            nestedMsg);
+    CelEvaluationException thrown =
+        assertThrows(
+            CelEvaluationException.class,
+            () -> program.eval(ImmutableMap.of("msg", POPULATED_SERVER_MESSAGE)));
 
-    assertThat(result).isEqualTo(true);
+    assertThat(thrown).hasCauseThat().isInstanceOf(UnsupportedOperationException.class);
+    assertThat(thrown).hasCauseThat().hasMessageThat().contains("Not implemented yet");
   }
 
   @Test
-  public void submessageEquality_differentSubmessagesWithSameCelType_evaluatesFalse()
+  public void submessageEquality_withoutSubmessageDescriptor_throwsUnsupportedOperationException(
+      @TestParameter({
+            "msg.single_nested_message == msg.single_nested_message",
+            "msg.repeated_nested_message == msg.repeated_nested_message"
+          })
+          String expr)
       throws Exception {
-    Object differentResult =
-        eval(
-            "msg.repeated_nested_message[0] == msg.repeated_nested_message[1]",
-            POPULATED_SERVER_MESSAGE);
+    CelLiteRuntime runtimeWithoutNestedDesc = newRuntimeWithoutNestedMessageDescriptor();
+    CelAbstractSyntaxTree optimizedAst =
+        serverOptimizer.optimize(serverCompiler.compile(expr).getAst());
+    Program program = runtimeWithoutNestedDesc.createProgram(optimizedAst);
 
-    assertThat(differentResult).isEqualTo(false);
-  }
+    CelEvaluationException thrown =
+        assertThrows(
+            CelEvaluationException.class,
+            () -> program.eval(ImmutableMap.of("msg", POPULATED_SERVER_MESSAGE)));
 
-  @Test
-  public void
-      submessageEquality_singularAndRepeatedUnknownSubmessagesWithIdenticalContent_evaluatesTrue()
-          throws Exception {
-    TestAllTypes msg =
-        TestAllTypes.newBuilder()
-            .setSingleNestedMessage(NestedMessage.newBuilder().setBb(123))
-            .addRepeatedNestedMessage(NestedMessage.newBuilder().setBb(123))
-            .build();
-
-    Object result =
-        eval(
-            "msg.single_nested_message == msg.repeated_nested_message[0] &&"
-                + " !(msg.single_nested_message != msg.repeated_nested_message[0])",
-            msg);
-
-    assertThat(result).isEqualTo(true);
+    assertThat(thrown).hasCauseThat().isInstanceOf(UnsupportedOperationException.class);
+    assertThat(thrown)
+        .hasCauseThat()
+        .hasMessageThat()
+        .contains("Message equality is not supported");
   }
 
   @Test
@@ -2248,6 +2299,106 @@ public final class CelLiteRuntimeVersionSkewTest {
                 + " or enable SelectOptimizer.");
   }
 
+  @Test
+  public void descriptorlessRuntime_rootMessageResult_returnsWireMessageLite() throws Exception {
+    CelLiteRuntime descriptorlessRuntime = newDescriptorlessRuntime();
+    CelAbstractSyntaxTree ast = serverCompiler.compile("msg").getAst();
+    Program program = descriptorlessRuntime.createProgram(ast);
+
+    Object result = program.eval(ImmutableMap.of("msg", POPULATED_SERVER_MESSAGE));
+
+    assertThat(result).isInstanceOf(WireMessageLite.class);
+    WireMessageLite wireMsg = (WireMessageLite) result;
+    assertThat(wireMsg.protoTypeName()).isEqualTo("cel.@unknownMessage");
+    assertThat(wireMsg.toByteString()).isEqualTo(POPULATED_SERVER_MESSAGE.toByteString());
+  }
+
+  @Test
+  public void olderClassRoundTrip_descriptorlessRuntime_evaluatesFromReserializedUnknownFields(
+      @TestParameter DescriptorlessEvaluationTestCase testCase) throws Exception {
+    // NestedMessage only defines field 1 (int32 bb = 1); parsing a V2 TestAllTypes payload into it
+    // populates its known field (tag 1) alongside unknown V2 fields (tags 2..402) before
+    // re-serialization.
+    TestAllTypes v2Message =
+        testCase.message.equals(TestAllTypes.getDefaultInstance())
+            ? testCase.message
+            : testCase.message.toBuilder().setSingleInt32(42).build();
+    NestedMessage olderClassMsg = NestedMessage.parseFrom(v2Message.toByteString());
+    CelLiteRuntime descriptorlessRuntime = newDescriptorlessRuntime();
+    CelAbstractSyntaxTree optimizedAst =
+        serverOptimizer.optimize(serverCompiler.compile(testCase.expression).getAst());
+    Program program = descriptorlessRuntime.createProgram(optimizedAst);
+
+    Object result = program.eval(ImmutableMap.of("msg", olderClassMsg));
+
+    assertThat(result).isEqualTo(testCase.expectedResult);
+  }
+
+  @Test
+  public void
+      olderClassRoundTrip_v1ClassDescriptor_evaluatesKnownAndUnknownFieldsAcrossSubmessages()
+          throws Exception {
+    TestAllTypes v2Payload = POPULATED_SERVER_MESSAGE.toBuilder().setSingleInt32(42).build();
+    // Parse V2 TestAllTypes wire bytes into NestedMessage (which only knows field 1: int32 bb = 1).
+    // Field 1 is stored in NestedMessage's generated Java field, while all V2 fields (tags 2..402)
+    // are retained in NestedMessage's unknown fields.
+    NestedMessage v1RootMsg = NestedMessage.parseFrom(v2Payload.toByteString());
+    NestedTestAllTypes v2NestedMsg = NestedTestAllTypes.newBuilder().setPayload(v2Payload).build();
+    CelLiteRuntime v1OlderClassRuntime = newOlderClassV1Runtime();
+    CelAbstractSyntaxTree optimizedAst =
+        serverOptimizer.optimize(
+            serverCompiler
+                .compile(
+                    "has(msg.single_int32) && msg.single_int32 == 42"
+                        + " && has(msg.single_int64) && msg.single_int64 == -42"
+                        + " && msg.single_string == 'cel-skew-test'"
+                        + " && msg.repeated_int64 == [10, 20]"
+                        + " && msg.map_int32_int32[1] == 2"
+                        + " && msg.single_duration == duration('1h')"
+                        + " && has(nested_msg.payload.single_int32)"
+                        + " && nested_msg.payload.single_int32 == 42"
+                        + " && has(nested_msg.payload.single_int64)"
+                        + " && nested_msg.payload.single_int64 == -42"
+                        + " && nested_msg.payload.single_nested_message.bb == 123"
+                        + " && nested_msg.payload.repeated_string == ['foo', 'bar']"
+                        + " && nested_msg.payload.map_string_duration['d'] == duration('5m')")
+                .getAst());
+    Program program = v1OlderClassRuntime.createProgram(optimizedAst);
+
+    Object result = program.eval(ImmutableMap.of("msg", v1RootMsg, "nested_msg", v2NestedMsg));
+
+    assertThat(result).isEqualTo(true);
+  }
+
+  @Test
+  public void
+      olderClassRoundTrip_v1ClassDescriptor_evaluatesUnsetDefaultsAndDecodesLeafSubmessageIntoOlderClass()
+          throws Exception {
+    TestAllTypes v2Payload = POPULATED_SERVER_MESSAGE.toBuilder().setSingleInt32(42).build();
+    NestedMessage expectedV1Msg = NestedMessage.parseFrom(v2Payload.toByteString());
+    NestedTestAllTypes v2NestedMsg = NestedTestAllTypes.newBuilder().setPayload(v2Payload).build();
+    CelLiteRuntime v1OlderClassRuntime = newOlderClassV1Runtime();
+    Program defaultCheckProgram =
+        v1OlderClassRuntime.createProgram(
+            serverOptimizer.optimize(
+                serverCompiler
+                    .compile(
+                        "!has(msg.single_int32) && msg.single_int32 == 0"
+                            + " && !has(msg.single_int64) && msg.single_int64 == 0")
+                    .getAst()));
+    Program leafSubmessageProgram =
+        v1OlderClassRuntime.createProgram(
+            serverOptimizer.optimize(serverCompiler.compile("nested_msg.payload").getAst()));
+
+    Object defaultCheckResult =
+        defaultCheckProgram.eval(ImmutableMap.of("msg", NestedMessage.getDefaultInstance()));
+    Object leafSubmessageResult =
+        leafSubmessageProgram.eval(ImmutableMap.of("nested_msg", v2NestedMsg));
+
+    assertThat(defaultCheckResult).isEqualTo(true);
+    assertThat(leafSubmessageResult).isEqualTo(expectedV1Msg);
+  }
+
   private Program compileScoreModelLateBoundProgram() throws Exception {
     Cel celWithLateFunc =
         serverCompiler
@@ -2435,6 +2586,32 @@ public final class CelLiteRuntimeVersionSkewTest {
     return CelLiteRuntimeFactory.newLiteRuntimeBuilder()
         .setStandardFunctions(CelStandardFunctions.ALL_STANDARD_FUNCTIONS)
         .setValueProvider(ProtoMessageLiteValueProvider.newInstance())
+        .setContainer(CEL_CONTAINER)
+        .build();
+  }
+
+  private static CelLiteRuntime newOlderClassV1Runtime() {
+    FieldLiteDescriptor v1SingleInt32Field =
+        new FieldLiteDescriptor(
+            /* fieldNumber= */ 1,
+            /* fieldName= */ "v1_single_int32",
+            /* javaType= */ FieldLiteDescriptor.JavaType.INT,
+            /* encodingType= */ FieldLiteDescriptor.EncodingType.SINGULAR,
+            /* protoFieldType= */ FieldLiteDescriptor.Type.INT32,
+            /* isPacked= */ false,
+            /* fieldProtoTypeName= */ "");
+    MessageLiteDescriptor v1OlderClassTestAllTypesDesc =
+        new MessageLiteDescriptor(
+            TestAllTypes.getDescriptor().getFullName(),
+            ImmutableList.of(v1SingleInt32Field),
+            NestedMessage::newBuilder);
+    CelLiteDescriptor v1OlderClassDescriptor =
+        new CelLiteDescriptor("v1_older_class", ImmutableList.of(v1OlderClassTestAllTypesDesc)) {};
+    return CelLiteRuntimeFactory.newLiteRuntimeBuilder()
+        .setStandardFunctions(CelStandardFunctions.ALL_STANDARD_FUNCTIONS)
+        .setValueProvider(
+            ProtoMessageLiteValueProvider.newInstance(
+                v1OlderClassDescriptor, NestedTestAllTypesCelDescriptor.getDescriptor()))
         .setContainer(CEL_CONTAINER)
         .build();
   }

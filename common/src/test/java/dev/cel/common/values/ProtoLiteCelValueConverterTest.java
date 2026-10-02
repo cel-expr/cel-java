@@ -45,6 +45,7 @@ import dev.cel.common.internal.DefaultLiteDescriptorPool;
 import dev.cel.common.values.ProtoLiteCelValueConverter.MessageFields;
 import dev.cel.expr.conformance.proto3.NestedTestAllTypes;
 import dev.cel.expr.conformance.proto3.TestAllTypes;
+import dev.cel.expr.conformance.proto3.TestAllTypes.NestedMessage;
 import dev.cel.expr.conformance.proto3.TestAllTypesCelDescriptor;
 import dev.cel.protobuf.CelLiteDescriptor.FieldLiteDescriptor;
 import dev.cel.protobuf.CelLiteDescriptor.MessageLiteDescriptor;
@@ -101,9 +102,10 @@ public class ProtoLiteCelValueConverterTest {
 
     Object adaptedValue = converterWithoutDescriptors.toRuntimeValue(msg);
 
-    assertThat(adaptedValue)
-        .isEqualTo(
-            RawProtoMessageLiteValue.create(msg.toByteString(), converterWithoutDescriptors));
+    assertThat(adaptedValue).isInstanceOf(RawProtoMessageLiteValue.class);
+    RawProtoMessageLiteValue rawValue = (RawProtoMessageLiteValue) adaptedValue;
+    assertThat(rawValue.toByteString()).isEqualTo(msg.toByteString());
+    assertThat(rawValue.protoTypeName()).isEqualTo("cel.@unknownMessage");
   }
 
   @SuppressWarnings("ImmutableEnumChecker") // Test only
@@ -388,12 +390,11 @@ public class ProtoLiteCelValueConverterTest {
 
     Object defaultValue = converterWithoutNested.getDefaultCelValue(nestedMsgField);
 
-    assertThat(defaultValue)
-        .isEqualTo(
-            RawProtoMessageLiteValue.create(
-                ByteString.EMPTY,
-                "cel.expr.conformance.proto3.TestAllTypes.NestedMessage",
-                converterWithoutNested));
+    assertThat(defaultValue).isInstanceOf(RawProtoMessageLiteValue.class);
+    RawProtoMessageLiteValue rawValue = (RawProtoMessageLiteValue) defaultValue;
+    assertThat(rawValue.toByteString()).isEqualTo(ByteString.EMPTY);
+    assertThat(rawValue.protoTypeName())
+        .isEqualTo("cel.expr.conformance.proto3.TestAllTypes.NestedMessage");
   }
 
   @Test
@@ -411,70 +412,92 @@ public class ProtoLiteCelValueConverterTest {
         PROTO_LITE_CEL_VALUE_CONVERTER.readAllFields(
             msg.toByteArray(), "cel.expr.conformance.proto3.TestAllTypes");
 
-    assertThat(fields.values())
-        .containsExactly(
-            "oneof_type",
-            RawProtoMessageLiteValue.create(
-                msg.getOneofType().toByteString(),
-                "cel.expr.conformance.proto3.NestedTestAllTypes",
-                PROTO_LITE_CEL_VALUE_CONVERTER));
+    assertThat(fields.values().keySet()).containsExactly("oneof_type");
+    Object fieldValue = fields.values().get("oneof_type");
+    assertThat(fieldValue).isInstanceOf(RawProtoMessageLiteValue.class);
+    RawProtoMessageLiteValue rawValue = (RawProtoMessageLiteValue) fieldValue;
+    assertThat(rawValue.toByteString()).isEqualTo(msg.getOneofType().toByteString());
+    assertThat(rawValue.protoTypeName())
+        .isEqualTo("cel.expr.conformance.proto3.NestedTestAllTypes");
   }
 
   @Test
-  public void tryDecodeWellKnownProto_validBytes_returnsDecodedValue() {
+  public void tryDecodeProtoMessage_wellKnownType_returnsDecodedValue() {
     Int32Value int32Value = Int32Value.of(42);
 
     Optional<Object> decoded =
-        PROTO_LITE_CEL_VALUE_CONVERTER.tryDecodeWellKnownProto(
+        PROTO_LITE_CEL_VALUE_CONVERTER.tryDecodeProtoMessage(
             int32Value.toByteString(), "google.protobuf.Int32Value");
 
     assertThat(decoded).hasValue(42L);
   }
 
   @Test
-  public void tryDecodeWellKnownProto_notWellKnownType_returnsEmpty() {
-    Optional<Object> decoded =
-        PROTO_LITE_CEL_VALUE_CONVERTER.tryDecodeWellKnownProto(
-            ByteString.EMPTY, "cel.expr.conformance.proto3.TestAllTypes");
+  public void tryDecodeProtoMessage_registeredMessageType_returnsProtoMessageLiteValue() {
+    NestedMessage nestedMsg = NestedMessage.newBuilder().setBb(42).build();
 
-    assertThat(decoded).isEmpty();
+    Optional<Object> decoded =
+        PROTO_LITE_CEL_VALUE_CONVERTER.tryDecodeProtoMessage(
+            nestedMsg.toByteString(), "cel.expr.conformance.proto3.TestAllTypes.NestedMessage");
+
+    assertThat(decoded)
+        .hasValue(
+            ProtoMessageLiteValue.create(
+                nestedMsg,
+                "cel.expr.conformance.proto3.TestAllTypes.NestedMessage",
+                PROTO_LITE_CEL_VALUE_CONVERTER));
   }
 
   @Test
-  public void tryDecodeWellKnownProto_missingDescriptor_returnsEmpty() {
+  public void
+      tryDecodeProtoMessage_registeredMessageTypeEmptyBytes_returnsDefaultProtoMessageLiteValue() {
+    Optional<Object> decoded =
+        PROTO_LITE_CEL_VALUE_CONVERTER.tryDecodeProtoMessage(
+            ByteString.EMPTY, "cel.expr.conformance.proto3.TestAllTypes.NestedMessage");
+
+    assertThat(decoded)
+        .hasValue(
+            ProtoMessageLiteValue.create(
+                NestedMessage.getDefaultInstance(),
+                "cel.expr.conformance.proto3.TestAllTypes.NestedMessage",
+                PROTO_LITE_CEL_VALUE_CONVERTER));
+  }
+
+  @Test
+  public void tryDecodeProtoMessage_missingDescriptor_returnsEmpty() {
     ProtoLiteCelValueConverter converter =
         ProtoLiteCelValueConverter.newInstance(EMPTY_DESCRIPTOR_POOL);
 
     Optional<Object> decoded =
-        converter.tryDecodeWellKnownProto(ByteString.EMPTY, "google.protobuf.Int32Value");
+        converter.tryDecodeProtoMessage(ByteString.EMPTY, "google.protobuf.Int32Value");
 
     assertThat(decoded).isEmpty();
   }
 
   @Test
-  public void tryDecodeWellKnownProto_invalidBytes_throwsIllegalArgumentException() {
+  public void tryDecodeProtoMessage_invalidBytes_throwsIllegalArgumentException() {
     ByteString corruptBytes = ByteString.copyFrom(new byte[] {(byte) 0xFF, (byte) 0xFF});
 
     IllegalArgumentException exception =
         assertThrows(
             IllegalArgumentException.class,
             () ->
-                PROTO_LITE_CEL_VALUE_CONVERTER.tryDecodeWellKnownProto(
+                PROTO_LITE_CEL_VALUE_CONVERTER.tryDecodeProtoMessage(
                     corruptBytes, "google.protobuf.Int32Value"));
 
     assertThat(exception)
         .hasMessageThat()
-        .contains("Failed to decode well-known proto of type: google.protobuf.Int32Value");
+        .contains("Failed to decode proto message of type: google.protobuf.Int32Value");
     assertThat(exception).hasCauseThat().isInstanceOf(IOException.class);
   }
 
   @Test
-  public void tryDecodeWellKnownProto_anyType_throwsUnsupportedOperationException() {
+  public void tryDecodeProtoMessage_anyType_throwsUnsupportedOperationException() {
     UnsupportedOperationException exception =
         assertThrows(
             UnsupportedOperationException.class,
             () ->
-                PROTO_LITE_CEL_VALUE_CONVERTER.tryDecodeWellKnownProto(
+                PROTO_LITE_CEL_VALUE_CONVERTER.tryDecodeProtoMessage(
                     ByteString.EMPTY, "google.protobuf.Any"));
 
     assertThat(exception).hasMessageThat().contains("ANY_VALUE");

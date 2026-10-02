@@ -29,7 +29,6 @@ import com.google.protobuf.ByteString;
 import com.google.protobuf.CodedInputStream;
 import com.google.protobuf.ExtensionRegistryLite;
 import com.google.protobuf.MessageLite;
-import com.google.protobuf.MessageLiteOrBuilder;
 import com.google.protobuf.WireFormat;
 import dev.cel.common.annotations.Internal;
 import dev.cel.common.internal.CelLiteDescriptorPool;
@@ -45,7 +44,6 @@ import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.TreeMap;
 
@@ -110,6 +108,8 @@ public final class ProtoLiteCelValueConverter extends BaseProtoCelValueConverter
       case FLOAT:
         return inputStream.readFloat();
       case FIXED32:
+        return UnsignedLong.fromLongBits(
+            Integer.toUnsignedLong(inputStream.readRawLittleEndian32()));
       case SFIXED32:
         return inputStream.readRawLittleEndian32();
       default:
@@ -124,6 +124,7 @@ public final class ProtoLiteCelValueConverter extends BaseProtoCelValueConverter
       case DOUBLE:
         return inputStream.readDouble();
       case FIXED64:
+        return UnsignedLong.fromLongBits(inputStream.readRawLittleEndian64());
       case SFIXED64:
         return inputStream.readRawLittleEndian64();
       default:
@@ -171,31 +172,21 @@ public final class ProtoLiteCelValueConverter extends BaseProtoCelValueConverter
         .flatMap(desc -> desc.findByFieldNumber(fieldNumber));
   }
 
-  Optional<Object> tryDecodeWellKnownProto(ByteString bytes, String protoTypeName) {
-    Optional<WellKnownProto> wellKnownProto = WellKnownProto.getByTypeName(protoTypeName);
-    if (!wellKnownProto.isPresent()) {
-      return Optional.empty();
-    }
-
+  Optional<Object> tryDecodeProtoMessage(ByteString bytes, String protoTypeName) {
     return descriptorPool
         .findDescriptor(protoTypeName)
-        .map(
-            descriptor ->
-                decodeWellKnownProto(bytes, protoTypeName, descriptor, wellKnownProto.get()));
+        .map(descriptor -> decodeProtoMessage(bytes, protoTypeName, descriptor));
   }
 
-  private Object decodeWellKnownProto(
-      ByteString bytes,
-      String protoTypeName,
-      MessageLiteDescriptor descriptor,
-      WellKnownProto wellKnownProto) {
+  private Object decodeProtoMessage(
+      ByteString bytes, String protoTypeName, MessageLiteDescriptor descriptor) {
     try {
-      MessageLite.Builder builder = descriptor.newMessageBuilder();
-      builder.mergeFrom(bytes, ExtensionRegistryLite.getEmptyRegistry());
-      return fromWellKnownProto(builder.build(), wellKnownProto);
+      MessageLite.Builder builder =
+          descriptor.newMessageBuilder().mergeFrom(bytes, ExtensionRegistryLite.getEmptyRegistry());
+      return toRuntimeValue(builder.build(), descriptor);
     } catch (IOException e) {
       throw new IllegalArgumentException(
-          "Failed to decode well-known proto of type: " + protoTypeName, e);
+          "Failed to decode proto message of type: " + protoTypeName, e);
     }
   }
 
@@ -209,35 +200,21 @@ public final class ProtoLiteCelValueConverter extends BaseProtoCelValueConverter
       if (descriptor == null) {
         return RawProtoMessageLiteValue.create(msg.toByteString(), this);
       }
-      WellKnownProto wellKnownProto =
-          WellKnownProto.getByTypeName(descriptor.getProtoTypeName()).orElse(null);
-
-      if (wellKnownProto == null) {
-        return ProtoMessageLiteValue.create(msg, descriptor.getProtoTypeName(), this);
-      }
-
-      return fromWellKnownProto(msg, wellKnownProto);
+      return toRuntimeValue(msg, descriptor);
     }
 
     return super.toRuntimeValue(value);
   }
 
-  @Override
-  protected Object fromWellKnownProto(MessageLiteOrBuilder msg, WellKnownProto wellKnownProto) {
-    if (wellKnownProto == WellKnownProto.FIELD_MASK) {
-      MessageLite message = (MessageLite) msg;
-      MessageLiteDescriptor descriptor =
-          descriptorPool
-              .findDescriptor(message)
-              .orElseThrow(
-                  () ->
-                      new NoSuchElementException(
-                          "Could not find a descriptor for message of type: "
-                              + message.getClass().getName()));
-      return ProtoMessageLiteValue.create(message, descriptor.getProtoTypeName(), this);
+  private Object toRuntimeValue(MessageLite msg, MessageLiteDescriptor descriptor) {
+    WellKnownProto wellKnownProto =
+        WellKnownProto.getByTypeName(descriptor.getProtoTypeName()).orElse(null);
+
+    if (wellKnownProto == null || wellKnownProto == WellKnownProto.FIELD_MASK) {
+      return ProtoMessageLiteValue.create(msg, descriptor.getProtoTypeName(), this);
     }
 
-    return super.fromWellKnownProto(msg, wellKnownProto);
+    return fromWellKnownProto(msg, wellKnownProto);
   }
 
   private Object getDefaultValue(FieldLiteDescriptor fieldDescriptor) {
@@ -257,11 +234,13 @@ public final class ProtoLiteCelValueConverter extends BaseProtoCelValueConverter
     JavaType type = fieldDescriptor.getJavaType();
     switch (type) {
       case INT:
-        return fieldDescriptor.getProtoFieldType().equals(FieldLiteDescriptor.Type.UINT32)
+        return (fieldDescriptor.getProtoFieldType().equals(FieldLiteDescriptor.Type.UINT32)
+                || fieldDescriptor.getProtoFieldType().equals(FieldLiteDescriptor.Type.FIXED32))
             ? UnsignedLong.ZERO
             : Defaults.defaultValue(long.class);
       case LONG:
-        return fieldDescriptor.getProtoFieldType().equals(FieldLiteDescriptor.Type.UINT64)
+        return (fieldDescriptor.getProtoFieldType().equals(FieldLiteDescriptor.Type.UINT64)
+                || fieldDescriptor.getProtoFieldType().equals(FieldLiteDescriptor.Type.FIXED64))
             ? UnsignedLong.ZERO
             : Defaults.defaultValue(long.class);
       case ENUM:

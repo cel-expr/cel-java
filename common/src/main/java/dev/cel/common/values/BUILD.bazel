@@ -320,6 +320,7 @@ java_library(
         "ProtoLiteCelValueConverter.java",
         "ProtoMessageLiteValue.java",
         "RawProtoMessageLiteValue.java",
+        "WireMessageLite.java",
     ],
     tags = [
     ],
@@ -350,6 +351,7 @@ cel_android_library(
         "ProtoLiteCelValueConverter.java",
         "ProtoMessageLiteValue.java",
         "RawProtoMessageLiteValue.java",
+        "WireMessageLite.java",
     ],
     tags = [
     ],

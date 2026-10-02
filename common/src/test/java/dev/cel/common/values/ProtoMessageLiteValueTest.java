@@ -97,10 +97,10 @@ public final class ProtoMessageLiteValueTest {
     UINT64("single_uint64", UnsignedLong.MAX_VALUE),
     FLOAT("single_float", 1.5d),
     DOUBLE("single_double", 2.5d),
-    FIXED32("single_fixed32", 20),
-    SFIXED32("single_sfixed32", 30),
-    FIXED64("single_fixed64", 40),
-    SFIXED64("single_sfixed64", 50),
+    FIXED32("single_fixed32", UnsignedLong.valueOf(0xFFFFFFFFL)),
+    SFIXED32("single_sfixed32", 30L),
+    FIXED64("single_fixed64", UnsignedLong.MAX_VALUE),
+    SFIXED64("single_sfixed64", 50L),
     STRING("single_string", "test"),
     BYTES("single_bytes", CelByteString.of(new byte[] {0x01})),
     DURATION("single_duration", Duration.ofSeconds(100)),
@@ -116,6 +116,11 @@ public final class ProtoMessageLiteValueTest {
     REPEATED_INT64("repeated_int64", ImmutableList.of(5L, 6L)),
     REPEATED_UINT64(
         "repeated_uint64", ImmutableList.of(UnsignedLong.valueOf(7L), UnsignedLong.valueOf(8L))),
+    REPEATED_FIXED32(
+        "repeated_fixed32",
+        ImmutableList.of(UnsignedLong.valueOf(20L), UnsignedLong.valueOf(0xFFFFFFFFL))),
+    REPEATED_FIXED64(
+        "repeated_fixed64", ImmutableList.of(UnsignedLong.valueOf(40L), UnsignedLong.MAX_VALUE)),
     REPEATED_FLOAT("repeated_float", ImmutableList.of(1.5d, 2.5d)),
     REPEATED_DOUBLE("repeated_double", ImmutableList.of(3.5d, 4.5d)),
 
@@ -155,9 +160,9 @@ public final class ProtoMessageLiteValueTest {
             .setSingleSint64(2L)
             .setSingleUint32(1)
             .setSingleUint64(UnsignedLong.MAX_VALUE.longValue())
-            .setSingleFixed32(20)
+            .setSingleFixed32(-1)
             .setSingleSfixed32(30)
-            .setSingleFixed64(40)
+            .setSingleFixed64(-1L)
             .setSingleSfixed64(50)
             .setSingleFloat(1.5f)
             .setSingleDouble(2.5d)
@@ -178,6 +183,10 @@ public final class ProtoMessageLiteValueTest {
             .addRepeatedInt64(6L)
             .addRepeatedUint64(7L)
             .addRepeatedUint64(8L)
+            .addRepeatedFixed32(20)
+            .addRepeatedFixed32(-1)
+            .addRepeatedFixed64(40L)
+            .addRepeatedFixed64(-1L)
             .addRepeatedFloat(1.5f)
             .addRepeatedFloat(2.5f)
             .addRepeatedDouble(3.5d)
@@ -212,10 +221,10 @@ public final class ProtoMessageLiteValueTest {
     SINT64("single_sint64", 0L),
     UINT32("single_uint32", UnsignedLong.ZERO),
     UINT64("single_uint64", UnsignedLong.ZERO),
-    FIXED32("single_fixed32", 0),
-    SFIXED32("single_sfixed32", 0),
-    FIXED64("single_fixed64", 0),
-    SFIXED64("single_sfixed64", 0),
+    FIXED32("single_fixed32", UnsignedLong.ZERO),
+    SFIXED32("single_sfixed32", 0L),
+    FIXED64("single_fixed64", UnsignedLong.ZERO),
+    SFIXED64("single_sfixed64", 0L),
     FLOAT("single_float", 0d),
     DOUBLE("single_double", 0d),
     STRING("single_string", ""),
