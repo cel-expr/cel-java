@@ -16,7 +16,6 @@ package dev.cel.optimizer.optimizers;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
-import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static dev.cel.optimizer.optimizers.DefaultOptimizerConstants.CEL_ATTRIBUTE_FUNCTION_NAME;
 import static dev.cel.optimizer.optimizers.DefaultOptimizerConstants.CEL_HAS_FIELD_FUNCTION_NAME;
@@ -27,11 +26,11 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.primitives.UnsignedLong;
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import com.google.protobuf.ByteString;
+import com.google.protobuf.Descriptors.Descriptor;
 import com.google.protobuf.Descriptors.EnumValueDescriptor;
 import com.google.protobuf.Descriptors.FieldDescriptor;
 import com.google.protobuf.Descriptors.FileDescriptor;
 import dev.cel.bundle.Cel;
-import dev.cel.checker.CelStandardDeclarations.StandardFunction;
 import dev.cel.common.CelAbstractSyntaxTree;
 import dev.cel.common.CelDescriptorUtil;
 import dev.cel.common.CelDescriptors;
@@ -51,11 +50,11 @@ import dev.cel.common.ast.CelMutableExpr.CelMutableCall;
 import dev.cel.common.ast.CelMutableExpr.CelMutableList;
 import dev.cel.common.ast.CelMutableExpr.CelMutableMap;
 import dev.cel.common.ast.CelMutableExpr.CelMutableSelect;
+import dev.cel.common.ast.CelMutableExpr.CelMutableStruct;
 import dev.cel.common.internal.CelDescriptorPool;
 import dev.cel.common.internal.CombinedDescriptorPool;
 import dev.cel.common.internal.DefaultDescriptorPool;
 // CEL-Internal-1
-import dev.cel.common.navigation.CelNavigableExprUtil;
 import dev.cel.common.navigation.CelNavigableMutableAst;
 import dev.cel.common.navigation.CelNavigableMutableExpr;
 import dev.cel.common.navigation.TraversalOrder;
@@ -64,7 +63,6 @@ import dev.cel.common.types.CelTypes;
 import dev.cel.common.types.ListType;
 import dev.cel.common.types.SimpleType;
 import dev.cel.common.types.TypeParamType;
-import dev.cel.common.types.TypeType;
 import dev.cel.common.values.CelByteString;
 import dev.cel.optimizer.AstMutator;
 import dev.cel.optimizer.CelAstOptimizer;
@@ -92,13 +90,17 @@ import java.util.Optional;
  * represented as a metadata tuple:
  *
  * <ul>
- *   <li>Scalar fields, repeated fields, maps, and well-known types (timestamp, duration) include
- *       their default value as a 4-tuple: {@code [field_num, field_name, type_code, default_val]}.
- *   <li>User-defined message fields omit the default value and are represented as a 3-tuple: {@code
- *       [field_num, field_name, type_code]}. Unset messages default to empty message instances
- *       rather than null in protobuf and CEL; omitting the default avoids synthesizing unnecessary
- *       message construction expressions in the AST.
+ *   <li>Scalar, repeated, and message fields are represented as 3-tuples: {@code [field_num,
+ *       field_name, type_code]}.
+ *   <li>Map fields are represented as 4-tuples with a 2-element field type code spec: {@code
+ *       [field_num, field_name, -1, [key_type_code, val_type_code]]}.
  * </ul>
+ *
+ * <p>The 3rd argument of {@code cel.@attribute} is a typed expression that binds the result type
+ * {@code T}. For singular scalar leaves it is also the field's default value (e.g. {@code 0} or a
+ * proto2 custom default). For repeated, map, and message leaves (including {@code
+ * google.protobuf.Duration} and {@code google.protobuf.Timestamp}) it is a type-only dummy (e.g.
+ * {@code [0]}, {@code {"": 0}}, {@code Msg{}}) that the runtime never evaluates.
  *
  * <p>Field presence paths ({@code cel.@hasField}) represent each step as a 2-tuple: {@code
  * [field_num, field_name]}.
@@ -109,9 +111,9 @@ import java.util.Optional;
  * <p>Expressions are rewritten into the following forms:
  *
  * <pre>
- *   // Selection chains (user message is 3-tuple, leaf scalar is 4-tuple, leaf type is 3rd argument)
+ *   // Selection chains (qualifier hops, leaf dummy/default value in 3rd argument)
  *   request.user.age -&gt; cel.@attribute(request,
- *       [[user_num, "user", type_code], [age_num, "age", type_code, default_val]], int)
+ *       [[user_num, "user", type_code], [age_num, "age", type_code]], 0)
  *
  *   // Presence tests (2-tuples)
  *   has(request.user.age) -&gt; cel.@hasField(request,
@@ -144,12 +146,11 @@ public final class SelectOptimizer implements CelAstOptimizer {
   private static final TypeParamType TYPE_PARAM_T = TypeParamType.create("T");
 
   /**
-   * Declaration for {@code cel.@attribute(operand, qualifiers, typeIdent) -> T}.
+   * Declaration for {@code cel.@attribute(operand, qualifiers, dummyOrDefVal) -> T}.
    *
-   * <p>The 3rd argument ({@code TypeType.create(TYPE_PARAM_T)}) binds type parameter {@code T} to
-   * the static type identifier of the leaf field so that type checking preserves the exact result
-   * type rather than erasing to {@code dyn}, and enables plan-time integrity validation between the
-   * leaf hop's wire type code and its static type.
+   * <p>The 3rd argument ({@code TYPE_PARAM_T}) binds type parameter {@code T} to the static type of
+   * the dummy/default value of the leaf field so that type checking preserves the exact result type
+   * rather than erasing to {@code dyn}, and provides the default fallback for leaf scalars.
    */
   @VisibleForTesting
   static final CelFunctionDecl CEL_ATTRIBUTE_FUNCTION_DECL =
@@ -160,7 +161,7 @@ public final class SelectOptimizer implements CelAstOptimizer {
               TYPE_PARAM_T,
               SimpleType.DYN,
               ListType.create(SimpleType.DYN),
-              TypeType.create(TYPE_PARAM_T)));
+              TYPE_PARAM_T));
 
   @VisibleForTesting
   static final CelFunctionDecl CEL_HAS_FIELD_FUNCTION_DECL =
@@ -279,28 +280,7 @@ public final class SelectOptimizer implements CelAstOptimizer {
             "Optimization of Group fields is unsupported: " + field.getFullName());
       }
       if (field.getType() == FieldDescriptor.Type.MESSAGE) {
-        String messageFullName = field.getMessageType().getFullName();
-        if (messageFullName.equals(CelTypes.STRUCT_MESSAGE)) {
-          throw new UnsupportedOperationException(
-              "Optimization of Struct fields is currently unimplemented: " + field.getFullName());
-        }
-        if (messageFullName.equals(CelTypes.LIST_VALUE_MESSAGE)) {
-          throw new UnsupportedOperationException(
-              "Optimization of ListValue fields is currently unimplemented: "
-                  + field.getFullName());
-        }
-        if (messageFullName.equals(CelTypes.VALUE_MESSAGE)) {
-          throw new UnsupportedOperationException(
-              "Optimization of Value fields is currently unimplemented: " + field.getFullName());
-        }
-        if (messageFullName.equals(CelTypes.ANY_MESSAGE)) {
-          throw new UnsupportedOperationException(
-              "Optimization of Any fields is currently unimplemented: " + field.getFullName());
-        }
-        if (CelTypes.isWrapperType(messageFullName)) {
-          throw new UnsupportedOperationException(
-              "Optimization of wrapper fields is currently unimplemented: " + field.getFullName());
-        }
+        checkUnsupportedMessageType(field.getMessageType().getFullName(), field.getFullName());
       }
 
       CelMutableList qualifierElements =
@@ -315,7 +295,23 @@ public final class SelectOptimizer implements CelAstOptimizer {
             .add(
                 CelMutableExpr.ofConstant(
                     idGenerator.nextExprId(), CelConstant.ofValue(resolveTypeCode(field))));
-        resolveDefaultValue(field, idGenerator).ifPresent(qualifierElements.elements()::add);
+        if (field.isMapField()) {
+          Descriptor mapEntryDesc = field.getMessageType();
+          FieldDescriptor keyField = mapEntryDesc.findFieldByName("key");
+          FieldDescriptor valField = mapEntryDesc.findFieldByName("value");
+          qualifierElements
+              .elements()
+              .add(
+                  CelMutableExpr.ofList(
+                      idGenerator.nextExprId(),
+                      CelMutableList.create(
+                          CelMutableExpr.ofConstant(
+                              idGenerator.nextExprId(),
+                              CelConstant.ofValue(resolveTypeCode(keyField))),
+                          CelMutableExpr.ofConstant(
+                              idGenerator.nextExprId(),
+                              CelConstant.ofValue(resolveTypeCode(valField))))));
+        }
       }
       qualifierLists.add(CelMutableExpr.ofList(idGenerator.nextExprId(), qualifierElements));
     }
@@ -327,14 +323,12 @@ public final class SelectOptimizer implements CelAstOptimizer {
           .expr()
           .setCall(CelMutableCall.create(CEL_HAS_FIELD_FUNCTION_NAME, currentExpr, qualifiersExpr));
     } else {
-      String typeIdent = resolveTypeIdent(topField);
-      assertNotShadowed(topNode, typeIdent);
-      CelMutableExpr typeExpr = CelMutableExpr.ofIdent(idGenerator.nextExprId(), typeIdent);
+      CelMutableExpr dummyOrDefExpr = resolveDummyOrDefExpr(topField, idGenerator);
       topNode
           .expr()
           .setCall(
               CelMutableCall.create(
-                  CEL_ATTRIBUTE_FUNCTION_NAME, currentExpr, qualifiersExpr, typeExpr));
+                  CEL_ATTRIBUTE_FUNCTION_NAME, currentExpr, qualifiersExpr, dummyOrDefExpr));
     }
   }
 
@@ -345,58 +339,34 @@ public final class SelectOptimizer implements CelAstOptimizer {
     return field.getType().toProto().getNumber();
   }
 
-  private static String resolveTypeIdent(FieldDescriptor field) {
-    if (field.isMapField()) {
-      return "map";
-    }
-    if (field.isRepeated()) {
-      return "list";
-    }
-    switch (field.getType()) {
-      case DOUBLE:
-      case FLOAT:
-        return "double";
-      case INT64:
-      case SINT64:
-      case SFIXED64:
-      case INT32:
-      case SINT32:
-      case SFIXED32:
-      case ENUM:
-        return "int";
-      case UINT64:
-      case FIXED64:
-      case UINT32:
-      case FIXED32:
-        return "uint";
-      case BOOL:
-        return "bool";
-      case STRING:
-        return "string";
-      case BYTES:
-        return "bytes";
-      case MESSAGE:
-        return field.getMessageType().getFullName();
-      default:
-        throw new IllegalArgumentException("Unsupported protobuf field type: " + field.getType());
-    }
-  }
-
   private boolean isTopOfSelectChain(CelNavigableMutableAst navAst, CelNavigableMutableExpr node) {
     return getOptimizableField(navAst, node).isPresent()
         && !node.parent().flatMap(parent -> getOptimizableField(navAst, parent)).isPresent();
   }
 
-  // TODO: Mangle comprehension variables.
-  private static void assertNotShadowed(CelNavigableMutableExpr node, String typeIdent) {
-    int dotIndex = typeIdent.indexOf('.');
-    String rootSegment = dotIndex < 0 ? typeIdent : typeIdent.substring(0, dotIndex);
-    checkState(
-        !CelNavigableExprUtil.isVariableShadowed(node, rootSegment),
-        "cel.@attribute type identifier '%s' is shadowed by an enclosing comprehension variable"
-            + " '%s'. Rename the comprehension variable.",
-        typeIdent,
-        rootSegment);
+  // TODO: Support STRUCT_MESSAGE, LIST_VALUE_MESSAGE, VALUE_MESSAGE, ANY_MESSAGE,
+  // and wrapper types.
+  private static void checkUnsupportedMessageType(String messageFullName, String fieldFullName) {
+    if (messageFullName.equals(CelTypes.STRUCT_MESSAGE)) {
+      throw new UnsupportedOperationException(
+          "Optimization of Struct fields is currently unimplemented: " + fieldFullName);
+    }
+    if (messageFullName.equals(CelTypes.LIST_VALUE_MESSAGE)) {
+      throw new UnsupportedOperationException(
+          "Optimization of ListValue fields is currently unimplemented: " + fieldFullName);
+    }
+    if (messageFullName.equals(CelTypes.VALUE_MESSAGE)) {
+      throw new UnsupportedOperationException(
+          "Optimization of Value fields is currently unimplemented: " + fieldFullName);
+    }
+    if (messageFullName.equals(CelTypes.ANY_MESSAGE)) {
+      throw new UnsupportedOperationException(
+          "Optimization of Any fields is currently unimplemented: " + fieldFullName);
+    }
+    if (CelTypes.isWrapperType(messageFullName)) {
+      throw new UnsupportedOperationException(
+          "Optimization of wrapper fields is currently unimplemented: " + fieldFullName);
+    }
   }
 
   private Optional<FieldDescriptor> getOptimizableField(
@@ -416,48 +386,70 @@ public final class SelectOptimizer implements CelAstOptimizer {
         .map(desc -> desc.findFieldByName(select.field()));
   }
 
-  private static Optional<CelMutableExpr> resolveDefaultValue(
+  private static CelMutableExpr resolveDummyOrDefExpr(
       FieldDescriptor field, MonotonicIdGenerator idGenerator) {
     if (field.isMapField()) {
-      return Optional.of(
-          CelMutableExpr.ofMap(idGenerator.nextExprId(), CelMutableMap.create(ImmutableList.of())));
+      Descriptor mapEntryDesc = field.getMessageType();
+      FieldDescriptor keyField = mapEntryDesc.findFieldByName("key");
+      FieldDescriptor valField = mapEntryDesc.findFieldByName("value");
+      CelMutableExpr dummyKey = resolveDummyValue(keyField, idGenerator);
+      CelMutableExpr dummyVal = resolveDummyValue(valField, idGenerator);
+      return CelMutableExpr.ofMap(
+          idGenerator.nextExprId(),
+          CelMutableMap.create(
+              ImmutableList.of(
+                  CelMutableMap.Entry.create(idGenerator.nextExprId(), dummyKey, dummyVal))));
     }
     if (field.isRepeated()) {
-      return Optional.of(CelMutableExpr.ofList(idGenerator.nextExprId(), CelMutableList.create()));
+      return CelMutableExpr.ofList(
+          idGenerator.nextExprId(), CelMutableList.create(resolveDummyValue(field, idGenerator)));
     }
-    if (field.getType() == FieldDescriptor.Type.MESSAGE) {
-      String messageFullName = field.getMessageType().getFullName();
-      switch (messageFullName) {
-        case CelTypes.DURATION_MESSAGE:
-          return Optional.of(
-              CelMutableExpr.ofCall(
-                  idGenerator.nextExprId(),
-                  CelMutableCall.create(
-                      StandardFunction.DURATION.functionName(),
-                      CelMutableExpr.ofConstant(
-                          idGenerator.nextExprId(), CelConstant.ofValue("0s")))));
-        case CelTypes.TIMESTAMP_MESSAGE:
-          return Optional.of(
-              CelMutableExpr.ofCall(
-                  idGenerator.nextExprId(),
-                  CelMutableCall.create(
-                      StandardFunction.TIMESTAMP.functionName(),
-                      CelMutableExpr.ofConstant(
-                          idGenerator.nextExprId(), CelConstant.ofValue(0L)))));
-        // TODO: Support STRUCT_MESSAGE, LIST_VALUE_MESSAGE, VALUE_MESSAGE,
-        // ANY_MESSAGE,
-        // and wrapper types.
-        default:
-          // User-defined message fields omit default values (encoded as 3-tuples).
-          return Optional.empty();
-      }
-    }
+    return resolveDummyValue(field, idGenerator);
+  }
 
-    return Optional.of(
-        CelMutableExpr.ofConstant(idGenerator.nextExprId(), resolveConstantDefaultValue(field)));
+  private static CelMutableExpr resolveDummyValue(
+      FieldDescriptor field, MonotonicIdGenerator idGenerator) {
+    if (field.getType() == FieldDescriptor.Type.MESSAGE) {
+      // A leading dot makes the type-checker resolve the name absolutely, bypassing container
+      // candidates and comprehension-local scopes that could otherwise capture it.
+      return CelMutableExpr.ofStruct(
+          idGenerator.nextExprId(),
+          CelMutableStruct.create("." + field.getMessageType().getFullName(), ImmutableList.of()));
+    }
+    return CelMutableExpr.ofConstant(idGenerator.nextExprId(), resolveConstantDefaultValue(field));
   }
 
   private static CelConstant resolveConstantDefaultValue(FieldDescriptor field) {
+    if (field.isRepeated()) {
+      // Repeated element dummies only drive type inference; the planner discards their values.
+      switch (field.getType()) {
+        case DOUBLE:
+        case FLOAT:
+          return CelConstant.ofValue(0.0d);
+        case INT64:
+        case SINT64:
+        case SFIXED64:
+        case INT32:
+        case SINT32:
+        case SFIXED32:
+        case ENUM:
+          return CelConstant.ofValue(0L);
+        case UINT64:
+        case FIXED64:
+        case UINT32:
+        case FIXED32:
+          return CelConstant.ofValue(UnsignedLong.ZERO);
+        case BOOL:
+          return CelConstant.ofValue(false);
+        case STRING:
+          return CelConstant.ofValue("");
+        case BYTES:
+          return CelConstant.ofValue(CelByteString.EMPTY);
+        default:
+          throw new IllegalArgumentException(
+              "Unsupported repeated field type for scalar default: " + field.getType());
+      }
+    }
     Object def = field.getDefaultValue();
     switch (field.getType()) {
       case DOUBLE:

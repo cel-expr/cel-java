@@ -494,7 +494,7 @@ public final class OptimizedSelectPlannerTest {
                                 ImmutableList.of(CelExpr.ofConstant(5L, CelConstant.ofValue(1L))),
                                 ImmutableList.of())),
                         ImmutableList.of()),
-                    CelExpr.ofIdent(6L, "int"))),
+                    CelExpr.ofConstant(6L, CelConstant.ofValue(0L)))),
             CelSource.newBuilder().build());
 
     CelEvaluationException e = assertThrows(CelEvaluationException.class, () -> PLANNER.plan(ast));
@@ -506,7 +506,7 @@ public final class OptimizedSelectPlannerTest {
   }
 
   @Test
-  public void plan_invalidAst_messageTypeCodeWithScalarTypeIdent_throwsEvaluationException() {
+  public void plan_invalidAst_messageTypeCodeWithScalarDummy_throwsEvaluationException() {
     CelAbstractSyntaxTree ast =
         CelAbstractSyntaxTree.newParsedAst(
             CelExpr.ofCall(
@@ -521,19 +521,18 @@ public final class OptimizedSelectPlannerTest {
                                 4L,
                                 ImmutableList.of(
                                     CelExpr.ofConstant(5L, CelConstant.ofValue(1L)),
-                                    CelExpr.ofConstant(6L, CelConstant.ofValue("single_int32")),
+                                    CelExpr.ofConstant(
+                                        6L, CelConstant.ofValue("single_nested_message")),
                                     CelExpr.ofConstant(7L, CelConstant.ofValue(11L))),
                                 ImmutableList.of())),
                         ImmutableList.of()),
-                    CelExpr.ofIdent(8L, "int"))),
+                    CelExpr.ofConstant(8L, CelConstant.ofValue(0L)))),
             CelSource.newBuilder().build());
 
     CelEvaluationException e = assertThrows(CelEvaluationException.class, () -> PLANNER.plan(ast));
 
     assertThat(e).hasCauseThat().isInstanceOf(IllegalArgumentException.class);
-    assertThat(e)
-        .hasMessageThat()
-        .contains("Leaf MESSAGE type code (11) is incompatible with scalar typeIdent 'int'");
+    assertThat(e).hasMessageThat().contains("Expected struct for message type, found:");
   }
 
   @Test
@@ -557,7 +556,7 @@ public final class OptimizedSelectPlannerTest {
                                     CelExpr.ofConstant(7L, CelConstant.ofValue(11L))),
                                 ImmutableList.of())),
                         ImmutableList.of()),
-                    CelExpr.ofIdent(8L, "google.protobuf.Int64Value"))),
+                    CelExpr.ofStruct(8L, "google.protobuf.Int64Value", ImmutableList.of()))),
             CelSource.newBuilder().build());
 
     CelEvaluationException e = assertThrows(CelEvaluationException.class, () -> PLANNER.plan(ast));
@@ -566,6 +565,346 @@ public final class OptimizedSelectPlannerTest {
     assertThat(e)
         .hasMessageThat()
         .contains("Leaf well-known type 'google.protobuf.Int64Value' is not supported");
+  }
+
+  @Test
+  public void plan_invalidAst_nonMapHopWithFourElements_throwsEvaluationException() {
+    CelAbstractSyntaxTree ast =
+        CelAbstractSyntaxTree.newParsedAst(
+            CelExpr.ofCall(
+                1L,
+                OptimizedSelectPlanner.CEL_ATTRIBUTE_FUNCTION_NAME,
+                ImmutableList.of(
+                    CelExpr.ofIdent(2L, "msg"),
+                    CelExpr.ofList(
+                        3L,
+                        ImmutableList.of(
+                            CelExpr.ofList(
+                                4L,
+                                ImmutableList.of(
+                                    CelExpr.ofConstant(5L, CelConstant.ofValue(32L)),
+                                    CelExpr.ofConstant(6L, CelConstant.ofValue("repeated_int64")),
+                                    CelExpr.ofConstant(7L, CelConstant.ofValue(3L)),
+                                    CelExpr.ofConstant(8L, CelConstant.ofValue(0L))),
+                                ImmutableList.of())),
+                        ImmutableList.of()),
+                    CelExpr.ofList(
+                        9L,
+                        ImmutableList.of(CelExpr.ofConstant(10L, CelConstant.ofValue(0L))),
+                        ImmutableList.of()))),
+            CelSource.newBuilder().build());
+
+    CelEvaluationException e = assertThrows(CelEvaluationException.class, () -> PLANNER.plan(ast));
+
+    assertThat(e).hasCauseThat().isInstanceOf(IllegalArgumentException.class);
+    assertThat(e).hasMessageThat().contains("Leaf qualifier hop must contain exactly 3 elements");
+  }
+
+  @Test
+  public void plan_invalidAst_mapHopWithMissingEntrySpec_throwsEvaluationException() {
+    CelAbstractSyntaxTree ast =
+        CelAbstractSyntaxTree.newParsedAst(
+            CelExpr.ofCall(
+                1L,
+                OptimizedSelectPlanner.CEL_ATTRIBUTE_FUNCTION_NAME,
+                ImmutableList.of(
+                    CelExpr.ofIdent(2L, "msg"),
+                    CelExpr.ofList(
+                        3L,
+                        ImmutableList.of(
+                            CelExpr.ofList(
+                                4L,
+                                ImmutableList.of(
+                                    CelExpr.ofConstant(5L, CelConstant.ofValue(1L)),
+                                    CelExpr.ofConstant(
+                                        6L, CelConstant.ofValue("map_string_string")),
+                                    CelExpr.ofConstant(7L, CelConstant.ofValue(-1L))),
+                                ImmutableList.of())),
+                        ImmutableList.of()),
+                    CelExpr.ofMap(
+                        8L,
+                        ImmutableList.of(
+                            CelExpr.ofMapEntry(
+                                9L,
+                                CelExpr.ofConstant(10L, CelConstant.ofValue("")),
+                                CelExpr.ofConstant(11L, CelConstant.ofValue("")),
+                                /* isOptionalEntry= */ false))))),
+            CelSource.newBuilder().build());
+
+    CelEvaluationException e = assertThrows(CelEvaluationException.class, () -> PLANNER.plan(ast));
+
+    assertThat(e).hasCauseThat().isInstanceOf(IllegalArgumentException.class);
+    assertThat(e).hasMessageThat().contains("Map qualifier hop must contain exactly 4 elements");
+  }
+
+  @Test
+  public void plan_invalidAst_mapEntrySpecMalformed_throwsEvaluationException() {
+    CelAbstractSyntaxTree ast =
+        CelAbstractSyntaxTree.newParsedAst(
+            CelExpr.ofCall(
+                1L,
+                OptimizedSelectPlanner.CEL_ATTRIBUTE_FUNCTION_NAME,
+                ImmutableList.of(
+                    CelExpr.ofIdent(2L, "msg"),
+                    CelExpr.ofList(
+                        3L,
+                        ImmutableList.of(
+                            CelExpr.ofList(
+                                4L,
+                                ImmutableList.of(
+                                    CelExpr.ofConstant(5L, CelConstant.ofValue(1L)),
+                                    CelExpr.ofConstant(
+                                        6L, CelConstant.ofValue("map_string_string")),
+                                    CelExpr.ofConstant(7L, CelConstant.ofValue(-1L)),
+                                    CelExpr.ofList(
+                                        8L,
+                                        ImmutableList.of(
+                                            CelExpr.ofConstant(9L, CelConstant.ofValue(9L)),
+                                            CelExpr.ofConstant(10L, CelConstant.ofValue(9L)),
+                                            CelExpr.ofConstant(11L, CelConstant.ofValue(9L))),
+                                        ImmutableList.of())),
+                                ImmutableList.of())),
+                        ImmutableList.of()),
+                    CelExpr.ofMap(
+                        12L,
+                        ImmutableList.of(
+                            CelExpr.ofMapEntry(
+                                13L,
+                                CelExpr.ofConstant(14L, CelConstant.ofValue("")),
+                                CelExpr.ofConstant(15L, CelConstant.ofValue("")),
+                                /* isOptionalEntry= */ false))))),
+            CelSource.newBuilder().build());
+
+    CelEvaluationException e = assertThrows(CelEvaluationException.class, () -> PLANNER.plan(ast));
+
+    assertThat(e).hasCauseThat().isInstanceOf(IllegalArgumentException.class);
+    assertThat(e)
+        .hasMessageThat()
+        .contains(
+            "Expected map entry spec list to contain exactly 2 elements (key_type_code,"
+                + " val_type_code), found: 3");
+  }
+
+  @Test
+  public void plan_invalidAst_repeatedFieldWithEmptyListDummy_throwsEvaluationException() {
+    CelAbstractSyntaxTree ast =
+        CelAbstractSyntaxTree.newParsedAst(
+            CelExpr.ofCall(
+                1L,
+                OptimizedSelectPlanner.CEL_ATTRIBUTE_FUNCTION_NAME,
+                ImmutableList.of(
+                    CelExpr.ofIdent(2L, "msg"),
+                    CelExpr.ofList(
+                        3L,
+                        ImmutableList.of(
+                            CelExpr.ofList(
+                                4L,
+                                ImmutableList.of(
+                                    CelExpr.ofConstant(5L, CelConstant.ofValue(51L)),
+                                    CelExpr.ofConstant(
+                                        6L, CelConstant.ofValue("repeated_nested_message")),
+                                    CelExpr.ofConstant(7L, CelConstant.ofValue(11L))),
+                                ImmutableList.of())),
+                        ImmutableList.of()),
+                    CelExpr.ofList(8L, ImmutableList.of(), ImmutableList.of()))),
+            CelSource.newBuilder().build());
+
+    CelEvaluationException e = assertThrows(CelEvaluationException.class, () -> PLANNER.plan(ast));
+
+    assertThat(e).hasCauseThat().isInstanceOf(IllegalArgumentException.class);
+    assertThat(e)
+        .hasMessageThat()
+        .contains("Expected repeated dummy/default value with a single element, found:");
+  }
+
+  private enum ScalarDummyMismatchTestCase {
+    MAP_KEY(
+        ImmutableList.of(
+            CelExpr.ofConstant(5L, CelConstant.ofValue(1L)),
+            CelExpr.ofConstant(6L, CelConstant.ofValue("map_string_string")),
+            CelExpr.ofConstant(7L, CelConstant.ofValue(-1L)),
+            mapEntrySpec(9L, 9L)),
+        CelExpr.ofMap(
+            20L,
+            ImmutableList.of(
+                CelExpr.ofMapEntry(
+                    21L,
+                    CelExpr.ofConstant(22L, CelConstant.ofValue(0L)),
+                    CelExpr.ofConstant(23L, CelConstant.ofValue("")),
+                    /* isOptionalEntry= */ false)))),
+    MAP_VALUE(
+        ImmutableList.of(
+            CelExpr.ofConstant(5L, CelConstant.ofValue(1L)),
+            CelExpr.ofConstant(6L, CelConstant.ofValue("map_string_string")),
+            CelExpr.ofConstant(7L, CelConstant.ofValue(-1L)),
+            mapEntrySpec(9L, 9L)),
+        CelExpr.ofMap(
+            20L,
+            ImmutableList.of(
+                CelExpr.ofMapEntry(
+                    21L,
+                    CelExpr.ofConstant(22L, CelConstant.ofValue("")),
+                    CelExpr.ofConstant(23L, CelConstant.ofValue(0L)),
+                    /* isOptionalEntry= */ false)))),
+    REPEATED_ELEMENT(
+        ImmutableList.of(
+            CelExpr.ofConstant(5L, CelConstant.ofValue(32L)),
+            CelExpr.ofConstant(6L, CelConstant.ofValue("repeated_int64")),
+            CelExpr.ofConstant(7L, CelConstant.ofValue(3L))),
+        CelExpr.ofList(
+            20L,
+            ImmutableList.of(CelExpr.ofConstant(21L, CelConstant.ofValue(""))),
+            ImmutableList.of()));
+
+    private final ImmutableList<CelExpr> hopElements;
+    private final CelExpr dummy;
+
+    private static CelExpr mapEntrySpec(long keyTypeCode, long valueTypeCode) {
+      return CelExpr.ofList(
+          8L,
+          ImmutableList.of(
+              CelExpr.ofConstant(9L, CelConstant.ofValue(keyTypeCode)),
+              CelExpr.ofConstant(10L, CelConstant.ofValue(valueTypeCode))),
+          ImmutableList.of());
+    }
+
+    ScalarDummyMismatchTestCase(ImmutableList<CelExpr> hopElements, CelExpr dummy) {
+      this.hopElements = hopElements;
+      this.dummy = dummy;
+    }
+  }
+
+  @Test
+  public void plan_invalidAst_scalarDummyIncompatibleWithTypeCode_throwsEvaluationException(
+      @TestParameter ScalarDummyMismatchTestCase testCase) {
+    CelAbstractSyntaxTree ast =
+        CelAbstractSyntaxTree.newParsedAst(
+            CelExpr.ofCall(
+                1L,
+                OptimizedSelectPlanner.CEL_ATTRIBUTE_FUNCTION_NAME,
+                ImmutableList.of(
+                    CelExpr.ofIdent(2L, "msg"),
+                    CelExpr.ofList(
+                        3L,
+                        ImmutableList.of(
+                            CelExpr.ofList(4L, testCase.hopElements, ImmutableList.of())),
+                        ImmutableList.of()),
+                    testCase.dummy)),
+            CelSource.newBuilder().build());
+
+    CelEvaluationException e = assertThrows(CelEvaluationException.class, () -> PLANNER.plan(ast));
+
+    assertThat(e).hasCauseThat().isInstanceOf(IllegalArgumentException.class);
+    assertThat(e).hasMessageThat().contains("is incompatible with type code");
+  }
+
+  @Test
+  public void plan_invalidAst_mapFieldWithEmptyMapDummy_throwsEvaluationException() {
+    CelAbstractSyntaxTree ast =
+        CelAbstractSyntaxTree.newParsedAst(
+            CelExpr.ofCall(
+                1L,
+                OptimizedSelectPlanner.CEL_ATTRIBUTE_FUNCTION_NAME,
+                ImmutableList.of(
+                    CelExpr.ofIdent(2L, "msg"),
+                    CelExpr.ofList(
+                        3L,
+                        ImmutableList.of(
+                            CelExpr.ofList(
+                                4L,
+                                ImmutableList.of(
+                                    CelExpr.ofConstant(5L, CelConstant.ofValue(1L)),
+                                    CelExpr.ofConstant(
+                                        6L, CelConstant.ofValue("map_string_string")),
+                                    CelExpr.ofConstant(7L, CelConstant.ofValue(-1L)),
+                                    CelExpr.ofList(
+                                        8L,
+                                        ImmutableList.of(
+                                            CelExpr.ofConstant(9L, CelConstant.ofValue(9L)),
+                                            CelExpr.ofConstant(10L, CelConstant.ofValue(9L))),
+                                        ImmutableList.of())),
+                                ImmutableList.of())),
+                        ImmutableList.of()),
+                    CelExpr.ofMap(11L, ImmutableList.of()))),
+            CelSource.newBuilder().build());
+
+    CelEvaluationException e = assertThrows(CelEvaluationException.class, () -> PLANNER.plan(ast));
+
+    assertThat(e).hasCauseThat().isInstanceOf(IllegalArgumentException.class);
+    assertThat(e)
+        .hasMessageThat()
+        .contains("Expected map dummy/default value with a single entry, found:");
+  }
+
+  @Test
+  public void plan_invalidAst_repeatedMessageWithUnsupportedWellKnownType_throwsEvaluationException(
+      @TestParameter({"google.protobuf.Int64Value", "google.protobuf.Any"})
+          String unsupportedProtoTypeName) {
+    CelAbstractSyntaxTree ast =
+        CelAbstractSyntaxTree.newParsedAst(
+            CelExpr.ofCall(
+                1L,
+                OptimizedSelectPlanner.CEL_ATTRIBUTE_FUNCTION_NAME,
+                ImmutableList.of(
+                    CelExpr.ofIdent(2L, "msg"),
+                    CelExpr.ofList(
+                        3L,
+                        ImmutableList.of(
+                            CelExpr.ofList(
+                                4L,
+                                ImmutableList.of(
+                                    CelExpr.ofConstant(5L, CelConstant.ofValue(51L)),
+                                    CelExpr.ofConstant(
+                                        6L, CelConstant.ofValue("repeated_nested_message")),
+                                    CelExpr.ofConstant(7L, CelConstant.ofValue(11L))),
+                                ImmutableList.of())),
+                        ImmutableList.of()),
+                    CelExpr.ofList(
+                        8L,
+                        ImmutableList.of(
+                            CelExpr.ofStruct(9L, unsupportedProtoTypeName, ImmutableList.of())),
+                        ImmutableList.of()))),
+            CelSource.newBuilder().build());
+
+    CelEvaluationException e = assertThrows(CelEvaluationException.class, () -> PLANNER.plan(ast));
+
+    assertThat(e).hasCauseThat().isInstanceOf(IllegalArgumentException.class);
+    assertThat(e)
+        .hasMessageThat()
+        .contains("Leaf well-known type '" + unsupportedProtoTypeName + "' is not supported");
+  }
+
+  @Test
+  public void plan_invalidAst_messageStructWithEmptyMessageName_throwsEvaluationException() {
+    CelAbstractSyntaxTree ast =
+        CelAbstractSyntaxTree.newParsedAst(
+            CelExpr.ofCall(
+                1L,
+                OptimizedSelectPlanner.CEL_ATTRIBUTE_FUNCTION_NAME,
+                ImmutableList.of(
+                    CelExpr.ofIdent(2L, "msg"),
+                    CelExpr.ofList(
+                        3L,
+                        ImmutableList.of(
+                            CelExpr.ofList(
+                                4L,
+                                ImmutableList.of(
+                                    CelExpr.ofConstant(5L, CelConstant.ofValue(51L)),
+                                    CelExpr.ofConstant(
+                                        6L, CelConstant.ofValue("repeated_nested_message")),
+                                    CelExpr.ofConstant(7L, CelConstant.ofValue(11L))),
+                                ImmutableList.of())),
+                        ImmutableList.of()),
+                    CelExpr.ofList(
+                        8L,
+                        ImmutableList.of(CelExpr.ofStruct(9L, "", ImmutableList.of())),
+                        ImmutableList.of()))),
+            CelSource.newBuilder().build());
+
+    CelEvaluationException e = assertThrows(CelEvaluationException.class, () -> PLANNER.plan(ast));
+
+    assertThat(e).hasCauseThat().isInstanceOf(IllegalArgumentException.class);
+    assertThat(e).hasMessageThat().contains("Protobuf message type name must not be empty");
   }
 
   private static CelAbstractSyntaxTree optimizeSelectAst(String expression) throws Exception {

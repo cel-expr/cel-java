@@ -35,6 +35,7 @@ import com.google.protobuf.TextFormat;
 import com.google.protobuf.Value;
 import com.google.testing.junit.testparameterinjector.TestParameter;
 import com.google.testing.junit.testparameterinjector.TestParameterInjector;
+import com.google.testing.junit.testparameterinjector.TestParameters;
 import dev.cel.bundle.Cel;
 import dev.cel.bundle.CelBuilder;
 import dev.cel.common.CelAbstractSyntaxTree;
@@ -48,6 +49,7 @@ import dev.cel.common.CelValidationException;
 import dev.cel.common.ast.CelExpr.ExprKind.Kind;
 import dev.cel.common.ast.CelReference;
 import dev.cel.common.navigation.CelNavigableMutableAst;
+import dev.cel.common.types.ListType;
 import dev.cel.common.types.MapType;
 import dev.cel.common.types.SimpleType;
 import dev.cel.common.types.StructTypeReference;
@@ -57,7 +59,6 @@ import dev.cel.expr.conformance.proto2.TestAllTypesProto;
 import dev.cel.expr.conformance.proto3.TestAllTypes;
 import dev.cel.extensions.CelExtensions;
 import dev.cel.optimizer.CelAstOptimizer;
-import dev.cel.optimizer.CelOptimizationException;
 import dev.cel.optimizer.CelOptimizer;
 import dev.cel.optimizer.CelOptimizerFactory;
 import dev.cel.optimizer.optimizers.SelectOptimizer.SelectOptimizerOptions;
@@ -135,32 +136,32 @@ public final class SelectOptimizerTest {
   private enum RewriteTestCase {
     // === Selection & Traversal ===
     PROTO3_SINGLE_FIELD_SELECT(
-        "msg.single_int64", "cel.@attribute(msg, [[2, \"single_int64\", 3, 0]], int)"),
+        "msg.single_int64", "cel.@attribute(msg, [[2, \"single_int64\", 3]], 0)"),
     PROTO3_SINGLE_MESSAGE_FIELD_SELECT(
         "msg.single_nested_message",
         "cel.@attribute(msg, [[21, \"single_nested_message\", 11]],"
-            + " cel.expr.conformance.proto3.TestAllTypes.NestedMessage)"),
+            + " cel.expr.conformance.proto3.TestAllTypes.NestedMessage{})"),
     PROTO3_CHAINED_FIELD_SELECT(
         "msg.single_nested_message.bb",
-        "cel.@attribute(msg, [[21, \"single_nested_message\", 11], [1, \"bb\", 5, 0]], int)"),
+        "cel.@attribute(msg, [[21, \"single_nested_message\", 11], [1, \"bb\", 5]], 0)"),
     PROTO2_SINGLE_MESSAGE_FIELD_SELECT(
         "proto2_msg.single_nested_message",
         "cel.@attribute(proto2_msg, [[21, \"single_nested_message\", 11]],"
-            + " cel.expr.conformance.proto2.TestAllTypes.NestedMessage)"),
+            + " cel.expr.conformance.proto2.TestAllTypes.NestedMessage{})"),
     PROTO2_CHAINED_FIELD_SELECT(
         "proto2_msg.single_nested_message.bb",
-        "cel.@attribute(proto2_msg, [[21, \"single_nested_message\", 11], [1, \"bb\", 5, 0]],"
-            + " int)"),
+        "cel.@attribute(proto2_msg, [[21, \"single_nested_message\", 11], [1, \"bb\", 5]],"
+            + " 0)"),
     PROTO2_TRIPLE_CHAINED_FIELD_SELECT(
         "nested_msg.child.payload.single_int64",
         "cel.@attribute(nested_msg, "
             + "[[1, \"child\", 11], "
             + "[2, \"payload\", 11], "
-            + "[2, \"single_int64\", 3, -64]], int)"),
+            + "[2, \"single_int64\", 3]], -64)"),
     PROTO2_CHAINED_MESSAGE_FIELD_SELECT(
         "nested_msg.child.payload",
         "cel.@attribute(nested_msg, [[1, \"child\", 11], [2, \"payload\", 11]],"
-            + " cel.expr.conformance.proto2.TestAllTypes)"),
+            + " cel.expr.conformance.proto2.TestAllTypes{})"),
 
     // === Presence Tests: Proto2 (Explicit Presence) vs Proto3 (Implicit/Explicit Presence) ===
     // In proto2, scalar fields have explicit presence (has-bit).
@@ -199,130 +200,142 @@ public final class SelectOptimizerTest {
     // === Default Value Divergence: Proto2 Custom Defaults vs Proto3 Zero Defaults ===
     // Int32: proto2 has custom default -32, proto3 has 0
     PROTO2_CUSTOM_INT32(
-        "proto2_msg.single_int32",
-        "cel.@attribute(proto2_msg, [[1, \"single_int32\", 5, -32]], int)"),
-    PROTO3_ZERO_INT32(
-        "msg.single_int32", "cel.@attribute(msg, [[1, \"single_int32\", 5, 0]], int)"),
+        "proto2_msg.single_int32", "cel.@attribute(proto2_msg, [[1, \"single_int32\", 5]], -32)"),
+    PROTO3_ZERO_INT32("msg.single_int32", "cel.@attribute(msg, [[1, \"single_int32\", 5]], 0)"),
 
     // Int64: proto2 has custom default -64, proto3 has 0
     PROTO2_CUSTOM_INT64(
-        "proto2_msg.single_int64",
-        "cel.@attribute(proto2_msg, [[2, \"single_int64\", 3, -64]], int)"),
-    PROTO3_ZERO_INT64(
-        "msg.single_int64", "cel.@attribute(msg, [[2, \"single_int64\", 3, 0]], int)"),
+        "proto2_msg.single_int64", "cel.@attribute(proto2_msg, [[2, \"single_int64\", 3]], -64)"),
+    PROTO3_ZERO_INT64("msg.single_int64", "cel.@attribute(msg, [[2, \"single_int64\", 3]], 0)"),
 
     // Uint32: proto2 has custom default 32, proto3 has 0
     PROTO2_CUSTOM_UINT32(
         "proto2_msg.single_uint32",
-        "cel.@attribute(proto2_msg, [[3, \"single_uint32\", 13, 32u]], uint)"),
+        "cel.@attribute(proto2_msg, [[3, \"single_uint32\", 13]], 32u)"),
     PROTO3_ZERO_UINT32(
-        "msg.single_uint32", "cel.@attribute(msg, [[3, \"single_uint32\", 13, 0u]], uint)"),
+        "msg.single_uint32", "cel.@attribute(msg, [[3, \"single_uint32\", 13]], 0u)"),
 
     // Uint64: proto2 has custom default 64, proto3 has 0
     PROTO2_CUSTOM_UINT64(
-        "proto2_msg.single_uint64",
-        "cel.@attribute(proto2_msg, [[4, \"single_uint64\", 4, 64u]], uint)"),
-    PROTO3_ZERO_UINT64(
-        "msg.single_uint64", "cel.@attribute(msg, [[4, \"single_uint64\", 4, 0u]], uint)"),
+        "proto2_msg.single_uint64", "cel.@attribute(proto2_msg, [[4, \"single_uint64\", 4]], 64u)"),
+    PROTO3_ZERO_UINT64("msg.single_uint64", "cel.@attribute(msg, [[4, \"single_uint64\", 4]], 0u)"),
 
     // String: proto2 has custom default "empty", proto3 has ""
     PROTO2_CUSTOM_STRING(
         "proto2_msg.single_string",
-        "cel.@attribute(proto2_msg, [[14, \"single_string\", 9, \"empty\"]], string)"),
+        "cel.@attribute(proto2_msg, [[14, \"single_string\", 9]], \"empty\")"),
     PROTO3_ZERO_STRING(
-        "msg.single_string", "cel.@attribute(msg, [[14, \"single_string\", 9, \"\"]], string)"),
+        "msg.single_string", "cel.@attribute(msg, [[14, \"single_string\", 9]], \"\")"),
 
     // Bool: proto2 has custom default true, proto3 has false
     PROTO2_CUSTOM_BOOL(
-        "proto2_msg.single_bool",
-        "cel.@attribute(proto2_msg, [[13, \"single_bool\", 8, true]], bool)"),
-    PROTO3_ZERO_BOOL(
-        "msg.single_bool", "cel.@attribute(msg, [[13, \"single_bool\", 8, false]], bool)"),
+        "proto2_msg.single_bool", "cel.@attribute(proto2_msg, [[13, \"single_bool\", 8]], true)"),
+    PROTO3_ZERO_BOOL("msg.single_bool", "cel.@attribute(msg, [[13, \"single_bool\", 8]], false)"),
 
     // Float: proto2 has custom default 3.0, proto3 has 0.0
     PROTO2_CUSTOM_FLOAT(
-        "proto2_msg.single_float",
-        "cel.@attribute(proto2_msg, [[11, \"single_float\", 2, 3.0]], double)"),
-    PROTO3_ZERO_FLOAT(
-        "msg.single_float", "cel.@attribute(msg, [[11, \"single_float\", 2, 0.0]], double)"),
+        "proto2_msg.single_float", "cel.@attribute(proto2_msg, [[11, \"single_float\", 2]], 3.0)"),
+    PROTO3_ZERO_FLOAT("msg.single_float", "cel.@attribute(msg, [[11, \"single_float\", 2]], 0.0)"),
 
     // Double: proto2 has custom default 6.4, proto3 has 0.0
     PROTO2_CUSTOM_DOUBLE(
         "proto2_msg.single_double",
-        "cel.@attribute(proto2_msg, [[12, \"single_double\", 1, 6.4]], double)"),
+        "cel.@attribute(proto2_msg, [[12, \"single_double\", 1]], 6.4)"),
     PROTO3_ZERO_DOUBLE(
-        "msg.single_double", "cel.@attribute(msg, [[12, \"single_double\", 1, 0.0]], double)"),
+        "msg.single_double", "cel.@attribute(msg, [[12, \"single_double\", 1]], 0.0)"),
 
     // Bytes: proto2 has custom default "none", proto3 has ""
     PROTO2_CUSTOM_BYTES(
         "proto2_msg.single_bytes",
-        "cel.@attribute(proto2_msg, [[15, \"single_bytes\", 12, b\"\\156\\157\\156\\145\"]],"
-            + " bytes)"),
+        "cel.@attribute(proto2_msg, [[15, \"single_bytes\", 12]], b\"\\156\\157\\156\\145\")"),
     PROTO3_ZERO_BYTES(
-        "msg.single_bytes", "cel.@attribute(msg, [[15, \"single_bytes\", 12, b\"\"]], bytes)"),
+        "msg.single_bytes", "cel.@attribute(msg, [[15, \"single_bytes\", 12]], b\"\")"),
 
     // Enum: proto2 has custom default 1 (BAR), proto3 has 0 (FOO)
     PROTO2_CUSTOM_ENUM(
         "proto2_msg.single_nested_enum",
-        "cel.@attribute(proto2_msg, [[22, \"single_nested_enum\", 14, 1]], int)"),
+        "cel.@attribute(proto2_msg, [[22, \"single_nested_enum\", 14]], 1)"),
     PROTO3_ZERO_ENUM(
-        "msg.single_nested_enum",
-        "cel.@attribute(msg, [[22, \"single_nested_enum\", 14, 0]], int)"),
+        "msg.single_nested_enum", "cel.@attribute(msg, [[22, \"single_nested_enum\", 14]], 0)"),
 
     // Fixed / sfixed / sint fields
-    PROTO3_FIXED32(
-        "msg.single_fixed32", "cel.@attribute(msg, [[7, \"single_fixed32\", 7, 0u]], uint)"),
-    PROTO3_FIXED64(
-        "msg.single_fixed64", "cel.@attribute(msg, [[8, \"single_fixed64\", 6, 0u]], uint)"),
+    PROTO3_FIXED32("msg.single_fixed32", "cel.@attribute(msg, [[7, \"single_fixed32\", 7]], 0u)"),
+    PROTO3_FIXED64("msg.single_fixed64", "cel.@attribute(msg, [[8, \"single_fixed64\", 6]], 0u)"),
     PROTO3_SFIXED32(
-        "msg.single_sfixed32", "cel.@attribute(msg, [[9, \"single_sfixed32\", 15, 0]], int)"),
+        "msg.single_sfixed32", "cel.@attribute(msg, [[9, \"single_sfixed32\", 15]], 0)"),
     PROTO3_SFIXED64(
-        "msg.single_sfixed64", "cel.@attribute(msg, [[10, \"single_sfixed64\", 16, 0]], int)"),
-    PROTO3_SINT32("msg.single_sint32", "cel.@attribute(msg, [[5, \"single_sint32\", 17, 0]], int)"),
-    PROTO3_SINT64("msg.single_sint64", "cel.@attribute(msg, [[6, \"single_sint64\", 18, 0]], int)"),
+        "msg.single_sfixed64", "cel.@attribute(msg, [[10, \"single_sfixed64\", 16]], 0)"),
+    PROTO3_SINT32("msg.single_sint32", "cel.@attribute(msg, [[5, \"single_sint32\", 17]], 0)"),
+    PROTO3_SINT64("msg.single_sint64", "cel.@attribute(msg, [[6, \"single_sint64\", 18]], 0)"),
 
-    // Repeated fields: empty list default
+    // Repeated fields: [dummy]
     PROTO2_REPEATED_PRIMITIVE(
         "proto2_msg.repeated_int64",
-        "cel.@attribute(proto2_msg, [[32, \"repeated_int64\", 3, []]], list)"),
+        "cel.@attribute(proto2_msg, [[32, \"repeated_int64\", 3]], [0])"),
     PROTO3_REPEATED_PRIMITIVE(
-        "msg.repeated_int64", "cel.@attribute(msg, [[32, \"repeated_int64\", 3, []]], list)"),
+        "msg.repeated_int64", "cel.@attribute(msg, [[32, \"repeated_int64\", 3]], [0])"),
     PROTO3_REPEATED_MESSAGE(
         "msg.repeated_nested_message",
-        "cel.@attribute(msg, [[51, \"repeated_nested_message\", 11, []]], list)"),
+        "cel.@attribute(msg, [[51, \"repeated_nested_message\", 11]],"
+            + " [cel.expr.conformance.proto3.TestAllTypes.NestedMessage{}])"),
+    PROTO3_REPEATED_UINT32(
+        "msg.repeated_uint32", "cel.@attribute(msg, [[33, \"repeated_uint32\", 13]], [0u])"),
+    PROTO3_REPEATED_BYTES(
+        "msg.repeated_bytes", "cel.@attribute(msg, [[45, \"repeated_bytes\", 12]], [b\"\"])"),
+    PROTO3_REPEATED_ENUM(
+        "msg.repeated_nested_enum",
+        "cel.@attribute(msg, [[52, \"repeated_nested_enum\", 14]], [0])"),
+    PROTO3_REPEATED_DURATION(
+        "msg.repeated_duration",
+        "cel.@attribute(msg, [[121, \"repeated_duration\", 11]], [google.protobuf.Duration{}])"),
 
     // Well-known types
     PROTO3_TIMESTAMP(
         "msg.single_timestamp",
-        "cel.@attribute(msg, [[102, \"single_timestamp\", 11, timestamp(0)]],"
-            + " google.protobuf.Timestamp)"),
+        "cel.@attribute(msg, [[102, \"single_timestamp\", 11]], google.protobuf.Timestamp{})"),
     PROTO3_DURATION(
         "msg.single_duration",
-        "cel.@attribute(msg, [[101, \"single_duration\", 11, duration(\"0s\")]],"
-            + " google.protobuf.Duration)"),
+        "cel.@attribute(msg, [[101, \"single_duration\", 11]], google.protobuf.Duration{})"),
     PROTO3_TIMESTAMP_COMPARISON(
         "msg.single_timestamp > timestamp(0)",
-        "cel.@attribute(msg, [[102, \"single_timestamp\", 11, timestamp(0)]],"
-            + " google.protobuf.Timestamp) > timestamp(0)"),
+        "cel.@attribute(msg, [[102, \"single_timestamp\", 11]], google.protobuf.Timestamp{}) >"
+            + " timestamp(0)"),
     PROTO3_DURATION_COMPARISON(
         "msg.single_duration == duration(\"1h\")",
-        "cel.@attribute(msg, [[101, \"single_duration\", 11, duration(\"0s\")]],"
-            + " google.protobuf.Duration) == duration(\"1h\")"),
+        "cel.@attribute(msg, [[101, \"single_duration\", 11]], google.protobuf.Duration{}) =="
+            + " duration(\"1h\")"),
 
     // Map selects
+    MAP_STRING_STRING(
+        "msg.map_string_string",
+        "cel.@attribute(msg, [[61, \"map_string_string\", -1, [9, 9]]], {\"\": \"\"})"),
+    MAP_BOOL_STRING(
+        "msg.map_bool_string",
+        "cel.@attribute(msg, [[64, \"map_bool_string\", -1, [8, 9]]], {false: \"\"})"),
+    MAP_UINT32_DOUBLE(
+        "msg.map_uint32_double",
+        "cel.@attribute(msg, [[204, \"map_uint32_double\", -1, [13, 1]]], {0u: 0.0})"),
+    MAP_INT64_ENUM(
+        "msg.map_int64_enum",
+        "cel.@attribute(msg, [[94, \"map_int64_enum\", -1, [3, 14]]], {0: 0})"),
+    MAP_STRING_DURATION(
+        "msg.map_string_duration",
+        "cel.@attribute(msg, [[243, \"map_string_duration\", -1, [9, 11]]],"
+            + " {\"\": google.protobuf.Duration{}})"),
     MAP_FIELD_INDEXING(
         "msg.map_int64_message[1].bb",
         "cel.@attribute("
-            + "cel.@attribute(msg, [[95, \"map_int64_message\", -1, {}]], map)[1], "
-            + "[[1, \"bb\", 5, 0]], int)"),
+            + "cel.@attribute(msg, [[95, \"map_int64_message\", -1, [3, 11]]],"
+            + " {0: cel.expr.conformance.proto3.TestAllTypes.NestedMessage{}})[1], "
+            + "[[1, \"bb\", 5]], 0)"),
     MAP_FIELD_SELECT_CHAIN_STOPS_AT_MAP_BOUNDARY(
         "map_var_msg.key.single_nested_message.bb",
         "cel.@attribute(map_var_msg.key, "
             + "[[21, \"single_nested_message\", 11], "
-            + "[1, \"bb\", 5, 0]], int)"),
+            + "[1, \"bb\", 5]], 0)"),
     MAP_FIELD_SELECT_STOPS_AT_MAP_BOUNDARY(
         "map_var_msg.key.single_int64",
-        "cel.@attribute(map_var_msg.key, [[2, \"single_int64\", 3, 0]], int)"),
+        "cel.@attribute(map_var_msg.key, [[2, \"single_int64\", 3]], 0)"),
     MAP_FIELD_HAS_STOPS_AT_MAP_BOUNDARY(
         "has(map_var_msg.key.single_nested_message)",
         "cel.@hasField(map_var_msg.key, [[21, \"single_nested_message\"]])"),
@@ -332,22 +345,24 @@ public final class SelectOptimizerTest {
     PROTO_MAP_FIELD_SELECT_STOPS_AT_MAP_BOUNDARY(
         "msg.map_string_message.key.bb",
         "cel.@attribute("
-            + "cel.@attribute(msg, [[227, \"map_string_message\", -1, {}]], map).key, "
-            + "[[1, \"bb\", 5, 0]], int)"),
+            + "cel.@attribute(msg, [[227, \"map_string_message\", -1, [9, 11]]],"
+            + " {\"\": cel.expr.conformance.proto3.TestAllTypes.NestedMessage{}}).key, "
+            + "[[1, \"bb\", 5]], 0)"),
     PROTO_MAP_FIELD_HAS_STOPS_AT_MAP_BOUNDARY(
         "has(msg.map_string_message.key.bb)",
         "cel.@hasField("
-            + "cel.@attribute(msg, [[227, \"map_string_message\", -1, {}]], map).key, "
+            + "cel.@attribute(msg, [[227, \"map_string_message\", -1, [9, 11]]],"
+            + " {\"\": cel.expr.conformance.proto3.TestAllTypes.NestedMessage{}}).key, "
             + "[[1, \"bb\"]])"),
 
     MIXED_BOOLEAN_EXPRESSION(
         "msg.single_int64 > 0 && has(msg.single_nested_message)",
-        "cel.@attribute(msg, [[2, \"single_int64\", 3, 0]], int) > 0 "
+        "cel.@attribute(msg, [[2, \"single_int64\", 3]], 0) > 0 "
             + "&& cel.@hasField(msg, [[21, \"single_nested_message\"]])"),
     PROTO2_COMPLEX_OPERAND_SELECT(
         "(cond ? nested_msg_a : nested_msg_b).child.payload.single_int64",
         "cel.@attribute(cond ? nested_msg_a : nested_msg_b, "
-            + "[[1, \"child\", 11], [2, \"payload\", 11], [2, \"single_int64\", 3, -64]], int)"),
+            + "[[1, \"child\", 11], [2, \"payload\", 11], [2, \"single_int64\", 3]], -64)"),
     PROTO2_COMPLEX_OPERAND_HAS(
         "has((cond ? nested_msg_a : nested_msg_b).child.payload.single_int64)",
         "cel.@hasField(cond ? nested_msg_a : nested_msg_b, "
@@ -433,7 +448,7 @@ public final class SelectOptimizerTest {
     CelAbstractSyntaxTree optimizedAst = optimizer.optimize(ast);
 
     assertThat(CEL_UNPARSER.unparse(optimizedAst))
-        .isEqualTo("cel.@attribute(msg, [[2, \"single_int64\", 3, 0]], int)");
+        .isEqualTo("cel.@attribute(msg, [[2, \"single_int64\", 3]], 0)");
   }
 
   @Test
@@ -451,19 +466,78 @@ public final class SelectOptimizerTest {
     CelAbstractSyntaxTree optimizedAst = optimizer.optimize(ast);
 
     assertThat(CEL_UNPARSER.unparse(optimizedAst))
-        .isEqualTo("cel.@attribute(msg, [[2, \"single_int64\", 3, 0]], int)");
+        .isEqualTo("cel.@attribute(msg, [[2, \"single_int64\", 3]], 0)");
   }
 
   @Test
-  public void optimize_typeIdentShadowedByComprehensionVar_throws(
+  @TestParameters({
+    "{expression: '[1].map(cel, msg.single_nested_message)', expected: '[1].map(cel,"
+        + " cel.@attribute(msg, [[21, \"single_nested_message\", 11]],"
+        + " .cel.expr.conformance.proto3.TestAllTypes.NestedMessage{}))'}",
+    "{expression: 'cel.bind(cel, 1, msg.single_nested_message)', expected: 'cel.bind(cel, 1,"
+        + " cel.@attribute(msg, [[21, \"single_nested_message\", 11]],"
+        + " .cel.expr.conformance.proto3.TestAllTypes.NestedMessage{}))'}",
+    "{expression: '[1].map(cel, [msg.single_nested_message].map(x, x.bb + 1))', expected:"
+        + " '[1].map(cel, [cel.@attribute(msg, [[21, \"single_nested_message\", 11]],"
+        + " .cel.expr.conformance.proto3.TestAllTypes.NestedMessage{})].map(x,"
+        + " cel.@attribute(x, [[1, \"bb\", 5]], 0) + 1))'}",
+    "{expression: '[1].all(x, cel, msg.single_nested_message != null)', expected: '[1].all(x,"
+        + " cel, cel.@attribute(msg, [[21, \"single_nested_message\", 11]],"
+        + " .cel.expr.conformance.proto3.TestAllTypes.NestedMessage{}) != null)'}",
+    "{expression: '[[1]].map(cel, msg.repeated_nested_message)', expected: '[[1]].map(cel,"
+        + " cel.@attribute(msg, [[51, \"repeated_nested_message\", 11]],"
+        + " [.cel.expr.conformance.proto3.TestAllTypes.NestedMessage{}]))'}",
+    "{expression: '[[1]].map(cel, msg.map_int64_message)', expected: '[[1]].map(cel,"
+        + " cel.@attribute(msg, [[95, \"map_int64_message\", -1, [3, 11]]],"
+        + " {0: .cel.expr.conformance.proto3.TestAllTypes.NestedMessage{}}))'}"
+  })
+  public void optimize_messageNameUnderShadowingComprehensionVar_rewrites(
+      String expression, String expected) throws Exception {
+    Cel extendedCel =
+        cel.toCelBuilder()
+            .addCompilerLibraries(CelExtensions.bindings(), CelExtensions.comprehensions())
+            .build();
+    CelAbstractSyntaxTree ast = extendedCel.compile(expression).getAst();
+
+    CelAbstractSyntaxTree optimizedAst = newSelectOptimizer(extendedCel).optimize(ast);
+
+    // The unparser rebuilds macros from SourceInfo.macro_calls, which the type-checker does not
+    // re-resolve, so the optimizer's absolute (leading-dot) name is retained in the output.
+    assertThat(CEL_UNPARSER.unparse(optimizedAst)).isEqualTo(expected);
+  }
+
+  @Test
+  public void optimizeAndEvaluate_messageLeafUnderShadowingComprehensionVar_matchesUnoptimized(
+      @TestParameter({
+            "[1].map(cel, msg.single_nested_message)",
+            "cel.bind(cel, 1, msg.single_nested_message)",
+            "[1].all(x, cel, msg.single_nested_message != null)",
+            "[[1]].map(cel, msg.repeated_nested_message)",
+            "[[1]].map(cel, msg.map_int64_message)",
+            "[msg.single_nested_message].map(cel, cel)"
+          })
+          String expression)
+      throws Exception {
+    assumeTrue(runtimeFlavor == CelRuntimeFlavor.PLANNER);
+    Cel extendedCel =
+        cel.toCelBuilder()
+            .addCompilerLibraries(CelExtensions.bindings(), CelExtensions.comprehensions())
+            .build();
+    CelAbstractSyntaxTree ast = extendedCel.compile(expression).getAst();
+    CelAbstractSyntaxTree optimizedAst = newSelectOptimizer(extendedCel).optimize(ast);
+    ImmutableMap<String, Object> input = ImmutableMap.of("msg", TestAllTypes.getDefaultInstance());
+
+    Object optimizedResult = extendedCel.createProgram(optimizedAst).eval(input);
+
+    assertThat(optimizedResult).isEqualTo(extendedCel.createProgram(ast).eval(input));
+  }
+
+  @Test
+  public void optimize_scalarNotShadowedByComprehensionVar_rewrites(
       @TestParameter({
             "[\"a\"].map(int, msg.single_int64)",
             "[true].map(string, msg.single_string)",
-            "[1].map(google, msg.single_duration)",
-            "[1].map(cel, msg.single_nested_message)",
-            "cel.bind(int, 1, msg.single_int64 + int)",
-            "[1].map(int, [2].map(x, msg.single_int64))",
-            "[1].map(int, [msg.single_int64].map(x, x + 1))"
+            "cel.bind(int, 1, msg.single_int64 + int)"
           })
           String expression)
       throws Exception {
@@ -471,10 +545,10 @@ public final class SelectOptimizerTest {
     CelAbstractSyntaxTree ast = bindingsCel.compile(expression).getAst();
     CelOptimizer optimizer = newSelectOptimizer(bindingsCel);
 
-    CelOptimizationException e =
-        assertThrows(CelOptimizationException.class, () -> optimizer.optimize(ast));
+    CelAbstractSyntaxTree optimizedAst = optimizer.optimize(ast);
 
-    assertThat(e).hasMessageThat().contains("is shadowed by an enclosing comprehension variable");
+    assertThat(optimizedAst.getSource().getExtensions())
+        .contains(SelectOptimizer.SELECT_OPTIMIZATION_AST_EXTENSION_TAG);
   }
 
   @Test
@@ -484,7 +558,7 @@ public final class SelectOptimizerTest {
     CelAbstractSyntaxTree optimizedAst = celOptimizer.optimize(ast);
 
     assertThat(CEL_UNPARSER.unparse(optimizedAst))
-        .isEqualTo("[1].map(x, cel.@attribute(msg, [[2, \"single_int64\", 3, 0]], int))");
+        .isEqualTo("[1].map(x, cel.@attribute(msg, [[2, \"single_int64\", 3]], 0))");
   }
 
   @Test
@@ -499,60 +573,51 @@ public final class SelectOptimizerTest {
   }
 
   @Test
-  public void optimize_typeIdentInComprehensionRange_rewrites() throws Exception {
-    CelAbstractSyntaxTree ast = cel.compile("[msg.single_int64].map(int, int + 1)").getAst();
+  public void optimize_messageNameInComprehensionRange_rewrites() throws Exception {
+    CelAbstractSyntaxTree ast = cel.compile("[msg.single_nested_message].map(cel, cel)").getAst();
 
     CelAbstractSyntaxTree optimizedAst = celOptimizer.optimize(ast);
 
     assertThat(CEL_UNPARSER.unparse(optimizedAst))
-        .isEqualTo("[cel.@attribute(msg, [[2, \"single_int64\", 3, 0]], int)].map(int, int + 1)");
+        .isEqualTo(
+            "[cel.@attribute(msg, [[21, \"single_nested_message\", 11]],"
+                + " .cel.expr.conformance.proto3.TestAllTypes.NestedMessage{})].map(cel, cel)");
   }
 
   @Test
-  public void optimize_typeIdentInBindInit_rewrites() throws Exception {
+  public void optimize_messageNameInBindInit_rewrites() throws Exception {
     Cel bindingsCel = cel.toCelBuilder().addCompilerLibraries(CelExtensions.bindings()).build();
     CelAbstractSyntaxTree ast =
-        bindingsCel.compile("cel.bind(int, msg.single_int64, int + 1)").getAst();
+        bindingsCel.compile("cel.bind(cel, msg.single_nested_message, cel)").getAst();
 
     CelAbstractSyntaxTree optimizedAst = newSelectOptimizer(bindingsCel).optimize(ast);
 
     assertThat(CEL_UNPARSER.unparse(optimizedAst))
         .isEqualTo(
-            "cel.bind(int, cel.@attribute(msg, [[2, \"single_int64\", 3, 0]], int), int + 1)");
+            "cel.bind(cel, cel.@attribute(msg, [[21, \"single_nested_message\", 11]],"
+                + " .cel.expr.conformance.proto3.TestAllTypes.NestedMessage{}), cel)");
   }
 
   @Test
-  public void optimize_typeIdentShadowedByComprehensionIterVar2_throws() throws Exception {
-    Cel celWithComprehensions =
-        cel.toCelBuilder().addCompilerLibraries(CelExtensions.comprehensions()).build();
-    CelAbstractSyntaxTree ast =
-        celWithComprehensions.compile("[1].all(x, int, msg.single_int64 == 0)").getAst();
-    CelOptimizer optimizer = newSelectOptimizer(celWithComprehensions);
-
-    CelOptimizationException e =
-        assertThrows(CelOptimizationException.class, () -> optimizer.optimize(ast));
-
-    assertThat(e)
-        .hasMessageThat()
-        .contains(
-            "cel.@attribute type identifier 'int' is shadowed by an enclosing comprehension"
-                + " variable 'int'");
-  }
-
-  @Test
-  public void optimize_repeatedOrMapFieldShadowedByComprehensionVar_throws(
-      @TestParameter({
-            "[[1]].map(list, msg.repeated_int64)",
-            "[[1]].map(map, msg.map_int64_message)"
-          })
-          String expression)
-      throws Exception {
+  @TestParameters({
+    "{expression: '[1].map(google, msg.single_duration)', expected: '[1].map(google,"
+        + " cel.@attribute(msg, [[101, \"single_duration\", 11]], .google.protobuf.Duration{}))'}",
+    "{expression: '[1].map(duration, msg.single_duration)', expected: '[1].map(duration,"
+        + " cel.@attribute(msg, [[101, \"single_duration\", 11]], .google.protobuf.Duration{}))'}",
+    "{expression: '[1].map(timestamp, msg.single_timestamp)', expected: '[1].map(timestamp,"
+        + " cel.@attribute(msg, [[102, \"single_timestamp\", 11]],"
+        + " .google.protobuf.Timestamp{}))'}",
+    "{expression: '[1].map(duration, msg.map_string_duration)', expected: '[1].map(duration,"
+        + " cel.@attribute(msg, [[243, \"map_string_duration\", -1, [9, 11]]],"
+        + " {\"\": .google.protobuf.Duration{}}))'}"
+  })
+  public void optimize_durationOrTimestampUnderShadowingComprehensionVar_rewrites(
+      String expression, String expected) throws Exception {
     CelAbstractSyntaxTree ast = cel.compile(expression).getAst();
 
-    CelOptimizationException e =
-        assertThrows(CelOptimizationException.class, () -> celOptimizer.optimize(ast));
+    CelAbstractSyntaxTree optimizedAst = celOptimizer.optimize(ast);
 
-    assertThat(e).hasMessageThat().contains("is shadowed by an enclosing comprehension variable");
+    assertThat(CEL_UNPARSER.unparse(optimizedAst)).isEqualTo(expected);
   }
 
   @Test
@@ -569,7 +634,7 @@ public final class SelectOptimizerTest {
     assertThat(CEL_UNPARSER.unparse(optimizedAst))
         .isEqualTo(
             "cel.@attribute(msg, [[21, \"single_nested_message\", 11]],"
-                + " cel.expr.conformance.proto3.TestAllTypes.NestedMessage)");
+                + " cel.expr.conformance.proto3.TestAllTypes.NestedMessage{})");
   }
 
   @Test
@@ -584,7 +649,7 @@ public final class SelectOptimizerTest {
     CelAbstractSyntaxTree optimizedAst = optimizer.optimize(ast, cel).optimizedAst();
 
     assertThat(CEL_UNPARSER.unparse(optimizedAst))
-        .isEqualTo("cel.@attribute(proto2_msg, [[2, \"single_int64\", 3, -64]], int)");
+        .isEqualTo("cel.@attribute(proto2_msg, [[2, \"single_int64\", 3]], -64)");
   }
 
   @Test
@@ -999,86 +1064,41 @@ public final class SelectOptimizerTest {
     assertThat(e).hasMessageThat().isEqualTo("Max iteration count reached.");
   }
 
+  private enum UnsupportedWellKnownFieldTestCase {
+    STRUCT("msg.single_struct", "Optimization of Struct fields is currently unimplemented"),
+    LIST_VALUE("msg.list_value", "Optimization of ListValue fields is currently unimplemented"),
+    VALUE("msg.single_value", "Optimization of Value fields is currently unimplemented"),
+    ANY("msg.single_any", "Optimization of Any fields is currently unimplemented"),
+    WRAPPER(
+        "msg.single_int64_wrapper", "Optimization of wrapper fields is currently unimplemented");
+
+    private final String expression;
+    private final String expectedMessageSubstring;
+
+    UnsupportedWellKnownFieldTestCase(String expression, String expectedMessageSubstring) {
+      this.expression = expression;
+      this.expectedMessageSubstring = expectedMessageSubstring;
+    }
+  }
+
   @Test
-  public void optimize_structField_throwsUnsupportedOperationException() throws Exception {
-    CelAbstractSyntaxTree ast = cel.compile("msg.single_struct").getAst();
+  public void optimize_unsupportedWellKnownField_throwsUnsupportedOperationException(
+      @TestParameter UnsupportedWellKnownFieldTestCase testCase) throws Exception {
+    CelAbstractSyntaxTree ast = cel.compile(testCase.expression).getAst();
     SelectOptimizer optimizer = SelectOptimizer.newInstance(TestAllTypes.getDescriptor().getFile());
 
     UnsupportedOperationException e =
         assertThrows(UnsupportedOperationException.class, () -> optimizer.optimize(ast, cel));
 
-    assertThat(e)
-        .hasMessageThat()
-        .contains("Optimization of Struct fields is currently unimplemented");
+    assertThat(e).hasMessageThat().contains(testCase.expectedMessageSubstring);
   }
 
   @Test
-  public void optimize_listValueField_throwsUnsupportedOperationException() throws Exception {
-    CelAbstractSyntaxTree ast = cel.compile("msg.list_value").getAst();
-    SelectOptimizer optimizer = SelectOptimizer.newInstance(TestAllTypes.getDescriptor().getFile());
-
-    UnsupportedOperationException e =
-        assertThrows(UnsupportedOperationException.class, () -> optimizer.optimize(ast, cel));
-
-    assertThat(e)
-        .hasMessageThat()
-        .contains("Optimization of ListValue fields is currently unimplemented");
-  }
-
-  @Test
-  public void optimize_valueField_throwsUnsupportedOperationException() throws Exception {
-    CelAbstractSyntaxTree ast = cel.compile("msg.single_value").getAst();
-    SelectOptimizer optimizer = SelectOptimizer.newInstance(TestAllTypes.getDescriptor().getFile());
-
-    UnsupportedOperationException e =
-        assertThrows(UnsupportedOperationException.class, () -> optimizer.optimize(ast, cel));
-
-    assertThat(e)
-        .hasMessageThat()
-        .contains("Optimization of Value fields is currently unimplemented");
-  }
-
-  @Test
-  public void optimize_anyField_throwsUnsupportedOperationException() throws Exception {
-    CelAbstractSyntaxTree ast = cel.compile("msg.single_any").getAst();
-    SelectOptimizer optimizer = SelectOptimizer.newInstance(TestAllTypes.getDescriptor().getFile());
-
-    UnsupportedOperationException e =
-        assertThrows(UnsupportedOperationException.class, () -> optimizer.optimize(ast, cel));
-
-    assertThat(e)
-        .hasMessageThat()
-        .contains("Optimization of Any fields is currently unimplemented");
-  }
-
-  @Test
-  public void optimize_wrapperField_throwsUnsupportedOperationException() throws Exception {
-    CelAbstractSyntaxTree ast = cel.compile("msg.single_int64_wrapper").getAst();
-    SelectOptimizer optimizer = SelectOptimizer.newInstance(TestAllTypes.getDescriptor().getFile());
-
-    UnsupportedOperationException e =
-        assertThrows(UnsupportedOperationException.class, () -> optimizer.optimize(ast, cel));
-
-    assertThat(e)
-        .hasMessageThat()
-        .contains("Optimization of wrapper fields is currently unimplemented");
-  }
-
-  @Test
-  public void optimize_groupField_throwsUnsupportedOperationException() throws Exception {
-    CelAbstractSyntaxTree ast = cel.compile("proto2_msg.nestedgroup.single_id").getAst();
-    SelectOptimizer optimizer =
-        SelectOptimizer.newInstance(PROTO2_TEST_ALL_TYPES_DESCRIPTOR.getFile());
-
-    UnsupportedOperationException e =
-        assertThrows(UnsupportedOperationException.class, () -> optimizer.optimize(ast, cel));
-
-    assertThat(e).hasMessageThat().contains("Optimization of Group fields is unsupported");
-  }
-
-  @Test
-  public void optimize_groupFieldLeaf_throwsUnsupportedOperationException() throws Exception {
-    CelAbstractSyntaxTree ast = cel.compile("proto2_msg.nestedgroup").getAst();
+  public void optimize_groupField_throwsUnsupportedOperationException(
+      @TestParameter({"proto2_msg.nestedgroup.single_id", "proto2_msg.nestedgroup"})
+          String expression)
+      throws Exception {
+    CelAbstractSyntaxTree ast = cel.compile(expression).getAst();
     SelectOptimizer optimizer =
         SelectOptimizer.newInstance(PROTO2_TEST_ALL_TYPES_DESCRIPTOR.getFile());
 
@@ -1097,7 +1117,7 @@ public final class SelectOptimizerTest {
     CelAbstractSyntaxTree optimizedAst = optimizer.optimize(ast, cel).optimizedAst();
 
     assertThat(CEL_UNPARSER.unparse(optimizedAst))
-        .isEqualTo("cel.@attribute(proto2_msg, [[2, \"single_int64\", 3, -64]], int)");
+        .isEqualTo("cel.@attribute(proto2_msg, [[2, \"single_int64\", 3]], -64)");
   }
 
   @Test
@@ -1109,7 +1129,7 @@ public final class SelectOptimizerTest {
     CelAbstractSyntaxTree optimizedAst = optimizer.optimize(ast, cel).optimizedAst();
 
     assertThat(CEL_UNPARSER.unparse(optimizedAst))
-        .isEqualTo("cel.@attribute(proto2_msg, [[2, \"single_int64\", 3, -64]], int)");
+        .isEqualTo("cel.@attribute(proto2_msg, [[2, \"single_int64\", 3]], -64)");
   }
 
   @Test
@@ -1127,7 +1147,7 @@ public final class SelectOptimizerTest {
     CelAbstractSyntaxTree proto3Optimized = optimizer.optimize(proto3Ast, cel).optimizedAst();
 
     assertThat(CEL_UNPARSER.unparse(proto2Optimized))
-        .isEqualTo("cel.@attribute(proto2_msg, [[2, \"single_int64\", 3, -64]], int)");
+        .isEqualTo("cel.@attribute(proto2_msg, [[2, \"single_int64\", 3]], -64)");
     assertThat(CEL_UNPARSER.unparse(proto3Optimized)).isEqualTo("msg.single_int64");
   }
 
@@ -1147,18 +1167,18 @@ public final class SelectOptimizerTest {
     CelAbstractSyntaxTree proto3Optimized = optimizer.optimize(proto3Ast, cel).optimizedAst();
 
     assertThat(CEL_UNPARSER.unparse(proto2Optimized))
-        .isEqualTo("cel.@attribute(proto2_msg, [[2, \"single_int64\", 3, -64]], int)");
+        .isEqualTo("cel.@attribute(proto2_msg, [[2, \"single_int64\", 3]], -64)");
     assertThat(CEL_UNPARSER.unparse(proto3Optimized)).isEqualTo("msg.single_int64");
   }
 
   private enum CompilerRejectionTestCase {
     ATTRIBUTE_AT_SIGN(
         SelectOptimizer.CEL_ATTRIBUTE_FUNCTION_DECL,
-        "cel.@attribute(msg, [], int)",
+        "cel.@attribute(msg, [], 0)",
         "token recognition error at: '@'"),
     ATTRIBUTE_OVERLOAD(
         SelectOptimizer.CEL_ATTRIBUTE_FUNCTION_DECL,
-        "cel_attribute_list(msg, [], int)",
+        "cel_attribute_list(msg, [], 0)",
         "undeclared reference to 'cel_attribute_list'"),
     HAS_FIELD_AT_SIGN(
         SelectOptimizer.CEL_HAS_FIELD_FUNCTION_DECL,
@@ -1255,20 +1275,14 @@ public final class SelectOptimizerTest {
                 + "                int64_value: 5\n"
                 + "              }\n"
                 + "            }\n"
-                + "            elements {\n"
-                + "              id: 12\n"
-                + "              const_expr {\n"
-                + "                int64_value: 0\n"
-                + "              }\n"
-                + "            }\n"
                 + "          }\n"
                 + "        }\n"
                 + "      }\n"
                 + "    }\n"
                 + "    args {\n"
-                + "      id: 13\n"
-                + "      ident_expr {\n"
-                + "        name: \"int\"\n"
+                + "      id: 12\n"
+                + "      const_expr {\n"
+                + "        int64_value: 0\n"
                 + "      }\n"
                 + "    }\n"
                 + "  }\n"
@@ -1301,7 +1315,7 @@ public final class SelectOptimizerTest {
 
     assertThat(optimizedAst.getResultType()).isEqualTo(SimpleType.INT);
     assertThat(CEL_UNPARSER.unparse(optimizedAst))
-        .isEqualTo("cel.@attribute(msg, [[2, \"single_int64\", 3, 0]], int) + 1");
+        .isEqualTo("cel.@attribute(msg, [[2, \"single_int64\", 3]], 0) + 1");
   }
 
   @Test
@@ -1314,7 +1328,7 @@ public final class SelectOptimizerTest {
 
     assertThat(optimizedAst.getResultType()).isEqualTo(SimpleType.STRING);
     assertThat(CEL_UNPARSER.unparse(optimizedAst))
-        .isEqualTo("cel.@attribute(msg, [[14, \"single_string\", 9, \"\"]], string) + \"suffix\"");
+        .isEqualTo("cel.@attribute(msg, [[14, \"single_string\", 9]], \"\") + \"suffix\"");
   }
 
   @Test
@@ -1355,6 +1369,56 @@ public final class SelectOptimizerTest {
     assertThat(optimizedAst.getResultType()).isEqualTo(SimpleType.INT);
     CelReference addReference = optimizedAst.getReferenceOrThrow(optimizedAst.getExpr().id());
     assertThat(addReference.overloadIds()).containsExactly("add_int64");
+  }
+
+  @SuppressWarnings("ImmutableEnumChecker") // Test only
+  private enum StaticOverloadOnCollectionTestCase {
+    REPEATED_SCALAR_INDEX_ADD("msg.repeated_int64[0] + 1", SimpleType.INT, "add_int64"),
+    REPEATED_SUBMESSAGE_INDEX_ADD(
+        "msg.repeated_nested_message[0].bb + 1", SimpleType.INT, "add_int64"),
+    MAP_SCALAR_INDEX_CONCAT(
+        "msg.map_string_string['k'] + '_suffix'", SimpleType.STRING, "add_string"),
+    NESTED_MAP_AND_REPEATED_SUBMESSAGE_INDEX_ADD(
+        "msg.map_int64_nested_type[1].child.payload.repeated_nested_message[0].bb + 10",
+        SimpleType.INT,
+        "add_int64");
+
+    private final String expression;
+    private final Object expectedResultType;
+    private final String expectedRootOverloadId;
+
+    StaticOverloadOnCollectionTestCase(
+        String expression, Object expectedResultType, String expectedRootOverloadId) {
+      this.expression = expression;
+      this.expectedResultType = expectedResultType;
+      this.expectedRootOverloadId = expectedRootOverloadId;
+    }
+  }
+
+  @Test
+  public void
+      optimize_collectionIndexingAndFieldSelection_resolvesStaticOverloadsWithoutDynDispatch(
+          @TestParameter StaticOverloadOnCollectionTestCase testCase) throws Exception {
+    CelAbstractSyntaxTree ast = cel.compile(testCase.expression).getAst();
+
+    CelAbstractSyntaxTree optimizedAst = celOptimizer.optimize(ast);
+
+    assertThat(optimizedAst.getResultType()).isEqualTo(testCase.expectedResultType);
+    CelReference rootRef = optimizedAst.getReferenceOrThrow(optimizedAst.getExpr().id());
+    assertThat(rootRef.overloadIds()).containsExactly(testCase.expectedRootOverloadId);
+    assertThat(optimizedAst.getTypeMap().values()).doesNotContain(SimpleType.DYN);
+  }
+
+  @Test
+  public void optimize_comprehensionOverRepeatedMessageField_preservesStaticElementTypesInTypeMap()
+      throws Exception {
+    CelAbstractSyntaxTree ast =
+        cel.compile("msg.repeated_nested_message.map(x, x.bb + 1)").getAst();
+
+    CelAbstractSyntaxTree optimizedAst = celOptimizer.optimize(ast);
+
+    assertThat(optimizedAst.getResultType()).isEqualTo(ListType.create(SimpleType.INT));
+    assertThat(optimizedAst.getTypeMap().values()).doesNotContain(SimpleType.DYN);
   }
 
   @Test

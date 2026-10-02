@@ -72,10 +72,6 @@ public final class ProtoLiteCelValueConverter extends BaseProtoCelValueConverter
     return new ProtoLiteCelValueConverter(celLiteDescriptorPool);
   }
 
-  boolean hasDescriptor(String protoTypeName) {
-    return descriptorPool.findDescriptor(protoTypeName).isPresent();
-  }
-
   private static Object readPrimitiveField(
       CodedInputStream inputStream, FieldLiteDescriptor fieldDescriptor) throws IOException {
     switch (fieldDescriptor.getProtoFieldType()) {
@@ -114,6 +110,8 @@ public final class ProtoLiteCelValueConverter extends BaseProtoCelValueConverter
       case FLOAT:
         return inputStream.readFloat();
       case FIXED32:
+        return UnsignedLong.fromLongBits(
+            Integer.toUnsignedLong(inputStream.readRawLittleEndian32()));
       case SFIXED32:
         return inputStream.readRawLittleEndian32();
       default:
@@ -128,6 +126,7 @@ public final class ProtoLiteCelValueConverter extends BaseProtoCelValueConverter
       case DOUBLE:
         return inputStream.readDouble();
       case FIXED64:
+        return UnsignedLong.fromLongBits(inputStream.readRawLittleEndian64());
       case SFIXED64:
         return inputStream.readRawLittleEndian64();
       default:
@@ -144,9 +143,13 @@ public final class ProtoLiteCelValueConverter extends BaseProtoCelValueConverter
       case BYTES:
         return inputStream.readBytes();
       case MESSAGE:
-        MessageLite.Builder builder =
-            getDefaultMessageBuilder(fieldDescriptor.getFieldProtoTypeName());
-
+        String fieldProtoTypeName = fieldDescriptor.getFieldProtoTypeName();
+        MessageLiteDescriptor descriptor =
+            descriptorPool.findDescriptor(fieldProtoTypeName).orElse(null);
+        if (descriptor == null) {
+          return RawProtoMessageLiteValue.create(inputStream.readBytes(), fieldProtoTypeName, this);
+        }
+        MessageLite.Builder builder = descriptor.newMessageBuilder();
         inputStream.readMessage(builder, ExtensionRegistryLite.getEmptyRegistry());
         return builder.build();
       case STRING:
@@ -154,10 +157,6 @@ public final class ProtoLiteCelValueConverter extends BaseProtoCelValueConverter
       default:
         throw new IllegalStateException("Unexpected field type: " + fieldType);
     }
-  }
-
-  private MessageLite.Builder getDefaultMessageBuilder(String protoTypeName) {
-    return descriptorPool.getDescriptorOrThrow(protoTypeName).newMessageBuilder();
   }
 
   Object getDefaultCelValue(String protoTypeName, String fieldName) {
@@ -204,17 +203,15 @@ public final class ProtoLiteCelValueConverter extends BaseProtoCelValueConverter
   }
 
   @Override
-  @SuppressWarnings("LiteProtoToString") // No alternative identifier to use. Debug only info is OK.
   public Object toRuntimeValue(Object value) {
     checkNotNull(value);
     if (value instanceof MessageLite) {
       MessageLite msg = (MessageLite) value;
 
-      MessageLiteDescriptor descriptor =
-          descriptorPool
-              .findDescriptor(msg)
-              .orElseThrow(
-                  () -> new NoSuchElementException("Could not find a descriptor for: " + msg));
+      MessageLiteDescriptor descriptor = descriptorPool.findDescriptor(msg).orElse(null);
+      if (descriptor == null) {
+        return RawProtoMessageLiteValue.create(msg.toByteString(), this);
+      }
       WellKnownProto wellKnownProto =
           WellKnownProto.getByTypeName(descriptor.getProtoTypeName()).orElse(null);
 
@@ -263,11 +260,13 @@ public final class ProtoLiteCelValueConverter extends BaseProtoCelValueConverter
     JavaType type = fieldDescriptor.getJavaType();
     switch (type) {
       case INT:
-        return fieldDescriptor.getProtoFieldType().equals(FieldLiteDescriptor.Type.UINT32)
+        return (fieldDescriptor.getProtoFieldType().equals(FieldLiteDescriptor.Type.UINT32)
+                || fieldDescriptor.getProtoFieldType().equals(FieldLiteDescriptor.Type.FIXED32))
             ? UnsignedLong.ZERO
             : Defaults.defaultValue(long.class);
       case LONG:
-        return fieldDescriptor.getProtoFieldType().equals(FieldLiteDescriptor.Type.UINT64)
+        return (fieldDescriptor.getProtoFieldType().equals(FieldLiteDescriptor.Type.UINT64)
+                || fieldDescriptor.getProtoFieldType().equals(FieldLiteDescriptor.Type.FIXED64))
             ? UnsignedLong.ZERO
             : Defaults.defaultValue(long.class);
       case ENUM:
@@ -283,11 +282,16 @@ public final class ProtoLiteCelValueConverter extends BaseProtoCelValueConverter
       case BYTE_STRING:
         return CelByteString.EMPTY;
       case MESSAGE:
-        if (WellKnownProto.isWrapperType(fieldDescriptor.getFieldProtoTypeName())) {
+        String fieldProtoTypeName = fieldDescriptor.getFieldProtoTypeName();
+        if (WellKnownProto.isWrapperType(fieldProtoTypeName)) {
           return NullValue.NULL_VALUE;
         }
-
-        return getDefaultMessageBuilder(fieldDescriptor.getFieldProtoTypeName()).build();
+        MessageLiteDescriptor descriptor =
+            descriptorPool.findDescriptor(fieldProtoTypeName).orElse(null);
+        if (descriptor == null) {
+          return RawProtoMessageLiteValue.create(ByteString.EMPTY, fieldProtoTypeName, this);
+        }
+        return descriptor.newMessageBuilder().build();
     }
     throw new IllegalStateException("Unexpected java type: " + type);
   }

@@ -18,17 +18,15 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Iterables;
 import com.google.common.primitives.UnsignedLong;
 import com.google.errorprone.annotations.Immutable;
 import dev.cel.common.ast.CelConstant;
 import dev.cel.common.ast.CelExpr;
-import dev.cel.common.ast.CelExpr.CelCall;
+import dev.cel.common.ast.CelExpr.CelMap;
 import dev.cel.common.ast.CelExpr.ExprKind.Kind;
-import dev.cel.common.types.CelType;
 import dev.cel.common.types.CelTypes;
-import dev.cel.common.types.SimpleType;
 import dev.cel.common.values.CelByteString;
 import dev.cel.common.values.CelValueConverter;
 import dev.cel.common.values.OptimizedSelectTraversal;
@@ -36,11 +34,7 @@ import dev.cel.common.values.OptionalValue;
 import dev.cel.common.values.SelectField;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
-import org.jspecify.annotations.Nullable;
 
 /**
  * Plans optimizer-rewritten select chains ({@code cel.@attribute}) and presence tests ({@code
@@ -52,11 +46,6 @@ final class OptimizedSelectPlanner {
 
   static final String CEL_ATTRIBUTE_FUNCTION_NAME = "cel.@attribute";
   static final String CEL_HAS_FIELD_FUNCTION_NAME = "cel.@hasField";
-
-  private static final String MAP_TYPE_IDENT = "map";
-  private static final String LIST_TYPE_IDENT = "list";
-  private static final String DURATION_TYPE_IDENT = SimpleType.DURATION.name();
-  private static final String TIMESTAMP_TYPE_IDENT = SimpleType.TIMESTAMP.name();
 
   /**
    * Well-known message types whose CEL semantics (Any unpacking, JSON value conversion) are not
@@ -73,6 +62,11 @@ final class OptimizedSelectPlanner {
   private final AttributeFactory attributeFactory;
   private final CelValueConverter celValueConverter;
 
+  static OptimizedSelectPlanner create(
+      AttributeFactory attributeFactory, CelValueConverter celValueConverter) {
+    return new OptimizedSelectPlanner(attributeFactory, celValueConverter);
+  }
+
   PlannedInterpretable plan(CelExpr expr, String functionName, OperandPlanner operandPlanner) {
     ImmutableList<CelExpr> args = expr.call().args();
     ImmutableList<SelectField> selectFields;
@@ -82,8 +76,7 @@ final class OptimizedSelectPlanner {
         {
           checkArgument(
               args.size() == 3, "Expected 3 arguments for %s, found %s", functionName, args.size());
-          String typeIdent = extractQualifiedName(args.get(2));
-          selectFields = unpackAttributeFields(args.get(1), typeIdent);
+          selectFields = unpackAttributeFields(args.get(1), args.get(2));
           isPresenceTest = false;
           break;
         }
@@ -114,7 +107,7 @@ final class OptimizedSelectPlanner {
   }
 
   private static ImmutableList<SelectField> unpackAttributeFields(
-      CelExpr qualifiersExpr, String typeIdent) {
+      CelExpr qualifiersExpr, CelExpr dummyOrDefExpr) {
     ImmutableList<CelExpr> elements = unpackQualifierHops(qualifiersExpr);
     ImmutableList.Builder<SelectField> fieldsBuilder =
         ImmutableList.builderWithExpectedSize(elements.size());
@@ -126,10 +119,6 @@ final class OptimizedSelectPlanner {
           hopElements.size() == 3 || hopElements.size() == 4,
           "Expected qualifier hop for cel.@attribute to contain 3 or 4 elements, found: %s",
           hopElements.size());
-      checkArgument(
-          isLeaf || hopElements.size() == 3,
-          "Non-leaf qualifier hop must not contain a default value: %s",
-          hopExpr);
       long fieldNumber = parseFieldNumber(hopElements.get(0));
       String fieldName = parseFieldName(hopElements.get(1));
       long rawTypeCode = parseTypeCode(hopElements.get(2));
@@ -137,31 +126,90 @@ final class OptimizedSelectPlanner {
           SelectField.isSupportedTypeCode(rawTypeCode),
           "Invalid protobuf type code: %s",
           rawTypeCode);
-      checkArgument(
-          isLeaf || rawTypeCode == SelectField.MESSAGE_TYPE_CODE,
-          "Non-leaf qualifier hop must have MESSAGE type code (11), found: %s",
-          rawTypeCode);
-      Object defaultValue =
-          (hopElements.size() == 4) ? resolveDefaultValue(hopElements.get(3)) : null;
-      String protoTypeName = "";
-      if (isLeaf) {
-        validateLeafTypeIdent((int) rawTypeCode, defaultValue, typeIdent);
-        // Preserve the full protobuf message name from typeIdent so descriptorless runtime
-        // evaluation (version skew) can identify well-known types (e.g. Duration, Timestamp) and
-        // populate RawProtoMessageLiteValue's type.
-        // Repeated message fields also use MESSAGE_TYPE_CODE (11) for their element wire type, but
-        // their typeIdent is "list" rather than the proto message name (map fields use
-        // CEL_MAP_TYPE_CODE (100) instead of 11, so they are already excluded).
-        boolean isSingularMessage =
-            rawTypeCode == SelectField.MESSAGE_TYPE_CODE && !typeIdent.equals(LIST_TYPE_IDENT);
-        if (isSingularMessage) {
-          protoTypeName = typeIdent;
-        }
+
+      if (!isLeaf) {
+        checkArgument(
+            hopElements.size() == 3,
+            "Non-leaf qualifier hop must contain exactly 3 elements: %s",
+            hopExpr);
+        checkArgument(
+            rawTypeCode == SelectField.MESSAGE_TYPE_CODE,
+            "Non-leaf qualifier hop must have MESSAGE type code (11), found: %s",
+            rawTypeCode);
+        fieldsBuilder.add(SelectField.create(fieldNumber, fieldName, rawTypeCode));
+      } else if (rawTypeCode == SelectField.CEL_MAP_TYPE_CODE) {
+        checkArgument(
+            hopElements.size() == 4,
+            "Map qualifier hop must contain exactly 4 elements: %s",
+            hopExpr);
+        fieldsBuilder.add(parseMapLeaf(fieldNumber, fieldName, hopElements.get(3), dummyOrDefExpr));
+      } else {
+        checkArgument(
+            hopElements.size() == 3,
+            "Leaf qualifier hop must contain exactly 3 elements, found: %s",
+            hopExpr);
+        fieldsBuilder.add(
+            dummyOrDefExpr.getKind() == Kind.LIST
+                ? parseRepeatedLeaf(fieldNumber, fieldName, rawTypeCode, dummyOrDefExpr)
+                : parseSingularLeaf(fieldNumber, fieldName, rawTypeCode, dummyOrDefExpr));
       }
-      fieldsBuilder.add(
-          SelectField.create(fieldNumber, fieldName, rawTypeCode, defaultValue, protoTypeName));
     }
     return fieldsBuilder.build();
+  }
+
+  private static SelectField parseMapLeaf(
+      long fieldNumber, String fieldName, CelExpr mapEntrySpecExpr, CelExpr dummyExpr) {
+    SelectField.MapEntrySpec mapEntrySpec = parseMapEntrySpec(mapEntrySpecExpr);
+    checkArgument(
+        dummyExpr.getKind() == Kind.MAP && dummyExpr.map().entries().size() == 1,
+        "Expected map dummy/default value with a single entry, found: %s",
+        dummyExpr);
+    CelMap.Entry entry = dummyExpr.map().entries().get(0);
+    validateScalarDummy(mapEntrySpec.keyTypeCode(), entry.key());
+    if (mapEntrySpec.valueTypeCode() == SelectField.MESSAGE_TYPE_CODE) {
+      // Unlike leaf fields, map values of Any, Struct, Value, and wrapper types are permitted:
+      // the traversal only produces the map, and indexing it applies standard CEL conversion.
+      return SelectField.createMap(
+          fieldNumber, fieldName, mapEntrySpec, parseMessageProtoTypeName(entry.value()));
+    }
+    validateScalarDummy(mapEntrySpec.valueTypeCode(), entry.value());
+    return SelectField.createMap(fieldNumber, fieldName, mapEntrySpec);
+  }
+
+  private static SelectField parseRepeatedLeaf(
+      long fieldNumber, String fieldName, long typeCode, CelExpr dummyExpr) {
+    checkArgument(
+        dummyExpr.list().elements().size() == 1,
+        "Expected repeated dummy/default value with a single element, found: %s",
+        dummyExpr);
+    CelExpr elemExpr = dummyExpr.list().elements().get(0);
+    if (typeCode == SelectField.MESSAGE_TYPE_CODE) {
+      return SelectField.create(
+          fieldNumber,
+          fieldName,
+          typeCode,
+          /* defaultValue= */ ImmutableList.of(),
+          parseLeafMessageProtoTypeName(elemExpr));
+    }
+    validateScalarDummy(typeCode, elemExpr);
+    return SelectField.create(
+        fieldNumber, fieldName, typeCode, /* defaultValue= */ ImmutableList.of());
+  }
+
+  private static SelectField parseSingularLeaf(
+      long fieldNumber, String fieldName, long typeCode, CelExpr defaultExpr) {
+    if (typeCode != SelectField.MESSAGE_TYPE_CODE) {
+      return SelectField.create(
+          fieldNumber, fieldName, typeCode, resolveScalarDefaultValue(typeCode, defaultExpr));
+    }
+    String protoTypeName = parseLeafMessageProtoTypeName(defaultExpr);
+    Object defaultValue = null;
+    if (protoTypeName.equals(CelTypes.DURATION_MESSAGE)) {
+      defaultValue = Duration.ZERO;
+    } else if (protoTypeName.equals(CelTypes.TIMESTAMP_MESSAGE)) {
+      defaultValue = Instant.EPOCH;
+    }
+    return SelectField.create(fieldNumber, fieldName, typeCode, defaultValue, protoTypeName);
   }
 
   private static ImmutableList<SelectField> unpackHasFieldFields(CelExpr qualifiersExpr) {
@@ -226,124 +274,58 @@ final class OptimizedSelectPlanner {
     return expr.constant().int64Value();
   }
 
-  private static void validateLeafTypeIdent(
-      int leafTypeCode, @Nullable Object defaultValue, String typeIdent) {
+  private static SelectField.MapEntrySpec parseMapEntrySpec(CelExpr expr) {
     checkArgument(
-        defaultValue != null || leafTypeCode == SelectField.MESSAGE_TYPE_CODE,
-        "Leaf hop with type code %s must specify a default value",
-        leafTypeCode);
+        expr.getKind() == Kind.LIST,
+        "Expected map entry spec to be a list, found: %s",
+        expr.getKind());
+    ImmutableList<CelExpr> elements = expr.list().elements();
     checkArgument(
-        (leafTypeCode == SelectField.CEL_MAP_TYPE_CODE) == typeIdent.equals(MAP_TYPE_IDENT),
-        "Leaf type code %s is incompatible with typeIdent '%s'",
-        leafTypeCode,
-        typeIdent);
-    checkArgument(
-        (defaultValue instanceof Map) == typeIdent.equals(MAP_TYPE_IDENT),
-        "Leaf default value %s is incompatible with typeIdent '%s'",
-        defaultValue,
-        typeIdent);
-    checkArgument(
-        (defaultValue instanceof List) == typeIdent.equals(LIST_TYPE_IDENT),
-        "Leaf default value %s is incompatible with typeIdent '%s'",
-        defaultValue,
-        typeIdent);
-    if (typeIdent.equals(MAP_TYPE_IDENT) || typeIdent.equals(LIST_TYPE_IDENT)) {
-      return;
-    }
-    if (leafTypeCode == SelectField.MESSAGE_TYPE_CODE) {
-      checkArgument(
-          !ScalarType.isScalarTypeIdent(typeIdent),
-          "Leaf MESSAGE type code (11) is incompatible with scalar typeIdent '%s'",
-          typeIdent);
-      checkArgument(
-          !CelTypes.isWrapperType(typeIdent)
-              && !UNSUPPORTED_WELL_KNOWN_TYPE_IDENTS.contains(typeIdent),
-          "Leaf well-known type '%s' is not supported by the select-optimized runtime",
-          typeIdent);
-      if (typeIdent.equals(DURATION_TYPE_IDENT)) {
-        checkArgument(
-            Objects.equals(defaultValue, Duration.ZERO),
-            "Leaf default value for message type '%s' is invalid or missing: %s",
-            typeIdent,
-            defaultValue);
-      } else if (typeIdent.equals(TIMESTAMP_TYPE_IDENT)) {
-        checkArgument(
-            Objects.equals(defaultValue, Instant.EPOCH),
-            "Leaf default value for message type '%s' is invalid or missing: %s",
-            typeIdent,
-            defaultValue);
-      } else {
-        checkArgument(
-            defaultValue == null,
-            "Leaf default value for message type '%s' is invalid or missing: %s",
-            typeIdent,
-            defaultValue);
-      }
-      return;
-    }
-    ScalarType expectedScalar = ScalarType.fromTypeCode(leafTypeCode);
-    checkArgument(
-        typeIdent.equals(expectedScalar.typeIdent),
-        "Leaf type code %s (expected '%s') is incompatible with typeIdent '%s'",
-        leafTypeCode,
-        expectedScalar.typeIdent,
-        typeIdent);
-    checkArgument(
-        expectedScalar.valueClass.isInstance(defaultValue),
-        "Leaf default value %s is incompatible with typeIdent '%s'",
-        defaultValue,
-        expectedScalar.typeIdent);
+        elements.size() == 2,
+        "Expected map entry spec list to contain exactly 2 elements (key_type_code, val_type_code),"
+            + " found: %s",
+        elements.size());
+    long keyTypeCode = parseTypeCode(elements.get(0));
+    long valTypeCode = parseTypeCode(elements.get(1));
+    return SelectField.MapEntrySpec.create(keyTypeCode, valTypeCode);
   }
 
-  private static Object resolveDefaultValue(CelExpr defaultExpr) {
-    switch (defaultExpr.getKind()) {
-      case CONSTANT:
-        if (defaultExpr.constant().getKind() != CelConstant.Kind.NULL_VALUE) {
-          return PlannerHelpers.resolveConstant(defaultExpr.constant());
-        }
-        break;
-      case LIST:
-        if (defaultExpr.list().elements().isEmpty()) {
-          return ImmutableList.of();
-        }
-        break;
-      case MAP:
-        if (defaultExpr.map().entries().isEmpty()) {
-          return ImmutableMap.of();
-        }
-        break;
-      case CALL:
-        CelCall call = defaultExpr.call();
-        if (call.function().equals("duration")
-            && call.args().size() == 1
-            && call.args().get(0).getKind() == Kind.CONSTANT
-            && call.args().get(0).constant().getKind() == CelConstant.Kind.STRING_VALUE
-            && call.args().get(0).constant().stringValue().equals("0s")) {
-          return Duration.ZERO;
-        }
-        if (call.function().equals("timestamp")
-            && call.args().size() == 1
-            && call.args().get(0).getKind() == Kind.CONSTANT
-            && call.args().get(0).constant().getKind() == CelConstant.Kind.INT64_VALUE
-            && call.args().get(0).constant().int64Value() == 0L) {
-          return Instant.EPOCH;
-        }
-        break;
-      default:
-        break;
-    }
-    throw new IllegalArgumentException("Unsupported default value expression: " + defaultExpr);
+  private static String parseMessageProtoTypeName(CelExpr expr) {
+    checkArgument(
+        expr.getKind() == Kind.STRUCT, "Expected struct for message type, found: %s", expr);
+    String protoTypeName = expr.struct().messageName();
+    checkArgument(!protoTypeName.isEmpty(), "Protobuf message type name must not be empty");
+    return protoTypeName;
   }
 
-  private static String extractQualifiedName(CelExpr expr) {
-    if (expr.getKind() == Kind.IDENT) {
-      return expr.ident().name();
-    }
-    if (expr.getKind() == Kind.SELECT && !expr.select().testOnly()) {
-      return extractQualifiedName(expr.select().operand()) + "." + expr.select().field();
-    }
-    throw new IllegalArgumentException(
-        "Expected type identifier argument to be an IDENT or non-testOnly SELECT, found: " + expr);
+  private static String parseLeafMessageProtoTypeName(CelExpr expr) {
+    String protoTypeName = parseMessageProtoTypeName(expr);
+    checkArgument(
+        !CelTypes.isWrapperType(protoTypeName)
+            && !UNSUPPORTED_WELL_KNOWN_TYPE_IDENTS.contains(protoTypeName),
+        "Leaf well-known type '%s' is not supported by the select-optimized runtime",
+        protoTypeName);
+    return protoTypeName;
+  }
+
+  private static Object resolveScalarDefaultValue(long typeCode, CelExpr defaultExpr) {
+    checkArgument(
+        defaultExpr.getKind() == Kind.CONSTANT
+            && defaultExpr.constant().getKind() != CelConstant.Kind.NULL_VALUE,
+        "Expected non-null constant default value expression, found: %s",
+        defaultExpr);
+    Object value = PlannerHelpers.resolveConstant(defaultExpr.constant());
+    ScalarType expectedScalar = ScalarType.fromTypeCode((int) typeCode);
+    checkArgument(
+        expectedScalar.valueClass.isInstance(value),
+        "Scalar default value %s is incompatible with type code %s",
+        value,
+        typeCode);
+    return value;
+  }
+
+  private static void validateScalarDummy(long typeCode, CelExpr dummyExpr) {
+    resolveScalarDefaultValue(typeCode, dummyExpr);
   }
 
   private static void validateTarget(Object target) {
@@ -362,28 +344,17 @@ final class OptimizedSelectPlanner {
   }
 
   private enum ScalarType {
-    BOOL(SimpleType.BOOL, Boolean.class),
-    INT(SimpleType.INT, Long.class),
-    UINT(SimpleType.UINT, UnsignedLong.class),
-    DOUBLE(SimpleType.DOUBLE, Double.class),
-    STRING(SimpleType.STRING, String.class),
-    BYTES(SimpleType.BYTES, CelByteString.class);
+    BOOL(Boolean.class),
+    INT(Long.class),
+    UINT(UnsignedLong.class),
+    DOUBLE(Double.class),
+    STRING(String.class),
+    BYTES(CelByteString.class);
 
-    private final String typeIdent;
     private final Class<?> valueClass;
 
-    ScalarType(CelType celType, Class<?> valueClass) {
-      this.typeIdent = celType.name();
+    ScalarType(Class<?> valueClass) {
       this.valueClass = valueClass;
-    }
-
-    static boolean isScalarTypeIdent(String typeIdent) {
-      for (ScalarType type : values()) {
-        if (type.typeIdent.equals(typeIdent)) {
-          return true;
-        }
-      }
-      return false;
     }
 
     static ScalarType fromTypeCode(int leafTypeCode) {
@@ -411,7 +382,7 @@ final class OptimizedSelectPlanner {
         case 12: // BYTES
           return BYTES;
         default:
-          throw new IllegalStateException("Unexpected leaf type code: " + leafTypeCode);
+          throw new IllegalArgumentException("Unexpected leaf type code: " + leafTypeCode);
       }
     }
   }
@@ -448,7 +419,7 @@ final class OptimizedSelectPlanner {
 
     @Override
     public Object value() {
-      return fields.get(fields.size() - 1).fieldName();
+      return Iterables.getLast(fields).fieldName();
     }
 
     @Override
@@ -469,11 +440,6 @@ final class OptimizedSelectPlanner {
       this.celValueConverter = checkNotNull(celValueConverter);
       this.isPresenceTest = isPresenceTest;
     }
-  }
-
-  static OptimizedSelectPlanner create(
-      AttributeFactory attributeFactory, CelValueConverter celValueConverter) {
-    return new OptimizedSelectPlanner(attributeFactory, celValueConverter);
   }
 
   private OptimizedSelectPlanner(

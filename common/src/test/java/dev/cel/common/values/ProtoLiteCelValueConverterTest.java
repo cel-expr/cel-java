@@ -43,6 +43,7 @@ import com.google.testing.junit.testparameterinjector.TestParameterInjector;
 import dev.cel.common.internal.CelLiteDescriptorPool;
 import dev.cel.common.internal.DefaultLiteDescriptorPool;
 import dev.cel.common.values.ProtoLiteCelValueConverter.MessageFields;
+import dev.cel.expr.conformance.proto3.NestedTestAllTypes;
 import dev.cel.expr.conformance.proto3.TestAllTypes;
 import dev.cel.expr.conformance.proto3.TestAllTypesCelDescriptor;
 import dev.cel.protobuf.CelLiteDescriptor.FieldLiteDescriptor;
@@ -90,6 +91,19 @@ public class ProtoLiteCelValueConverterTest {
             PROTO_LITE_CEL_VALUE_CONVERTER.toRuntimeValue(TestAllTypes.getDefaultInstance());
 
     assertThat(protoMessageLiteValue.value()).isEqualTo(TestAllTypes.getDefaultInstance());
+  }
+
+  @Test
+  public void fromProtoMessageToCelValue_withoutDescriptor_returnsRawProtoMessageLiteValue() {
+    ProtoLiteCelValueConverter converterWithoutDescriptors =
+        ProtoLiteCelValueConverter.newInstance(EMPTY_DESCRIPTOR_POOL);
+    TestAllTypes msg = TestAllTypes.newBuilder().setSingleInt64(42L).build();
+
+    Object adaptedValue = converterWithoutDescriptors.toRuntimeValue(msg);
+
+    assertThat(adaptedValue)
+        .isEqualTo(
+            RawProtoMessageLiteValue.create(msg.toByteString(), converterWithoutDescriptors));
   }
 
   @SuppressWarnings("ImmutableEnumChecker") // Test only
@@ -364,7 +378,7 @@ public class ProtoLiteCelValueConverterTest {
   }
 
   @Test
-  public void getDefaultCelValue_nestedMessageWithoutDescriptor_throwsNoSuchElementException() {
+  public void getDefaultCelValue_nestedMessageWithoutDescriptor_returnsRawProtoMessageLiteValue() {
     FieldLiteDescriptor nestedMsgField =
         DESCRIPTOR_POOL
             .getDescriptorOrThrow("cel.expr.conformance.proto3.TestAllTypes")
@@ -372,9 +386,38 @@ public class ProtoLiteCelValueConverterTest {
     ProtoLiteCelValueConverter converterWithoutNested =
         ProtoLiteCelValueConverter.newInstance(EMPTY_DESCRIPTOR_POOL);
 
-    assertThrows(
-        NoSuchElementException.class,
-        () -> converterWithoutNested.getDefaultCelValue(nestedMsgField));
+    Object defaultValue = converterWithoutNested.getDefaultCelValue(nestedMsgField);
+
+    assertThat(defaultValue)
+        .isEqualTo(
+            RawProtoMessageLiteValue.create(
+                ByteString.EMPTY,
+                "cel.expr.conformance.proto3.TestAllTypes.NestedMessage",
+                converterWithoutNested));
+  }
+
+  @Test
+  public void readAllFields_nestedMessageWithoutDescriptor_returnsRawProtoMessageLiteValue()
+      throws Exception {
+    // DESCRIPTOR_POOL only registers TestAllTypesCelDescriptor, not NestedTestAllTypesCelDescriptor
+    TestAllTypes msg =
+        TestAllTypes.newBuilder()
+            .setOneofType(
+                NestedTestAllTypes.newBuilder()
+                    .setPayload(TestAllTypes.newBuilder().setSingleInt64(42L)))
+            .build();
+
+    MessageFields fields =
+        PROTO_LITE_CEL_VALUE_CONVERTER.readAllFields(
+            msg.toByteArray(), "cel.expr.conformance.proto3.TestAllTypes");
+
+    assertThat(fields.values())
+        .containsExactly(
+            "oneof_type",
+            RawProtoMessageLiteValue.create(
+                msg.getOneofType().toByteString(),
+                "cel.expr.conformance.proto3.NestedTestAllTypes",
+                PROTO_LITE_CEL_VALUE_CONVERTER));
   }
 
   @Test
@@ -435,14 +478,5 @@ public class ProtoLiteCelValueConverterTest {
                     ByteString.EMPTY, "google.protobuf.Any"));
 
     assertThat(exception).hasMessageThat().contains("ANY_VALUE");
-  }
-
-  @Test
-  public void hasDescriptor_returnsExpectedResult() {
-    assertThat(
-            PROTO_LITE_CEL_VALUE_CONVERTER.hasDescriptor(
-                "cel.expr.conformance.proto3.TestAllTypes"))
-        .isTrue();
-    assertThat(PROTO_LITE_CEL_VALUE_CONVERTER.hasDescriptor("unknown.Type")).isFalse();
   }
 }

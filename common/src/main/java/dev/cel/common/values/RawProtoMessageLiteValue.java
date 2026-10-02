@@ -21,6 +21,7 @@ import com.google.auto.value.extension.memoized.Memoized;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableListMultimap;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Multimaps;
@@ -35,8 +36,10 @@ import dev.cel.common.types.CelType;
 import dev.cel.common.types.StructTypeReference;
 import dev.cel.protobuf.CelLiteDescriptor.FieldLiteDescriptor;
 import java.io.IOException;
+import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.TreeMap;
 import org.jspecify.annotations.Nullable;
@@ -59,6 +62,8 @@ public abstract class RawProtoMessageLiteValue extends StructValue<String, RawPr
     implements OptimizedSelectable {
 
   private static final String UNKNOWN_MESSAGE_TYPE_NAME = "cel.@unknownMessage";
+  private static final int MAP_KEY_FIELD_NUMBER = 1;
+  private static final int MAP_VALUE_FIELD_NUMBER = 2;
 
   abstract ByteString rawWireBytes();
 
@@ -144,11 +149,13 @@ public abstract class RawProtoMessageLiteValue extends StructValue<String, RawPr
 
   private static Object decodeWireField(
       SelectField field, ImmutableList<Object> unknowns, ProtoLiteCelValueConverter converter) {
-    int typeCode = field.typeCode();
-    if (typeCode == SelectField.CEL_MAP_TYPE_CODE) {
-      throw new UnsupportedOperationException(
-          "Decoding unknown map field from wire bytes is unsupported: " + field.fieldName());
+    SelectField.MapEntrySpec mapEntrySpec = field.mapEntrySpec();
+    if (mapEntrySpec != null) {
+      return decodeMapEntries(
+          unknowns, mapEntrySpec, field.protoTypeName(), field.fieldName(), converter);
     }
+
+    int typeCode = field.typeCode();
     if (typeCode == SelectField.NO_TYPE_CODE) {
       throw CelAttributeNotFoundException.forFieldResolution(field.fieldName());
     }
@@ -240,6 +247,100 @@ public abstract class RawProtoMessageLiteValue extends StructValue<String, RawPr
     return Optional.of(lastEntry);
   }
 
+  /**
+   * Decodes map entries from wire bytes without descriptors (version skew), using the
+   * optimizer-provided {@link SelectField.MapEntrySpec}. Per protobuf semantics, repeated key or
+   * value tags within an entry are last-one-wins for scalars and merged for messages, and absent
+   * keys or values take their type's default.
+   */
+  private static ImmutableMap<Object, Object> decodeMapEntries(
+      ImmutableList<Object> unknowns,
+      SelectField.MapEntrySpec spec,
+      String valueProtoTypeName,
+      String fieldName,
+      ProtoLiteCelValueConverter converter) {
+    ImmutableMap.Builder<Object, Object> mapBuilder = ImmutableMap.builder();
+    try {
+      for (Object raw : unknowns) {
+        ByteString bytes = requireType(raw, ByteString.class, WireFormat.FieldType.MESSAGE);
+        mapBuilder.put(
+            decodeSingleMapEntry(bytes.newCodedInput(), spec, valueProtoTypeName, converter));
+      }
+    } catch (IOException e) {
+      throw new IllegalArgumentException("Failed to decode map entry for field: " + fieldName, e);
+    }
+    return mapBuilder.buildKeepingLast();
+  }
+
+  private static Map.Entry<Object, Object> decodeSingleMapEntry(
+      CodedInputStream in,
+      SelectField.MapEntrySpec spec,
+      String valueProtoTypeName,
+      ProtoLiteCelValueConverter converter)
+      throws IOException {
+    WireFormat.FieldType keyWireType =
+        FieldLiteDescriptor.Type.forNumber(spec.keyTypeCode()).toWireFormatFieldType();
+    WireFormat.FieldType valWireType =
+        FieldLiteDescriptor.Type.forNumber(spec.valueTypeCode()).toWireFormatFieldType();
+    boolean isMessageValue = valWireType == WireFormat.FieldType.MESSAGE;
+    Object key = resolveDefaultMapScalarValue(spec.keyTypeCode());
+    Object value =
+        isMessageValue ? ByteString.EMPTY : resolveDefaultMapScalarValue(spec.valueTypeCode());
+    for (int tag = in.readTag(); tag != 0; tag = in.readTag()) {
+      int tagWireType = WireFormat.getTagWireType(tag);
+      int fieldNumber = WireFormat.getTagFieldNumber(tag);
+      Object parsedValue = ProtoLiteCelValueConverter.readUnknownField(tagWireType, in);
+      switch (fieldNumber) {
+        case MAP_KEY_FIELD_NUMBER:
+          key = decodeWireValue(parsedValue, keyWireType, /* protoTypeName= */ "", converter);
+          break;
+        case MAP_VALUE_FIELD_NUMBER:
+          value =
+              isMessageValue
+                  ? ((ByteString) value)
+                      .concat(requireType(parsedValue, ByteString.class, valWireType))
+                  : decodeWireValue(parsedValue, valWireType, /* protoTypeName= */ "", converter);
+          break;
+        default:
+          throw new IllegalStateException("Unexpected field number in map entry: " + fieldNumber);
+      }
+    }
+    if (isMessageValue) {
+      value = decodeWireValue(value, valWireType, valueProtoTypeName, converter);
+    }
+    return new AbstractMap.SimpleImmutableEntry<>(key, value);
+  }
+
+  private static Object resolveDefaultMapScalarValue(int typeCode) {
+    FieldLiteDescriptor.Type protoType = FieldLiteDescriptor.Type.forNumber(typeCode);
+    switch (protoType) {
+      case BOOL:
+        return false;
+      case INT32:
+      case INT64:
+      case SINT32:
+      case SINT64:
+      case SFIXED32:
+      case SFIXED64:
+      case ENUM:
+        return 0L;
+      case UINT32:
+      case UINT64:
+      case FIXED32:
+      case FIXED64:
+        return UnsignedLong.ZERO;
+      case FLOAT:
+      case DOUBLE:
+        return 0.0d;
+      case STRING:
+        return "";
+      case BYTES:
+        return CelByteString.EMPTY;
+      default:
+        throw new IllegalArgumentException("Unsupported map scalar type code: " + typeCode);
+    }
+  }
+
   static @Nullable Object decodeWireEntries(
       ImmutableCollection<Object> entries,
       int typeCode,
@@ -274,15 +375,6 @@ public abstract class RawProtoMessageLiteValue extends StructValue<String, RawPr
     }
     // Protobuf "last one wins" semantics for non-repeated scalar fields
     return decodeWireValue(Iterables.getLast(entries), fieldType, protoTypeName, converter);
-  }
-
-  static Object decodeWireValue(
-      Object raw, int typeCode, String protoTypeName, ProtoLiteCelValueConverter converter) {
-    return decodeWireValue(
-        raw,
-        FieldLiteDescriptor.Type.forNumber(typeCode).toWireFormatFieldType(),
-        protoTypeName,
-        converter);
   }
 
   static Object decodeWireValue(
