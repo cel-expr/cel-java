@@ -50,6 +50,7 @@ java_library(
         ":compiled_extensions",
         ":compiled_hello_world",
         ":compiled_list_literal",
+        ":compiled_lists_slice",
         ":compiled_math_greatest",
         ":compiled_one_plus_two",
         ":compiled_primitive_variables",
@@ -124,6 +125,12 @@ compile_cel(
     name = "compiled_sets_contains",
     environment = "//testing/environment:all_extensions",
     expression = "sets.contains([1, 2], [2])",
+)
+
+compile_cel(
+    name = "compiled_lists_slice",
+    environment = "//testing/environment:all_extensions",
+    expression = "[1, 2, 3].slice(0, 2)",
 )
 
 compile_cel(

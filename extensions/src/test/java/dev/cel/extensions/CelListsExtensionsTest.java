@@ -16,20 +16,30 @@ package dev.cel.extensions;
 import static com.google.common.truth.Truth.assertThat;
 import static org.junit.Assert.assertThrows;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedMultiset;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.testing.junit.testparameterinjector.TestParameterInjector;
 import com.google.testing.junit.testparameterinjector.TestParameters;
 import dev.cel.bundle.Cel;
+import dev.cel.bundle.CelFactory;
 import dev.cel.common.CelAbstractSyntaxTree;
 import dev.cel.common.CelContainer;
 import dev.cel.common.CelValidationException;
 import dev.cel.common.CelValidationResult;
 import dev.cel.common.types.SimpleType;
+import dev.cel.compiler.CelCompiler;
+import dev.cel.compiler.CelCompilerFactory;
 import dev.cel.expr.conformance.test.SimpleTest;
 import dev.cel.parser.CelStandardMacro;
 import dev.cel.runtime.CelEvaluationException;
+import dev.cel.runtime.CelLiteRuntime;
+import dev.cel.runtime.CelLiteRuntimeFactory;
+import dev.cel.runtime.CelRuntime;
+import dev.cel.runtime.CelRuntimeBuilder;
+import dev.cel.runtime.CelRuntimeFactory;
 import dev.cel.testing.CelRuntimeFlavor;
 import dev.cel.validator.CelValidator;
 import dev.cel.validator.CelValidatorFactory;
@@ -381,4 +391,137 @@ public class CelListsExtensionsTest extends CelExtensionTestBase {
     assertThat(result.hasError()).isFalse();
     assertThat(evalResult).isEqualTo("bar");
   }
+
+  @Test
+  public void separateLibraryAndRuntime_allFunctions_success() throws Exception {
+    CelCompiler celCompiler =
+        CelCompilerFactory.standardCelCompilerBuilder()
+            .setStandardMacros(CelStandardMacro.STANDARD_MACROS)
+            .addLibraries(CelListsCompilerLibrary.lists())
+            .build();
+    CelLiteRuntime celLiteRuntime =
+        CelLiteRuntimeFactory.newLiteRuntimeBuilder()
+            .addLibraries(CelListsRuntimeLibrary.lists())
+            .build();
+
+    CelAbstractSyntaxTree ast = celCompiler.compile("[1, 2, 3, 4].slice(1, 3)").getAst();
+    Object result = celLiteRuntime.createProgram(ast).eval();
+
+    assertThat(result).isEqualTo(ImmutableList.of(2L, 3L));
+  }
+
+  @Test
+  public void separateLibraryAndRuntime_versioned_success() throws Exception {
+    CelCompiler celCompiler =
+        CelCompilerFactory.standardCelCompilerBuilder()
+            .addLibraries(CelListsCompilerLibrary.lists(0))
+            .build();
+    CelRuntime celRuntime =
+        CelRuntimeFactory.standardCelRuntimeBuilder()
+            .addFunctionBindings(CelListsRuntimeLibrary.lists(0).newFunctionBindings())
+            .build();
+
+    CelAbstractSyntaxTree ast = celCompiler.compile("[1, 2, 3, 4].slice(1, 3)").getAst();
+    Object result = celRuntime.createProgram(ast).eval();
+
+    assertThat(result).isEqualTo(ImmutableList.of(2L, 3L));
+  }
+
+  @Test
+  public void separateLibraryAndRuntime_subsetOfFunctions_success() throws Exception {
+    CelCompiler celCompiler =
+        CelCompilerFactory.standardCelCompilerBuilder()
+            .addLibraries(CelListsCompilerLibrary.lists(CelListsCompilerLibrary.Function.SLICE))
+            .build();
+    CelRuntime celRuntime =
+        CelRuntimeFactory.standardCelRuntimeBuilder()
+            .addFunctionBindings(
+                CelListsRuntimeLibrary.lists(CelListsRuntimeLibrary.Function.SLICE)
+                    .newFunctionBindings())
+            .build();
+
+    CelAbstractSyntaxTree ast = celCompiler.compile("[1, 2, 3, 4].slice(1, 3)").getAst();
+    Object result = celRuntime.createProgram(ast).eval();
+
+    assertThat(result).isEqualTo(ImmutableList.of(2L, 3L));
+    assertThrows(
+        CelValidationException.class, () -> celCompiler.compile("[[1], [2]].flatten()").getAst());
+  }
+
+  @Test
+  public void separateLibraryAndRuntime_setOfFunctions_success() throws Exception {
+    CelCompiler celCompiler =
+        CelCompilerFactory.standardCelCompilerBuilder()
+            .addLibraries(
+                CelListsCompilerLibrary.lists(
+                    ImmutableSet.of(CelListsCompilerLibrary.Function.SLICE)))
+            .build();
+    CelRuntime celRuntime =
+        CelRuntimeFactory.standardCelRuntimeBuilder()
+            .addFunctionBindings(
+                CelListsRuntimeLibrary.lists(ImmutableSet.of(CelListsRuntimeLibrary.Function.SLICE))
+                    .newFunctionBindings())
+            .build();
+
+    CelAbstractSyntaxTree ast = celCompiler.compile("[1, 2, 3, 4].slice(1, 3)").getAst();
+    Object result = celRuntime.createProgram(ast).eval();
+
+    assertThat(result).isEqualTo(ImmutableList.of(2L, 3L));
+  }
+
+  @Test
+  public void separateLibraryAndRuntime_unsupportedVersion_throws() {
+    assertThrows(IllegalArgumentException.class, () -> CelListsCompilerLibrary.lists(99));
+    assertThrows(IllegalArgumentException.class, () -> CelListsRuntimeLibrary.lists(99));
+  }
+
+  @Test
+  public void lists_subsetOfFunctions_success() throws Exception {
+    Cel cel =
+        CelFactory.standardCelBuilder()
+            .addCompilerLibraries(CelExtensions.lists(CelListsExtensions.Function.SLICE))
+            .addRuntimeLibraries(CelExtensions.lists(CelListsExtensions.Function.SLICE))
+            .build();
+
+    CelAbstractSyntaxTree ast = cel.compile("[1, 2, 3, 4].slice(1, 3)").getAst();
+    Object result = cel.createProgram(ast).eval();
+
+    assertThat(result).isEqualTo(ImmutableList.of(2L, 3L));
+    assertThrows(CelValidationException.class, () -> cel.compile("[[1], [2]].flatten()").getAst());
+  }
+
+  @Test
+  public void lists_setOfFunctions_success() throws Exception {
+    Cel cel =
+        CelFactory.standardCelBuilder()
+            .addCompilerLibraries(
+                CelExtensions.lists(ImmutableSet.of(CelListsExtensions.Function.SLICE)))
+            .addRuntimeLibraries(
+                CelExtensions.lists(ImmutableSet.of(CelListsExtensions.Function.SLICE)))
+            .build();
+
+    CelAbstractSyntaxTree ast = cel.compile("[1, 2, 3, 4].slice(1, 3)").getAst();
+    Object result = cel.createProgram(ast).eval();
+
+    assertThat(result).isEqualTo(ImmutableList.of(2L, 3L));
+  }
+
+  @Test
+  public void lists_noArgConstructor_success() {
+    CelListsExtensions extensions = new CelListsExtensions();
+
+    assertThat(extensions.version()).isEqualTo(CelListsCompilerLibrary.lists().version());
+    assertThat(extensions.functions()).isNotEmpty();
+    assertThat(extensions.macros()).isNotEmpty();
+  }
+
+  @Test
+  public void setRuntimeOptions_withoutEquality_throws() {
+    CelListsExtensions extensions = CelExtensions.lists();
+    CelRuntimeBuilder runtimeBuilder = CelRuntimeFactory.standardCelRuntimeBuilder();
+
+    assertThrows(
+        UnsupportedOperationException.class, () -> extensions.setRuntimeOptions(runtimeBuilder));
+  }
 }
+
