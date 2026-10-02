@@ -45,9 +45,11 @@ import dev.cel.expr.conformance.proto3.NestedTestAllTypes;
 import dev.cel.expr.conformance.proto3.NestedTestAllTypesCelLiteDescriptor;
 import dev.cel.expr.conformance.proto3.TestAllTypes;
 import dev.cel.expr.conformance.proto3.TestAllTypesCelLiteDescriptor;
+import dev.cel.extensions.CelComprehensionsRuntimeLibrary;
 import dev.cel.extensions.CelEncoderRuntimeLibrary;
 import dev.cel.extensions.CelListsRuntimeLibrary;
 import dev.cel.extensions.CelMathRuntimeLibrary;
+import dev.cel.extensions.CelRegexRuntimeLibrary;
 import dev.cel.extensions.CelSetsRuntimeLibrary;
 import dev.cel.extensions.CelStringRuntimeLibrary;
 import dev.cel.runtime.standard.EqualsOperator;
@@ -789,6 +791,31 @@ public class CelLiteRuntimeAndroidTest {
     CelAbstractSyntaxTree ast = readCheckedExpr("compiled_lists_slice");
 
     assertThat(runtime.createProgram(ast).eval()).isEqualTo(ImmutableList.of(1L, 2L));
+  }
+
+  @Test
+  public void eval_comprehensionsExtension() throws Exception {
+    CelLiteRuntime runtime =
+        CelLiteRuntimeFactory.newLiteRuntimeBuilder()
+            .addLibraries(CelComprehensionsRuntimeLibrary.comprehensions())
+            .build();
+    // Expr: [1, 2, 3].transformMap(i, v, v)
+    CelAbstractSyntaxTree ast = readCheckedExpr("compiled_comprehensions_transform_map");
+
+    assertThat(runtime.createProgram(ast).eval())
+        .isEqualTo(ImmutableMap.of(0L, 1L, 1L, 2L, 2L, 3L));
+  }
+
+  @Test
+  public void eval_regexExtension() throws Exception {
+    CelLiteRuntime runtime =
+        CelLiteRuntimeFactory.newLiteRuntimeBuilder()
+            .addLibraries(CelRegexRuntimeLibrary.regex())
+            .build();
+    // Expr: regex.replace('hello world', 'world', 'cel')
+    CelAbstractSyntaxTree ast = readCheckedExpr("compiled_regex_replace");
+
+    assertThat(runtime.createProgram(ast).eval()).isEqualTo("hello cel");
   }
 
   private enum CelOptionsTestCase {

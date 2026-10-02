@@ -19,10 +19,13 @@ import static com.google.common.truth.Truth.assertWithMessage;
 import static org.junit.Assert.assertThrows;
 
 import com.google.common.base.Throwables;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.testing.junit.testparameterinjector.TestParameter;
 import com.google.testing.junit.testparameterinjector.TestParameterInjector;
 import com.google.testing.junit.testparameterinjector.TestParameters;
 import dev.cel.bundle.Cel;
+import dev.cel.bundle.CelFactory;
 import dev.cel.common.CelAbstractSyntaxTree;
 import dev.cel.common.CelFunctionDecl;
 import dev.cel.common.CelOptions;
@@ -33,11 +36,15 @@ import dev.cel.common.exceptions.CelDivideByZeroException;
 import dev.cel.common.exceptions.CelIndexOutOfBoundsException;
 import dev.cel.common.types.SimpleType;
 import dev.cel.common.types.TypeParamType;
+import dev.cel.compiler.CelCompiler;
+import dev.cel.compiler.CelCompilerFactory;
 import dev.cel.parser.CelMacro;
 import dev.cel.parser.CelStandardMacro;
 import dev.cel.parser.CelUnparser;
 import dev.cel.parser.CelUnparserFactory;
 import dev.cel.runtime.CelEvaluationException;
+import dev.cel.runtime.CelRuntime;
+import dev.cel.runtime.CelRuntimeFactory;
 import dev.cel.testing.CelRuntimeFlavor;
 import org.junit.Assume;
 import org.junit.Test;
@@ -363,5 +370,86 @@ public class CelComprehensionsExtensionsTest extends CelExtensionTestBase {
     assertThat(e).hasCauseThat().hasMessageThat().contains("key 'b' is not present in map.");
   }
 
+  @Test
+  public void separateLibraryAndRuntime_success() throws Exception {
+    CelCompiler celCompiler =
+        CelCompilerFactory.standardCelCompilerBuilder()
+            .addLibraries(CelComprehensionsCompilerLibrary.comprehensions())
+            .build();
+    CelRuntime celRuntime =
+        CelRuntimeFactory.standardCelRuntimeBuilder()
+            .addFunctionBindings(
+                CelComprehensionsRuntimeLibrary.comprehensions().newFunctionBindings())
+            .build();
 
+    CelAbstractSyntaxTree ast = celCompiler.compile("[1, 2, 3].transformMap(i, v, v + 1)").getAst();
+    Object result = celRuntime.createProgram(ast).eval();
+
+    assertThat(result).isEqualTo(ImmutableMap.of(0L, 2L, 1L, 3L, 2L, 4L));
+  }
+
+  @Test
+  public void separateLibraryAndRuntime_unsupportedVersion_throws() {
+    assertThrows(
+        IllegalArgumentException.class, () -> CelComprehensionsCompilerLibrary.comprehensions(99));
+    assertThrows(
+        IllegalArgumentException.class, () -> CelComprehensionsRuntimeLibrary.comprehensions(99));
+  }
+
+  @Test
+  public void comprehensions_subsetOfFunctions_success() throws Exception {
+    Cel cel =
+        CelFactory.standardCelBuilder()
+            .addCompilerLibraries(
+                CelExtensions.comprehensions(CelComprehensionsExtensions.Function.MAP_INSERT))
+            .addRuntimeLibraries(
+                CelExtensions.comprehensions(CelComprehensionsExtensions.Function.MAP_INSERT))
+            .build();
+
+    CelAbstractSyntaxTree ast = cel.compile("[1, 2, 3].transformMap(i, v, v + 1)").getAst();
+    Object result = cel.createProgram(ast).eval();
+
+    assertThat(result).isEqualTo(ImmutableMap.of(0L, 2L, 1L, 3L, 2L, 4L));
+  }
+
+  @Test
+  public void comprehensions_setOfFunctions_success() throws Exception {
+    Cel cel =
+        CelFactory.standardCelBuilder()
+            .addCompilerLibraries(
+                CelExtensions.comprehensions(
+                    ImmutableSet.of(CelComprehensionsExtensions.Function.MAP_INSERT)))
+            .addRuntimeLibraries(
+                CelExtensions.comprehensions(
+                    ImmutableSet.of(CelComprehensionsExtensions.Function.MAP_INSERT)))
+            .build();
+
+    CelAbstractSyntaxTree ast = cel.compile("[1, 2, 3].transformMap(i, v, v + 1)").getAst();
+    Object result = cel.createProgram(ast).eval();
+
+    assertThat(result).isEqualTo(ImmutableMap.of(0L, 2L, 1L, 3L, 2L, 4L));
+  }
+
+  @Test
+  public void comprehensions_versioned_success() throws Exception {
+    Cel cel =
+        CelFactory.standardCelBuilder()
+            .addCompilerLibraries(CelExtensions.comprehensions(0))
+            .addRuntimeLibraries(CelExtensions.comprehensions(0))
+            .build();
+
+    CelAbstractSyntaxTree ast = cel.compile("[1, 2, 3].transformMap(i, v, v + 1)").getAst();
+    Object result = cel.createProgram(ast).eval();
+
+    assertThat(result).isEqualTo(ImmutableMap.of(0L, 2L, 1L, 3L, 2L, 4L));
+  }
+
+  @Test
+  public void comprehensions_noArgConstructor_success() {
+    CelComprehensionsExtensions extensions = new CelComprehensionsExtensions();
+
+    assertThat(extensions.version())
+        .isEqualTo(CelComprehensionsCompilerLibrary.comprehensions().version());
+    assertThat(extensions.macros()).isNotEmpty();
+  }
 }
