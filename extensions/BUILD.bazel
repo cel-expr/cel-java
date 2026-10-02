@@ -102,3 +102,20 @@ java_library(
     visibility = ["//:internal"],
     exports = ["//extensions/src/main/java/dev/cel/extensions:bindings"],
 )
+
+java_library(
+    name = "encoders_compiler_library",
+    visibility = ["//:internal"],
+    exports = ["//extensions/src/main/java/dev/cel/extensions:encoders_compiler_library"],
+)
+
+java_library(
+    name = "encoders_runtime_library",
+    visibility = ["//:internal"],
+    exports = ["//extensions/src/main/java/dev/cel/extensions:encoders_runtime_library"],
+)
+
+cel_android_library(
+    name = "encoders_runtime_library_android",
+    exports = ["//extensions/src/main/java/dev/cel/extensions:encoders_runtime_library_android"],
+)

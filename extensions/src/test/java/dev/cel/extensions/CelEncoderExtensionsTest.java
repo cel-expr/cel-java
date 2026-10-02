@@ -19,14 +19,24 @@ import static java.nio.charset.StandardCharsets.ISO_8859_1;
 import static org.junit.Assert.assertThrows;
 
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
+import com.google.protobuf.ByteString;
 import com.google.testing.junit.testparameterinjector.TestParameterInjector;
 import dev.cel.bundle.Cel;
+import dev.cel.bundle.CelFactory;
+import dev.cel.common.CelAbstractSyntaxTree;
 import dev.cel.common.CelFunctionDecl;
 import dev.cel.common.CelOptions;
 import dev.cel.common.CelValidationException;
 import dev.cel.common.types.SimpleType;
 import dev.cel.common.values.CelByteString;
+import dev.cel.compiler.CelCompiler;
+import dev.cel.compiler.CelCompilerFactory;
 import dev.cel.runtime.CelEvaluationException;
+import dev.cel.runtime.CelLiteRuntime;
+import dev.cel.runtime.CelLiteRuntimeFactory;
+import dev.cel.runtime.CelRuntime;
+import dev.cel.runtime.CelRuntimeFactory;
 import org.junit.Assume;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -120,5 +130,168 @@ public class CelEncoderExtensionsTest extends CelExtensionTestBase {
     assertThat(e).hasCauseThat().hasMessageThat().contains("Illegal base64 character");
   }
 
+  @Test
+  public void separateLibraryAndRuntime_allFunctions_success() throws Exception {
+    CelCompiler celCompiler =
+        CelCompilerFactory.standardCelCompilerBuilder()
+            .addLibraries(CelEncoderCompilerLibrary.encoders())
+            .build();
+    CelLiteRuntime celLiteRuntime =
+        CelLiteRuntimeFactory.newLiteRuntimeBuilder()
+            .addLibraries(CelEncoderRuntimeLibrary.encoders())
+            .build();
 
+    CelAbstractSyntaxTree ast =
+        celCompiler.compile("base64.decode(base64.encode(b'hello'))").getAst();
+    CelByteString result = (CelByteString) celLiteRuntime.createProgram(ast).eval();
+
+    assertThat(result).isEqualTo(CelByteString.copyFromUtf8("hello"));
+  }
+
+  @Test
+  public void separateLibraryAndRuntime_versioned_success() throws Exception {
+    CelCompiler celCompiler =
+        CelCompilerFactory.standardCelCompilerBuilder()
+            .addLibraries(CelEncoderCompilerLibrary.encoders(0))
+            .build();
+    CelRuntime celRuntime =
+        CelRuntimeFactory.standardCelRuntimeBuilder()
+            .addFunctionBindings(CelEncoderRuntimeLibrary.encoders(0).newFunctionBindings())
+            .build();
+
+    CelAbstractSyntaxTree ast = celCompiler.compile("base64.encode(b'hello')").getAst();
+    String result = (String) celRuntime.createProgram(ast).eval();
+
+    assertThat(result).isEqualTo("aGVsbG8=");
+  }
+
+  @Test
+  public void separateLibraryAndRuntime_subsetOfFunctions_success() throws Exception {
+    CelCompiler celCompiler =
+        CelCompilerFactory.standardCelCompilerBuilder()
+            .addLibraries(
+                CelEncoderCompilerLibrary.encoders(CelEncoderCompilerLibrary.Function.ENCODE))
+            .build();
+    CelRuntime celRuntime =
+        CelRuntimeFactory.standardCelRuntimeBuilder()
+            .addFunctionBindings(
+                CelEncoderRuntimeLibrary.encoders(CelEncoderRuntimeLibrary.Function.ENCODE)
+                    .newFunctionBindings())
+            .build();
+
+    CelAbstractSyntaxTree ast = celCompiler.compile("base64.encode(b'hello')").getAst();
+    String result = (String) celRuntime.createProgram(ast).eval();
+
+    assertThat(result).isEqualTo("aGVsbG8=");
+    assertThrows(
+        CelValidationException.class,
+        () -> celCompiler.compile("base64.decode('aGVsbG8=')").getAst());
+  }
+
+  @Test
+  public void separateLibraryAndRuntime_setOfFunctions_success() throws Exception {
+    CelEncoderCompilerLibrary compilerLibrary =
+        CelEncoderCompilerLibrary.encoders(
+            ImmutableSet.of(CelEncoderCompilerLibrary.Function.ENCODE));
+    assertThat(compilerLibrary.version()).isEqualTo(-1);
+
+    CelCompiler celCompiler =
+        CelCompilerFactory.standardCelCompilerBuilder()
+            .addLibraries(compilerLibrary)
+            .build();
+    CelRuntime celRuntime =
+        CelRuntimeFactory.standardCelRuntimeBuilder()
+            .addFunctionBindings(
+                CelEncoderRuntimeLibrary.encoders(
+                        ImmutableSet.of(CelEncoderRuntimeLibrary.Function.ENCODE))
+                    .newFunctionBindings())
+            .build();
+
+    CelAbstractSyntaxTree ast = celCompiler.compile("base64.encode(b'hello')").getAst();
+    String result = (String) celRuntime.createProgram(ast).eval();
+
+    assertThat(result).isEqualTo("aGVsbG8=");
+  }
+
+  @Test
+  public void separateLibraryAndRuntime_unsupportedVersion_throws() {
+    assertThrows(IllegalArgumentException.class, () -> CelEncoderRuntimeLibrary.encoders(99));
+    assertThrows(IllegalArgumentException.class, () -> CelEncoderCompilerLibrary.encoders(99));
+  }
+
+  @Test
+  public void separateLibraryAndRuntime_maxVersion_success() {
+    assertThat(CelEncoderCompilerLibrary.encoders(Integer.MAX_VALUE).version()).isEqualTo(0);
+    assertThat(CelEncoderRuntimeLibrary.encoders(Integer.MAX_VALUE)).isNotNull();
+  }
+
+  @Test
+  public void compilerLibrary() {
+    CelExtensionLibrary<CelEncoderCompilerLibrary> library = CelEncoderCompilerLibrary.library();
+    assertThat(library.name()).isEqualTo("encoders");
+    assertThat(library.versions()).isNotEmpty();
+    assertThat(library.latest().version()).isEqualTo(0);
+    assertThat(CelEncoderCompilerLibrary.encoders().version()).isEqualTo(0);
+    assertThat(CelEncoderCompilerLibrary.encoders(0).version()).isEqualTo(0);
+    assertThat(
+            CelEncoderCompilerLibrary.encoders().functions().stream().map(CelFunctionDecl::name))
+        .containsExactly("base64.decode", "base64.encode");
+  }
+
+  @Test
+  public void runtimeLibrary_functionEnum() {
+    assertThat(CelEncoderRuntimeLibrary.Function.DECODE.getFunction()).isEqualTo("base64.decode");
+    assertThat(CelEncoderRuntimeLibrary.Function.DECODE.getFunctionBindings()).isNotEmpty();
+    assertThat(CelEncoderRuntimeLibrary.Function.ENCODE.getFunction()).isEqualTo("base64.encode");
+    assertThat(CelEncoderRuntimeLibrary.Function.ENCODE.getFunctionBindings()).isNotEmpty();
+  }
+
+  @Test
+  public void compilerLibrary_functionEnum() {
+    assertThat(CelEncoderCompilerLibrary.Function.DECODE.getFunction()).isEqualTo("base64.decode");
+    assertThat(CelEncoderCompilerLibrary.Function.DECODE.getFunctionDecl().name())
+        .isEqualTo("base64.decode");
+    assertThat(CelEncoderCompilerLibrary.Function.ENCODE.getFunction()).isEqualTo("base64.encode");
+    assertThat(CelEncoderCompilerLibrary.Function.ENCODE.getFunctionDecl().name())
+        .isEqualTo("base64.encode");
+  }
+
+  @Test
+  public void separateLibraryAndRuntime_emptyFunctions() {
+    assertThat(CelEncoderCompilerLibrary.encoders(ImmutableSet.of()).functions()).isEmpty();
+    assertThat(CelEncoderRuntimeLibrary.encoders(ImmutableSet.of()).newFunctionBindings()).isEmpty();
+  }
+
+  @Test
+  @SuppressWarnings("deprecation") // Test only - verifying deprecated no-arg factory method
+  public void encoders_deprecatedNoArg() throws Exception {
+    Cel cel =
+        CelFactory.standardCelBuilder()
+            .addCompilerLibraries(CelExtensions.encoders())
+            .addRuntimeLibraries(CelExtensions.encoders())
+            .build();
+    assertThat(cel.createProgram(cel.compile("base64.encode(b'hello')").getAst()).eval())
+        .isEqualTo("aGVsbG8=");
+  }
+
+  @Test
+  @SuppressWarnings("deprecation") // Test only - verifying deprecated evaluateCanonicalTypesToNativeValues option
+  public void encoders_evaluateCanonicalTypesToNativeValuesDisabled_producesAndConsumesByteString()
+      throws Exception {
+    CelOptions options = CelOptions.current().evaluateCanonicalTypesToNativeValues(false).build();
+    Cel cel =
+        CelFactory.standardCelBuilder()
+            .setOptions(options)
+            .addCompilerLibraries(CelExtensions.encoders(options))
+            .addRuntimeLibraries(CelExtensions.encoders(options))
+            .build();
+
+    ByteString decodedBytes =
+        (ByteString) cel.createProgram(cel.compile("base64.decode('aGVsbG8=')").getAst()).eval();
+    assertThat(decodedBytes).isEqualTo(ByteString.copyFromUtf8("hello"));
+
+    String encodedString =
+        (String) cel.createProgram(cel.compile("base64.encode(b'hello')").getAst()).eval();
+    assertThat(encodedString).isEqualTo("aGVsbG8=");
+  }
 }

@@ -45,6 +45,7 @@ java_library(
         ":compiled_comprehension",
         ":compiled_comprehension_exists",
         ":compiled_custom_functions",
+        ":compiled_encoders_encode",
         ":compiled_extended_env",
         ":compiled_extensions",
         ":compiled_hello_world",
@@ -105,6 +106,12 @@ compile_cel(
     name = "compiled_extensions",
     environment = "//testing/environment:all_extensions",
     expression = "cel.bind(x, 10, math.greatest([1,x])) < int(' 11  '.trim()) && optional.none().orValue(true) && [].flatten() == []",
+)
+
+compile_cel(
+    name = "compiled_encoders_encode",
+    environment = "//testing/environment:all_extensions",
+    expression = "base64.encode(b'hello')",
 )
 
 compile_cel(

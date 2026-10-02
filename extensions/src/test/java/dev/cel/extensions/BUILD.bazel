@@ -34,6 +34,8 @@ java_library(
         "//compiler",
         "//compiler:compiler_builder",
         "//extensions",
+        "//extensions:encoders_compiler_library",
+        "//extensions:encoders_runtime_library",
         "//extensions:extension_library",
         "//extensions:math",
         "//extensions:math_compiler_library",
@@ -62,9 +64,10 @@ java_library(
         "@cel_spec//proto/cel/expr/conformance/proto3:test_all_types_java_proto",
         "@cel_spec//proto/cel/expr/conformance/test:simple_java_proto",
         "@maven//:com_google_guava_guava",
-        "@maven//:com_google_protobuf_protobuf_java",
+        "@maven//:com_google_protobuf_protobuf_java",  # unuseddeps: keep
         "@maven//:com_google_testparameterinjector_test_parameter_injector",
         "@maven//:junit_junit",
+        "@maven_android//:com_google_protobuf_protobuf_javalite",
     ],
 )
 

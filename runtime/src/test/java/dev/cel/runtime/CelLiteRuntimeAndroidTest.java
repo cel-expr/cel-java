@@ -45,6 +45,7 @@ import dev.cel.expr.conformance.proto3.NestedTestAllTypes;
 import dev.cel.expr.conformance.proto3.NestedTestAllTypesCelLiteDescriptor;
 import dev.cel.expr.conformance.proto3.TestAllTypes;
 import dev.cel.expr.conformance.proto3.TestAllTypesCelLiteDescriptor;
+import dev.cel.extensions.CelEncoderRuntimeLibrary;
 import dev.cel.extensions.CelMathRuntimeLibrary;
 import dev.cel.extensions.CelSetsRuntimeLibrary;
 import dev.cel.extensions.CelStringRuntimeLibrary;
@@ -763,6 +764,18 @@ public class CelLiteRuntimeAndroidTest {
     CelAbstractSyntaxTree ast = readCheckedExpr("compiled_sets_contains");
 
     assertThat(runtime.createProgram(ast).eval()).isEqualTo(true);
+  }
+
+  @Test
+  public void eval_encodersExtension() throws Exception {
+    CelLiteRuntime runtime =
+        CelLiteRuntimeFactory.newLiteRuntimeBuilder()
+            .addLibraries(CelEncoderRuntimeLibrary.encoders())
+            .build();
+    // Expr: base64.encode(b'hello')
+    CelAbstractSyntaxTree ast = readCheckedExpr("compiled_encoders_encode");
+
+    assertThat(runtime.createProgram(ast).eval()).isEqualTo("aGVsbG8=");
   }
 
   private enum CelOptionsTestCase {

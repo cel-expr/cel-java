@@ -236,22 +236,68 @@ java_library(
     ],
 )
 
+# build_cleaner: disable=deps
 java_library(
     name = "encoders",
     srcs = ["CelEncoderExtensions.java"],
     deps = [
+        ":encoders_compiler_library",
+        ":encoders_runtime_library",
+        ":extension_library",
         "//checker:checker_builder",
-        "//common:compiler_common",
+        "//common:cel_function_decl",
         "//common:options",
-        "//common/types",
-        "//common/values:cel_byte_string",
         "//compiler:compiler_builder",
-        "//extensions:extension_library",
         "//runtime",
         "//runtime:function_binding",
         "@maven//:com_google_errorprone_error_prone_annotations",
         "@maven//:com_google_guava_guava",
         "@maven//:com_google_protobuf_protobuf_java",
+    ],
+)
+
+java_library(
+    name = "encoders_compiler_library",
+    srcs = ["CelEncoderCompilerLibrary.java"],
+    tags = [
+    ],
+    deps = [
+        ":extension_library",
+        "//checker:checker_builder",
+        "//common:cel_function_decl",
+        "//common:cel_overload_decl",
+        "//common/types",
+        "//compiler:compiler_builder",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:com_google_guava_guava",
+    ],
+)
+
+java_library(
+    name = "encoders_runtime_library",
+    srcs = ["CelEncoderRuntimeLibrary.java"],
+    tags = [
+    ],
+    deps = [
+        "//common/values:cel_byte_string",
+        "//runtime:function_binding",
+        "//runtime:lite_runtime",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:com_google_guava_guava",
+    ],
+)
+
+cel_android_library(
+    name = "encoders_runtime_library_android",
+    srcs = ["CelEncoderRuntimeLibrary.java"],
+    tags = [
+    ],
+    deps = [
+        "//common/values:cel_byte_string",
+        "//runtime:function_binding_android",
+        "//runtime:lite_runtime_android",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven_android//:com_google_guava_guava",
     ],
 )
 
