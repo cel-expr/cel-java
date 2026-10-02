@@ -19,6 +19,7 @@ import static org.junit.Assert.assertThrows;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.protobuf.Duration;
 import com.google.protobuf.FieldMask;
 import com.google.protobuf.Timestamp;
@@ -40,6 +41,7 @@ import dev.cel.common.types.EnumType;
 import dev.cel.common.types.ListType;
 import dev.cel.common.types.MapType;
 import dev.cel.common.types.SimpleType;
+import dev.cel.common.types.StructType;
 import dev.cel.common.types.StructTypeReference;
 import dev.cel.common.types.TypeType;
 import dev.cel.compiler.CelCompiler;
@@ -407,6 +409,47 @@ public class CelCheckerLegacyImplTest {
     CelAbstractSyntaxTree ast = celCompiler.compile("custom.MyType").getAst();
 
     assertThat(ast.getResultType()).isEqualTo(preWrappedType);
+  }
+
+  @Test
+  public void check_combinedTypeProviders_protoMessageTakesPrecedenceOverCustom() throws Exception {
+    StructType shadowingStructType =
+        StructType.create(
+            TestAllTypes.getDescriptor().getFullName(),
+            ImmutableSet.of("single_int64"),
+            fieldName -> Optional.of(SimpleType.STRING));
+    StructType customOnlyStructType =
+        StructType.create(
+            "custom.CustomStruct",
+            ImmutableSet.of("custom_field"),
+            fieldName -> Optional.of(SimpleType.STRING));
+    CelTypeProvider customTypeProvider =
+        new CelTypeProvider() {
+          @Override
+          public ImmutableList<CelType> types() {
+            return ImmutableList.of(shadowingStructType, customOnlyStructType);
+          }
+
+          @Override
+          public Optional<CelType> findType(String typeName) {
+            return types().stream().filter(t -> t.name().equals(typeName)).findFirst();
+          }
+        };
+    CelCompiler celCompiler =
+        CelCompilerFactory.standardCelCompilerBuilder()
+            .addMessageTypes(TestAllTypes.getDescriptor())
+            .setTypeProvider(customTypeProvider)
+            .build();
+
+    CelAbstractSyntaxTree protoAst =
+        celCompiler
+            .compile("cel.expr.conformance.proto3.TestAllTypes{single_int64: 1}.single_int64")
+            .getAst();
+    CelAbstractSyntaxTree customAst =
+        celCompiler.compile("custom.CustomStruct{custom_field: 'hello'}.custom_field").getAst();
+
+    assertThat(protoAst.getResultType()).isEqualTo(SimpleType.INT);
+    assertThat(customAst.getResultType()).isEqualTo(SimpleType.STRING);
   }
 
   private enum FieldTypeTestCase {

@@ -45,9 +45,6 @@ public class DescriptorTypeResolverTest {
   private static final Cel CEL =
       CelFactory.plannerCelBuilder()
           .setTypeProvider(PROTO_MESSAGE_TYPE_PROVIDER)
-          // TODO: Replace setValueProvider with
-          // addMessageTypes(TestAllTypes.getDescriptor()) once CelRuntimeImpl prioritizes custom
-          // CelTypeProvider over its internal messageTypeProvider.
           .setValueProvider(
               (structType, fields) ->
                   structType.equals(TestAllTypes.getDescriptor().getFullName())
