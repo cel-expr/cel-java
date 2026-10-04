@@ -48,6 +48,7 @@ import dev.cel.expr.conformance.proto3.TestAllTypesCelLiteDescriptor;
 import dev.cel.extensions.CelEncoderRuntimeLibrary;
 import dev.cel.extensions.CelListsRuntimeLibrary;
 import dev.cel.extensions.CelMathRuntimeLibrary;
+import dev.cel.extensions.CelRegexRuntimeLibrary;
 import dev.cel.extensions.CelSetsRuntimeLibrary;
 import dev.cel.extensions.CelStringRuntimeLibrary;
 import dev.cel.runtime.standard.EqualsOperator;
@@ -789,6 +790,18 @@ public class CelLiteRuntimeAndroidTest {
     CelAbstractSyntaxTree ast = readCheckedExpr("compiled_lists_slice");
 
     assertThat(runtime.createProgram(ast).eval()).isEqualTo(ImmutableList.of(1L, 2L));
+  }
+
+  @Test
+  public void eval_regexExtension() throws Exception {
+    CelLiteRuntime runtime =
+        CelLiteRuntimeFactory.newLiteRuntimeBuilder()
+            .addLibraries(CelRegexRuntimeLibrary.regex())
+            .build();
+    // Expr: regex.replace('hello world', 'world', 'cel')
+    CelAbstractSyntaxTree ast = readCheckedExpr("compiled_regex_replace");
+
+    assertThat(runtime.createProgram(ast).eval()).isEqualTo("hello cel");
   }
 
   private enum CelOptionsTestCase {

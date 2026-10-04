@@ -342,6 +342,39 @@ public final class CelExtensions {
   }
 
   /**
+   * Extended functions for Regular Expressions.
+   *
+   * <p>Refer to README.md for available functions.
+   */
+  public static CelRegexExtensions regex(int version) {
+    return CelRegexExtensions.library().version(version);
+  }
+
+  /**
+   * Extended functions for Regular Expressions.
+   *
+   * <p>Refer to README.md for available functions.
+   *
+   * <p>This will include only the specific functions denoted by {@link
+   * CelRegexExtensions.Function}.
+   */
+  public static CelRegexExtensions regex(CelRegexExtensions.Function... functions) {
+    return regex(ImmutableSet.copyOf(functions));
+  }
+
+  /**
+   * Extended functions for Regular Expressions.
+   *
+   * <p>Refer to README.md for available functions.
+   *
+   * <p>This will include only the specific functions denoted by {@link
+   * CelRegexExtensions.Function}.
+   */
+  public static CelRegexExtensions regex(Set<CelRegexExtensions.Function> functions) {
+    return new CelRegexExtensions(functions);
+  }
+
+  /**
    * Extended functions for Two Variable Comprehensions Expressions.
    *
    * <p>Refer to README.md for available functions.

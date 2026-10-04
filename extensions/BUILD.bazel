@@ -141,3 +141,25 @@ cel_android_library(
     name = "lists_runtime_library_android",
     exports = ["//extensions/src/main/java/dev/cel/extensions:lists_runtime_library_android"],
 )
+
+java_library(
+    name = "regex",
+    exports = ["//extensions/src/main/java/dev/cel/extensions:regex"],
+)
+
+java_library(
+    name = "regex_compiler_library",
+    visibility = ["//:internal"],
+    exports = ["//extensions/src/main/java/dev/cel/extensions:regex_compiler_library"],
+)
+
+java_library(
+    name = "regex_runtime_library",
+    visibility = ["//:internal"],
+    exports = ["//extensions/src/main/java/dev/cel/extensions:regex_runtime_library"],
+)
+
+cel_android_library(
+    name = "regex_runtime_library_android",
+    exports = ["//extensions/src/main/java/dev/cel/extensions:regex_runtime_library_android"],
+)

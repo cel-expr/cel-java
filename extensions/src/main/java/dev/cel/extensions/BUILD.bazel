@@ -483,17 +483,63 @@ cel_android_library(
 java_library(
     name = "regex",
     srcs = ["CelRegexExtensions.java"],
+    tags = [
+    ],
     deps = [
+        ":extension_library",
+        ":regex_compiler_library",
+        ":regex_runtime_library",
         "//checker:checker_builder",
-        "//common:compiler_common",
+        "//common:cel_function_decl",
+        "//compiler:compiler_builder",
+        "//runtime",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:com_google_guava_guava",
+    ],
+)
+
+java_library(
+    name = "regex_compiler_library",
+    srcs = ["CelRegexCompilerLibrary.java"],
+    tags = [
+    ],
+    deps = [
+        ":extension_library",
+        "//checker:checker_builder",
+        "//common:cel_function_decl",
+        "//common:cel_overload_decl",
         "//common/types",
         "//compiler:compiler_builder",
-        "//extensions:extension_library",
-        "//runtime",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:com_google_guava_guava",
+    ],
+)
+
+java_library(
+    name = "regex_runtime_library",
+    srcs = ["CelRegexRuntimeLibrary.java"],
+    tags = [
+    ],
+    deps = [
         "//runtime:function_binding",
+        "//runtime:lite_runtime",
         "@maven//:com_google_errorprone_error_prone_annotations",
         "@maven//:com_google_guava_guava",
         "@maven//:com_google_re2j_re2j",
+    ],
+)
+
+cel_android_library(
+    name = "regex_runtime_library_android",
+    srcs = ["CelRegexRuntimeLibrary.java"],
+    tags = [
+    ],
+    deps = [
+        "//runtime:function_binding_android",
+        "//runtime:lite_runtime_android",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:com_google_re2j_re2j",
+        "@maven_android//:com_google_guava_guava",
     ],
 )
 
