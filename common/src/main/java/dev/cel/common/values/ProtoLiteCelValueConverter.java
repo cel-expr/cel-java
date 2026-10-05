@@ -110,6 +110,8 @@ public final class ProtoLiteCelValueConverter extends BaseProtoCelValueConverter
       case FLOAT:
         return inputStream.readFloat();
       case FIXED32:
+        return UnsignedLong.fromLongBits(
+            Integer.toUnsignedLong(inputStream.readRawLittleEndian32()));
       case SFIXED32:
         return inputStream.readRawLittleEndian32();
       default:
@@ -124,6 +126,7 @@ public final class ProtoLiteCelValueConverter extends BaseProtoCelValueConverter
       case DOUBLE:
         return inputStream.readDouble();
       case FIXED64:
+        return UnsignedLong.fromLongBits(inputStream.readRawLittleEndian64());
       case SFIXED64:
         return inputStream.readRawLittleEndian64();
       default:
@@ -257,11 +260,13 @@ public final class ProtoLiteCelValueConverter extends BaseProtoCelValueConverter
     JavaType type = fieldDescriptor.getJavaType();
     switch (type) {
       case INT:
-        return fieldDescriptor.getProtoFieldType().equals(FieldLiteDescriptor.Type.UINT32)
+        return (fieldDescriptor.getProtoFieldType().equals(FieldLiteDescriptor.Type.UINT32)
+                || fieldDescriptor.getProtoFieldType().equals(FieldLiteDescriptor.Type.FIXED32))
             ? UnsignedLong.ZERO
             : Defaults.defaultValue(long.class);
       case LONG:
-        return fieldDescriptor.getProtoFieldType().equals(FieldLiteDescriptor.Type.UINT64)
+        return (fieldDescriptor.getProtoFieldType().equals(FieldLiteDescriptor.Type.UINT64)
+                || fieldDescriptor.getProtoFieldType().equals(FieldLiteDescriptor.Type.FIXED64))
             ? UnsignedLong.ZERO
             : Defaults.defaultValue(long.class);
       case ENUM:
