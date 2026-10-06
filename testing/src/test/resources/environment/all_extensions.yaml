@@ -15,6 +15,7 @@
 name: "all-extensions"
 extensions:
 - name: "bindings"
+- name: "two-var-comprehensions"
 - name: "encoders"
 - name: "lists"
 - name: "math"

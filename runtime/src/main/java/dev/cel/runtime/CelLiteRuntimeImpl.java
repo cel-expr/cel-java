@@ -37,7 +37,7 @@ import java.util.Map;
 import java.util.Optional;
 
 @ThreadSafe
-final class LiteRuntimeImpl implements CelLiteRuntime {
+final class CelLiteRuntimeImpl implements CelLiteRuntime {
   private final ProgramPlanner planner;
   private final CelOptions celOptions;
   private final ImmutableList<CelFunctionBinding> customFunctionBindings;
@@ -177,14 +177,21 @@ final class LiteRuntimeImpl implements CelLiteRuntime {
     @Override
     public CelLiteRuntime build() {
       assertAllowedCelOptions(celOptions);
+      RuntimeHelpers runtimeHelpers = RuntimeHelpers.create();
+      RuntimeEquality runtimeEquality = RuntimeEquality.create(runtimeHelpers, celOptions);
       ImmutableSet<CelLiteRuntimeLibrary> runtimeLibs = runtimeLibrariesBuilder.build();
-      runtimeLibs.forEach(lib -> lib.setRuntimeOptions(this));
+      for (CelLiteRuntimeLibrary lib : runtimeLibs) {
+        if (lib instanceof CelInternalLiteRuntimeLibrary) {
+          ((CelInternalLiteRuntimeLibrary) lib)
+              .setRuntimeOptions(this, runtimeEquality, celOptions);
+        } else {
+          lib.setRuntimeOptions(this);
+        }
+      }
 
       ImmutableMap.Builder<String, CelFunctionBinding> functionBindingsBuilder =
           ImmutableMap.builder();
 
-      RuntimeHelpers runtimeHelpers = RuntimeHelpers.create();
-      RuntimeEquality runtimeEquality = RuntimeEquality.create(runtimeHelpers, celOptions);
       ImmutableSet<CelStandardFunction> standardFunctions = standardFunctionBuilder.build();
       if (!standardFunctions.isEmpty()) {
         for (CelStandardFunction standardFunction : standardFunctions) {
@@ -235,7 +242,7 @@ final class LiteRuntimeImpl implements CelLiteRuntime {
               CelAsyncEvaluationOptions.defaultOptions(),
               /* asyncExecutor= */ null);
 
-      return new LiteRuntimeImpl(
+      return new CelLiteRuntimeImpl(
           planner,
           celOptions,
           customFunctionBindings.values(),
@@ -272,7 +279,7 @@ final class LiteRuntimeImpl implements CelLiteRuntime {
     return new Builder();
   }
 
-  private LiteRuntimeImpl(
+  private CelLiteRuntimeImpl(
       ProgramPlanner planner,
       CelOptions celOptions,
       Iterable<CelFunctionBinding> customFunctionBindings,

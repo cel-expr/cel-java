@@ -194,6 +194,7 @@ cel_android_local_test(
         "//common/values:cel_byte_string",
         "//common/values:cel_value_provider_android",
         "//common/values:proto_message_lite_value_provider_android",
+        "//extensions:comprehensions_runtime_library_android",
         "//extensions:encoders_runtime_library_android",
         "//extensions:lists_runtime_library_android",
         "//extensions:math_runtime_library_android",

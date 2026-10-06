@@ -44,6 +44,7 @@ java_library(
     resources = [
         ":compiled_comprehension",
         ":compiled_comprehension_exists",
+        ":compiled_comprehensions_transform_map",
         ":compiled_custom_functions",
         ":compiled_encoders_encode",
         ":compiled_extended_env",
@@ -108,6 +109,12 @@ compile_cel(
     name = "compiled_extensions",
     environment = "//testing/environment:all_extensions",
     expression = "cel.bind(x, 10, math.greatest([1,x])) < int(' 11  '.trim()) && optional.none().orValue(true) && [].flatten() == []",
+)
+
+compile_cel(
+    name = "compiled_comprehensions_transform_map",
+    environment = "//testing/environment:all_extensions",
+    expression = "[1, 2, 3].transformMap(i, v, v)",
 )
 
 compile_cel(

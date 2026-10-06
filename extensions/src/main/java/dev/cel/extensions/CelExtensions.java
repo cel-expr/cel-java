@@ -387,6 +387,41 @@ public final class CelExtensions {
   }
 
   /**
+   * Extended functions for Two Variable Comprehensions Expressions.
+   *
+   * <p>Refer to README.md for functions available in each version.
+   */
+  public static CelComprehensionsExtensions comprehensions(int version) {
+    return CelComprehensionsExtensions.library().version(version);
+  }
+
+  /**
+   * Extended functions for Two Variable Comprehensions Expressions.
+   *
+   * <p>Refer to README.md for available functions.
+   *
+   * <p>This will include only the specific functions denoted by {@link
+   * CelComprehensionsExtensions.Function}.
+   */
+  public static CelComprehensionsExtensions comprehensions(
+      CelComprehensionsExtensions.Function... functions) {
+    return comprehensions(ImmutableSet.copyOf(functions));
+  }
+
+  /**
+   * Extended functions for Two Variable Comprehensions Expressions.
+   *
+   * <p>Refer to README.md for available functions.
+   *
+   * <p>This will include only the specific functions denoted by {@link
+   * CelComprehensionsExtensions.Function}.
+   */
+  public static CelComprehensionsExtensions comprehensions(
+      Set<CelComprehensionsExtensions.Function> functions) {
+    return new CelComprehensionsExtensions(functions);
+  }
+
+  /**
    * Extensions for supporting native Java types (POJOs) in CEL.
    *
    * <p>Refer to README.md for details on property discovery, type mapping, and limitations.
@@ -452,6 +487,7 @@ public final class CelExtensions {
         return CelSetsExtensions.library(options);
       case "strings":
         return CelStringExtensions.library();
+      case "two-var-comprehensions":
       case "comprehensions":
         return CelComprehensionsExtensions.library();
       // TODO: add support for remaining standard extensions

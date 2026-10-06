@@ -22,7 +22,7 @@ public final class CelLiteRuntimeFactory {
 
   /** Create a new builder for constructing a {@code CelLiteRuntime} instance. */
   public static CelLiteRuntimeBuilder newLiteRuntimeBuilder() {
-    return LiteRuntimeImpl.newBuilder();
+    return CelLiteRuntimeImpl.newBuilder();
   }
 
   private CelLiteRuntimeFactory() {}

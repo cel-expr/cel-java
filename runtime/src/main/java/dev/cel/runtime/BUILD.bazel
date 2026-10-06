@@ -34,6 +34,7 @@ DESCRIPTOR_MESSAGE_PROVIDER_SOURCES = [
 
 # keep sorted
 LITE_RUNTIME_SOURCES = [
+    "CelInternalLiteRuntimeLibrary.java",
     "CelLiteRuntime.java",
     "CelLiteRuntimeBuilder.java",
     "CelLiteRuntimeLibrary.java",
@@ -41,7 +42,7 @@ LITE_RUNTIME_SOURCES = [
 
 # keep sorted
 LITE_RUNTIME_IMPL_SOURCES = [
-    "LiteRuntimeImpl.java",
+    "CelLiteRuntimeImpl.java",
 ]
 
 # keep sorted
@@ -970,6 +971,7 @@ java_library(
         "//common/annotations",
         "//common/types:type_providers",
         "//common/values:cel_value_provider",
+        "//runtime:runtime_equality",
         "//runtime/standard:standard_function",
         "@maven//:com_google_code_findbugs_annotations",
         "@maven//:com_google_errorprone_error_prone_annotations",
@@ -1186,6 +1188,7 @@ cel_android_library(
         "//common/annotations",
         "//common/types:type_providers_android",
         "//common/values:cel_value_provider_android",
+        "//runtime:runtime_equality_android",
         "//runtime/standard:standard_function_android",
         "@maven//:com_google_code_findbugs_annotations",
         "@maven//:com_google_errorprone_error_prone_annotations",
