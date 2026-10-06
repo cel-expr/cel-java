@@ -52,7 +52,7 @@ import org.jspecify.annotations.Nullable;
  */
 @AutoValue
 @Immutable
-public abstract class ProtoMessageLiteValue extends StructValue<String, MessageLite>
+abstract class ProtoMessageLiteValue extends StructValue<String, MessageLite>
     implements OptimizedSelectable {
 
   @Override
@@ -142,7 +142,7 @@ public abstract class ProtoMessageLiteValue extends StructValue<String, MessageL
         .orElse(null);
   }
 
-  public static ProtoMessageLiteValue create(
+  static ProtoMessageLiteValue create(
       MessageLite value, String typeName, ProtoLiteCelValueConverter protoLiteCelValueConverter) {
     checkNotNull(value);
     checkNotNull(typeName);

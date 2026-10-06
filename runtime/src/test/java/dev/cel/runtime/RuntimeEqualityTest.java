@@ -22,6 +22,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.primitives.UnsignedLong;
 import com.google.testing.junit.testparameterinjector.TestParameterInjector;
 import dev.cel.common.CelOptions;
+import dev.cel.common.values.ProtoMessageLiteValueProvider;
 import dev.cel.expr.conformance.proto2.TestAllTypes;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -60,13 +61,43 @@ public final class RuntimeEqualityTest {
     TestAllTypes.Builder builder = TestAllTypes.newBuilder();
     TestAllTypes defaultInstance = TestAllTypes.getDefaultInstance();
 
-    // Unimplemented until CelLiteDescriptor is available.
-    UnsupportedOperationException e =
+    UnsupportedOperationException builderThrown =
         assertThrows(
             UnsupportedOperationException.class,
             () -> runtimeEquality.objectEquals(builder, defaultInstance));
+    UnsupportedOperationException stringThrown =
+        assertThrows(
+            UnsupportedOperationException.class,
+            () -> runtimeEquality.objectEquals("not_a_message", defaultInstance));
 
-    assertThat(e).hasMessageThat().contains("Not implemented yet");
+    assertThat(builderThrown).hasMessageThat().isEqualTo("Not implemented yet");
+    assertThat(stringThrown).hasMessageThat().isEqualTo("Not implemented yet");
+  }
+
+  @Test
+  public void objectEquals_wireMessageLite_throws() {
+    RuntimeEquality runtimeEquality =
+        RuntimeEquality.create(RuntimeHelpers.create(), CelOptions.DEFAULT);
+    Object wireMsg1 =
+        ProtoMessageLiteValueProvider.newInstance()
+            .protoCelValueConverter()
+            .toRuntimeValue(TestAllTypes.getDefaultInstance());
+    Object wireMsg2 =
+        ProtoMessageLiteValueProvider.newInstance()
+            .protoCelValueConverter()
+            .toRuntimeValue(TestAllTypes.newBuilder().setSingleInt32(1).build());
+
+    UnsupportedOperationException messagesThrown =
+        assertThrows(
+            UnsupportedOperationException.class,
+            () -> runtimeEquality.objectEquals(wireMsg1, wireMsg2));
+    UnsupportedOperationException stringThrown =
+        assertThrows(
+            UnsupportedOperationException.class,
+            () -> runtimeEquality.objectEquals("not_a_message", wireMsg1));
+
+    assertThat(messagesThrown).hasMessageThat().isEqualTo("Message equality is not supported");
+    assertThat(stringThrown).hasMessageThat().isEqualTo("Message equality is not supported");
   }
 
   @Test

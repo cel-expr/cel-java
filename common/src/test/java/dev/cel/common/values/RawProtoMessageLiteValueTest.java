@@ -21,6 +21,7 @@ import static org.junit.Assert.assertThrows;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.primitives.UnsignedLong;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.CodedOutputStream;
@@ -32,6 +33,8 @@ import dev.cel.common.internal.DefaultLiteDescriptorPool;
 import dev.cel.common.internal.ProtoTimeUtils;
 import dev.cel.expr.conformance.proto3.NestedTestAllTypes;
 import dev.cel.expr.conformance.proto3.TestAllTypes;
+import dev.cel.expr.conformance.proto3.TestAllTypes.NestedMessage;
+import dev.cel.expr.conformance.proto3.TestAllTypesCelDescriptor;
 import dev.cel.protobuf.CelLiteDescriptor.FieldLiteDescriptor;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -62,10 +65,12 @@ public final class RawProtoMessageLiteValueTest {
   @Test
   public void create_accessorsAndType() {
     ByteString bytes = ByteString.copyFromUtf8("test");
+
     RawProtoMessageLiteValue value =
         RawProtoMessageLiteValue.create(bytes, "custom.Message", EMPTY_CONVERTER);
 
-    assertThat(value.rawWireBytes()).isEqualTo(bytes);
+    assertThat(value.toByteString()).isEqualTo(bytes);
+    assertThat(value.protoTypeName()).isEqualTo("custom.Message");
     assertThat(value.value()).isSameInstanceAs(value);
     assertThat(value.celType().name()).isEqualTo("custom.Message");
   }
@@ -76,7 +81,8 @@ public final class RawProtoMessageLiteValueTest {
 
     RawProtoMessageLiteValue value = RawProtoMessageLiteValue.create(bytes, EMPTY_CONVERTER);
 
-    assertThat(value.rawWireBytes()).isEqualTo(bytes);
+    assertThat(value.toByteString()).isEqualTo(bytes);
+    assertThat(value.protoTypeName()).isEqualTo("cel.@unknownMessage");
     assertThat(value.celType().name()).isEqualTo("cel.@unknownMessage");
   }
 
@@ -86,8 +92,46 @@ public final class RawProtoMessageLiteValueTest {
 
     RawProtoMessageLiteValue value = RawProtoMessageLiteValue.create(bytes, "", EMPTY_CONVERTER);
 
-    assertThat(value.rawWireBytes()).isEqualTo(bytes);
+    assertThat(value.toByteString()).isEqualTo(bytes);
+    assertThat(value.protoTypeName()).isEqualTo("cel.@unknownMessage");
     assertThat(value.celType().name()).isEqualTo("cel.@unknownMessage");
+  }
+
+  @Test
+  @SuppressWarnings("SelfEquals") // Testing that equals throws even on self-comparison
+  public void equals_throwsUnsupportedOperationException() {
+    RawProtoMessageLiteValue value1 =
+        RawProtoMessageLiteValue.create(ByteString.EMPTY, "custom.Message", EMPTY_CONVERTER);
+    RawProtoMessageLiteValue value2 =
+        RawProtoMessageLiteValue.create(ByteString.EMPTY, "custom.Message", EMPTY_CONVERTER);
+
+    UnsupportedOperationException selfThrown =
+        assertThrows(UnsupportedOperationException.class, () -> value1.equals(value1));
+    UnsupportedOperationException otherThrown =
+        assertThrows(UnsupportedOperationException.class, () -> value1.equals(value2));
+
+    assertThat(selfThrown).hasMessageThat().isEqualTo("Message equality is not supported");
+    assertThat(otherThrown).hasMessageThat().isEqualTo("Message equality is not supported");
+  }
+
+  @Test
+  public void hashCode_throwsUnsupportedOperationException() {
+    RawProtoMessageLiteValue value =
+        RawProtoMessageLiteValue.create(ByteString.EMPTY, "custom.Message", EMPTY_CONVERTER);
+
+    UnsupportedOperationException thrown =
+        assertThrows(UnsupportedOperationException.class, value::hashCode);
+
+    assertThat(thrown).hasMessageThat().isEqualTo("Message equality is not supported");
+  }
+
+  @Test
+  public void toString_returnsTypeNameAndByteSize() {
+    RawProtoMessageLiteValue value =
+        RawProtoMessageLiteValue.create(
+            ByteString.copyFromUtf8("secret"), "custom.Message", EMPTY_CONVERTER);
+
+    assertThat(value.toString()).isEqualTo("WireMessageLite{protoTypeName=custom.Message, size=6}");
   }
 
   @Test
@@ -796,13 +840,14 @@ public final class RawProtoMessageLiteValueTest {
             "sub.Message",
             /* isRepeated= */ true);
 
-    assertThat((Iterable<?>) decoded)
-        .containsExactly(
-            RawProtoMessageLiteValue.create(
-                ByteString.copyFromUtf8("msg1"), "sub.Message", EMPTY_CONVERTER),
-            RawProtoMessageLiteValue.create(
-                ByteString.copyFromUtf8("msg2"), "sub.Message", EMPTY_CONVERTER))
-        .inOrder();
+    ImmutableList<?> messages = (ImmutableList<?>) decoded;
+    assertThat(messages).hasSize(2);
+    RawProtoMessageLiteValue msg0 = (RawProtoMessageLiteValue) messages.get(0);
+    RawProtoMessageLiteValue msg1 = (RawProtoMessageLiteValue) messages.get(1);
+    assertThat(msg0.toByteString()).isEqualTo(ByteString.copyFromUtf8("msg1"));
+    assertThat(msg0.protoTypeName()).isEqualTo("sub.Message");
+    assertThat(msg1.toByteString()).isEqualTo(ByteString.copyFromUtf8("msg2"));
+    assertThat(msg1.protoTypeName()).isEqualTo("sub.Message");
   }
 
   @Test
@@ -980,13 +1025,13 @@ public final class RawProtoMessageLiteValueTest {
 
     Optional<Object> nav = raw.findByFieldNumber(SelectField.create(21L, "single_nested_message"));
 
-    RawProtoMessageLiteValue expected =
-        RawProtoMessageLiteValue.create(
+    Optional<RawProtoMessageLiteValue> submessage = nav.map(RawProtoMessageLiteValue.class::cast);
+    assertThat(submessage.map(RawProtoMessageLiteValue::toByteString))
+        .hasValue(
             ByteString.copyFrom(subBaos1.toByteArray())
-                .concat(ByteString.copyFrom(subBaos2.toByteArray())),
-            "cel.@unknownMessage",
-            EMPTY_CONVERTER);
-    assertThat(nav).hasValue(expected);
+                .concat(ByteString.copyFrom(subBaos2.toByteArray())));
+    assertThat(submessage.map(RawProtoMessageLiteValue::protoTypeName))
+        .hasValue("cel.@unknownMessage");
   }
 
   @Test
@@ -1113,8 +1158,8 @@ public final class RawProtoMessageLiteValueTest {
 
     assertThat(selected).isInstanceOf(RawProtoMessageLiteValue.class);
     RawProtoMessageLiteValue message = (RawProtoMessageLiteValue) selected;
-    assertThat(message.rawWireBytes()).isEqualTo(ByteString.EMPTY);
-    assertThat(message.celType().name()).isEqualTo("cel.@unknownMessage");
+    assertThat(message.toByteString()).isEqualTo(ByteString.EMPTY);
+    assertThat(message.protoTypeName()).isEqualTo("cel.@unknownMessage");
   }
 
   @Test
@@ -1307,14 +1352,12 @@ public final class RawProtoMessageLiteValueTest {
 
     Object result = raw.selectByFieldNumber(newMapInt64NestedTypeField());
 
-    assertThat(result)
-        .isEqualTo(
-            ImmutableMap.of(
-                42L,
-                RawProtoMessageLiteValue.create(
-                    ByteString.EMPTY,
-                    "cel.expr.conformance.proto3.NestedTestAllTypes",
-                    EMPTY_CONVERTER)));
+    ImmutableMap<?, ?> map = (ImmutableMap<?, ?>) result;
+    assertThat(map.keySet()).containsExactly(42L);
+    RawProtoMessageLiteValue messageValue = (RawProtoMessageLiteValue) map.get(42L);
+    assertThat(messageValue.toByteString()).isEqualTo(ByteString.EMPTY);
+    assertThat(messageValue.protoTypeName())
+        .isEqualTo("cel.expr.conformance.proto3.NestedTestAllTypes");
   }
 
   @Test
@@ -1345,14 +1388,12 @@ public final class RawProtoMessageLiteValueTest {
 
     Object result = raw.selectByFieldNumber(newMapInt64NestedTypeField());
 
-    assertThat(result)
-        .isEqualTo(
-            ImmutableMap.of(
-                42L,
-                RawProtoMessageLiteValue.create(
-                    fragment1.concat(fragment2),
-                    "cel.expr.conformance.proto3.NestedTestAllTypes",
-                    EMPTY_CONVERTER)));
+    ImmutableMap<?, ?> map = (ImmutableMap<?, ?>) result;
+    assertThat(map.keySet()).containsExactly(42L);
+    RawProtoMessageLiteValue messageValue = (RawProtoMessageLiteValue) map.get(42L);
+    assertThat(messageValue.toByteString()).isEqualTo(fragment1.concat(fragment2));
+    assertThat(messageValue.protoTypeName())
+        .isEqualTo("cel.expr.conformance.proto3.NestedTestAllTypes");
   }
 
   @Test
@@ -1803,5 +1844,58 @@ public final class RawProtoMessageLiteValueTest {
     assertThat(result).isInstanceOf(RawProtoMessageLiteValue.class);
     assertThat(((RawProtoMessageLiteValue) result).celType().name())
         .isEqualTo("test.CustomMessage");
+  }
+
+  @Test
+  public void selectByFieldNumber_unsetRegisteredSubmessage_returnsProtoMessageLiteValue() {
+    ProtoLiteCelValueConverter registeredConverter =
+        ProtoLiteCelValueConverter.newInstance(
+            DefaultLiteDescriptorPool.newInstance(
+                ImmutableSet.of(TestAllTypesCelDescriptor.getDescriptor())));
+    RawProtoMessageLiteValue raw =
+        RawProtoMessageLiteValue.create(
+            ByteString.EMPTY, "test.UnknownParent", registeredConverter);
+    SelectField field =
+        SelectField.create(
+            999L,
+            "nested_msg",
+            FieldLiteDescriptor.Type.MESSAGE.getNumber(),
+            null,
+            "cel.expr.conformance.proto3.TestAllTypes.NestedMessage");
+
+    Object result = raw.selectByFieldNumber(field);
+
+    assertThat(result).isInstanceOf(ProtoMessageLiteValue.class);
+    assertThat(((ProtoMessageLiteValue) result).value())
+        .isEqualTo(NestedMessage.getDefaultInstance());
+  }
+
+  @Test
+  public void selectByFieldNumber_wireRegisteredSubmessage_decodesToProtoMessageLiteValue()
+      throws Exception {
+    ProtoLiteCelValueConverter registeredConverter =
+        ProtoLiteCelValueConverter.newInstance(
+            DefaultLiteDescriptorPool.newInstance(
+                ImmutableSet.of(TestAllTypesCelDescriptor.getDescriptor())));
+    NestedMessage expectedNested = NestedMessage.newBuilder().setBb(42).build();
+    ByteArrayOutputStream baos = new ByteArrayOutputStream();
+    CodedOutputStream cos = CodedOutputStream.newInstance(baos);
+    cos.writeMessage(999, expectedNested);
+    cos.flush();
+    RawProtoMessageLiteValue raw =
+        RawProtoMessageLiteValue.create(
+            ByteString.copyFrom(baos.toByteArray()), "test.UnknownParent", registeredConverter);
+    SelectField field =
+        SelectField.create(
+            999L,
+            "nested_msg",
+            FieldLiteDescriptor.Type.MESSAGE.getNumber(),
+            null,
+            "cel.expr.conformance.proto3.TestAllTypes.NestedMessage");
+
+    Object result = raw.selectByFieldNumber(field);
+
+    assertThat(result).isInstanceOf(ProtoMessageLiteValue.class);
+    assertThat(((ProtoMessageLiteValue) result).value()).isEqualTo(expectedNested);
   }
 }
