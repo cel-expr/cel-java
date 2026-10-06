@@ -109,13 +109,13 @@ against some input. Checking is optional, but strongly encouraged.
 ### Environment Setup
 
 Configuration for the entire CEL stack can be done all at once via the
-`CelFactory.standardCelBuilder()`, or can be composed into compilation and
+`CelFactory.plannerCelBuilder()`, or can be composed into compilation and
 evaluation via the `CelCompilerFactory` and `CelRuntimeFactory`.
 
 The simplest form of CEL usage is as follows:
 
 ```java
-Cel cel = CelFactory.standardCelBuilder().build();
+Cel cel = CelFactory.plannerCelBuilder().build();
 ```
 
 More commonly, your application will want to configure type-checking separately
@@ -221,7 +221,7 @@ leverage them, simply set the desired macros via `setStandardMacros` on the
 builder:
 
 ```java
-CelCompiler.standardCelBuilder()
+CelCompilerFactory.standardCelCompilerBuilder()
   .setStandardMacros(CelStandardMacro.STANDARD_MACROS)
 ```
 

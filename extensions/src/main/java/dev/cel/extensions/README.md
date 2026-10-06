@@ -7,7 +7,7 @@ To use, supply the desired extensions into `CelCompiler` and `CelRuntime`
 through `addLibrary` methods in their builder:
 
     CelCompilerFactory.standardCelCompilerBuilder().addLibraries(CelExtensions.strings())
-    CelRuntimeFactory.standardCelRuntimeBuilder().addLibraries(CelExtensions.strings())
+    CelRuntimeFactory.plannerRuntimeBuilder().addLibraries(CelExtensions.strings())
 
 ## Cel
 

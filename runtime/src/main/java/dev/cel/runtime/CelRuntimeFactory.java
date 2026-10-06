@@ -14,7 +14,6 @@
 
 package dev.cel.runtime;
 
-import com.google.errorprone.annotations.InlineMe;
 import dev.cel.common.CelOptions;
 
 /** Helper class to construct new {@code CelRuntime} instances. */
@@ -26,12 +25,9 @@ public final class CelRuntimeFactory {
    * <p>Note, the {@link CelOptions#current}, standard CEL function libraries, and linked message
    * evaluation are enabled by default.
    *
-   * <p>Note: This standard runtime currently proxies the legacy runtime, which will be deprecated.
-   * Callers are strongly encouraged to migrate to the planner ({@link #plannerRuntimeBuilder()}).
+   * @deprecated Migrate to the planner ({@link #plannerRuntimeBuilder()}).
    */
-  @InlineMe(
-      replacement = "CelRuntimeFactory.legacyCelRuntimeBuilder()",
-      imports = "dev.cel.runtime.CelRuntimeFactory")
+  @Deprecated
   public static CelRuntimeBuilder standardCelRuntimeBuilder() {
     return legacyCelRuntimeBuilder();
   }
@@ -39,9 +35,9 @@ public final class CelRuntimeFactory {
   /**
    * Create a new builder for constructing a legacy {@code CelRuntime} instance.
    *
-   * <p>Note: This legacy runtime will be deprecated. Callers are strongly encouraged to migrate to
-   * the planner ({@link #plannerRuntimeBuilder()}).
+   * @deprecated Migrate to the planner ({@link #plannerRuntimeBuilder()}).
    */
+  @Deprecated
   public static CelRuntimeBuilder legacyCelRuntimeBuilder() {
     return CelRuntimeLegacyImpl.newBuilder()
         .setOptions(CelOptions.current().build())

@@ -14,7 +14,6 @@
 
 package dev.cel.bundle;
 
-import com.google.errorprone.annotations.InlineMe;
 import dev.cel.checker.CelCheckerLegacyImpl;
 import dev.cel.common.CelOptions;
 import dev.cel.compiler.CelCompiler;
@@ -27,8 +26,6 @@ import dev.cel.runtime.CelRuntimeLegacyImpl;
 /** Helper class to configure the entire CEL stack in a common interface. */
 public final class CelFactory {
 
-  private CelFactory() {}
-
   /**
    * Creates a builder for configuring CEL using current parser for the parse, type-check, and eval
    * of expressions.
@@ -36,10 +33,9 @@ public final class CelFactory {
    * <p>Note, the {@link CelOptions#current}, standard CEL function libraries, and linked message
    * evaluation are enabled by default.
    *
-   * <p>Note: This standard builder currently proxies the legacy builder, which will be deprecated.
-   * Callers are strongly encouraged to migrate to the planner ({@link #plannerCelBuilder()}).
+   * @deprecated Migrate to the planner ({@link #plannerCelBuilder()}).
    */
-  @InlineMe(replacement = "CelFactory.legacyCelBuilder()", imports = "dev.cel.bundle.CelFactory")
+  @Deprecated
   public static CelBuilder standardCelBuilder() {
     return legacyCelBuilder();
   }
@@ -48,9 +44,9 @@ public final class CelFactory {
    * Creates a builder for configuring a legacy CEL using current parser for the parse, type-check,
    * and eval of expressions.
    *
-   * <p>Note: This legacy builder will be deprecated. Callers are strongly encouraged to migrate to
-   * the planner ({@link #plannerCelBuilder()}).
+   * @deprecated Migrate to the planner ({@link #plannerCelBuilder()}).
    */
+  @Deprecated
   public static CelBuilder legacyCelBuilder() {
     return CelImpl.newBuilder(
             CelCompilerImpl.newBuilder(
@@ -89,4 +85,6 @@ public final class CelFactory {
   public static Cel combine(CelCompiler celCompiler, CelRuntime celRuntime) {
     return CelImpl.combine(celCompiler, celRuntime);
   }
+
+  private CelFactory() {}
 }
