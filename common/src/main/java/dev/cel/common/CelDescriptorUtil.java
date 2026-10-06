@@ -79,24 +79,8 @@ public final class CelDescriptorUtil {
    */
   public static CelDescriptors getAllDescriptorsFromFileDescriptor(
       Iterable<FileDescriptor> fileDescriptors) {
-    return getAllDescriptorsFromFileDescriptor(fileDescriptors, true);
-  }
-
-  /**
-   * Extract the full message {@code FileDescriptor} set from the input set of {@code
-   * fileDescriptors}. All message type, enum, extension and file descriptors will be extracted.
-   *
-   * @param resolveTypeDependencies Performs a deep type dependency resolution by expanding all the
-   *     FileDescriptors marked as dependents listed in their imports (Ex: If FileDescriptor A
-   *     imports on FileDescriptor B, FD B's descriptors will be pulled in). Setting false will
-   *     disable this.
-   */
-  public static CelDescriptors getAllDescriptorsFromFileDescriptor(
-      Iterable<FileDescriptor> fileDescriptors, boolean resolveTypeDependencies) {
     ImmutableSet<FileDescriptor> allFileDescriptors =
-        resolveTypeDependencies
-            ? getFileDescriptorsAndDependencies(fileDescriptors)
-            : ImmutableSet.copyOf(fileDescriptors);
+        getFileDescriptorsAndDependencies(fileDescriptors);
 
     CelDescriptors.Builder celDescriptorsBuilder = CelDescriptors.builder();
     allFileDescriptors.forEach(

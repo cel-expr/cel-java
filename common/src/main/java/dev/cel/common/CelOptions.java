@@ -104,8 +104,6 @@ public abstract class CelOptions {
 
   public abstract boolean errorOnIntWrap();
 
-  public abstract boolean resolveTypeDependencies();
-
   public abstract boolean enableUnknownTracking();
 
   public abstract boolean enableCelValue();
@@ -161,7 +159,6 @@ public abstract class CelOptions {
         .enableProtoDifferencerEquality(false)
         .errorOnIntWrap(false)
         .errorOnDuplicateMapKeys(false)
-        .resolveTypeDependencies(true)
         .enableUnknownTracking(false)
         .enableCelValue(false)
         .comprehensionMaxIterations(-1)
@@ -186,7 +183,6 @@ public abstract class CelOptions {
         .errorOnDuplicateMapKeys(true)
         .evaluateCanonicalTypesToNativeValues(true)
         .errorOnIntWrap(true)
-        .resolveTypeDependencies(true)
         .disableCelStandardEquality(false);
   }
 
@@ -425,16 +421,6 @@ public abstract class CelOptions {
      * associative.
      */
     public abstract Builder errorOnIntWrap(boolean value);
-
-    /**
-     * Enable or disable the resolution of {@code Descriptor} type dependencies as part of the CEL
-     * environment setup. Defaults to disabled.
-     *
-     * <p>Disabling this feature should only be done when you know that only the types provided will
-     * be referenced within the CEL expression. This means that either the type set provided was
-     * complete, or that the type set is only what is referenced within expressions.
-     */
-    public abstract Builder resolveTypeDependencies(boolean value);
 
     /**
      * Enable tracking unknown attributes and function invocations encountered during evaluation.

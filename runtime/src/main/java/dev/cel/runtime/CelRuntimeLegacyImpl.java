@@ -290,8 +290,7 @@ public final class CelRuntimeLegacyImpl implements CelRuntime {
 
       ImmutableSet<FileDescriptor> fileDescriptors = fileTypes.build();
       CelDescriptors celDescriptors =
-          CelDescriptorUtil.getAllDescriptorsFromFileDescriptor(
-              fileDescriptors, options.resolveTypeDependencies());
+          CelDescriptorUtil.getAllDescriptorsFromFileDescriptor(fileDescriptors);
 
       CelDescriptorPool celDescriptorPool =
           newDescriptorPool(

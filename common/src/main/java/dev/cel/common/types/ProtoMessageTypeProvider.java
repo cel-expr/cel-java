@@ -286,7 +286,6 @@ public final class ProtoMessageTypeProvider implements CelTypeProvider {
   public static final class Builder {
     private final ImmutableSet.Builder<FileDescriptor> fileDescriptors = ImmutableSet.builder();
     private boolean allowJsonFieldNames;
-    private boolean resolveTypeDependencies;
     private CelDescriptors celDescriptors;
 
     /** Adds a {@link FileDescriptor} to the provider. */
@@ -322,16 +321,6 @@ public final class ProtoMessageTypeProvider implements CelTypeProvider {
     }
 
     /**
-     * If true, all transitive dependencies of the added {@link FileDescriptor}s will be resolved
-     * and their types will be made available to the type provider. By default, this is disabled.
-     */
-    @CanIgnoreReturnValue
-    public Builder setResolveTypeDependencies(boolean resolveTypeDependencies) {
-      this.resolveTypeDependencies = resolveTypeDependencies;
-      return this;
-    }
-
-    /**
      * Sets the CEL descriptors. Note this cannot be used in conjunction with other descriptor
      * adders such as {@link #addDescriptors}.
      */
@@ -350,9 +339,7 @@ public final class ProtoMessageTypeProvider implements CelTypeProvider {
       }
 
       if (celDescriptors == null) {
-        celDescriptors =
-            CelDescriptorUtil.getAllDescriptorsFromFileDescriptor(
-                fileDescriptors.build(), resolveTypeDependencies);
+        celDescriptors = CelDescriptorUtil.getAllDescriptorsFromFileDescriptor(fds);
       }
 
       return new ProtoMessageTypeProvider(celDescriptors, allowJsonFieldNames);

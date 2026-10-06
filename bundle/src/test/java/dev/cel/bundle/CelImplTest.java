@@ -827,67 +827,14 @@ public final class CelImplTest {
   }
 
   @Test
-  public void program_partialMessageTypes() throws Exception {
-    String packageName = CheckedExpr.getDescriptor().getFile().getPackage();
-    Cel cel =
-        plannerCelBuilderWithMacros()
-            .addFileTypes(CheckedExpr.getDescriptor().getFile())
-            // Disabling the resolution of type dependencies can be risky as message types which
-            // are expected to be available in an imported file may not be present if the type
-            // is not referenced in a field within the provided file descriptors.
-            //
-            // In this test 'Expr' is defined in syntax.proto, but the descriptor provided is
-            // defined in checked.proto. Because the `Expr` type is referenced within a message
-            // field of the CheckedExpr, it is available for use.
-            .setOptions(
-                CelOptions.current()
-                    .enableHeterogeneousNumericComparisons(true)
-                    .resolveTypeDependencies(false)
-                    .build())
-            .setContainer(CelContainer.ofName(packageName))
-            .setResultType(StructTypeReference.create(packageName + ".Expr"))
-            .build();
-    CelRuntime.Program program = cel.createProgram(cel.compile("Expr{}").getAst());
-    assertThat(program.eval()).isEqualTo(Expr.getDefaultInstance());
-  }
-
-  @Test
-  public void program_partialMessageTypeFailure() {
-    String packageName = CheckedExpr.getDescriptor().getFile().getPackage();
-    Cel cel =
-        plannerCelBuilderWithMacros()
-            .addFileTypes(CheckedExpr.getDescriptor().getFile())
-            // In this test 'ParsedExpr' is defined in syntax.proto, but the descriptor provided is
-            // defined in checked.proto. Because the `ParsedExpr` type is not referenced, it is not
-            // available for use within CEL when deep type resolution is disabled.
-            .setOptions(
-                CelOptions.current()
-                    .enableHeterogeneousNumericComparisons(true)
-                    .resolveTypeDependencies(false)
-                    .build())
-            .setContainer(CelContainer.ofName(packageName))
-            .setResultType(StructTypeReference.create(packageName + ".ParsedExpr"))
-            .build();
-    CelValidationException e =
-        Assert.assertThrows(
-            CelValidationException.class, () -> cel.compile("ParsedExpr{}").getAst());
-    assertThat(e).hasMessageThat().contains("undeclared reference to 'ParsedExpr'");
-  }
-
-  @Test
   public void program_deepTypeResolution() throws Exception {
     String packageName = CheckedExpr.getDescriptor().getFile().getPackage();
     Cel cel =
         plannerCelBuilderWithMacros()
             .addFileTypes(CheckedExpr.getDescriptor().getFile())
-            // In this test 'ParsedExpr' is defined in syntax.proto, but the descriptor provided is
-            // defined in checked.proto. Because deep type dependency resolution is enabled, the
-            // `ParsedExpr` may be used within CEL.
-            .setOptions(
-                CelOptions.current()
-                    .enableHeterogeneousNumericComparisons(true)
-                    .resolveTypeDependencies(true)
-                    .build())
+            // In this test 'ParsedExpr' is defined in syntax.proto, while the descriptor provided
+            // is defined in checked.proto, which imports syntax.proto.
+            .setOptions(CelOptions.current().enableHeterogeneousNumericComparisons(true).build())
             .setContainer(CelContainer.ofName(packageName))
             .setResultType(StructTypeReference.create(packageName + ".ParsedExpr"))
             .build();
@@ -896,7 +843,7 @@ public final class CelImplTest {
   }
 
   @Test
-  public void program_deepTypeResolutionEnabledForRuntime_success() throws Exception {
+  public void program_deepTypeResolutionForRuntime_success() throws Exception {
     String packageName = CheckedExpr.getDescriptor().getFile().getPackage();
     CelCompiler celCompiler =
         CelCompilerFactory.standardCelCompilerBuilder()
@@ -910,53 +857,14 @@ public final class CelImplTest {
     CelRuntime celRuntime =
         CelRuntimeFactory.plannerRuntimeBuilder()
             .addFileTypes(CheckedExpr.getDescriptor().getFile())
-            .setOptions(
-                CelOptions.current()
-                    .enableHeterogeneousNumericComparisons(true)
-                    .resolveTypeDependencies(true)
-                    .build())
+            .setOptions(CelOptions.current().enableHeterogeneousNumericComparisons(true).build())
             // CEL-Internal-2
             .build();
     CelRuntime.Program program = celRuntime.createProgram(ast);
 
-    // 'ParsedExpr' is defined in syntax.proto but the descriptor provided to the runtime is from
-    // 'checked.proto'.
-    // 'ParsedExpr' is transitively available for use because deep type resolution is enabled.
+    // 'ParsedExpr' is defined in syntax.proto while the descriptor provided to the runtime is from
+    // 'checked.proto', so 'ParsedExpr' is transitively resolved.
     assertThat(program.eval()).isEqualTo(ParsedExpr.getDefaultInstance());
-  }
-
-  @Test
-  public void program_deepTypeResolutionDisabledForRuntime_fails() throws Exception {
-    String packageName = CheckedExpr.getDescriptor().getFile().getPackage();
-    CelCompiler celCompiler =
-        CelCompilerFactory.standardCelCompilerBuilder()
-            .addFileTypes(CheckedExpr.getDescriptor().getFile())
-            .setOptions(CelOptions.current().resolveTypeDependencies(true).build())
-            .setResultType(StructTypeReference.create(packageName + ".ParsedExpr"))
-            .setContainer(CelContainer.ofName(packageName))
-            .build();
-
-    // 'ParsedExpr' is defined in syntax.proto but the descriptor provided is from 'checked.proto'.
-    // 'ParsedExpr' is transitively available for use because deep type resolution is enabled.
-    CelAbstractSyntaxTree ast = celCompiler.compile("ParsedExpr{}").getAst();
-
-    // TODO: Planner runtime ignores CelOptions.resolveTypeDependencies(false).
-    CelRuntime celRuntime =
-        CelRuntimeFactory.legacyCelRuntimeBuilder()
-            .addFileTypes(CheckedExpr.getDescriptor().getFile())
-            .setOptions(CelOptions.current().resolveTypeDependencies(false).build())
-            // CEL-Internal-2
-            .build();
-    CelRuntime.Program program = celRuntime.createProgram(ast);
-
-    // In this case, linked types are disabled so the same descriptors
-    // provided to the CelCompiler must also be provided into the runtime.
-    // As deep type resolution is disabled, 'ParsedExpr' is not available for use in runtime so an
-    // error is thrown.
-    CelEvaluationException e = Assert.assertThrows(CelEvaluationException.class, program::eval);
-    assertThat(e)
-        .hasMessageThat()
-        .contains(String.format("cannot resolve '%s.ParsedExpr' as a message", packageName));
   }
 
   @Test
@@ -1000,23 +908,16 @@ public final class CelImplTest {
   }
 
   @Test
-  public void program_enumTypeDirectResolution(@TestParameter boolean resolveTypeDependencies)
-      throws Exception {
+  public void program_enumTypeDirectResolution() throws Exception {
     Cel cel =
         plannerCelBuilderWithMacros()
             .addFileTypes(StandaloneGlobalEnum.getDescriptor().getFile())
-            .setOptions(
-                CelOptions.current()
-                    .enableHeterogeneousNumericComparisons(true)
-                    .resolveTypeDependencies(resolveTypeDependencies)
-                    .build())
+            .setOptions(CelOptions.current().enableHeterogeneousNumericComparisons(true).build())
             .setContainer(
                 CelContainer.ofName("dev.cel.testing.testdata.proto3.StandaloneGlobalEnum"))
             .setResultType(SimpleType.BOOL)
             .build();
 
-    // Providing an enum proto file directly should not cause an error
-    // regardless of the resolveTypeDependencies settings
     StandaloneGlobalEnum testEnum = StandaloneGlobalEnum.SGAR;
     CelRuntime.Program program =
         cel.createProgram(
@@ -1025,23 +926,16 @@ public final class CelImplTest {
   }
 
   @Test
-  public void program_enumTypeReferenceResolution(@TestParameter boolean resolveTypeDependencies)
-      throws Exception {
+  public void program_enumTypeReferenceResolution() throws Exception {
     Cel cel =
         plannerCelBuilderWithMacros()
-            .setOptions(
-                CelOptions.current()
-                    .enableHeterogeneousNumericComparisons(true)
-                    .resolveTypeDependencies(resolveTypeDependencies)
-                    .build())
+            .setOptions(CelOptions.current().enableHeterogeneousNumericComparisons(true).build())
             .addMessageTypes(Struct.getDescriptor())
             .setResultType(StructTypeReference.create("google.protobuf.NullValue"))
             .setContainer(CelContainer.ofName("google.protobuf"))
             .build();
 
     // `Value` is defined in `Struct` proto and NullValue is an enum within this `Value` struct.
-    // The following evaluation should work regardless of resolveTypeDependencies settings
-    // as the enum definition is found in the same `Struct` proto definition.
     CelRuntime.Program program =
         cel.createProgram(cel.compile("Value{null_value: NullValue.NULL_VALUE}").getAst());
     assertThat(program.eval()).isEqualTo(NullValue.NULL_VALUE);
@@ -1051,11 +945,7 @@ public final class CelImplTest {
   public void program_enumTypeTransitiveResolution() throws Exception {
     Cel cel =
         plannerCelBuilderWithMacros()
-            .setOptions(
-                CelOptions.current()
-                    .enableHeterogeneousNumericComparisons(true)
-                    .resolveTypeDependencies(true)
-                    .build())
+            .setOptions(CelOptions.current().enableHeterogeneousNumericComparisons(true).build())
             .addMessageTypes(Proto2ExtensionScopedMessage.getDescriptor())
             .setResultType(StructTypeReference.create("google.protobuf.NullValue"))
             .setContainer(CelContainer.ofName("google.protobuf"))
@@ -1063,8 +953,7 @@ public final class CelImplTest {
 
     // 'Value' is a struct defined as a dependency of messages_proto2.proto and 'NullValue' is an
     // enum within this 'Value' struct.
-    // As deep type dependency is enabled, the following evaluation should work by as the
-    // 'NullValue' enum type is transitively discovered
+    // The following evaluation works as the 'NullValue' enum type is transitively discovered.
     CelRuntime.Program program =
         cel.createProgram(cel.compile("Value{null_value: NullValue.NULL_VALUE}").getAst());
     assertThat(program.eval()).isEqualTo(NullValue.NULL_VALUE);
@@ -1082,31 +971,6 @@ public final class CelImplTest {
     CelAbstractSyntaxTree ast = cel.compile("enumVar == 1").getAst();
 
     assertThat(ast).isNotNull();
-  }
-
-  @Test
-  public void compile_enumTypeTransitiveResolutionFailure() {
-    Cel cel =
-        plannerCelBuilderWithMacros()
-            .setOptions(
-                CelOptions.current()
-                    .enableHeterogeneousNumericComparisons(true)
-                    .resolveTypeDependencies(false)
-                    .build())
-            .addMessageTypes(Proto2ExtensionScopedMessage.getDescriptor())
-            .setResultType(StructTypeReference.create("google.protobuf.NullValue"))
-            .setContainer(CelContainer.ofName("google.protobuf"))
-            .build();
-
-    // 'Value' is a struct defined as a dependency of messages_proto2.proto and 'NullValue' is an
-    // enum within this 'Value' struct.
-    // As deep type dependency is disabled, the following evaluation will fail as CEL will not be
-    // aware of the dependent enum type
-    CelValidationException e =
-        Assert.assertThrows(
-            CelValidationException.class,
-            () -> cel.compile("Value{null_value: NullValue.NULL_VALUE}").getAst());
-    assertThat(e).hasMessageThat().contains("undeclared reference to 'NullValue'");
   }
 
   @Test

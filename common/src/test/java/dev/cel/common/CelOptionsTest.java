@@ -34,7 +34,6 @@ public final class CelOptionsTest {
   public void current_defaults() {
     // Defaults that aren't represented in deprecated CelOptions
     assertThat(CelOptions.current().build().enableUnknownTracking()).isFalse();
-    assertThat(CelOptions.current().build().resolveTypeDependencies()).isTrue();
     assertThat(CelOptions.current().build().enablePrattParser()).isFalse();
   }
 }

@@ -437,7 +437,6 @@ public final class CelCheckerLegacyImpl implements CelChecker, EnvVisitable {
       CelTypeProvider messageTypeProvider =
           ProtoMessageTypeProvider.newBuilder()
               .setAllowJsonFieldNames(celOptions.enableJsonFieldNames())
-              .setResolveTypeDependencies(celOptions.resolveTypeDependencies())
               .addFileDescriptors(fileTypeSet)
               .build();
 

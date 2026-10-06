@@ -32,18 +32,23 @@ import org.junit.runners.JUnit4;
 @RunWith(JUnit4.class)
 public final class ProtoMessageTypeProviderTest {
 
-  private final ProtoMessageTypeProvider emptyProvider = new ProtoMessageTypeProvider();
+  private final ProtoMessageTypeProvider emptyProvider =
+      ProtoMessageTypeProvider.newBuilder().build();
 
   private final ProtoMessageTypeProvider proto3Provider =
-      new ProtoMessageTypeProvider(
-          ImmutableList.of(dev.cel.expr.conformance.proto3.TestAllTypes.getDescriptor()));
+      ProtoMessageTypeProvider.newBuilder()
+          .addDescriptors(
+              ImmutableList.of(dev.cel.expr.conformance.proto3.TestAllTypes.getDescriptor()))
+          .build();
 
   private final ProtoMessageTypeProvider proto2Provider =
-      new ProtoMessageTypeProvider(
-          ImmutableSet.of(
-              dev.cel.expr.conformance.proto3.TestAllTypes.getDescriptor().getFile(),
-              TestAllTypes.getDescriptor().getFile(),
-              TestAllTypesExtensions.getDescriptor()));
+      ProtoMessageTypeProvider.newBuilder()
+          .addFileDescriptors(
+              ImmutableSet.of(
+                  dev.cel.expr.conformance.proto3.TestAllTypes.getDescriptor().getFile(),
+                  TestAllTypes.getDescriptor().getFile(),
+                  TestAllTypesExtensions.getDescriptor()))
+          .build();
 
   @Test
   public void types_emptyTypeSet() {
