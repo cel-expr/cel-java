@@ -118,7 +118,12 @@ public final class AdaptingTypes {
 
     @Override
     public Object[] toArray() {
-      return delegate.stream().map(baseEl -> converter().convert(baseEl)).toArray();
+      Object[] result = new Object[size()];
+      int i = 0;
+      for (A a : delegate) {
+        result[i++] = converter().convert(a);
+      }
+      return result;
     }
 
     @Override

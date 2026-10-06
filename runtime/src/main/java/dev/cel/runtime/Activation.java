@@ -14,8 +14,6 @@
 
 package dev.cel.runtime;
 
-import static com.google.common.collect.ImmutableMap.toImmutableMap;
-
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableMap;
 import com.google.protobuf.ByteString;
@@ -109,11 +107,9 @@ public abstract class Activation implements GlobalResolver {
     final ImmutableMap<String, Object> copy =
         (map instanceof ImmutableMap)
             ? (ImmutableMap<String, Object>) map
-            : map.entrySet().stream()
-                // ImmutableMaps are null-hostile, but the Activation is not, so make sure that null
-                // values and entries are skipped.
-                .filter(entry -> entry.getKey() != null && entry.getValue() != null)
-                .collect(toImmutableMap(Map.Entry::getKey, Map.Entry::getValue));
+            : // ImmutableMaps are null-hostile, but the Activation is not, so make sure that null
+            // values and entries are skipped.
+            toImmutableMapFilteringNulls(map);
     return new Activation() {
 
       @Override
@@ -126,6 +122,23 @@ public abstract class Activation implements GlobalResolver {
         return copy.toString();
       }
     };
+  }
+
+  /**
+   * Creates an {@link ImmutableMap} from the given {@link Map} filtering out null keys and values.
+   *
+   * <p>Used instead of the one-liner for performance reasons.
+   */
+  private static ImmutableMap<String, Object> toImmutableMapFilteringNulls(Map<String, ?> map) {
+    ImmutableMap.Builder<String, Object> builder = ImmutableMap.builderWithExpectedSize(map.size());
+    for (Map.Entry<String, ?> entry : map.entrySet()) {
+      String key = entry.getKey();
+      Object value = entry.getValue();
+      if (key != null && value != null) {
+        builder.put(key, value);
+      }
+    }
+    return builder.buildOrThrow();
   }
 
   /**

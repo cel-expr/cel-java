@@ -48,7 +48,6 @@ import dev.cel.common.types.TypeType;
 import dev.cel.common.values.CelByteString;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
@@ -499,7 +498,10 @@ final class DefaultInterpreter implements Interpreter {
         return IntermediateResult.create(attr, unknowns.get());
       }
 
-      Object[] argArray = Arrays.stream(argResults).map(IntermediateResult::value).toArray();
+      Object[] argArray = new Object[argResults.length];
+      for (int i = 0; i < argResults.length; i++) {
+        argArray[i] = argResults[i].value();
+      }
       ImmutableList<String> overloadIds = reference.overloadIds();
       CelResolvedOverload overload =
           findOverloadOrThrow(frame, expr, callExpr.function(), overloadIds, argArray);
