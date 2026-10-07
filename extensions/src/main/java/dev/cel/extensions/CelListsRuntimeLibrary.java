@@ -26,10 +26,9 @@ import dev.cel.common.CelOptions;
 import dev.cel.common.internal.ComparisonFunctions;
 import dev.cel.common.values.CelByteString;
 import dev.cel.runtime.CelFunctionBinding;
+import dev.cel.runtime.CelInternalLiteRuntimeLibrary;
 import dev.cel.runtime.CelLiteRuntimeBuilder;
-import dev.cel.runtime.CelLiteRuntimeLibrary;
 import dev.cel.runtime.RuntimeEquality;
-import dev.cel.runtime.RuntimeHelpers;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Comparator;
@@ -39,7 +38,7 @@ import java.util.Set;
 
 /** Runtime implementation of CEL List extension functions. */
 @Immutable
-public final class CelListsRuntimeLibrary implements CelLiteRuntimeLibrary {
+public final class CelListsRuntimeLibrary implements CelInternalLiteRuntimeLibrary {
 
   private static final CelObjectComparator OBJECT_COMPARATOR = new CelObjectComparator();
   private static final ImmutableList<String> SORT_BY_KEY_TYPE_NAMES =
@@ -80,77 +79,101 @@ public final class CelListsRuntimeLibrary implements CelLiteRuntimeLibrary {
     }
   }
 
-  /**
-   * Returns the latest version of the 'lists' runtime functions using {@link CelOptions#DEFAULT}.
-   */
-  public static CelListsRuntimeLibrary lists() {
-    return lists(CelOptions.DEFAULT);
-  }
-
-  /**
-   * Returns the specified version of the 'lists' runtime functions using {@link
-   * CelOptions#DEFAULT}.
-   */
-  public static CelListsRuntimeLibrary lists(int version) {
-    return lists(CelOptions.DEFAULT, version);
-  }
-
-  /**
-   * Returns the 'lists' runtime functions with only the specified functions using {@link
-   * CelOptions#DEFAULT}.
-   */
-  public static CelListsRuntimeLibrary lists(Function... functions) {
-    return lists(CelOptions.DEFAULT, functions);
-  }
-
-  /**
-   * Returns the 'lists' runtime functions with only the specified functions using {@link
-   * CelOptions#DEFAULT}.
-   */
-  public static CelListsRuntimeLibrary lists(Set<Function> functions) {
-    return lists(CelOptions.DEFAULT, functions);
-  }
+  private static final CelListsRuntimeLibrary VERSION_2 =
+      new CelListsRuntimeLibrary(ImmutableSet.copyOf(Function.values()));
 
   /** Returns the latest version of the 'lists' runtime functions. */
-  public static CelListsRuntimeLibrary lists(CelOptions celOptions) {
-    return lists(celOptions, Integer.MAX_VALUE);
+  public static CelListsRuntimeLibrary lists() {
+    return VERSION_2;
   }
 
   /** Returns the specified version of the 'lists' runtime functions. */
+  public static CelListsRuntimeLibrary lists(int version) {
+    if (version == 2 || version == Integer.MAX_VALUE) {
+      return VERSION_2;
+    }
+    return new CelListsRuntimeLibrary(getFunctionsForVersion(version));
+  }
+
+  /** Returns the 'lists' runtime functions with only the specified functions. */
+  public static CelListsRuntimeLibrary lists(Function... functions) {
+    return lists(ImmutableSet.copyOf(functions));
+  }
+
+  /** Returns the 'lists' runtime functions with only the specified functions. */
+  public static CelListsRuntimeLibrary lists(Set<Function> functions) {
+    return new CelListsRuntimeLibrary(functions);
+  }
+
+  /**
+   * Returns the latest version of the 'lists' runtime functions using {@link CelOptions#DEFAULT}.
+   *
+   * @deprecated Options are now plumbed via {@link CelInternalLiteRuntimeLibrary}. Use {@link
+   *     #lists()} instead.
+   */
+  @Deprecated
+  public static CelListsRuntimeLibrary lists(CelOptions celOptions) {
+    return lists();
+  }
+
+  /**
+   * Returns the specified version of the 'lists' runtime functions.
+   *
+   * @deprecated Options are now plumbed via {@link CelInternalLiteRuntimeLibrary}. Use {@link
+   *     #lists(int)} instead.
+   */
+  @Deprecated
   public static CelListsRuntimeLibrary lists(CelOptions celOptions, int version) {
-    return lists(celOptions, getFunctionsForVersion(version));
+    return lists(version);
   }
 
-  /** Returns the 'lists' runtime functions with only the specified functions. */
+  /**
+   * Returns the 'lists' runtime functions with only the specified functions.
+   *
+   * @deprecated Options are now plumbed via {@link CelInternalLiteRuntimeLibrary}. Use {@link
+   *     #lists(Function...)} instead.
+   */
+  @Deprecated
   public static CelListsRuntimeLibrary lists(CelOptions celOptions, Function... functions) {
-    return lists(celOptions, ImmutableSet.copyOf(functions));
+    return lists(functions);
   }
 
-  /** Returns the 'lists' runtime functions with only the specified functions. */
+  /**
+   * Returns the 'lists' runtime functions with only the specified functions.
+   *
+   * @deprecated Options are now plumbed via {@link CelInternalLiteRuntimeLibrary}. Use {@link
+   *     #lists(Set)} instead.
+   */
+  @Deprecated
   public static CelListsRuntimeLibrary lists(CelOptions celOptions, Set<Function> functions) {
-    RuntimeEquality runtimeEquality = RuntimeEquality.create(RuntimeHelpers.create(), celOptions);
-    return new CelListsRuntimeLibrary(runtimeEquality, functions);
+    return lists(functions);
   }
 
-  private final RuntimeEquality runtimeEquality;
   private final ImmutableSet<Function> functions;
 
-  CelListsRuntimeLibrary(RuntimeEquality runtimeEquality, int version) {
-    this(runtimeEquality, getFunctionsForVersion(version));
+  CelListsRuntimeLibrary(Set<Function> functions) {
+    this.functions = ImmutableSet.copyOf(functions);
   }
 
-  CelListsRuntimeLibrary(RuntimeEquality runtimeEquality, Set<Function> functions) {
-    this.runtimeEquality = runtimeEquality;
-    this.functions = ImmutableSet.copyOf(functions);
+  ImmutableSet<Function> functions() {
+    return functions;
   }
 
   @Override
   public void setRuntimeOptions(CelLiteRuntimeBuilder runtimeBuilder) {
-    runtimeBuilder.addFunctionBindings(newFunctionBindings());
+    throw new UnsupportedOperationException("Unsupported");
+  }
+
+  @Override
+  public void setRuntimeOptions(
+      CelLiteRuntimeBuilder runtimeBuilder,
+      RuntimeEquality runtimeEquality,
+      CelOptions celOptions) {
+    runtimeBuilder.addFunctionBindings(newFunctionBindings(runtimeEquality));
   }
 
   @SuppressWarnings("unchecked")
-  public ImmutableSet<CelFunctionBinding> newFunctionBindings() {
+  public ImmutableSet<CelFunctionBinding> newFunctionBindings(RuntimeEquality runtimeEquality) {
     ImmutableSet.Builder<CelFunctionBinding> bindingBuilder = ImmutableSet.builder();
     for (Function function : functions) {
       switch (function) {

@@ -19,6 +19,7 @@ import static org.junit.Assert.assertThrows;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.testing.junit.testparameterinjector.TestParameter;
 import com.google.testing.junit.testparameterinjector.TestParameterInjector;
 import com.google.testing.junit.testparameterinjector.TestParameters;
@@ -39,9 +40,13 @@ import dev.cel.extensions.CelSetsExtensions.Function;
 import dev.cel.runtime.CelEvaluationException;
 import dev.cel.runtime.CelFunctionBinding;
 import dev.cel.runtime.CelLiteRuntime;
+import dev.cel.runtime.CelLiteRuntimeBuilder;
 import dev.cel.runtime.CelLiteRuntimeFactory;
 import dev.cel.runtime.CelRuntime;
+import dev.cel.runtime.CelRuntimeBuilder;
 import dev.cel.runtime.CelRuntimeFactory;
+import dev.cel.runtime.RuntimeEquality;
+import dev.cel.runtime.RuntimeHelpers;
 import dev.cel.testing.CelRuntimeFlavor;
 import java.util.List;
 import org.junit.Assume;
@@ -81,8 +86,7 @@ public final class CelSetsExtensionsTest extends CelExtensionTestBase {
 
   @Test
   public void library() {
-    CelExtensionLibrary<?> library =
-        CelExtensions.getExtensionLibrary("sets", CelOptions.DEFAULT);
+    CelExtensionLibrary<?> library = CelExtensions.getExtensionLibrary("sets", CelOptions.DEFAULT);
     assertThat(library.name()).isEqualTo("sets");
     assertThat(library.latest().version()).isEqualTo(0);
     assertThat(library.version(0).functions().stream().map(CelFunctionDecl::name))
@@ -484,9 +488,11 @@ public final class CelSetsExtensionsTest extends CelExtensionTestBase {
         CelCompilerFactory.standardCelCompilerBuilder()
             .addLibraries(CelSetsCompilerLibrary.sets(0))
             .build();
+    RuntimeEquality runtimeEquality =
+        RuntimeEquality.create(RuntimeHelpers.create(), CelOptions.DEFAULT);
     CelRuntime celRuntime =
         CelRuntimeFactory.plannerRuntimeBuilder()
-            .addFunctionBindings(CelSetsRuntimeLibrary.sets(0).newFunctionBindings())
+            .addFunctionBindings(CelSetsRuntimeLibrary.sets(0).newFunctionBindings(runtimeEquality))
             .build();
 
     CelAbstractSyntaxTree ast = celCompiler.compile("sets.contains([1, 2], [2])").getAst();
@@ -501,11 +507,13 @@ public final class CelSetsExtensionsTest extends CelExtensionTestBase {
         CelCompilerFactory.standardCelCompilerBuilder()
             .addLibraries(CelSetsCompilerLibrary.sets(CelSetsCompilerLibrary.Function.CONTAINS))
             .build();
+    RuntimeEquality runtimeEquality =
+        RuntimeEquality.create(RuntimeHelpers.create(), CelOptions.DEFAULT);
     CelRuntime celRuntime =
         CelRuntimeFactory.plannerRuntimeBuilder()
             .addFunctionBindings(
                 CelSetsRuntimeLibrary.sets(CelSetsRuntimeLibrary.Function.CONTAINS)
-                    .newFunctionBindings())
+                    .newFunctionBindings(runtimeEquality))
             .build();
 
     CelAbstractSyntaxTree ast = celCompiler.compile("sets.contains([1, 2], [2])").getAst();
@@ -515,5 +523,41 @@ public final class CelSetsExtensionsTest extends CelExtensionTestBase {
     assertThrows(
         CelValidationException.class,
         () -> celCompiler.compile("sets.equivalent([1, 2], [1, 2])").getAst());
+  }
+
+  @Test
+  public void runtimeLibrary_constructorsAndFactories() {
+    CelSetsRuntimeLibrary lib1 =
+        new CelSetsRuntimeLibrary(ImmutableSet.of(CelSetsRuntimeLibrary.Function.CONTAINS));
+    assertThat(lib1.functions()).containsExactly(CelSetsRuntimeLibrary.Function.CONTAINS);
+
+    CelSetsRuntimeLibrary lib2 = CelSetsRuntimeLibrary.sets();
+    assertThat(lib2.functions()).containsExactlyElementsIn(CelSetsRuntimeLibrary.Function.values());
+
+    CelSetsRuntimeLibrary lib3 = CelSetsRuntimeLibrary.sets(0);
+    assertThat(lib3.functions()).containsExactlyElementsIn(CelSetsRuntimeLibrary.Function.values());
+
+    CelSetsRuntimeLibrary lib4 =
+        CelSetsRuntimeLibrary.sets(CelSetsRuntimeLibrary.Function.CONTAINS);
+    assertThat(lib4.functions()).containsExactly(CelSetsRuntimeLibrary.Function.CONTAINS);
+
+    CelSetsRuntimeLibrary lib5 =
+        CelSetsRuntimeLibrary.sets(ImmutableSet.of(CelSetsRuntimeLibrary.Function.CONTAINS));
+    assertThat(lib5.functions()).containsExactly(CelSetsRuntimeLibrary.Function.CONTAINS);
+  }
+
+  @Test
+  public void runtimeOptions_unsupported_throws() {
+    CelSetsExtensions extensions = new CelSetsExtensions();
+    CelRuntimeBuilder runtimeBuilder = CelRuntimeFactory.standardCelRuntimeBuilder();
+    assertThrows(
+        UnsupportedOperationException.class,
+        () -> extensions.setRuntimeOptions(runtimeBuilder));
+
+    CelSetsRuntimeLibrary runtimeLibrary = CelSetsRuntimeLibrary.sets();
+    CelLiteRuntimeBuilder liteRuntimeBuilder = CelLiteRuntimeFactory.newLiteRuntimeBuilder();
+    assertThrows(
+        UnsupportedOperationException.class,
+        () -> runtimeLibrary.setRuntimeOptions(liteRuntimeBuilder));
   }
 }

@@ -59,20 +59,6 @@ public final class CelListsExtensions
     }
   }
 
-  private static ImmutableSet<Function> getFunctionsForVersion(int version) {
-    switch (version) {
-      case 0:
-        return ImmutableSet.of(Function.SLICE);
-      case 1:
-        return ImmutableSet.of(Function.SLICE, Function.FLATTEN);
-      case 2:
-      case Integer.MAX_VALUE:
-        return ImmutableSet.copyOf(Function.values());
-      default:
-        throw new IllegalArgumentException("Unsupported 'lists' extension version " + version);
-    }
-  }
-
   private static final class Library implements CelExtensionLibrary<CelListsExtensions> {
     private final ImmutableSet<CelListsExtensions> versions;
 
@@ -101,7 +87,7 @@ public final class CelListsExtensions
   }
 
   private final CelListsCompilerLibrary compilerLibrary;
-  private final ImmutableSet<Function> functions;
+  private final CelListsRuntimeLibrary runtimeLibrary;
 
   CelListsExtensions() {
     this(CelListsCompilerLibrary.lists());
@@ -111,12 +97,14 @@ public final class CelListsExtensions
     this.compilerLibrary =
         new CelListsCompilerLibrary(
             functions.stream().map(f -> f.compilerFunction).collect(toImmutableSet()));
-    this.functions = ImmutableSet.copyOf(functions);
+    this.runtimeLibrary =
+        new CelListsRuntimeLibrary(
+            functions.stream().map(f -> f.runtimeFunction).collect(toImmutableSet()));
   }
 
   private CelListsExtensions(CelListsCompilerLibrary compilerLibrary) {
     this.compilerLibrary = compilerLibrary;
-    this.functions = getFunctionsForVersion(compilerLibrary.version());
+    this.runtimeLibrary = CelListsRuntimeLibrary.lists(compilerLibrary.version());
   }
 
   @Override
@@ -152,10 +140,6 @@ public final class CelListsExtensions
   @Override
   public void setRuntimeOptions(
       CelRuntimeBuilder runtimeBuilder, RuntimeEquality runtimeEquality, CelOptions celOptions) {
-    CelListsRuntimeLibrary listsRuntime =
-        new CelListsRuntimeLibrary(
-            runtimeEquality,
-            functions.stream().map(f -> f.runtimeFunction).collect(toImmutableSet()));
-    runtimeBuilder.addFunctionBindings(listsRuntime.newFunctionBindings());
+    runtimeBuilder.addFunctionBindings(runtimeLibrary.newFunctionBindings(runtimeEquality));
   }
 }

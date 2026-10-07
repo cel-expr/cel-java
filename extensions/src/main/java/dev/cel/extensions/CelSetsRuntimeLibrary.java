@@ -18,17 +18,16 @@ import com.google.common.collect.ImmutableSet;
 import com.google.errorprone.annotations.Immutable;
 import dev.cel.common.CelOptions;
 import dev.cel.runtime.CelFunctionBinding;
+import dev.cel.runtime.CelInternalLiteRuntimeLibrary;
 import dev.cel.runtime.CelLiteRuntimeBuilder;
-import dev.cel.runtime.CelLiteRuntimeLibrary;
 import dev.cel.runtime.RuntimeEquality;
-import dev.cel.runtime.RuntimeHelpers;
 import java.util.Collection;
 import java.util.Iterator;
 import java.util.Set;
 
 /** Runtime implementation of CEL Set extension functions. */
 @Immutable
-public final class CelSetsRuntimeLibrary implements CelLiteRuntimeLibrary {
+public final class CelSetsRuntimeLibrary implements CelInternalLiteRuntimeLibrary {
 
   /** Enumeration of functions for Set runtime extension. */
   public enum Function {
@@ -57,76 +56,101 @@ public final class CelSetsRuntimeLibrary implements CelLiteRuntimeLibrary {
     }
   }
 
-  /**
-   * Returns the latest version of the 'sets' runtime functions using {@link CelOptions#DEFAULT}.
-   */
-  public static CelSetsRuntimeLibrary sets() {
-    return sets(CelOptions.DEFAULT);
-  }
-
-  /**
-   * Returns the specified version of the 'sets' runtime functions using {@link CelOptions#DEFAULT}.
-   */
-  public static CelSetsRuntimeLibrary sets(int version) {
-    return sets(CelOptions.DEFAULT, version);
-  }
-
-  /**
-   * Returns the 'sets' runtime functions with only the specified functions using {@link
-   * CelOptions#DEFAULT}.
-   */
-  public static CelSetsRuntimeLibrary sets(Function... functions) {
-    return sets(CelOptions.DEFAULT, functions);
-  }
-
-  /**
-   * Returns the 'sets' runtime functions with only the specified functions using {@link
-   * CelOptions#DEFAULT}.
-   */
-  public static CelSetsRuntimeLibrary sets(Set<Function> functions) {
-    return sets(CelOptions.DEFAULT, functions);
-  }
+  private static final CelSetsRuntimeLibrary VERSION_0 =
+      new CelSetsRuntimeLibrary(ImmutableSet.copyOf(Function.values()));
 
   /** Returns the latest version of the 'sets' runtime functions. */
-  public static CelSetsRuntimeLibrary sets(CelOptions celOptions) {
-    return sets(celOptions, ImmutableSet.copyOf(Function.values()));
+  public static CelSetsRuntimeLibrary sets() {
+    return VERSION_0;
   }
 
   /** Returns the specified version of the 'sets' runtime functions. */
+  public static CelSetsRuntimeLibrary sets(int version) {
+    if (version == 0 || version == Integer.MAX_VALUE) {
+      return VERSION_0;
+    }
+    return new CelSetsRuntimeLibrary(getFunctionsForVersion(version));
+  }
+
+  /** Returns the 'sets' runtime functions with only the specified functions. */
+  public static CelSetsRuntimeLibrary sets(Function... functions) {
+    return sets(ImmutableSet.copyOf(functions));
+  }
+
+  /** Returns the 'sets' runtime functions with only the specified functions. */
+  public static CelSetsRuntimeLibrary sets(Set<Function> functions) {
+    return new CelSetsRuntimeLibrary(functions);
+  }
+
+  /**
+   * Returns the latest version of the 'sets' runtime functions using {@link CelOptions#DEFAULT}.
+   *
+   * @deprecated Options are now plumbed via {@link CelInternalLiteRuntimeLibrary}. Use {@link
+   *     #sets()} instead.
+   */
+  @Deprecated
+  public static CelSetsRuntimeLibrary sets(CelOptions celOptions) {
+    return sets();
+  }
+
+  /**
+   * Returns the specified version of the 'sets' runtime functions.
+   *
+   * @deprecated Options are now plumbed via {@link CelInternalLiteRuntimeLibrary}. Use {@link
+   *     #sets(int)} instead.
+   */
+  @Deprecated
   public static CelSetsRuntimeLibrary sets(CelOptions celOptions, int version) {
-    return sets(celOptions, getFunctionsForVersion(version));
+    return sets(version);
   }
 
-  /** Returns the 'sets' runtime functions with only the specified functions. */
+  /**
+   * Returns the 'sets' runtime functions with only the specified functions.
+   *
+   * @deprecated Options are now plumbed via {@link CelInternalLiteRuntimeLibrary}. Use {@link
+   *     #sets(Function...)} instead.
+   */
+  @Deprecated
   public static CelSetsRuntimeLibrary sets(CelOptions celOptions, Function... functions) {
-    return sets(celOptions, ImmutableSet.copyOf(functions));
+    return sets(functions);
   }
 
-  /** Returns the 'sets' runtime functions with only the specified functions. */
+  /**
+   * Returns the 'sets' runtime functions with only the specified functions.
+   *
+   * @deprecated Options are now plumbed via {@link CelInternalLiteRuntimeLibrary}. Use {@link
+   *     #sets(Set)} instead.
+   */
+  @Deprecated
   public static CelSetsRuntimeLibrary sets(CelOptions celOptions, Set<Function> functions) {
-    RuntimeEquality runtimeEquality = RuntimeEquality.create(RuntimeHelpers.create(), celOptions);
-    return new CelSetsRuntimeLibrary(runtimeEquality, functions);
+    return sets(functions);
   }
 
-  private final RuntimeEquality runtimeEquality;
   private final ImmutableSet<Function> functions;
 
-  CelSetsRuntimeLibrary(RuntimeEquality runtimeEquality, int version) {
-    this(runtimeEquality, getFunctionsForVersion(version));
+  CelSetsRuntimeLibrary(Set<Function> functions) {
+    this.functions = ImmutableSet.copyOf(functions);
   }
 
-  CelSetsRuntimeLibrary(RuntimeEquality runtimeEquality, Set<Function> functions) {
-    this.runtimeEquality = runtimeEquality;
-    this.functions = ImmutableSet.copyOf(functions);
+  ImmutableSet<Function> functions() {
+    return functions;
   }
 
   @Override
   public void setRuntimeOptions(CelLiteRuntimeBuilder runtimeBuilder) {
-    runtimeBuilder.addFunctionBindings(newFunctionBindings());
+    throw new UnsupportedOperationException("Unsupported");
+  }
+
+  @Override
+  public void setRuntimeOptions(
+      CelLiteRuntimeBuilder runtimeBuilder,
+      RuntimeEquality runtimeEquality,
+      CelOptions celOptions) {
+    runtimeBuilder.addFunctionBindings(newFunctionBindings(runtimeEquality));
   }
 
   /** Creates the {@link CelFunctionBinding}s for the configured set functions. */
-  public ImmutableSet<CelFunctionBinding> newFunctionBindings() {
+  public ImmutableSet<CelFunctionBinding> newFunctionBindings(RuntimeEquality runtimeEquality) {
     ImmutableSet.Builder<CelFunctionBinding> bindingBuilder = ImmutableSet.builder();
     for (Function function : functions) {
       switch (function) {
@@ -138,7 +162,7 @@ public final class CelSetsRuntimeLibrary implements CelLiteRuntimeLibrary {
                       "list_sets_contains_list",
                       Collection.class,
                       Collection.class,
-                      this::containsAll)));
+                      (listA, listB) -> containsAll(listA, listB, runtimeEquality))));
           break;
         case EQUIVALENT:
           bindingBuilder.addAll(
@@ -148,7 +172,9 @@ public final class CelSetsRuntimeLibrary implements CelLiteRuntimeLibrary {
                       "list_sets_equivalent_list",
                       Collection.class,
                       Collection.class,
-                      (listA, listB) -> containsAll(listA, listB) && containsAll(listB, listA))));
+                      (listA, listB) ->
+                          containsAll(listA, listB, runtimeEquality)
+                              && containsAll(listB, listA, runtimeEquality))));
           break;
         case INTERSECTS:
           bindingBuilder.addAll(
@@ -158,7 +184,7 @@ public final class CelSetsRuntimeLibrary implements CelLiteRuntimeLibrary {
                       "list_sets_intersects_list",
                       Collection.class,
                       Collection.class,
-                      this::setIntersects)));
+                      (listA, listB) -> setIntersects(listA, listB, runtimeEquality))));
           break;
       }
     }
@@ -174,11 +200,12 @@ public final class CelSetsRuntimeLibrary implements CelLiteRuntimeLibrary {
    * <p>This is picked verbatim as implemented in the Java standard library
    * Collections.containsAll() method.
    *
-   * @see #contains(Object, Collection)
+   * @see #contains(Object, Collection, RuntimeEquality)
    */
-  private boolean containsAll(Collection<?> list, Collection<?> subList) {
+  private static boolean containsAll(
+      Collection<?> list, Collection<?> subList, RuntimeEquality runtimeEquality) {
     for (Object e : subList) {
-      if (!contains(e, list)) {
+      if (!contains(e, list, runtimeEquality)) {
         return false;
       }
     }
@@ -196,7 +223,7 @@ public final class CelSetsRuntimeLibrary implements CelLiteRuntimeLibrary {
    * href="https://hg.openjdk.org/jdk8u/jdk8u-dev/jdk/file/c5d02f908fb2/src/share/classes/java/util/AbstractCollection.java#l98">OpenJDK
    * AbstractCollection<a>
    */
-  private boolean contains(Object o, Collection<?> list) {
+  private static boolean contains(Object o, Collection<?> list, RuntimeEquality runtimeEquality) {
     Iterator<?> it = list.iterator();
     if (o == null) {
       while (it.hasNext()) {
@@ -207,7 +234,7 @@ public final class CelSetsRuntimeLibrary implements CelLiteRuntimeLibrary {
     } else {
       while (it.hasNext()) {
         Object item = it.next();
-        if (objectsEquals(item, o)) {
+        if (objectsEquals(item, o, runtimeEquality)) {
           return true;
         }
       }
@@ -215,16 +242,17 @@ public final class CelSetsRuntimeLibrary implements CelLiteRuntimeLibrary {
     return false;
   }
 
-  private boolean objectsEquals(Object o1, Object o2) {
+  private static boolean objectsEquals(Object o1, Object o2, RuntimeEquality runtimeEquality) {
     return runtimeEquality.objectEquals(o1, o2);
   }
 
-  private boolean setIntersects(Collection<?> listA, Collection<?> listB) {
+  private static boolean setIntersects(
+      Collection<?> listA, Collection<?> listB, RuntimeEquality runtimeEquality) {
     if (listA.isEmpty() || listB.isEmpty()) {
       return false;
     }
     for (Object element : listB) {
-      if (contains(element, listA)) {
+      if (contains(element, listA, runtimeEquality)) {
         return true;
       }
     }

@@ -27,6 +27,7 @@ import dev.cel.bundle.Cel;
 import dev.cel.bundle.CelFactory;
 import dev.cel.common.CelAbstractSyntaxTree;
 import dev.cel.common.CelContainer;
+import dev.cel.common.CelOptions;
 import dev.cel.common.CelValidationException;
 import dev.cel.common.CelValidationResult;
 import dev.cel.common.types.SimpleType;
@@ -36,10 +37,13 @@ import dev.cel.expr.conformance.test.SimpleTest;
 import dev.cel.parser.CelStandardMacro;
 import dev.cel.runtime.CelEvaluationException;
 import dev.cel.runtime.CelLiteRuntime;
+import dev.cel.runtime.CelLiteRuntimeBuilder;
 import dev.cel.runtime.CelLiteRuntimeFactory;
 import dev.cel.runtime.CelRuntime;
 import dev.cel.runtime.CelRuntimeBuilder;
 import dev.cel.runtime.CelRuntimeFactory;
+import dev.cel.runtime.RuntimeEquality;
+import dev.cel.runtime.RuntimeHelpers;
 import dev.cel.testing.CelRuntimeFlavor;
 import dev.cel.validator.CelValidator;
 import dev.cel.validator.CelValidatorFactory;
@@ -416,9 +420,12 @@ public class CelListsExtensionsTest extends CelExtensionTestBase {
         CelCompilerFactory.standardCelCompilerBuilder()
             .addLibraries(CelListsCompilerLibrary.lists(0))
             .build();
+    RuntimeEquality runtimeEquality =
+        RuntimeEquality.create(RuntimeHelpers.create(), CelOptions.DEFAULT);
     CelRuntime celRuntime =
         CelRuntimeFactory.standardCelRuntimeBuilder()
-            .addFunctionBindings(CelListsRuntimeLibrary.lists(0).newFunctionBindings())
+            .addFunctionBindings(
+                CelListsRuntimeLibrary.lists(0).newFunctionBindings(runtimeEquality))
             .build();
 
     CelAbstractSyntaxTree ast = celCompiler.compile("[1, 2, 3, 4].slice(1, 3)").getAst();
@@ -433,11 +440,13 @@ public class CelListsExtensionsTest extends CelExtensionTestBase {
         CelCompilerFactory.standardCelCompilerBuilder()
             .addLibraries(CelListsCompilerLibrary.lists(CelListsCompilerLibrary.Function.SLICE))
             .build();
+    RuntimeEquality runtimeEquality =
+        RuntimeEquality.create(RuntimeHelpers.create(), CelOptions.DEFAULT);
     CelRuntime celRuntime =
         CelRuntimeFactory.standardCelRuntimeBuilder()
             .addFunctionBindings(
                 CelListsRuntimeLibrary.lists(CelListsRuntimeLibrary.Function.SLICE)
-                    .newFunctionBindings())
+                    .newFunctionBindings(runtimeEquality))
             .build();
 
     CelAbstractSyntaxTree ast = celCompiler.compile("[1, 2, 3, 4].slice(1, 3)").getAst();
@@ -456,11 +465,13 @@ public class CelListsExtensionsTest extends CelExtensionTestBase {
                 CelListsCompilerLibrary.lists(
                     ImmutableSet.of(CelListsCompilerLibrary.Function.SLICE)))
             .build();
+    RuntimeEquality runtimeEquality =
+        RuntimeEquality.create(RuntimeHelpers.create(), CelOptions.DEFAULT);
     CelRuntime celRuntime =
         CelRuntimeFactory.standardCelRuntimeBuilder()
             .addFunctionBindings(
                 CelListsRuntimeLibrary.lists(ImmutableSet.of(CelListsRuntimeLibrary.Function.SLICE))
-                    .newFunctionBindings())
+                    .newFunctionBindings(runtimeEquality))
             .build();
 
     CelAbstractSyntaxTree ast = celCompiler.compile("[1, 2, 3, 4].slice(1, 3)").getAst();
@@ -516,12 +527,39 @@ public class CelListsExtensionsTest extends CelExtensionTestBase {
   }
 
   @Test
-  public void setRuntimeOptions_withoutEquality_throws() {
-    CelListsExtensions extensions = CelExtensions.lists();
-    CelRuntimeBuilder runtimeBuilder = CelRuntimeFactory.standardCelRuntimeBuilder();
+  public void runtimeLibrary_constructorsAndFactories() {
+    CelListsRuntimeLibrary lib1 =
+        new CelListsRuntimeLibrary(ImmutableSet.of(CelListsRuntimeLibrary.Function.SLICE));
+    assertThat(lib1.functions()).containsExactly(CelListsRuntimeLibrary.Function.SLICE);
 
+    CelListsRuntimeLibrary lib2 = CelListsRuntimeLibrary.lists();
+    assertThat(lib2.functions())
+        .containsExactlyElementsIn(CelListsRuntimeLibrary.Function.values());
+
+    CelListsRuntimeLibrary lib3 = CelListsRuntimeLibrary.lists(0);
+    assertThat(lib3.functions()).containsExactly(CelListsRuntimeLibrary.Function.SLICE);
+
+    CelListsRuntimeLibrary lib4 =
+        CelListsRuntimeLibrary.lists(CelListsRuntimeLibrary.Function.SLICE);
+    assertThat(lib4.functions()).containsExactly(CelListsRuntimeLibrary.Function.SLICE);
+
+    CelListsRuntimeLibrary lib5 =
+        CelListsRuntimeLibrary.lists(ImmutableSet.of(CelListsRuntimeLibrary.Function.SLICE));
+    assertThat(lib5.functions()).containsExactly(CelListsRuntimeLibrary.Function.SLICE);
+  }
+
+  @Test
+  public void runtimeOptions_unsupported_throws() {
+    CelListsExtensions extensions = new CelListsExtensions();
+    CelRuntimeBuilder runtimeBuilder = CelRuntimeFactory.standardCelRuntimeBuilder();
     assertThrows(
-        UnsupportedOperationException.class, () -> extensions.setRuntimeOptions(runtimeBuilder));
+        UnsupportedOperationException.class,
+        () -> extensions.setRuntimeOptions(runtimeBuilder));
+
+    CelListsRuntimeLibrary runtimeLibrary = CelListsRuntimeLibrary.lists();
+    CelLiteRuntimeBuilder liteRuntimeBuilder = CelLiteRuntimeFactory.newLiteRuntimeBuilder();
+    assertThrows(
+        UnsupportedOperationException.class,
+        () -> runtimeLibrary.setRuntimeOptions(liteRuntimeBuilder));
   }
 }
-

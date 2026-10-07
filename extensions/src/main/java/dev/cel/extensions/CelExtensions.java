@@ -252,11 +252,20 @@ public final class CelExtensions {
    * <p>Refer to README.md for available functions.
    *
    * <p>This will include all functions denoted in {@link CelSetsExtensions.Function}, including any
-   * future additions. To expose only a subset of functions, use {@link #sets(CelOptions,
-   * CelSetsExtensions.Function...)} instead.
+   * future additions. To expose only a subset of functions, use {@link
+   * #sets(CelSetsExtensions.Function...)} instead.
    */
-  public static CelSetsExtensions sets(CelOptions celOptions) {
-    return new CelSetsExtensions(celOptions);
+  public static CelSetsExtensions sets() {
+    return CelSetsExtensions.library().latest();
+  }
+
+  /**
+   * Extended functions for Set manipulation.
+   *
+   * <p>Refer to README.md for functions available in each version.
+   */
+  public static CelSetsExtensions sets(int version) {
+    return CelSetsExtensions.library().version(version);
   }
 
   /**
@@ -266,21 +275,61 @@ public final class CelExtensions {
    *
    * <p>This will include only the specific functions denoted by {@link CelSetsExtensions.Function}.
    */
+  public static CelSetsExtensions sets(CelSetsExtensions.Function... functions) {
+    return sets(ImmutableSet.copyOf(functions));
+  }
+
+  /**
+   * Extended functions for Set manipulation.
+   *
+   * <p>Refer to README.md for available functions.
+   *
+   * <p>This will include only the specific functions denoted by {@link CelSetsExtensions.Function}.
+   */
+  public static CelSetsExtensions sets(Set<CelSetsExtensions.Function> functions) {
+    return new CelSetsExtensions(functions);
+  }
+
+  /**
+   * Extended functions for Set manipulation.
+   *
+   * @deprecated Options are now plumbed via {@link dev.cel.runtime.CelInternalRuntimeLibrary}. Use
+   *     {@link #sets()} instead.
+   */
+  @Deprecated
+  @InlineMe(replacement = "CelExtensions.sets()", imports = "dev.cel.extensions.CelExtensions")
+  public static CelSetsExtensions sets(CelOptions celOptions) {
+    return sets();
+  }
+
+  /**
+   * Extended functions for Set manipulation.
+   *
+   * @deprecated Options are now plumbed via {@link dev.cel.runtime.CelInternalRuntimeLibrary}. Use
+   *     {@link #sets(CelSetsExtensions.Function...)} instead.
+   */
+  @Deprecated
+  @InlineMe(
+      replacement = "CelExtensions.sets(functions)",
+      imports = "dev.cel.extensions.CelExtensions")
   public static CelSetsExtensions sets(
       CelOptions celOptions, CelSetsExtensions.Function... functions) {
-    return sets(celOptions, ImmutableSet.copyOf(functions));
+    return sets(functions);
   }
 
   /**
    * Extended functions for Set manipulation.
    *
-   * <p>Refer to README.md for available functions.
-   *
-   * <p>This will include only the specific functions denoted by {@link CelSetsExtensions.Function}.
+   * @deprecated Options are now plumbed via {@link dev.cel.runtime.CelInternalRuntimeLibrary}. Use
+   *     {@link #sets(Set)} instead.
    */
+  @Deprecated
+  @InlineMe(
+      replacement = "CelExtensions.sets(functions)",
+      imports = "dev.cel.extensions.CelExtensions")
   public static CelSetsExtensions sets(
       CelOptions celOptions, Set<CelSetsExtensions.Function> functions) {
-    return new CelSetsExtensions(celOptions, functions);
+    return sets(functions);
   }
 
   /**
@@ -484,7 +533,7 @@ public final class CelExtensions {
       case "regex":
         return CelRegexExtensions.library();
       case "sets":
-        return CelSetsExtensions.library(options);
+        return CelSetsExtensions.library();
       case "strings":
         return CelStringExtensions.library();
       case "two-var-comprehensions":

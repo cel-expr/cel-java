@@ -21,12 +21,10 @@ import com.google.errorprone.annotations.Immutable;
 import dev.cel.checker.CelCheckerBuilder;
 import dev.cel.common.CelFunctionDecl;
 import dev.cel.common.CelOptions;
-import dev.cel.common.internal.DefaultMessageFactory;
-import dev.cel.common.internal.DynamicProto;
 import dev.cel.compiler.CelCompilerLibrary;
+import dev.cel.runtime.CelInternalRuntimeLibrary;
 import dev.cel.runtime.CelRuntimeBuilder;
-import dev.cel.runtime.CelRuntimeLibrary;
-import dev.cel.runtime.ProtoMessageRuntimeEquality;
+import dev.cel.runtime.RuntimeEquality;
 import java.util.Set;
 
 /**
@@ -39,7 +37,7 @@ import java.util.Set;
  */
 @Immutable
 public final class CelSetsExtensions
-    implements CelCompilerLibrary, CelRuntimeLibrary, CelExtensionLibrary.FeatureSet {
+    implements CelCompilerLibrary, CelInternalRuntimeLibrary, CelExtensionLibrary.FeatureSet {
 
   /** Denotes the set extension function. */
   public enum Function {
@@ -67,10 +65,10 @@ public final class CelSetsExtensions
   private static final class Library implements CelExtensionLibrary<CelSetsExtensions> {
     private final ImmutableSet<CelSetsExtensions> versions;
 
-    Library(CelOptions celOptions) {
+    Library() {
       versions =
           CelSetsCompilerLibrary.library().versions().stream()
-              .map(compilerLibrary -> new CelSetsExtensions(celOptions, compilerLibrary))
+              .map(CelSetsExtensions::new)
               .collect(toImmutableSet());
     }
 
@@ -85,36 +83,31 @@ public final class CelSetsExtensions
     }
   }
 
-  static CelExtensionLibrary<CelSetsExtensions> library(CelOptions options) {
-    return new Library(options);
+  private static final Library LIBRARY = new Library();
+
+  static CelExtensionLibrary<CelSetsExtensions> library() {
+    return LIBRARY;
   }
 
   private final CelSetsCompilerLibrary compilerLibrary;
-  private final CelSetsRuntimeLibrary setsRuntime;
+  private final CelSetsRuntimeLibrary runtimeLibrary;
 
-  CelSetsExtensions(CelOptions celOptions) {
-    this(celOptions, CelSetsCompilerLibrary.sets());
+  CelSetsExtensions() {
+    this(CelSetsCompilerLibrary.sets());
   }
 
-  CelSetsExtensions(CelOptions celOptions, Set<Function> functions) {
+  CelSetsExtensions(Set<Function> functions) {
     this.compilerLibrary =
         new CelSetsCompilerLibrary(
             functions.stream().map(f -> f.compilerFunction).collect(toImmutableSet()));
-    ProtoMessageRuntimeEquality runtimeEquality =
-        ProtoMessageRuntimeEquality.create(
-            DynamicProto.create(DefaultMessageFactory.INSTANCE), celOptions);
-    this.setsRuntime =
+    this.runtimeLibrary =
         new CelSetsRuntimeLibrary(
-            runtimeEquality,
             functions.stream().map(f -> f.runtimeFunction).collect(toImmutableSet()));
   }
 
-  private CelSetsExtensions(CelOptions celOptions, CelSetsCompilerLibrary compilerLibrary) {
+  private CelSetsExtensions(CelSetsCompilerLibrary compilerLibrary) {
     this.compilerLibrary = compilerLibrary;
-    ProtoMessageRuntimeEquality runtimeEquality =
-        ProtoMessageRuntimeEquality.create(
-            DynamicProto.create(DefaultMessageFactory.INSTANCE), celOptions);
-    this.setsRuntime = new CelSetsRuntimeLibrary(runtimeEquality, compilerLibrary.version());
+    this.runtimeLibrary = CelSetsRuntimeLibrary.sets(compilerLibrary.version());
   }
 
   @Override
@@ -134,6 +127,12 @@ public final class CelSetsExtensions
 
   @Override
   public void setRuntimeOptions(CelRuntimeBuilder runtimeBuilder) {
-    runtimeBuilder.addFunctionBindings(setsRuntime.newFunctionBindings());
+    throw new UnsupportedOperationException("Unsupported");
+  }
+
+  @Override
+  public void setRuntimeOptions(
+      CelRuntimeBuilder runtimeBuilder, RuntimeEquality runtimeEquality, CelOptions celOptions) {
+    runtimeBuilder.addFunctionBindings(runtimeLibrary.newFunctionBindings(runtimeEquality));
   }
 }
