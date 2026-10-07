@@ -21,12 +21,14 @@ import com.google.auto.value.extension.memoized.Memoized;
 import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.ImmutableMap;
 import com.google.errorprone.annotations.Immutable;
+import com.google.protobuf.ByteString;
 import com.google.protobuf.MessageLite;
 import dev.cel.common.types.CelType;
 import dev.cel.common.types.StructTypeReference;
 import dev.cel.common.values.ProtoLiteCelValueConverter.MessageFields;
 import dev.cel.protobuf.CelLiteDescriptor.FieldLiteDescriptor;
 import java.io.IOException;
+import java.util.Objects;
 import java.util.Optional;
 import org.jspecify.annotations.Nullable;
 
@@ -37,6 +39,11 @@ import org.jspecify.annotations.Nullable;
  *
  * <p>If the codebase has access to full protobuf messages with descriptors, use {@code
  * ProtoMessageValue} instead.
+ *
+ * <p>An instance is backed by either a materialized {@link #rawValue()} or unparsed {@link
+ * #wireBytes()} (exactly one is non-null). Wire-backed instances decode selected fields directly
+ * from {@link #wireBytes()} and lazily parse the full {@link MessageLite} only if {@link #value()}
+ * is invoked.
  *
  * <p>Implements {@link OptimizedSelectable} so that select chains can address fields by number:
  *
@@ -55,8 +62,12 @@ import org.jspecify.annotations.Nullable;
 abstract class ProtoMessageLiteValue extends StructValue<String, MessageLite>
     implements OptimizedSelectable {
 
-  @Override
-  public abstract MessageLite value();
+  // Populated when wrapping an already-materialized root MessageLite (e.g., from activation).
+  abstract @Nullable MessageLite rawValue();
+
+  // Populated when slicing a nested submessage from parent wire bytes to avoid deserializing and
+  // re-serializing intermediate hops; lazily parsed into a MessageLite only if value() is called.
+  abstract @Nullable ByteString wireBytes();
 
   @Override
   public abstract CelType celType();
@@ -64,15 +75,32 @@ abstract class ProtoMessageLiteValue extends StructValue<String, MessageLite>
   abstract ProtoLiteCelValueConverter protoLiteCelValueConverter();
 
   @Memoized
+  @Override
+  public MessageLite value() {
+    MessageLite msg = rawValue();
+    if (msg != null) {
+      return msg;
+    }
+    return protoLiteCelValueConverter()
+        .parseMessageLite(checkNotNull(wireBytes()), celType().name());
+  }
+
+  ByteString toByteString() {
+    ByteString bytes = wireBytes();
+    return bytes != null ? bytes : checkNotNull(rawValue()).toByteString();
+  }
+
+  @Memoized
   MessageFields messageFields() {
     try {
-      return protoLiteCelValueConverter().readMessageFields(value(), celType().name());
+      return protoLiteCelValueConverter().readAllFields(toByteString(), celType().name());
     } catch (IOException e) {
-      throw new IllegalStateException("Unable to read message fields for " + celType().name(), e);
+      throw new IllegalArgumentException(
+          "Failed to decode proto message of type: " + celType().name(), e);
     }
   }
 
-  ImmutableMap<String, Object> fieldValues() {
+  private ImmutableMap<String, Object> fieldValues() {
     return messageFields().values();
   }
 
@@ -82,7 +110,28 @@ abstract class ProtoMessageLiteValue extends StructValue<String, MessageLite>
 
   @Override
   public boolean isZeroValue() {
+    ByteString bytes = wireBytes();
+    if (bytes != null && bytes.isEmpty()) {
+      return true;
+    }
     return value().getDefaultInstanceForType().equals(value());
+  }
+
+  @Override
+  public final boolean equals(Object other) {
+    if (other == this) {
+      return true;
+    }
+    if (!(other instanceof ProtoMessageLiteValue)) {
+      return false;
+    }
+    ProtoMessageLiteValue that = (ProtoMessageLiteValue) other;
+    return this.celType().equals(that.celType()) && this.value().equals(that.value());
+  }
+
+  @Override
+  public final int hashCode() {
+    return Objects.hash(value(), celType());
   }
 
   @Override
@@ -93,9 +142,8 @@ abstract class ProtoMessageLiteValue extends StructValue<String, MessageLite>
 
   @Override
   public Optional<Object> find(String field) {
-    Object fieldValue = fieldValues().get(field);
-    return Optional.ofNullable(fieldValue)
-        .map(value -> protoLiteCelValueConverter().toRuntimeValue(fieldValue));
+    return Optional.ofNullable(fieldValues().get(field))
+        .map(protoLiteCelValueConverter()::toRuntimeValue);
   }
 
   @Override
@@ -130,7 +178,7 @@ abstract class ProtoMessageLiteValue extends StructValue<String, MessageLite>
     FieldLiteDescriptor fd = findFieldDescriptor(field);
     if (fd != null) {
       return Optional.ofNullable(fieldValues().get(fd.getFieldName()))
-          .map(value -> protoLiteCelValueConverter().toRuntimeValue(value));
+          .map(protoLiteCelValueConverter()::toRuntimeValue);
     }
     return RawProtoMessageLiteValue.navigateWire(
         field, unknownFields().get(field.fieldNumber()), protoLiteCelValueConverter());
@@ -148,7 +196,24 @@ abstract class ProtoMessageLiteValue extends StructValue<String, MessageLite>
     checkNotNull(typeName);
     checkNotNull(protoLiteCelValueConverter);
     return new AutoValue_ProtoMessageLiteValue(
-        value, StructTypeReference.create(typeName), protoLiteCelValueConverter);
+        value,
+        /* wireBytes= */ null,
+        StructTypeReference.create(typeName),
+        protoLiteCelValueConverter);
+  }
+
+  static ProtoMessageLiteValue create(
+      ByteString wireBytes,
+      String typeName,
+      ProtoLiteCelValueConverter protoLiteCelValueConverter) {
+    checkNotNull(wireBytes);
+    checkNotNull(typeName);
+    checkNotNull(protoLiteCelValueConverter);
+    return new AutoValue_ProtoMessageLiteValue(
+        /* rawValue= */ null,
+        wireBytes,
+        StructTypeReference.create(typeName),
+        protoLiteCelValueConverter);
   }
 
   ProtoMessageLiteValue() {}

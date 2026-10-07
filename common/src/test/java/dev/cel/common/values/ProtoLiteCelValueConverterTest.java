@@ -25,6 +25,7 @@ import com.google.common.primitives.UnsignedLong;
 import com.google.protobuf.BoolValue;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.BytesValue;
+import com.google.protobuf.CodedOutputStream;
 import com.google.protobuf.DoubleValue;
 import com.google.protobuf.Duration;
 import com.google.protobuf.ExtensionRegistryLite;
@@ -49,6 +50,7 @@ import dev.cel.expr.conformance.proto3.TestAllTypes.NestedMessage;
 import dev.cel.expr.conformance.proto3.TestAllTypesCelDescriptor;
 import dev.cel.protobuf.CelLiteDescriptor.FieldLiteDescriptor;
 import dev.cel.protobuf.CelLiteDescriptor.MessageLiteDescriptor;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.time.Instant;
 import java.util.LinkedHashMap;
@@ -58,7 +60,7 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 
 @RunWith(TestParameterInjector.class)
-public class ProtoLiteCelValueConverterTest {
+public final class ProtoLiteCelValueConverterTest {
   private static final CelLiteDescriptorPool EMPTY_DESCRIPTOR_POOL =
       new CelLiteDescriptorPool() {
         @Override
@@ -176,7 +178,7 @@ public class ProtoLiteCelValueConverterTest {
       @TestParameter RepeatedFieldBytesTestCase testCase) throws Exception {
     MessageFields fields =
         PROTO_LITE_CEL_VALUE_CONVERTER.readAllFields(
-            testCase.bytes, "cel.expr.conformance.proto3.TestAllTypes");
+            ByteString.copyFrom(testCase.bytes), "cel.expr.conformance.proto3.TestAllTypes");
 
     assertThat(fields.values()).containsExactly("repeated_int64", ImmutableList.of(1L, 2L, 3L));
   }
@@ -260,7 +262,7 @@ public class ProtoLiteCelValueConverterTest {
 
     MessageFields messageFields =
         PROTO_LITE_CEL_VALUE_CONVERTER.readAllFields(
-            bytes, "cel.expr.conformance.proto3.TestAllTypes");
+            ByteString.copyFrom(bytes), "cel.expr.conformance.proto3.TestAllTypes");
 
     assertThat(messageFields.values()).isEmpty();
     assertThat(messageFields.unknowns())
@@ -277,7 +279,7 @@ public class ProtoLiteCelValueConverterTest {
 
     MessageFields messageFields =
         PROTO_LITE_CEL_VALUE_CONVERTER.readAllFields(
-            testCase.bytes, "cel.expr.conformance.proto3.TestAllTypes");
+            ByteString.copyFrom(testCase.bytes), "cel.expr.conformance.proto3.TestAllTypes");
 
     assertThat(messageFields.values()).isEmpty();
     assertThat(messageFields.unknowns()).containsExactlyEntriesIn(testCase.unknownMap).inOrder();
@@ -318,7 +320,7 @@ public class ProtoLiteCelValueConverterTest {
 
     MessageFields fields =
         PROTO_LITE_CEL_VALUE_CONVERTER.readAllFields(
-            unknownMessageBytes, "cel.expr.conformance.proto3.TestAllTypes");
+            ByteString.copyFrom(unknownMessageBytes), "cel.expr.conformance.proto3.TestAllTypes");
 
     assertThat(TextFormat.printer().printToString(parsedMsg))
         .isEqualTo(
@@ -410,7 +412,7 @@ public class ProtoLiteCelValueConverterTest {
 
     MessageFields fields =
         PROTO_LITE_CEL_VALUE_CONVERTER.readAllFields(
-            msg.toByteArray(), "cel.expr.conformance.proto3.TestAllTypes");
+            msg.toByteString(), "cel.expr.conformance.proto3.TestAllTypes");
 
     assertThat(fields.values().keySet()).containsExactly("oneof_type");
     Object fieldValue = fields.values().get("oneof_type");
@@ -433,19 +435,35 @@ public class ProtoLiteCelValueConverterTest {
   }
 
   @Test
-  public void tryDecodeProtoMessage_registeredMessageType_returnsProtoMessageLiteValue() {
+  public void tryDecodeProtoMessage_registeredMessageType_returnsWireBackedProtoMessageLiteValue() {
     NestedMessage nestedMsg = NestedMessage.newBuilder().setBb(42).build();
 
     Optional<Object> decoded =
         PROTO_LITE_CEL_VALUE_CONVERTER.tryDecodeProtoMessage(
             nestedMsg.toByteString(), "cel.expr.conformance.proto3.TestAllTypes.NestedMessage");
 
+    assertThat(decoded.map(v -> ((ProtoMessageLiteValue) v).rawValue())).isEmpty();
+    assertThat(decoded.map(v -> ((ProtoMessageLiteValue) v).wireBytes()))
+        .hasValue(nestedMsg.toByteString());
     assertThat(decoded)
         .hasValue(
             ProtoMessageLiteValue.create(
                 nestedMsg,
                 "cel.expr.conformance.proto3.TestAllTypes.NestedMessage",
                 PROTO_LITE_CEL_VALUE_CONVERTER));
+  }
+
+  @Test
+  public void tryDecodeProtoMessage_fieldMask_returnsWireBackedProtoMessageLiteValue() {
+    FieldMask fieldMask = FieldMask.newBuilder().addPaths("foo").addPaths("bar").build();
+
+    Optional<Object> decoded =
+        PROTO_LITE_CEL_VALUE_CONVERTER.tryDecodeProtoMessage(
+            fieldMask.toByteString(), "google.protobuf.FieldMask");
+
+    assertThat(decoded.map(v -> ((ProtoMessageLiteValue) v).rawValue())).isEmpty();
+    assertThat(decoded.map(v -> ((ProtoMessageLiteValue) v).select("paths")))
+        .hasValue(ImmutableList.of("foo", "bar"));
   }
 
   @Test
@@ -501,5 +519,72 @@ public class ProtoLiteCelValueConverterTest {
                     ByteString.EMPTY, "google.protobuf.Any"));
 
     assertThat(exception).hasMessageThat().contains("ANY_VALUE");
+  }
+
+  @Test
+  public void readAllFields_splitSingularSubmessages_mergesAllOccurrences() throws Exception {
+    ByteArrayOutputStream unknownFieldBaos = new ByteArrayOutputStream();
+    CodedOutputStream cos = CodedOutputStream.newInstance(unknownFieldBaos);
+    cos.writeInt64(999, 42L);
+    cos.flush();
+    NestedMessage nestedWithUnknown =
+        NestedMessage.parseFrom(
+            unknownFieldBaos.toByteArray(), ExtensionRegistryLite.getEmptyRegistry());
+    TestAllTypes part1 =
+        TestAllTypes.newBuilder()
+            .setOneofType(
+                NestedTestAllTypes.newBuilder()
+                    .setPayload(TestAllTypes.newBuilder().setSingleInt32(10)))
+            .setSingleDuration(Duration.newBuilder().setSeconds(10))
+            .setSingleNestedMessage(NestedMessage.newBuilder().setBb(99))
+            .build();
+    TestAllTypes part2 =
+        TestAllTypes.newBuilder()
+            .setOneofType(
+                NestedTestAllTypes.newBuilder()
+                    .setPayload(TestAllTypes.newBuilder().setSingleString("merged")))
+            .setSingleDuration(Duration.newBuilder().setNanos(500))
+            .setSingleNestedMessage(nestedWithUnknown)
+            .build();
+    ByteString splitWireBytes = part1.toByteString().concat(part2.toByteString());
+
+    MessageFields fields =
+        PROTO_LITE_CEL_VALUE_CONVERTER.readAllFields(
+            splitWireBytes, "cel.expr.conformance.proto3.TestAllTypes");
+
+    assertThat(fields.values().get("single_duration"))
+        .isEqualTo(Duration.newBuilder().setSeconds(10).setNanos(500).build());
+    ProtoMessageLiteValue nestedMsg =
+        (ProtoMessageLiteValue) fields.values().get("single_nested_message");
+    assertThat(nestedMsg.rawValue()).isNull();
+    assertThat(nestedMsg.select("bb")).isEqualTo(99L);
+    assertThat(nestedMsg.unknownFields()).valuesForKey(999).containsExactly(42L);
+    RawProtoMessageLiteValue rawSubmessage =
+        (RawProtoMessageLiteValue) fields.values().get("oneof_type");
+    assertThat(
+            NestedTestAllTypes.parseFrom(
+                rawSubmessage.toByteString(), ExtensionRegistryLite.getEmptyRegistry()))
+        .isEqualTo(
+            NestedTestAllTypes.newBuilder()
+                .setPayload(TestAllTypes.newBuilder().setSingleInt32(10).setSingleString("merged"))
+                .build());
+  }
+
+  @Test
+  public void parseMessageLite_emptyBytes_returnsDefaultInstanceSingleton() {
+    MessageLite parsed =
+        PROTO_LITE_CEL_VALUE_CONVERTER.parseMessageLite(
+            ByteString.EMPTY, "cel.expr.conformance.proto3.TestAllTypes");
+
+    assertThat(parsed).isSameInstanceAs(TestAllTypes.getDefaultInstance());
+  }
+
+  @Test
+  public void readAllFields_emptyBytes_returnsEmptySingleton() throws Exception {
+    MessageFields fields =
+        PROTO_LITE_CEL_VALUE_CONVERTER.readAllFields(
+            ByteString.EMPTY, "cel.expr.conformance.proto3.TestAllTypes");
+
+    assertThat(fields).isSameInstanceAs(MessageFields.EMPTY);
   }
 }
