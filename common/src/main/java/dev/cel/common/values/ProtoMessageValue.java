@@ -14,8 +14,9 @@
 
 package dev.cel.common.values;
 
+import static com.google.common.base.Preconditions.checkNotNull;
+
 import com.google.auto.value.AutoValue;
-import com.google.common.base.Preconditions;
 import com.google.errorprone.annotations.Immutable;
 import com.google.protobuf.Descriptors.Descriptor;
 import com.google.protobuf.Descriptors.FieldDescriptor;
@@ -28,7 +29,8 @@ import java.util.Optional;
 /** ProtoMessageValue is a struct value with protobuf support. */
 @AutoValue
 @Immutable
-public abstract class ProtoMessageValue extends StructValue<String, Message> {
+public abstract class ProtoMessageValue extends StructValue<String, Message>
+    implements OptimizedSelectable {
 
   @Override
   public abstract Message value();
@@ -60,18 +62,28 @@ public abstract class ProtoMessageValue extends StructValue<String, Message> {
     FieldDescriptor fieldDescriptor =
         findField(celDescriptorPool(), value().getDescriptorForType(), field);
 
-    // Selecting a field on a protobuf message yields a default value even if the field is not
-    // declared. Therefore, we must exhaustively test whether they are actually declared.
-    if (fieldDescriptor.isRepeated()) {
-      if (value().getRepeatedFieldCount(fieldDescriptor) == 0) {
-        return Optional.empty();
-      }
-    } else if (!value().hasField(fieldDescriptor)) {
-      return Optional.empty();
-    }
+    return findFieldValue(fieldDescriptor);
+  }
 
-    return Optional.of(
-        protoCelValueConverter().fromProtoMessageFieldToCelValue(value(), fieldDescriptor));
+  @Override
+  public Object selectByFieldNumber(SelectField field) {
+    FieldDescriptor fieldDescriptor = findFieldByNumber(value().getDescriptorForType(), field);
+
+    return protoCelValueConverter().fromProtoMessageFieldToCelValue(value(), fieldDescriptor);
+  }
+
+  @Override
+  public boolean hasFieldByNumber(SelectField field) {
+    FieldDescriptor fieldDescriptor = findFieldByNumber(value().getDescriptorForType(), field);
+
+    return isFieldPresent(fieldDescriptor);
+  }
+
+  @Override
+  public Optional<Object> findByFieldNumber(SelectField field) {
+    FieldDescriptor fieldDescriptor = findFieldByNumber(value().getDescriptorForType(), field);
+
+    return findFieldValue(fieldDescriptor);
   }
 
   public static ProtoMessageValue create(
@@ -79,15 +91,45 @@ public abstract class ProtoMessageValue extends StructValue<String, Message> {
       CelDescriptorPool celDescriptorPool,
       ProtoCelValueConverter protoCelValueConverter,
       boolean enableJsonFieldNames) {
-    Preconditions.checkNotNull(value);
-    Preconditions.checkNotNull(celDescriptorPool);
-    Preconditions.checkNotNull(protoCelValueConverter);
+    checkNotNull(value);
+    checkNotNull(celDescriptorPool);
+    checkNotNull(protoCelValueConverter);
     return new AutoValue_ProtoMessageValue(
         value,
         StructTypeReference.create(value.getDescriptorForType().getFullName()),
         celDescriptorPool,
         protoCelValueConverter,
         enableJsonFieldNames);
+  }
+
+  private Optional<Object> findFieldValue(FieldDescriptor fieldDescriptor) {
+    if (!isFieldPresent(fieldDescriptor)) {
+      return Optional.empty();
+    }
+
+    return Optional.of(
+        protoCelValueConverter().fromProtoMessageFieldToCelValue(value(), fieldDescriptor));
+  }
+
+  private boolean isFieldPresent(FieldDescriptor fieldDescriptor) {
+    // Selecting a field on a protobuf message yields a default value even if the field is not
+    // declared. Therefore, we must exhaustively test whether they are actually declared.
+    if (fieldDescriptor.isRepeated()) {
+      return value().getRepeatedFieldCount(fieldDescriptor) > 0;
+    }
+    return value().hasField(fieldDescriptor);
+  }
+
+  private static FieldDescriptor findFieldByNumber(Descriptor descriptor, SelectField field) {
+    FieldDescriptor fieldDescriptor = descriptor.findFieldByNumber(field.fieldNumber());
+    if (fieldDescriptor != null) {
+      return fieldDescriptor;
+    }
+
+    throw new IllegalArgumentException(
+        String.format(
+            "field '%s' (number %d) is not declared in message '%s'",
+            field.fieldName(), field.fieldNumber(), descriptor.getFullName()));
   }
 
   private FieldDescriptor findField(
@@ -114,4 +156,6 @@ public abstract class ProtoMessageValue extends StructValue<String, Message> {
                         "field '%s' is not declared in message '%s'",
                         fieldName, descriptor.getFullName())));
   }
+
+  ProtoMessageValue() {}
 }

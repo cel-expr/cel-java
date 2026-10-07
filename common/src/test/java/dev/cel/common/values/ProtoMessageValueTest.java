@@ -21,12 +21,17 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.primitives.UnsignedLong;
 import com.google.protobuf.Any;
+import com.google.protobuf.BoolValue;
 import com.google.protobuf.ByteString;
+import com.google.protobuf.BytesValue;
+import com.google.protobuf.DoubleValue;
 import com.google.protobuf.DynamicMessage;
 import com.google.protobuf.FieldMask;
 import com.google.protobuf.FloatValue;
 import com.google.protobuf.Int32Value;
 import com.google.protobuf.Int64Value;
+import com.google.protobuf.ListValue;
+import com.google.protobuf.StringValue;
 import com.google.protobuf.Struct;
 import com.google.protobuf.Timestamp;
 import com.google.protobuf.UInt32Value;
@@ -48,6 +53,7 @@ import dev.cel.expr.conformance.proto2.TestAllTypes.NestedMessage;
 import dev.cel.expr.conformance.proto2.TestAllTypesExtensions;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Optional;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
@@ -215,39 +221,12 @@ public final class ProtoMessageValueTest {
 
   @Test
   public void selectField_success(@TestParameter SelectFieldTestCase testCase) {
-    TestAllTypes testAllTypes =
-        TestAllTypes.newBuilder()
-            .setSingleBool(true)
-            .setSingleInt32(4)
-            .setSingleInt64(5L)
-            .setSingleUint32(1)
-            .setSingleUint64(UnsignedLong.MAX_VALUE.longValue())
-            .setSingleFloat(1.5f)
-            .setSingleDouble(2.5d)
-            .setSingleString("test")
-            .setSingleBytes(ByteString.copyFrom(new byte[] {0x01}))
-            .setSingleAny(
-                Any.pack(DynamicMessage.newBuilder(com.google.protobuf.BoolValue.of(true)).build()))
-            .setSingleDuration(com.google.protobuf.Duration.newBuilder().setSeconds(100))
-            .setSingleTimestamp(Timestamp.newBuilder().setSeconds(100))
-            .setSingleInt32Wrapper(Int32Value.of(5))
-            .setSingleInt64Wrapper(Int64Value.of(10L))
-            .setSingleUint32Wrapper(UInt32Value.of(1))
-            .setSingleUint64Wrapper(UInt64Value.of(UnsignedLong.MAX_VALUE.longValue()))
-            .setSingleStringWrapper(com.google.protobuf.StringValue.of("hello"))
-            .setSingleFloatWrapper(FloatValue.of(7.5f))
-            .setSingleDoubleWrapper(com.google.protobuf.DoubleValue.of(8.5d))
-            .setSingleBytesWrapper(
-                com.google.protobuf.BytesValue.of(ByteString.copyFrom(new byte[] {0x02})))
-            .addRepeatedInt64(5L)
-            .putMapStringString("a", "b")
-            .setStandaloneMessage(NestedMessage.getDefaultInstance())
-            .setStandaloneEnum(NestedEnum.BAR)
-            .build();
-
     ProtoMessageValue protoMessageValue =
         ProtoMessageValue.create(
-            testAllTypes, DefaultDescriptorPool.INSTANCE, PROTO_CEL_VALUE_CONVERTER, false);
+            createPopulatedTestAllTypes(),
+            DefaultDescriptorPool.INSTANCE,
+            PROTO_CEL_VALUE_CONVERTER,
+            /* enableJsonFieldNames= */ false);
 
     assertThat(protoMessageValue.select(testCase.fieldName)).isEqualTo(testCase.value);
   }
@@ -361,7 +340,7 @@ public final class ProtoMessageValueTest {
     LIST(
         Value.newBuilder()
             .setListValue(
-                com.google.protobuf.ListValue.newBuilder()
+                ListValue.newBuilder()
                     .addValues(Value.newBuilder().setStringValue("test").build())
                     .build())
             .build(),
@@ -410,7 +389,7 @@ public final class ProtoMessageValueTest {
     TestAllTypes testAllTypes =
         TestAllTypes.newBuilder()
             .setListValue(
-                com.google.protobuf.ListValue.newBuilder()
+                ListValue.newBuilder()
                     .addValues(Value.newBuilder().setBoolValue(false).build())
                     .build())
             .build();
@@ -456,5 +435,222 @@ public final class ProtoMessageValueTest {
             testAllTypes, DefaultDescriptorPool.INSTANCE, PROTO_CEL_VALUE_CONVERTER, true);
 
     assertThat(protoMessageValue.find("singleInt32")).isPresent();
+  }
+
+  @Test
+  public void selectByFieldNumber_success(@TestParameter SelectFieldTestCase testCase) {
+    ProtoMessageValue protoMessageValue =
+        ProtoMessageValue.create(
+            createPopulatedTestAllTypes(),
+            DefaultDescriptorPool.INSTANCE,
+            PROTO_CEL_VALUE_CONVERTER,
+            /* enableJsonFieldNames= */ false);
+    int fieldNumber = TestAllTypes.getDescriptor().findFieldByName(testCase.fieldName).getNumber();
+    SelectField selectField = SelectField.create(fieldNumber, "renamed_" + testCase.fieldName);
+
+    Object result = protoMessageValue.selectByFieldNumber(selectField);
+
+    assertThat(result).isEqualTo(testCase.value);
+  }
+
+  @SuppressWarnings("ImmutableEnumChecker") // Test only
+  private enum UnsetFieldDefaultTestCase {
+    PROTO2_CUSTOM_INT32(TestAllTypes.SINGLE_INT32_FIELD_NUMBER, "single_int32", -32L),
+    PROTO2_CUSTOM_STRING(TestAllTypes.SINGLE_STRING_FIELD_NUMBER, "single_string", "empty"),
+    WRAPPER_UNSET(
+        TestAllTypes.SINGLE_INT64_WRAPPER_FIELD_NUMBER,
+        "single_int64_wrapper",
+        NullValue.NULL_VALUE),
+    REPEATED_EMPTY(TestAllTypes.REPEATED_INT64_FIELD_NUMBER, "repeated_int64", ImmutableList.of()),
+    MAP_EMPTY(TestAllTypes.MAP_STRING_STRING_FIELD_NUMBER, "map_string_string", ImmutableMap.of());
+
+    private final int fieldNumber;
+    private final String fieldName;
+    private final Object expectedDefault;
+
+    UnsetFieldDefaultTestCase(int fieldNumber, String fieldName, Object expectedDefault) {
+      this.fieldNumber = fieldNumber;
+      this.fieldName = fieldName;
+      this.expectedDefault = expectedDefault;
+    }
+  }
+
+  @Test
+  public void selectByFieldNumber_unsetField_returnsDefault(
+      @TestParameter UnsetFieldDefaultTestCase testCase) {
+    ProtoMessageValue protoMessageValue =
+        ProtoMessageValue.create(
+            TestAllTypes.getDefaultInstance(),
+            DefaultDescriptorPool.INSTANCE,
+            PROTO_CEL_VALUE_CONVERTER,
+            /* enableJsonFieldNames= */ false);
+    SelectField selectField =
+        SelectField.create(testCase.fieldNumber, "renamed_" + testCase.fieldName);
+
+    Object result = protoMessageValue.selectByFieldNumber(selectField);
+
+    assertThat(result).isEqualTo(testCase.expectedDefault);
+  }
+
+  @Test
+  public void selectByFieldNumber_undeclaredField_throwsException() {
+    ProtoMessageValue protoMessageValue =
+        ProtoMessageValue.create(
+            TestAllTypes.getDefaultInstance(),
+            DefaultDescriptorPool.INSTANCE,
+            PROTO_CEL_VALUE_CONVERTER,
+            /* enableJsonFieldNames= */ false);
+    SelectField undeclaredField = SelectField.create(99999L, "bogus");
+
+    IllegalArgumentException exception =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> protoMessageValue.selectByFieldNumber(undeclaredField));
+
+    assertThat(exception)
+        .hasMessageThat()
+        .isEqualTo(
+            "field 'bogus' (number 99999) is not declared in message"
+                + " 'cel.expr.conformance.proto2.TestAllTypes'");
+  }
+
+  @Test
+  public void hasFieldByNumber_fieldIsSet_returnsTrue(@TestParameter SelectFieldTestCase testCase) {
+    ProtoMessageValue protoMessageValue =
+        ProtoMessageValue.create(
+            createPopulatedTestAllTypes(),
+            DefaultDescriptorPool.INSTANCE,
+            PROTO_CEL_VALUE_CONVERTER,
+            /* enableJsonFieldNames= */ false);
+    int fieldNumber = TestAllTypes.getDescriptor().findFieldByName(testCase.fieldName).getNumber();
+    SelectField selectField = SelectField.create(fieldNumber, "renamed_" + testCase.fieldName);
+
+    boolean result = protoMessageValue.hasFieldByNumber(selectField);
+
+    assertThat(result).isTrue();
+  }
+
+  @Test
+  public void hasFieldByNumber_fieldIsUnset_returnsFalse(
+      @TestParameter SelectFieldTestCase testCase) {
+    ProtoMessageValue protoMessageValue =
+        ProtoMessageValue.create(
+            TestAllTypes.getDefaultInstance(),
+            DefaultDescriptorPool.INSTANCE,
+            PROTO_CEL_VALUE_CONVERTER,
+            /* enableJsonFieldNames= */ false);
+    int fieldNumber = TestAllTypes.getDescriptor().findFieldByName(testCase.fieldName).getNumber();
+    SelectField selectField = SelectField.create(fieldNumber, "renamed_" + testCase.fieldName);
+
+    boolean result = protoMessageValue.hasFieldByNumber(selectField);
+
+    assertThat(result).isFalse();
+  }
+
+  @Test
+  public void hasFieldByNumber_undeclaredField_throwsException() {
+    ProtoMessageValue protoMessageValue =
+        ProtoMessageValue.create(
+            TestAllTypes.getDefaultInstance(),
+            DefaultDescriptorPool.INSTANCE,
+            PROTO_CEL_VALUE_CONVERTER,
+            /* enableJsonFieldNames= */ false);
+    SelectField undeclaredField = SelectField.create(99999L, "bogus");
+
+    IllegalArgumentException exception =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> protoMessageValue.hasFieldByNumber(undeclaredField));
+
+    assertThat(exception)
+        .hasMessageThat()
+        .isEqualTo(
+            "field 'bogus' (number 99999) is not declared in message"
+                + " 'cel.expr.conformance.proto2.TestAllTypes'");
+  }
+
+  @Test
+  public void findByFieldNumber_fieldIsSet_returnsValue(
+      @TestParameter SelectFieldTestCase testCase) {
+    ProtoMessageValue protoMessageValue =
+        ProtoMessageValue.create(
+            createPopulatedTestAllTypes(),
+            DefaultDescriptorPool.INSTANCE,
+            PROTO_CEL_VALUE_CONVERTER,
+            /* enableJsonFieldNames= */ false);
+    int fieldNumber = TestAllTypes.getDescriptor().findFieldByName(testCase.fieldName).getNumber();
+    SelectField selectField = SelectField.create(fieldNumber, "renamed_" + testCase.fieldName);
+
+    Optional<Object> result = protoMessageValue.findByFieldNumber(selectField);
+
+    assertThat(result).hasValue(testCase.value);
+  }
+
+  @Test
+  public void findByFieldNumber_fieldIsUnset_returnsEmpty(
+      @TestParameter SelectFieldTestCase testCase) {
+    ProtoMessageValue protoMessageValue =
+        ProtoMessageValue.create(
+            TestAllTypes.getDefaultInstance(),
+            DefaultDescriptorPool.INSTANCE,
+            PROTO_CEL_VALUE_CONVERTER,
+            /* enableJsonFieldNames= */ false);
+    int fieldNumber = TestAllTypes.getDescriptor().findFieldByName(testCase.fieldName).getNumber();
+    SelectField selectField = SelectField.create(fieldNumber, "renamed_" + testCase.fieldName);
+
+    Optional<Object> result = protoMessageValue.findByFieldNumber(selectField);
+
+    assertThat(result).isEmpty();
+  }
+
+  @Test
+  public void findByFieldNumber_undeclaredField_throwsException() {
+    ProtoMessageValue protoMessageValue =
+        ProtoMessageValue.create(
+            TestAllTypes.getDefaultInstance(),
+            DefaultDescriptorPool.INSTANCE,
+            PROTO_CEL_VALUE_CONVERTER,
+            /* enableJsonFieldNames= */ false);
+    SelectField undeclaredField = SelectField.create(99999L, "bogus");
+
+    IllegalArgumentException exception =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> protoMessageValue.findByFieldNumber(undeclaredField));
+
+    assertThat(exception)
+        .hasMessageThat()
+        .isEqualTo(
+            "field 'bogus' (number 99999) is not declared in message"
+                + " 'cel.expr.conformance.proto2.TestAllTypes'");
+  }
+
+  private static TestAllTypes createPopulatedTestAllTypes() {
+    return TestAllTypes.newBuilder()
+        .setSingleBool(true)
+        .setSingleInt32(4)
+        .setSingleInt64(5L)
+        .setSingleUint32(1)
+        .setSingleUint64(UnsignedLong.MAX_VALUE.longValue())
+        .setSingleFloat(1.5f)
+        .setSingleDouble(2.5d)
+        .setSingleString("test")
+        .setSingleBytes(ByteString.copyFrom(new byte[] {0x01}))
+        .setSingleAny(Any.pack(DynamicMessage.newBuilder(BoolValue.of(true)).build()))
+        .setSingleDuration(com.google.protobuf.Duration.newBuilder().setSeconds(100))
+        .setSingleTimestamp(Timestamp.newBuilder().setSeconds(100))
+        .setSingleInt32Wrapper(Int32Value.of(5))
+        .setSingleInt64Wrapper(Int64Value.of(10L))
+        .setSingleUint32Wrapper(UInt32Value.of(1))
+        .setSingleUint64Wrapper(UInt64Value.of(UnsignedLong.MAX_VALUE.longValue()))
+        .setSingleStringWrapper(StringValue.of("hello"))
+        .setSingleFloatWrapper(FloatValue.of(7.5f))
+        .setSingleDoubleWrapper(DoubleValue.of(8.5d))
+        .setSingleBytesWrapper(BytesValue.of(ByteString.copyFrom(new byte[] {0x02})))
+        .addRepeatedInt64(5L)
+        .putMapStringString("a", "b")
+        .setStandaloneMessage(NestedMessage.getDefaultInstance())
+        .setStandaloneEnum(NestedEnum.BAR)
+        .build();
   }
 }
