@@ -40,7 +40,6 @@ import dev.cel.protobuf.CelLiteDescriptor.MessageLiteDescriptor;
 import java.io.IOException;
 import java.util.AbstractMap;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -313,33 +312,90 @@ public final class ProtoLiteCelValueConverter extends BaseProtoCelValueConverter
     throw new IllegalStateException("Unexpected java type: " + type);
   }
 
-  private ImmutableList<Object> readPackedRepeatedFields(
-      CodedInputStream inputStream, FieldLiteDescriptor fieldDescriptor) throws IOException {
-    int length = inputStream.readInt32();
-    int oldLimit = inputStream.pushLimit(length);
-    ImmutableList.Builder<Object> builder = ImmutableList.builder();
-    while (inputStream.getBytesUntilLimit() > 0) {
-      builder.add(readPrimitiveField(inputStream, fieldDescriptor));
-    }
-    inputStream.popLimit(oldLimit);
-    return builder.build();
-  }
-
   private Map.Entry<Object, Object> readSingleMapEntry(
       CodedInputStream inputStream, FieldLiteDescriptor fieldDescriptor) throws IOException {
     String entryTypeName = fieldDescriptor.getFieldProtoTypeName();
-    ImmutableMap<String, Object> singleMapEntry =
-        readAllFields(inputStream.readBytes(), entryTypeName).values();
-    Object key = singleMapEntry.get(MAP_KEY_FIELD_NAME);
-    if (key == null) {
-      key = getDefaultCelValue(entryTypeName, MAP_KEY_FIELD_NAME);
+    MessageLiteDescriptor entryDescriptor = descriptorPool.getDescriptorOrThrow(entryTypeName);
+    FieldLiteDescriptor keyDescriptor = entryDescriptor.getByFieldNameOrThrow(MAP_KEY_FIELD_NAME);
+    FieldLiteDescriptor valueDescriptor =
+        entryDescriptor.getByFieldNameOrThrow(MAP_VALUE_FIELD_NAME);
+    int length = inputStream.readInt32();
+    int oldLimit = inputStream.pushLimit(length);
+    Object key = null;
+    Object value = null;
+    while (inputStream.getBytesUntilLimit() > 0) {
+      int tag = inputStream.readTag();
+      int tagWireType = WireFormat.getTagWireType(tag);
+      int fieldNumber = WireFormat.getTagFieldNumber(tag);
+      if (fieldNumber == keyDescriptor.getFieldNumber()) {
+        key = readSingularField(tagWireType, inputStream, keyDescriptor, key);
+      } else if (fieldNumber == valueDescriptor.getFieldNumber()) {
+        value = readSingularField(tagWireType, inputStream, valueDescriptor, value);
+      } else {
+        skipWireField(tag, inputStream);
+      }
     }
-    Object value = singleMapEntry.get(MAP_VALUE_FIELD_NAME);
+    inputStream.popLimit(oldLimit);
+    if (key == null) {
+      key = getDefaultCelValue(keyDescriptor);
+    }
     if (value == null) {
-      value = getDefaultCelValue(entryTypeName, MAP_VALUE_FIELD_NAME);
+      value = getDefaultCelValue(valueDescriptor);
     }
 
-    return new AbstractMap.SimpleEntry<>(key, value);
+    return new AbstractMap.SimpleImmutableEntry<>(key, value);
+  }
+
+  @Nullable Object readSingleField(ByteString bytes, FieldLiteDescriptor fieldDescriptor)
+      throws IOException {
+    CodedInputStream inputStream = bytes.newCodedInput();
+    int targetFieldNumber = fieldDescriptor.getFieldNumber();
+    Object fieldValue = null;
+    for (int tag = inputStream.readTag(); tag != 0; tag = inputStream.readTag()) {
+      int fieldNumber = WireFormat.getTagFieldNumber(tag);
+      if (fieldNumber != targetFieldNumber) {
+        skipWireField(tag, inputStream);
+        continue;
+      }
+      int tagWireType = WireFormat.getTagWireType(tag);
+      fieldValue = readFieldValue(tagWireType, inputStream, fieldDescriptor, fieldValue);
+    }
+    return fieldValue;
+  }
+
+  boolean hasSingleField(ByteString bytes, FieldLiteDescriptor fieldDescriptor) throws IOException {
+    return hasSingleField(
+        bytes,
+        fieldDescriptor.getFieldNumber(),
+        fieldDescriptor.getEncodingType().equals(EncodingType.LIST)
+            && fieldDescriptor.getIsPacked());
+  }
+
+  static boolean hasSingleField(ByteString bytes, int targetFieldNumber, boolean isPackableList)
+      throws IOException {
+    CodedInputStream inputStream = bytes.newCodedInput();
+    for (int tag = inputStream.readTag(); tag != 0; tag = inputStream.readTag()) {
+      int fieldNumber = WireFormat.getTagFieldNumber(tag);
+      if (fieldNumber != targetFieldNumber) {
+        skipWireField(tag, inputStream);
+        continue;
+      }
+      int tagWireType = WireFormat.getTagWireType(tag);
+      // In protobuf wire format, a zero-length entry for a singular field (e.g. empty string,
+      // bytes, or empty submessage) represents explicit presence on the wire. Only packed
+      // repeated fields with empty payload represent an empty/absent collection.
+      if (isPackableList && tagWireType == WireFormat.WIRETYPE_LENGTH_DELIMITED) {
+        int length = inputStream.readInt32();
+        inputStream.skipRawBytes(length);
+        if (length > 0) {
+          return true;
+        }
+        continue;
+      }
+      skipWireField(tag, inputStream);
+      return true;
+    }
+    return false;
   }
 
   MessageFields readAllFields(ByteString bytes, String protoTypeName) throws IOException {
@@ -368,86 +424,131 @@ public final class ProtoLiteCelValueConverter extends BaseProtoCelValueConverter
       }
 
       String fieldName = fieldDescriptor.getFieldName();
-      Object payload;
-      switch (tagWireType) {
-        case WireFormat.WIRETYPE_VARINT:
-          payload = readPrimitiveField(inputStream, fieldDescriptor);
-          break;
-        case WireFormat.WIRETYPE_FIXED32:
-          payload = readFixed32BitField(inputStream, fieldDescriptor);
-          break;
-        case WireFormat.WIRETYPE_FIXED64:
-          payload = readFixed64BitField(inputStream, fieldDescriptor);
-          break;
-        case WireFormat.WIRETYPE_LENGTH_DELIMITED:
-          EncodingType encodingType = fieldDescriptor.getEncodingType();
-          switch (encodingType) {
-            case LIST:
-              if (fieldDescriptor.getIsPacked()) {
-                payload = readPackedRepeatedFields(inputStream, fieldDescriptor);
-              } else {
-                FieldLiteDescriptor.Type protoFieldType = fieldDescriptor.getProtoFieldType();
-                boolean isLenDelimited =
-                    protoFieldType.equals(FieldLiteDescriptor.Type.MESSAGE)
-                        || protoFieldType.equals(FieldLiteDescriptor.Type.STRING)
-                        || protoFieldType.equals(FieldLiteDescriptor.Type.BYTES);
-                if (!isLenDelimited) {
-                  throw new IllegalStateException(
-                      "Unexpected field type encountered for LEN-Delimited record: "
-                          + protoFieldType);
-                }
-
-                payload =
-                    readLengthDelimitedField(
-                        inputStream, fieldDescriptor, /* existingValue= */ null);
-              }
-              break;
-            case MAP:
-              // Safe because MAP fields only ever store a LinkedHashMap in fieldValues.
-              @SuppressWarnings("unchecked")
-              Map<Object, Object> fieldMap =
-                  (Map<Object, Object>)
-                      fieldValues.computeIfAbsent(fieldName, (unused) -> new LinkedHashMap<>());
-              Map.Entry<Object, Object> mapEntry = readSingleMapEntry(inputStream, fieldDescriptor);
-              fieldMap.put(mapEntry.getKey(), mapEntry.getValue());
-              continue;
-            default:
-              payload =
-                  readLengthDelimitedField(
-                      inputStream, fieldDescriptor, fieldValues.get(fieldName));
-              break;
-          }
-          break;
-        case WireFormat.WIRETYPE_START_GROUP:
-        case WireFormat.WIRETYPE_END_GROUP:
-          // TODO: Support groups
-          throw new UnsupportedOperationException("Groups are not supported");
-        default:
-          throw new IllegalArgumentException("Unexpected wire type: " + tagWireType);
-      }
-
-      if (fieldDescriptor.getEncodingType().equals(EncodingType.LIST)) {
-        if (payload instanceof Collection) {
-          Collection<?> elements = (Collection<?>) payload;
-          if (!elements.isEmpty()) {
-            getOrCreateRepeatedList(fieldValues, fieldName).addAll(elements);
-          }
-        } else {
-          getOrCreateRepeatedList(fieldValues, fieldName).add(payload);
-        }
-      } else {
-        fieldValues.put(fieldName, payload);
+      Object fieldValue =
+          readFieldValue(tagWireType, inputStream, fieldDescriptor, fieldValues.get(fieldName));
+      if (fieldValue != null) {
+        fieldValues.put(fieldName, fieldValue);
       }
     }
 
     return MessageFields.create(ImmutableMap.copyOf(fieldValues), unknownFields);
   }
 
-  // Safe because LIST fields only ever store an ArrayList in fieldValues.
+  private @Nullable Object readFieldValue(
+      int tagWireType,
+      CodedInputStream inputStream,
+      FieldLiteDescriptor fieldDescriptor,
+      @Nullable Object existingValue)
+      throws IOException {
+    EncodingType encodingType = fieldDescriptor.getEncodingType();
+    switch (encodingType) {
+      case SINGULAR:
+        return readSingularField(tagWireType, inputStream, fieldDescriptor, existingValue);
+      case LIST:
+        return readRepeatedField(tagWireType, inputStream, fieldDescriptor, existingValue);
+      case MAP:
+        return readMapField(tagWireType, inputStream, fieldDescriptor, existingValue);
+    }
+    throw new IllegalStateException("Unexpected encoding type: " + encodingType);
+  }
+
+  private Object readSingularField(
+      int tagWireType,
+      CodedInputStream inputStream,
+      FieldLiteDescriptor fieldDescriptor,
+      @Nullable Object existingValue)
+      throws IOException {
+    switch (tagWireType) {
+      case WireFormat.WIRETYPE_VARINT:
+        return readPrimitiveField(inputStream, fieldDescriptor);
+      case WireFormat.WIRETYPE_FIXED32:
+        return readFixed32BitField(inputStream, fieldDescriptor);
+      case WireFormat.WIRETYPE_FIXED64:
+        return readFixed64BitField(inputStream, fieldDescriptor);
+      case WireFormat.WIRETYPE_LENGTH_DELIMITED:
+        return readLengthDelimitedField(inputStream, fieldDescriptor, existingValue);
+      case WireFormat.WIRETYPE_START_GROUP:
+      case WireFormat.WIRETYPE_END_GROUP:
+        throw new UnsupportedOperationException("Groups are not supported");
+      default:
+        throw new IllegalArgumentException("Unexpected wire type: " + tagWireType);
+    }
+  }
+
+  // Safe because LIST fields only ever store an ArrayList as their accumulated value.
   @SuppressWarnings("unchecked")
-  private static List<Object> getOrCreateRepeatedList(
-      Map<String, Object> fieldValues, String fieldName) {
-    return (List<Object>) fieldValues.computeIfAbsent(fieldName, (unused) -> new ArrayList<>());
+  private @Nullable List<Object> readRepeatedField(
+      int tagWireType,
+      CodedInputStream inputStream,
+      FieldLiteDescriptor fieldDescriptor,
+      @Nullable Object existingValue)
+      throws IOException {
+    List<Object> repeatedValues = (List<Object>) existingValue;
+    if (tagWireType == WireFormat.WIRETYPE_LENGTH_DELIMITED && fieldDescriptor.getIsPacked()) {
+      return readPackedRepeatedFields(inputStream, fieldDescriptor, repeatedValues);
+    }
+    Object element =
+        readSingularField(tagWireType, inputStream, fieldDescriptor, /* existingValue= */ null);
+    if (repeatedValues == null) {
+      repeatedValues = new ArrayList<>();
+    }
+    repeatedValues.add(element);
+    return repeatedValues;
+  }
+
+  private static @Nullable List<Object> readPackedRepeatedFields(
+      CodedInputStream inputStream,
+      FieldLiteDescriptor fieldDescriptor,
+      @Nullable List<Object> repeatedValues)
+      throws IOException {
+    int length = inputStream.readInt32();
+    if (length == 0) {
+      return repeatedValues;
+    }
+    int oldLimit = inputStream.pushLimit(length);
+    if (repeatedValues == null) {
+      repeatedValues = new ArrayList<>();
+    }
+    while (inputStream.getBytesUntilLimit() > 0) {
+      repeatedValues.add(readPrimitiveField(inputStream, fieldDescriptor));
+    }
+    inputStream.popLimit(oldLimit);
+    return repeatedValues;
+  }
+
+  // Safe because MAP fields only ever store a LinkedHashMap as their accumulated value.
+  @SuppressWarnings("unchecked")
+  private Map<Object, Object> readMapField(
+      int tagWireType,
+      CodedInputStream inputStream,
+      FieldLiteDescriptor fieldDescriptor,
+      @Nullable Object existingValue)
+      throws IOException {
+    if (tagWireType != WireFormat.WIRETYPE_LENGTH_DELIMITED) {
+      throw new IllegalStateException("Unexpected wire type for map field: " + tagWireType);
+    }
+    Map<Object, Object> mapValues =
+        existingValue != null ? (Map<Object, Object>) existingValue : new LinkedHashMap<>();
+    Map.Entry<Object, Object> mapEntry = readSingleMapEntry(inputStream, fieldDescriptor);
+    mapValues.put(mapEntry.getKey(), mapEntry.getValue());
+    return mapValues;
+  }
+
+  static void skipWireField(int tag, CodedInputStream inputStream) throws IOException {
+    int tagWireType = WireFormat.getTagWireType(tag);
+    switch (tagWireType) {
+      case WireFormat.WIRETYPE_VARINT:
+      case WireFormat.WIRETYPE_FIXED64:
+      case WireFormat.WIRETYPE_LENGTH_DELIMITED:
+      case WireFormat.WIRETYPE_FIXED32:
+        inputStream.skipField(tag);
+        return;
+      case WireFormat.WIRETYPE_START_GROUP:
+      case WireFormat.WIRETYPE_END_GROUP:
+        throw new UnsupportedOperationException("Groups are not supported");
+      default:
+        throw new IllegalArgumentException("Unknown wire type: " + tagWireType);
+    }
   }
 
   static Object readUnknownField(int tagWireType, CodedInputStream inputStream) throws IOException {

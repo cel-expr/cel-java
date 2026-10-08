@@ -225,6 +225,49 @@ public final class ProtoMessageLiteValueTest {
     assertThat(thrown).hasCauseThat().isInstanceOf(IOException.class);
   }
 
+  @Test
+  public void create_withCorruptByteString_throwsOnSelectByFieldNumber() {
+    ByteString corruptBytes = ByteString.copyFrom(new byte[] {0x10, (byte) 0x80});
+    ProtoMessageLiteValue messageLiteValue =
+        ProtoMessageLiteValue.create(
+            corruptBytes,
+            "cel.expr.conformance.proto3.TestAllTypes",
+            PROTO_LITE_CEL_VALUE_CONVERTER);
+    SelectField selectField = SelectField.create(2L, "single_int64", 3, 0L);
+
+    IllegalArgumentException thrown =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> messageLiteValue.selectByFieldNumber(selectField));
+
+    assertThat(thrown)
+        .hasMessageThat()
+        .contains(
+            "Failed to decode proto message of type: cel.expr.conformance.proto3.TestAllTypes");
+    assertThat(thrown).hasCauseThat().isInstanceOf(IOException.class);
+  }
+
+  @Test
+  public void create_withCorruptByteString_throwsOnHasFieldByNumber() {
+    ByteString corruptBytes = ByteString.copyFrom(new byte[] {0x10, (byte) 0x80});
+    ProtoMessageLiteValue messageLiteValue =
+        ProtoMessageLiteValue.create(
+            corruptBytes,
+            "cel.expr.conformance.proto3.TestAllTypes",
+            PROTO_LITE_CEL_VALUE_CONVERTER);
+    SelectField selectField = SelectField.create(2L, "single_int64");
+
+    IllegalArgumentException thrown =
+        assertThrows(
+            IllegalArgumentException.class, () -> messageLiteValue.hasFieldByNumber(selectField));
+
+    assertThat(thrown)
+        .hasMessageThat()
+        .contains(
+            "Failed to decode proto message of type: cel.expr.conformance.proto3.TestAllTypes");
+    assertThat(thrown).hasCauseThat().isInstanceOf(IOException.class);
+  }
+
   @SuppressWarnings("ImmutableEnumChecker") // Test only
   private enum SelectFieldTestCase {
     BOOL("single_bool", true),

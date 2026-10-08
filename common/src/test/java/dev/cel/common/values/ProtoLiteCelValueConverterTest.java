@@ -19,6 +19,7 @@ import static org.junit.Assert.assertThrows;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableListMultimap;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Multimap;
 import com.google.common.primitives.UnsignedLong;
@@ -39,6 +40,7 @@ import com.google.protobuf.TextFormat;
 import com.google.protobuf.Timestamp;
 import com.google.protobuf.UInt32Value;
 import com.google.protobuf.UInt64Value;
+import com.google.protobuf.WireFormat;
 import com.google.testing.junit.testparameterinjector.TestParameter;
 import com.google.testing.junit.testparameterinjector.TestParameterInjector;
 import dev.cel.common.internal.CelLiteDescriptorPool;
@@ -586,5 +588,186 @@ public final class ProtoLiteCelValueConverterTest {
             ByteString.EMPTY, "cel.expr.conformance.proto3.TestAllTypes");
 
     assertThat(fields).isSameInstanceAs(MessageFields.EMPTY);
+  }
+
+  @Test
+  public void readSingleField_emptyBytes_returnsNull() throws Exception {
+    FieldLiteDescriptor fd =
+        PROTO_LITE_CEL_VALUE_CONVERTER
+            .findFieldDescriptor(
+                "cel.expr.conformance.proto3.TestAllTypes", TestAllTypes.SINGLE_INT64_FIELD_NUMBER)
+            .get();
+
+    Object result = PROTO_LITE_CEL_VALUE_CONVERTER.readSingleField(ByteString.EMPTY, fd);
+
+    assertThat(result).isNull();
+  }
+
+  @Test
+  public void readSingleField_absentField_returnsNull() throws Exception {
+    TestAllTypes proto = TestAllTypes.newBuilder().setSingleInt64(42L).build();
+    FieldLiteDescriptor fd =
+        PROTO_LITE_CEL_VALUE_CONVERTER
+            .findFieldDescriptor(
+                "cel.expr.conformance.proto3.TestAllTypes", TestAllTypes.SINGLE_BOOL_FIELD_NUMBER)
+            .get();
+
+    Object result = PROTO_LITE_CEL_VALUE_CONVERTER.readSingleField(proto.toByteString(), fd);
+
+    assertThat(result).isNull();
+  }
+
+  @Test
+  public void readSingleField_emptyPackedRepeated_returnsNull() throws Exception {
+    ByteArrayOutputStream emptyPackedOut = new ByteArrayOutputStream();
+    CodedOutputStream emptyPackedCos = CodedOutputStream.newInstance(emptyPackedOut);
+    emptyPackedCos.writeByteArray(TestAllTypes.REPEATED_INT32_FIELD_NUMBER, new byte[0]);
+    emptyPackedCos.flush();
+    ByteString emptyPackedBytes = ByteString.copyFrom(emptyPackedOut.toByteArray());
+    FieldLiteDescriptor repeatedInt32Fd =
+        PROTO_LITE_CEL_VALUE_CONVERTER
+            .findFieldDescriptor(
+                "cel.expr.conformance.proto3.TestAllTypes",
+                TestAllTypes.REPEATED_INT32_FIELD_NUMBER)
+            .get();
+
+    Object result =
+        PROTO_LITE_CEL_VALUE_CONVERTER.readSingleField(emptyPackedBytes, repeatedInt32Fd);
+
+    assertThat(result).isNull();
+  }
+
+  @SuppressWarnings("ImmutableEnumChecker") // Test only
+  private enum ReadSingleFieldTestCase {
+    SINGLE_STRING(TestAllTypes.SINGLE_STRING_FIELD_NUMBER, "target_str"),
+    REPEATED_STRING(TestAllTypes.REPEATED_STRING_FIELD_NUMBER, ImmutableList.of("a", "b")),
+    REPEATED_INT32(TestAllTypes.REPEATED_INT32_FIELD_NUMBER, ImmutableList.of(1, 2)),
+    MAP_STRING_STRING(
+        TestAllTypes.MAP_STRING_STRING_FIELD_NUMBER, ImmutableMap.of("k", "v", "k2", "v2", "", "")),
+    SPLIT_DURATION(
+        TestAllTypes.SINGLE_DURATION_FIELD_NUMBER,
+        Duration.newBuilder().setSeconds(10).setNanos(500).build());
+
+    private final int fieldNumber;
+    private final Object expected;
+
+    ReadSingleFieldTestCase(int fieldNumber, Object expected) {
+      this.fieldNumber = fieldNumber;
+      this.expected = expected;
+    }
+  }
+
+  @Test
+  public void readSingleField_skipsOtherFieldsAndDecodesTarget(
+      @TestParameter ReadSingleFieldTestCase testCase) throws Exception {
+    TestAllTypes part1 =
+        TestAllTypes.newBuilder()
+            .setSingleInt64(42L)
+            .setSingleFixed32(10)
+            .setSingleFixed64(20L)
+            .setSingleString("target_str")
+            .addRepeatedString("a")
+            .addRepeatedInt32(1)
+            .putMapStringString("k", "v")
+            .setSingleDuration(Duration.newBuilder().setSeconds(10))
+            .build();
+    TestAllTypes part2 =
+        TestAllTypes.newBuilder()
+            .addRepeatedString("b")
+            .addRepeatedInt32(2)
+            .putMapStringString("k2", "v2")
+            .setSingleDuration(Duration.newBuilder().setNanos(500))
+            .build();
+    ByteArrayOutputStream mapEntryWithUnknownOut = new ByteArrayOutputStream();
+    CodedOutputStream mapEntryWithUnknownCos =
+        CodedOutputStream.newInstance(mapEntryWithUnknownOut);
+    mapEntryWithUnknownCos.writeInt64(3, 99L);
+    mapEntryWithUnknownCos.flush();
+    ByteArrayOutputStream extraWireOut = new ByteArrayOutputStream();
+    CodedOutputStream extraWireCos = CodedOutputStream.newInstance(extraWireOut);
+    extraWireCos.writeByteArray(TestAllTypes.REPEATED_INT32_FIELD_NUMBER, new byte[0]);
+    extraWireCos.writeByteArray(
+        TestAllTypes.MAP_STRING_STRING_FIELD_NUMBER, mapEntryWithUnknownOut.toByteArray());
+    extraWireCos.flush();
+    ByteString bytes =
+        part1
+            .toByteString()
+            .concat(part2.toByteString())
+            .concat(ByteString.copyFrom(extraWireOut.toByteArray()));
+    FieldLiteDescriptor fd =
+        PROTO_LITE_CEL_VALUE_CONVERTER
+            .findFieldDescriptor("cel.expr.conformance.proto3.TestAllTypes", testCase.fieldNumber)
+            .get();
+
+    Object result = PROTO_LITE_CEL_VALUE_CONVERTER.readSingleField(bytes, fd);
+
+    assertThat(result).isEqualTo(testCase.expected);
+  }
+
+  @Test
+  public void hasSingleField_emptyBytes_returnsFalse() throws Exception {
+    FieldLiteDescriptor singleInt64Fd =
+        PROTO_LITE_CEL_VALUE_CONVERTER
+            .findFieldDescriptor(
+                "cel.expr.conformance.proto3.TestAllTypes", TestAllTypes.SINGLE_INT64_FIELD_NUMBER)
+            .get();
+
+    boolean result = PROTO_LITE_CEL_VALUE_CONVERTER.hasSingleField(ByteString.EMPTY, singleInt64Fd);
+
+    assertThat(result).isFalse();
+  }
+
+  @Test
+  public void hasSingleField_emptyPackedRepeatedField_returnsFalse() throws Exception {
+    FieldLiteDescriptor repeatedInt32Fd =
+        PROTO_LITE_CEL_VALUE_CONVERTER
+            .findFieldDescriptor(
+                "cel.expr.conformance.proto3.TestAllTypes",
+                TestAllTypes.REPEATED_INT32_FIELD_NUMBER)
+            .get();
+    ByteArrayOutputStream emptyPackedOut = new ByteArrayOutputStream();
+    CodedOutputStream emptyPackedCos = CodedOutputStream.newInstance(emptyPackedOut);
+    emptyPackedCos.writeInt64(TestAllTypes.SINGLE_INT64_FIELD_NUMBER, 42L);
+    emptyPackedCos.writeByteArray(TestAllTypes.REPEATED_INT32_FIELD_NUMBER, new byte[0]);
+    emptyPackedCos.flush();
+    ByteString emptyPackedBytes = ByteString.copyFrom(emptyPackedOut.toByteArray());
+
+    boolean result =
+        PROTO_LITE_CEL_VALUE_CONVERTER.hasSingleField(emptyPackedBytes, repeatedInt32Fd);
+
+    assertThat(result).isFalse();
+  }
+
+  @Test
+  public void hasSingleField_emptyPackedFollowedByPopulatedPacked_returnsTrue() throws Exception {
+    FieldLiteDescriptor repeatedInt32Fd =
+        PROTO_LITE_CEL_VALUE_CONVERTER
+            .findFieldDescriptor(
+                "cel.expr.conformance.proto3.TestAllTypes",
+                TestAllTypes.REPEATED_INT32_FIELD_NUMBER)
+            .get();
+    ByteArrayOutputStream emptyThenPopulatedOut = new ByteArrayOutputStream();
+    CodedOutputStream emptyThenPopulatedCos = CodedOutputStream.newInstance(emptyThenPopulatedOut);
+    emptyThenPopulatedCos.writeByteArray(TestAllTypes.REPEATED_INT32_FIELD_NUMBER, new byte[0]);
+    emptyThenPopulatedCos.writeByteArray(
+        TestAllTypes.REPEATED_INT32_FIELD_NUMBER, new byte[] {1, 2});
+    emptyThenPopulatedCos.flush();
+    ByteString emptyThenPopulatedBytes = ByteString.copyFrom(emptyThenPopulatedOut.toByteArray());
+
+    boolean result =
+        PROTO_LITE_CEL_VALUE_CONVERTER.hasSingleField(emptyThenPopulatedBytes, repeatedInt32Fd);
+
+    assertThat(result).isTrue();
+  }
+
+  @Test
+  public void skipWireField_groupWireType_throwsUnsupportedOperationException() {
+    int startGroupTag = (1 << 3) | WireFormat.WIRETYPE_START_GROUP;
+
+    assertThrows(
+        UnsupportedOperationException.class,
+        () ->
+            ProtoLiteCelValueConverter.skipWireField(
+                startGroupTag, ByteString.EMPTY.newCodedInput()));
   }
 }

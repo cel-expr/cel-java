@@ -153,18 +153,45 @@ abstract class RawProtoMessageLiteValue extends StructValue<String, WireMessageL
   @Override
   public Object selectByFieldNumber(SelectField field) {
     return selectWireOrDefault(
-        field, unknownFields().get(field.fieldNumber()), protoLiteCelValueConverter());
+        field, readWireField(toByteString(), field.fieldNumber()), protoLiteCelValueConverter());
   }
 
   @Override
   public boolean hasFieldByNumber(SelectField field) {
-    return isPresentInWire(field, unknownFields().get(field.fieldNumber()));
+    return isPresentInWire(toByteString(), field);
   }
 
   @Override
   public Optional<Object> findByFieldNumber(SelectField field) {
     return navigateWire(
-        field, unknownFields().get(field.fieldNumber()), protoLiteCelValueConverter());
+        field, readWireField(toByteString(), field.fieldNumber()), protoLiteCelValueConverter());
+  }
+
+  /**
+   * Scans {@code wireBytes} for a single {@code targetFieldNumber}, skipping all other wire tags.
+   *
+   * <p>Package-private: shared with {@code ProtoMessageLiteValue} for unknown field resolution.
+   */
+  static ImmutableList<Object> readWireField(ByteString wireBytes, int targetFieldNumber) {
+    if (wireBytes.isEmpty()) {
+      return ImmutableList.of();
+    }
+    ImmutableList.Builder<Object> entries = ImmutableList.builder();
+    try {
+      CodedInputStream inputStream = wireBytes.newCodedInput();
+      for (int tag = inputStream.readTag(); tag != 0; tag = inputStream.readTag()) {
+        int fieldNumber = WireFormat.getTagFieldNumber(tag);
+        if (fieldNumber != targetFieldNumber) {
+          ProtoLiteCelValueConverter.skipWireField(tag, inputStream);
+          continue;
+        }
+        int tagWireType = WireFormat.getTagWireType(tag);
+        entries.add(ProtoLiteCelValueConverter.readUnknownField(tagWireType, inputStream));
+      }
+    } catch (IOException e) {
+      throw new IllegalStateException("Failed to parse raw proto message wire bytes", e);
+    }
+    return entries.build();
   }
 
   /**
@@ -206,31 +233,28 @@ abstract class RawProtoMessageLiteValue extends StructValue<String, WireMessageL
   }
 
   /**
-   * Returns whether a field has presence in preserved wire bytes.
+   * Scans {@code wireBytes} to determine whether {@code field} is present on the wire.
    *
    * <p>Package-private: shared with {@code ProtoMessageLiteValue} for unknown field resolution.
    */
-  static boolean isPresentInWire(SelectField field, ImmutableList<Object> unknowns) {
+  static boolean isPresentInWire(ByteString wireBytes, SelectField field) {
+    try {
+      return ProtoLiteCelValueConverter.hasSingleField(
+          wireBytes, field.fieldNumber(), isPackableRepeated(field));
+    } catch (IOException e) {
+      throw new IllegalStateException("Failed to parse raw proto message wire bytes", e);
+    }
+  }
+
+  private static boolean isPresentInWire(SelectField field, ImmutableList<Object> unknowns) {
     if (unknowns.isEmpty()) {
       return false;
     }
 
-    boolean isRepeated = field.defaultValue() instanceof List;
-    int typeCode = field.typeCode();
-
     // In protobuf wire format, a zero-length entry for a singular field (e.g. empty string,
     // bytes, or empty submessage) represents explicit presence on the wire. Only packed repeated
     // fields with empty payload represent an empty/absent collection.
-    if (!isRepeated) {
-      return true;
-    }
-
-    boolean isPackable =
-        typeCode != FieldLiteDescriptor.Type.STRING.getNumber()
-            && typeCode != FieldLiteDescriptor.Type.BYTES.getNumber()
-            && typeCode != FieldLiteDescriptor.Type.MESSAGE.getNumber()
-            && typeCode != FieldLiteDescriptor.Type.GROUP.getNumber();
-    if (!isPackable) {
+    if (!isPackableRepeated(field)) {
       return true;
     }
 
@@ -240,6 +264,13 @@ abstract class RawProtoMessageLiteValue extends StructValue<String, WireMessageL
       }
     }
     return false;
+  }
+
+  private static boolean isPackableRepeated(SelectField field) {
+    return (field.defaultValue() instanceof List)
+        && FieldLiteDescriptor.Type.forNumber(field.typeCode())
+            .toWireFormatFieldType()
+            .isPackable();
   }
 
   /**

@@ -52,9 +52,9 @@ import org.jspecify.annotations.Nullable;
  *       resolving by {@link SelectField#fieldNumber()} maps the number to the runtime descriptor's
  *       current field name, preventing {@code CelAttributeNotFoundException}.
  *   <li><b>Version skew / unknown fields:</b> When evaluating payloads serialized by a newer binary
- *       containing fields absent from the local {@code CelLiteDescriptor}, the unknown wire bytes
- *       are preserved in {@link #unknownFields()} and decoded on demand using the compile-time wire
- *       type and default metadata in {@link SelectField}.
+ *       containing fields absent from the local {@code CelLiteDescriptor}, the unknown fields are
+ *       decoded on demand directly from the message's wire bytes using the compile-time wire type
+ *       and default metadata in {@link SelectField}.
  * </ul>
  */
 @AutoValue
@@ -85,9 +85,14 @@ abstract class ProtoMessageLiteValue extends StructValue<String, MessageLite>
         .parseMessageLite(checkNotNull(wireBytes()), celType().name());
   }
 
+  @Memoized
+  ByteString serializedRawValue() {
+    return checkNotNull(rawValue()).toByteString();
+  }
+
   ByteString toByteString() {
     ByteString bytes = wireBytes();
-    return bytes != null ? bytes : checkNotNull(rawValue()).toByteString();
+    return bytes != null ? bytes : serializedRawValue();
   }
 
   @Memoized
@@ -150,7 +155,7 @@ abstract class ProtoMessageLiteValue extends StructValue<String, MessageLite>
   public Object selectByFieldNumber(SelectField field) {
     FieldLiteDescriptor fd = findFieldDescriptor(field);
     if (fd != null) {
-      Object known = fieldValues().get(fd.getFieldName());
+      Object known = readField(fd);
       if (known != null) {
         return protoLiteCelValueConverter().toRuntimeValue(known);
       }
@@ -160,28 +165,48 @@ abstract class ProtoMessageLiteValue extends StructValue<String, MessageLite>
       return protoLiteCelValueConverter().getDefaultCelValue(fd);
     }
     return RawProtoMessageLiteValue.selectWireOrDefault(
-        field, unknownFields().get(field.fieldNumber()), protoLiteCelValueConverter());
+        field,
+        RawProtoMessageLiteValue.readWireField(toByteString(), field.fieldNumber()),
+        protoLiteCelValueConverter());
   }
 
   @Override
   public boolean hasFieldByNumber(SelectField field) {
     FieldLiteDescriptor fd = findFieldDescriptor(field);
     if (fd != null) {
-      return fieldValues().containsKey(fd.getFieldName());
+      return hasField(fd);
     }
-    return RawProtoMessageLiteValue.isPresentInWire(
-        field, unknownFields().get(field.fieldNumber()));
+    return RawProtoMessageLiteValue.isPresentInWire(toByteString(), field);
   }
 
   @Override
   public Optional<Object> findByFieldNumber(SelectField field) {
     FieldLiteDescriptor fd = findFieldDescriptor(field);
     if (fd != null) {
-      return Optional.ofNullable(fieldValues().get(fd.getFieldName()))
-          .map(protoLiteCelValueConverter()::toRuntimeValue);
+      return Optional.ofNullable(readField(fd)).map(protoLiteCelValueConverter()::toRuntimeValue);
     }
     return RawProtoMessageLiteValue.navigateWire(
-        field, unknownFields().get(field.fieldNumber()), protoLiteCelValueConverter());
+        field,
+        RawProtoMessageLiteValue.readWireField(toByteString(), field.fieldNumber()),
+        protoLiteCelValueConverter());
+  }
+
+  private @Nullable Object readField(FieldLiteDescriptor fd) {
+    try {
+      return protoLiteCelValueConverter().readSingleField(toByteString(), fd);
+    } catch (IOException e) {
+      throw new IllegalArgumentException(
+          "Failed to decode proto message of type: " + celType().name(), e);
+    }
+  }
+
+  private boolean hasField(FieldLiteDescriptor fd) {
+    try {
+      return protoLiteCelValueConverter().hasSingleField(toByteString(), fd);
+    } catch (IOException e) {
+      throw new IllegalArgumentException(
+          "Failed to decode proto message of type: " + celType().name(), e);
+    }
   }
 
   private @Nullable FieldLiteDescriptor findFieldDescriptor(SelectField field) {
