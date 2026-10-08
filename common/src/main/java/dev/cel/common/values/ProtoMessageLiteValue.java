@@ -154,10 +154,12 @@ abstract class ProtoMessageLiteValue extends StructValue<String, MessageLite>
       }
       return protoLiteCelValueConverter().getDefaultCelValue(fd);
     }
-    return RawProtoMessageLiteValue.selectWireOrDefault(
-        field,
-        RawProtoMessageLiteValue.readWireField(toByteString(), field.fieldNumber()),
-        protoLiteCelValueConverter());
+    try {
+      return protoLiteCelValueConverter().selectByFieldNumber(toByteString(), field);
+    } catch (IOException e) {
+      throw new IllegalArgumentException(
+          "Failed to decode proto message of type: " + celType().name(), e);
+    }
   }
 
   @Override
@@ -166,7 +168,12 @@ abstract class ProtoMessageLiteValue extends StructValue<String, MessageLite>
     if (fd != null) {
       return hasField(fd);
     }
-    return RawProtoMessageLiteValue.isPresentInWire(toByteString(), field);
+    try {
+      return protoLiteCelValueConverter().hasFieldByNumber(toByteString(), field);
+    } catch (IOException e) {
+      throw new IllegalArgumentException(
+          "Failed to decode proto message of type: " + celType().name(), e);
+    }
   }
 
   @Override
@@ -175,10 +182,12 @@ abstract class ProtoMessageLiteValue extends StructValue<String, MessageLite>
     if (fd != null) {
       return Optional.ofNullable(readField(fd));
     }
-    return RawProtoMessageLiteValue.navigateWire(
-        field,
-        RawProtoMessageLiteValue.readWireField(toByteString(), field.fieldNumber()),
-        protoLiteCelValueConverter());
+    try {
+      return protoLiteCelValueConverter().findByFieldNumber(toByteString(), field);
+    } catch (IOException e) {
+      throw new IllegalArgumentException(
+          "Failed to decode proto message of type: " + celType().name(), e);
+    }
   }
 
   private @Nullable Object readField(FieldLiteDescriptor fd) {
