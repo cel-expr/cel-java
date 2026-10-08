@@ -17,14 +17,10 @@ package dev.cel.common.values;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.google.auto.value.AutoValue;
-import com.google.auto.value.extension.memoized.Memoized;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Iterables;
-import com.google.common.collect.Multimap;
-import com.google.common.collect.Multimaps;
 import com.google.common.primitives.UnsignedLong;
 import com.google.errorprone.annotations.Immutable;
 import com.google.protobuf.ByteString;
@@ -36,12 +32,10 @@ import dev.cel.common.types.StructTypeReference;
 import dev.cel.protobuf.CelLiteDescriptor.FieldLiteDescriptor;
 import java.io.IOException;
 import java.util.AbstractMap;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
-import java.util.TreeMap;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -54,9 +48,7 @@ import org.jspecify.annotations.Nullable;
  * reflection-free field traversal directly over wire tags via {@link CodedInputStream}.
  */
 @AutoValue
-@AutoValue.CopyAnnotations
 @Immutable
-@SuppressWarnings("Immutable") // Immutable wire fields
 abstract class RawProtoMessageLiteValue extends StructValue<String, WireMessageLite>
     implements OptimizedSelectable, WireMessageLite {
 
@@ -100,23 +92,6 @@ abstract class RawProtoMessageLiteValue extends StructValue<String, WireMessageL
         "WireMessageLite{protoTypeName=%s, size=%d}",
         protoTypeName(),
         toByteString().size());
-  }
-
-  @Memoized
-  ImmutableListMultimap<Integer, Object> unknownFields() {
-    try {
-      CodedInputStream inputStream = toByteString().newCodedInput();
-      Multimap<Integer, Object> fields = Multimaps.newMultimap(new TreeMap<>(), ArrayList::new);
-      for (int tag = inputStream.readTag(); tag != 0; tag = inputStream.readTag()) {
-        int tagWireType = WireFormat.getTagWireType(tag);
-        int fieldNumber = WireFormat.getTagFieldNumber(tag);
-        fields.put(
-            fieldNumber, ProtoLiteCelValueConverter.readUnknownField(tagWireType, inputStream));
-      }
-      return ImmutableListMultimap.copyOf(fields);
-    } catch (IOException e) {
-      throw new IllegalStateException("Failed to parse raw proto message wire bytes", e);
-    }
   }
 
   @Override

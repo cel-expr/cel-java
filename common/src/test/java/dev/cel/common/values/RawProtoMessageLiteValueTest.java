@@ -262,27 +262,6 @@ public final class RawProtoMessageLiteValueTest {
   }
 
   @Test
-  public void unknownFields_parsesWireTags() throws Exception {
-    ByteArrayOutputStream baos = new ByteArrayOutputStream();
-    CodedOutputStream cos = CodedOutputStream.newInstance(baos);
-    cos.writeInt64(1, 42L);
-    cos.writeFixed32(2, 100);
-    cos.writeFixed64(3, 200L);
-    cos.writeString(4, "hello");
-    cos.flush();
-
-    RawProtoMessageLiteValue value =
-        RawProtoMessageLiteValue.create(ByteString.copyFrom(baos.toByteArray()), EMPTY_CONVERTER);
-
-    assertThat(value.unknownFields()).valuesForKey(1).containsExactly(42L);
-    assertThat(value.unknownFields()).valuesForKey(2).containsExactly(100);
-    assertThat(value.unknownFields()).valuesForKey(3).containsExactly(200L);
-    assertThat(value.unknownFields())
-        .valuesForKey(4)
-        .containsExactly(ByteString.copyFromUtf8("hello"));
-  }
-
-  @Test
   public void decodeWireEntries_emptySingularEntries_returnsNull() {
     Object intResult =
         decodeWireEntries(
@@ -786,8 +765,10 @@ public final class RawProtoMessageLiteValueTest {
 
     assertThat(decoded).isInstanceOf(RawProtoMessageLiteValue.class);
     RawProtoMessageLiteValue rawMessage = (RawProtoMessageLiteValue) decoded;
-    assertThat(rawMessage.unknownFields()).valuesForKey(1).containsExactly(100L);
-    assertThat(rawMessage.unknownFields()).valuesForKey(2).containsExactly(200L);
+    assertThat(rawMessage.toByteString())
+        .isEqualTo(
+            ByteString.copyFrom(baos1.toByteArray())
+                .concat(ByteString.copyFrom(baos2.toByteArray())));
   }
 
   @Test

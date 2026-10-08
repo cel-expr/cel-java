@@ -18,10 +18,8 @@ import static com.google.common.truth.Truth.assertThat;
 import static org.junit.Assert.assertThrows;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Multimap;
 import com.google.common.primitives.UnsignedLong;
 import com.google.protobuf.BoolValue;
 import com.google.protobuf.ByteString;
@@ -45,7 +43,6 @@ import com.google.testing.junit.testparameterinjector.TestParameter;
 import com.google.testing.junit.testparameterinjector.TestParameterInjector;
 import dev.cel.common.internal.CelLiteDescriptorPool;
 import dev.cel.common.internal.DefaultLiteDescriptorPool;
-import dev.cel.common.values.ProtoLiteCelValueConverter.MessageFields;
 import dev.cel.expr.conformance.proto3.NestedTestAllTypes;
 import dev.cel.expr.conformance.proto3.TestAllTypes;
 import dev.cel.expr.conformance.proto3.TestAllTypes.NestedMessage;
@@ -178,11 +175,11 @@ public final class ProtoLiteCelValueConverterTest {
   @Test
   public void readAllFields_repeatedFields_packedBytesCombinations(
       @TestParameter RepeatedFieldBytesTestCase testCase) throws Exception {
-    MessageFields fields =
+    ImmutableMap<String, Object> fields =
         PROTO_LITE_CEL_VALUE_CONVERTER.readAllFields(
             ByteString.copyFrom(testCase.bytes), "cel.expr.conformance.proto3.TestAllTypes");
 
-    assertThat(fields.values()).containsExactly("repeated_int64", ImmutableList.of(1L, 2L, 3L));
+    assertThat(fields).containsExactly("repeated_int64", ImmutableList.of(1L, 2L, 3L));
   }
 
   /**
@@ -201,23 +198,13 @@ public final class ProtoLiteCelValueConverterTest {
    */
   @SuppressWarnings("ImmutableEnumChecker") // Test only
   private enum UnknownFieldsTestCase {
-    INT64(new byte[] {-96, -100, 1, 1}, "2500: 1", ImmutableListMultimap.of(2500, 1L)),
-    FIXED32(
-        new byte[] {-83, -100, 1, 2, 0, 0, 0},
-        "2501: 0x00000002",
-        ImmutableListMultimap.of(2501, 2)),
-    FIXED64(
-        new byte[] {-79, -100, 1, 3, 0, 0, 0, 0, 0, 0, 0},
-        "2502: 0x0000000000000003",
-        ImmutableListMultimap.of(2502, 3L)),
+    INT64(new byte[] {-96, -100, 1, 1}, "2500: 1"),
+    FIXED32(new byte[] {-83, -100, 1, 2, 0, 0, 0}, "2501: 0x00000002"),
+    FIXED64(new byte[] {-79, -100, 1, 3, 0, 0, 0, 0, 0, 0, 0}, "2502: 0x0000000000000003"),
     STRING(
         new byte[] {-70, -100, 1, 11, 72, 101, 108, 108, 111, 32, 119, 111, 114, 108, 100},
-        "2503: \"Hello world\"",
-        ImmutableListMultimap.of(2503, ByteString.copyFromUtf8("Hello world"))),
-    REPEATED_INT64(
-        new byte[] {-62, -100, 1, 2, 4, 5},
-        "2504: \"\\004\\005\"",
-        ImmutableListMultimap.of(2504, ByteString.copyFrom(new byte[] {4, 5}))),
+        "2503: \"Hello world\""),
+    REPEATED_INT64(new byte[] {-62, -100, 1, 2, 4, 5}, "2504: \"\\004\\005\""),
     MAP_STRING_INT64(
         new byte[] {
           -54, -100, 1, 7, 10, 3, 102, 111, 111, 16, 4, -54, -100, 1, 7, 10, 3, 98, 97, 114, 16, 5
@@ -229,48 +216,15 @@ public final class ProtoLiteCelValueConverterTest {
             + "2505: {\n"
             + "  1: \"bar\"\n"
             + "  2: 5\n"
-            + "}",
-        ImmutableListMultimap.of(
-            2505,
-            ByteString.copyFromUtf8("\n\003foo\020\004"),
-            2505,
-            ByteString.copyFromUtf8("\n\003bar\020\005")));
+            + "}");
 
     private final byte[] bytes;
     private final String formattedOutput;
-    private final Multimap<Integer, Object> unknownMap;
 
-    UnknownFieldsTestCase(
-        byte[] bytes, String formattedOutput, Multimap<Integer, Object> unknownMap) {
+    UnknownFieldsTestCase(byte[] bytes, String formattedOutput) {
       this.bytes = bytes;
       this.formattedOutput = formattedOutput;
-      this.unknownMap = unknownMap;
     }
-  }
-
-  @Test
-  public void unknowns_repeatedEncodedBytes_allRecordsKeptWithKeysSorted() throws Exception {
-    // 2500: 2
-    // 2504: \"\\004\\005\""
-    // 2501: 0x00000002
-    // 2500: 1
-    byte[] bytes =
-        new byte[] {
-          -96, -100, 1, 2, // keep
-          -62, -100, 1, 2, 4, 5, // keep
-          -83, -100, 1, 2, 0, 0, 0, // keep
-          -96, -100, 1, 1 // keep
-        };
-
-    MessageFields messageFields =
-        PROTO_LITE_CEL_VALUE_CONVERTER.readAllFields(
-            ByteString.copyFrom(bytes), "cel.expr.conformance.proto3.TestAllTypes");
-
-    assertThat(messageFields.values()).isEmpty();
-    assertThat(messageFields.unknowns())
-        .containsExactly(
-            2500, 2L, 2500, 1L, 2501, 2, 2504, ByteString.copyFrom(new byte[] {0x04, 0x05}))
-        .inOrder();
   }
 
   @Test
@@ -279,12 +233,11 @@ public final class ProtoLiteCelValueConverterTest {
     TestAllTypes parsedMsg =
         TestAllTypes.parseFrom(testCase.bytes, ExtensionRegistryLite.getEmptyRegistry());
 
-    MessageFields messageFields =
+    ImmutableMap<String, Object> messageFields =
         PROTO_LITE_CEL_VALUE_CONVERTER.readAllFields(
             ByteString.copyFrom(testCase.bytes), "cel.expr.conformance.proto3.TestAllTypes");
 
-    assertThat(messageFields.values()).isEmpty();
-    assertThat(messageFields.unknowns()).containsExactlyEntriesIn(testCase.unknownMap).inOrder();
+    assertThat(messageFields).isEmpty();
     assertThat(TextFormat.printer().printToString(parsedMsg).trim())
         .isEqualTo(testCase.formattedOutput);
   }
@@ -311,16 +264,17 @@ public final class ProtoLiteCelValueConverterTest {
   @Test
   @SuppressWarnings("unchecked")
   public void readAllFields_unknownFieldsWithValues() throws Exception {
+    // Unknown fields precede the known map entries so that decoding must continue past them.
     byte[] unknownMessageBytes = {
-      -70, 4, 11, 8, 1, 17, 0, 0, 0, 0, 0, 0, -8, 63, -70, 4, 11, 8, 0, 17, 0, 0, 0, 0, 0, 0, 4, 64,
       -96, -100, 1, 1, -83, -100, 1, 2, 0, 0, 0, -79, -100, 1, 3, 0, 0, 0, 0, 0, 0, 0, -70, -100, 1,
       11, 72, 101, 108, 108, 111, 32, 119, 111, 114, 108, 100, -62, -100, 1, 2, 4, 5, -54, -100, 1,
-      7, 10, 3, 102, 111, 111, 16, 4, -54, -100, 1, 7, 10, 3, 98, 97, 114, 16, 5
+      7, 10, 3, 102, 111, 111, 16, 4, -54, -100, 1, 7, 10, 3, 98, 97, 114, 16, 5, -70, 4, 11, 8, 1,
+      17, 0, 0, 0, 0, 0, 0, -8, 63, -70, 4, 11, 8, 0, 17, 0, 0, 0, 0, 0, 0, 4, 64
     };
     TestAllTypes parsedMsg =
         TestAllTypes.parseFrom(unknownMessageBytes, ExtensionRegistryLite.getEmptyRegistry());
 
-    MessageFields fields =
+    ImmutableMap<String, Object> fields =
         PROTO_LITE_CEL_VALUE_CONVERTER.readAllFields(
             ByteString.copyFrom(unknownMessageBytes), "cel.expr.conformance.proto3.TestAllTypes");
 
@@ -347,28 +301,10 @@ public final class ProtoLiteCelValueConverterTest {
                 + "  1: \"bar\"\n"
                 + "  2: 5\n"
                 + "}\n");
-    assertThat(fields.values()).containsKey("map_bool_double");
+    assertThat(fields).containsKey("map_bool_double");
     LinkedHashMap<Boolean, Double> mapBoolDoubleValues =
-        (LinkedHashMap<Boolean, Double>) fields.values().get("map_bool_double");
+        (LinkedHashMap<Boolean, Double>) fields.get("map_bool_double");
     assertThat(mapBoolDoubleValues).containsExactly(true, 1.5d, false, 2.5d).inOrder();
-    ImmutableListMultimap<Integer, Object> unknownValues = fields.unknowns();
-    assertThat(unknownValues)
-        .containsExactly(
-            2500,
-            1L,
-            2501,
-            2,
-            2502,
-            3L,
-            2503,
-            ByteString.copyFromUtf8("Hello world"),
-            2504,
-            ByteString.copyFrom(new byte[] {0x04, 0x05}),
-            2505,
-            ByteString.copyFromUtf8("\n\003foo\020\004"),
-            2505,
-            ByteString.copyFromUtf8("\n\003bar\020\005"))
-        .inOrder();
   }
 
   @Test
@@ -412,12 +348,12 @@ public final class ProtoLiteCelValueConverterTest {
                     .setPayload(TestAllTypes.newBuilder().setSingleInt64(42L)))
             .build();
 
-    MessageFields fields =
+    ImmutableMap<String, Object> fields =
         PROTO_LITE_CEL_VALUE_CONVERTER.readAllFields(
             msg.toByteString(), "cel.expr.conformance.proto3.TestAllTypes");
 
-    assertThat(fields.values().keySet()).containsExactly("oneof_type");
-    Object fieldValue = fields.values().get("oneof_type");
+    assertThat(fields.keySet()).containsExactly("oneof_type");
+    Object fieldValue = fields.get("oneof_type");
     assertThat(fieldValue).isInstanceOf(RawProtoMessageLiteValue.class);
     RawProtoMessageLiteValue rawValue = (RawProtoMessageLiteValue) fieldValue;
     assertThat(rawValue.toByteString()).isEqualTo(msg.getOneofType().toByteString());
@@ -550,19 +486,18 @@ public final class ProtoLiteCelValueConverterTest {
             .build();
     ByteString splitWireBytes = part1.toByteString().concat(part2.toByteString());
 
-    MessageFields fields =
+    ImmutableMap<String, Object> fields =
         PROTO_LITE_CEL_VALUE_CONVERTER.readAllFields(
             splitWireBytes, "cel.expr.conformance.proto3.TestAllTypes");
 
-    assertThat(fields.values().get("single_duration"))
+    assertThat(fields.get("single_duration"))
         .isEqualTo(Duration.newBuilder().setSeconds(10).setNanos(500).build());
-    ProtoMessageLiteValue nestedMsg =
-        (ProtoMessageLiteValue) fields.values().get("single_nested_message");
+    ProtoMessageLiteValue nestedMsg = (ProtoMessageLiteValue) fields.get("single_nested_message");
     assertThat(nestedMsg.rawValue()).isNull();
     assertThat(nestedMsg.select("bb")).isEqualTo(99L);
-    assertThat(nestedMsg.unknownFields()).valuesForKey(999).containsExactly(42L);
-    RawProtoMessageLiteValue rawSubmessage =
-        (RawProtoMessageLiteValue) fields.values().get("oneof_type");
+    assertThat(nestedMsg.value())
+        .isEqualTo(NestedMessage.newBuilder().setBb(99).mergeFrom(nestedWithUnknown).build());
+    RawProtoMessageLiteValue rawSubmessage = (RawProtoMessageLiteValue) fields.get("oneof_type");
     assertThat(
             NestedTestAllTypes.parseFrom(
                 rawSubmessage.toByteString(), ExtensionRegistryLite.getEmptyRegistry()))
@@ -582,12 +517,12 @@ public final class ProtoLiteCelValueConverterTest {
   }
 
   @Test
-  public void readAllFields_emptyBytes_returnsEmptySingleton() throws Exception {
-    MessageFields fields =
+  public void readAllFields_emptyBytes_returnsEmptyMap() throws Exception {
+    ImmutableMap<String, Object> fields =
         PROTO_LITE_CEL_VALUE_CONVERTER.readAllFields(
             ByteString.EMPTY, "cel.expr.conformance.proto3.TestAllTypes");
 
-    assertThat(fields).isSameInstanceAs(MessageFields.EMPTY);
+    assertThat(fields).isEmpty();
   }
 
   @Test

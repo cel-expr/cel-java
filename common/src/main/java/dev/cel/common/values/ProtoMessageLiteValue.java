@@ -18,14 +18,12 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.google.auto.value.AutoValue;
 import com.google.auto.value.extension.memoized.Memoized;
-import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.ImmutableMap;
 import com.google.errorprone.annotations.Immutable;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.MessageLite;
 import dev.cel.common.types.CelType;
 import dev.cel.common.types.StructTypeReference;
-import dev.cel.common.values.ProtoLiteCelValueConverter.MessageFields;
 import dev.cel.protobuf.CelLiteDescriptor.FieldLiteDescriptor;
 import java.io.IOException;
 import java.util.Objects;
@@ -96,21 +94,13 @@ abstract class ProtoMessageLiteValue extends StructValue<String, MessageLite>
   }
 
   @Memoized
-  MessageFields messageFields() {
+  ImmutableMap<String, Object> fieldValues() {
     try {
       return protoLiteCelValueConverter().readAllFields(toByteString(), celType().name());
     } catch (IOException e) {
       throw new IllegalArgumentException(
           "Failed to decode proto message of type: " + celType().name(), e);
     }
-  }
-
-  private ImmutableMap<String, Object> fieldValues() {
-    return messageFields().values();
-  }
-
-  ImmutableListMultimap<Integer, Object> unknownFields() {
-    return messageFields().unknowns();
   }
 
   @Override

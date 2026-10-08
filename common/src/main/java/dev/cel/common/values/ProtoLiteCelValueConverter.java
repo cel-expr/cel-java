@@ -16,13 +16,9 @@ package dev.cel.common.values;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
-import com.google.auto.value.AutoValue;
 import com.google.common.base.Defaults;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Multimap;
-import com.google.common.collect.Multimaps;
 import com.google.common.primitives.UnsignedLong;
 import com.google.errorprone.annotations.Immutable;
 import com.google.protobuf.ByteString;
@@ -44,7 +40,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.TreeMap;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -398,17 +393,17 @@ public final class ProtoLiteCelValueConverter extends BaseProtoCelValueConverter
     return false;
   }
 
-  MessageFields readAllFields(ByteString bytes, String protoTypeName) throws IOException {
+  ImmutableMap<String, Object> readAllFields(ByteString bytes, String protoTypeName)
+      throws IOException {
     MessageLiteDescriptor messageDescriptor = descriptorPool.getDescriptorOrThrow(protoTypeName);
     if (bytes.isEmpty()) {
-      return MessageFields.EMPTY;
+      return ImmutableMap.of();
     }
     return readAllFields(bytes.newCodedInput(), messageDescriptor);
   }
 
-  private MessageFields readAllFields(
+  private ImmutableMap<String, Object> readAllFields(
       CodedInputStream inputStream, MessageLiteDescriptor messageDescriptor) throws IOException {
-    Multimap<Integer, Object> unknownFields = null;
     Map<String, Object> fieldValues = new LinkedHashMap<>();
     for (int tag = inputStream.readTag(); tag != 0; tag = inputStream.readTag()) {
       int tagWireType = WireFormat.getTagWireType(tag);
@@ -416,10 +411,7 @@ public final class ProtoLiteCelValueConverter extends BaseProtoCelValueConverter
       FieldLiteDescriptor fieldDescriptor =
           messageDescriptor.findByFieldNumber(fieldNumber).orElse(null);
       if (fieldDescriptor == null) {
-        if (unknownFields == null) {
-          unknownFields = Multimaps.newMultimap(new TreeMap<>(), ArrayList::new);
-        }
-        unknownFields.put(fieldNumber, readUnknownField(tagWireType, inputStream));
+        skipWireField(tag, inputStream);
         continue;
       }
 
@@ -431,7 +423,7 @@ public final class ProtoLiteCelValueConverter extends BaseProtoCelValueConverter
       }
     }
 
-    return MessageFields.create(ImmutableMap.copyOf(fieldValues), unknownFields);
+    return ImmutableMap.copyOf(fieldValues);
   }
 
   private @Nullable Object readFieldValue(
@@ -567,30 +559,6 @@ public final class ProtoLiteCelValueConverter extends BaseProtoCelValueConverter
         throw new UnsupportedOperationException("Groups are not supported");
       default:
         throw new IllegalArgumentException("Unknown wire type: " + tagWireType);
-    }
-  }
-
-  @AutoValue
-  @AutoValue.CopyAnnotations
-  @Immutable
-  @SuppressWarnings("Immutable") // Safe immutable fields
-  abstract static class MessageFields {
-    static final MessageFields EMPTY =
-        new AutoValue_ProtoLiteCelValueConverter_MessageFields(
-            ImmutableMap.of(), ImmutableListMultimap.of());
-
-    abstract ImmutableMap<String, Object> values();
-
-    abstract ImmutableListMultimap<Integer, Object> unknowns();
-
-    private static MessageFields create(
-        ImmutableMap<String, Object> fieldValues,
-        @Nullable Multimap<Integer, Object> unknownFields) {
-      return new AutoValue_ProtoLiteCelValueConverter_MessageFields(
-          fieldValues,
-          unknownFields == null
-              ? ImmutableListMultimap.of()
-              : ImmutableListMultimap.copyOf(unknownFields));
     }
   }
 

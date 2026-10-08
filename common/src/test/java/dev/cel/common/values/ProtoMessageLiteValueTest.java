@@ -462,28 +462,6 @@ public final class ProtoMessageLiteValueTest {
   }
 
   @Test
-  public void unknownFields_retainsUnknownWireFields() throws Exception {
-    ByteArrayOutputStream baos = new ByteArrayOutputStream();
-    CodedOutputStream cos = CodedOutputStream.newInstance(baos);
-    cos.writeInt64(999, 12345L);
-    cos.writeString(1000, "hello unknown");
-    cos.flush();
-
-    TestAllTypes msgWithUnknown =
-        TestAllTypes.parseFrom(baos.toByteArray(), ExtensionRegistryLite.getEmptyRegistry());
-    ProtoMessageLiteValue messageLiteValue =
-        ProtoMessageLiteValue.create(
-            msgWithUnknown,
-            "cel.expr.conformance.proto3.TestAllTypes",
-            PROTO_LITE_CEL_VALUE_CONVERTER);
-
-    assertThat(messageLiteValue.unknownFields()).valuesForKey(999).containsExactly(12345L);
-    assertThat(messageLiteValue.unknownFields())
-        .valuesForKey(1000)
-        .containsExactly(ByteString.copyFromUtf8("hello unknown"));
-  }
-
-  @Test
   public void selectByFieldNumber_knownField_returnsValue() {
     TestAllTypes proto = TestAllTypes.newBuilder().setSingleString("foo").build();
     ProtoMessageLiteValue val =
