@@ -85,6 +85,10 @@ public abstract class CelLiteDescriptor {
       return Optional.ofNullable(fieldNumberToFieldDescriptors.get(fieldNumber));
     }
 
+    public Optional<FieldLiteDescriptor> findByFieldName(String fieldName) {
+      return Optional.ofNullable(fieldNameToFieldDescriptors.get(fieldName));
+    }
+
     public FieldLiteDescriptor getByFieldNameOrThrow(String fieldName) {
       return Objects.requireNonNull(fieldNameToFieldDescriptors.get(fieldName));
     }

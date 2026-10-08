@@ -18,10 +18,10 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.google.auto.value.AutoValue;
 import com.google.auto.value.extension.memoized.Memoized;
-import com.google.common.collect.ImmutableMap;
 import com.google.errorprone.annotations.Immutable;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.MessageLite;
+import dev.cel.common.exceptions.CelAttributeNotFoundException;
 import dev.cel.common.types.CelType;
 import dev.cel.common.types.StructTypeReference;
 import dev.cel.protobuf.CelLiteDescriptor.FieldLiteDescriptor;
@@ -93,16 +93,6 @@ abstract class ProtoMessageLiteValue extends StructValue<String, MessageLite>
     return bytes != null ? bytes : serializedRawValue();
   }
 
-  @Memoized
-  ImmutableMap<String, Object> fieldValues() {
-    try {
-      return protoLiteCelValueConverter().readAllFields(toByteString(), celType().name());
-    } catch (IOException e) {
-      throw new IllegalArgumentException(
-          "Failed to decode proto message of type: " + celType().name(), e);
-    }
-  }
-
   @Override
   public boolean isZeroValue() {
     ByteString bytes = wireBytes();
@@ -131,28 +121,39 @@ abstract class ProtoMessageLiteValue extends StructValue<String, MessageLite>
 
   @Override
   public Object select(String field) {
-    return find(field)
-        .orElseGet(() -> protoLiteCelValueConverter().getDefaultCelValue(celType().name(), field));
+    Optional<FieldLiteDescriptor> fd = findFieldDescriptor(field);
+    if (!fd.isPresent()) {
+      throw CelAttributeNotFoundException.of(
+          String.format("field '%s' is not declared in message '%s'", field, celType().name()));
+    }
+    Object fieldValue = readField(fd.get());
+    return fieldValue != null
+        ? fieldValue
+        : protoLiteCelValueConverter().getDefaultCelValue(fd.get());
   }
 
   @Override
   public Optional<Object> find(String field) {
-    return Optional.ofNullable(fieldValues().get(field))
-        .map(protoLiteCelValueConverter()::resolveFieldValue);
+    Optional<FieldLiteDescriptor> fd = findFieldDescriptor(field);
+    if (!fd.isPresent()) {
+      // Per SelectableValue#find, a field that doesn't exist is reported as absent.
+      return Optional.empty();
+    }
+    return Optional.ofNullable(readField(fd.get()));
   }
 
   @Override
   public Object selectByFieldNumber(SelectField field) {
-    FieldLiteDescriptor fd = findFieldDescriptor(field);
-    if (fd != null) {
-      Object known = readField(fd);
+    Optional<FieldLiteDescriptor> fd = findFieldDescriptor(field);
+    if (fd.isPresent()) {
+      Object known = readField(fd.get());
       if (known != null) {
         return known;
       }
       if (field.defaultValue() != null) {
         return field.defaultValue();
       }
-      return protoLiteCelValueConverter().getDefaultCelValue(fd);
+      return protoLiteCelValueConverter().getDefaultCelValue(fd.get());
     }
     try {
       return protoLiteCelValueConverter().selectByFieldNumber(toByteString(), field);
@@ -164,9 +165,9 @@ abstract class ProtoMessageLiteValue extends StructValue<String, MessageLite>
 
   @Override
   public boolean hasFieldByNumber(SelectField field) {
-    FieldLiteDescriptor fd = findFieldDescriptor(field);
-    if (fd != null) {
-      return hasField(fd);
+    Optional<FieldLiteDescriptor> fd = findFieldDescriptor(field);
+    if (fd.isPresent()) {
+      return hasField(fd.get());
     }
     try {
       return protoLiteCelValueConverter().hasFieldByNumber(toByteString(), field);
@@ -178,9 +179,9 @@ abstract class ProtoMessageLiteValue extends StructValue<String, MessageLite>
 
   @Override
   public Optional<Object> findByFieldNumber(SelectField field) {
-    FieldLiteDescriptor fd = findFieldDescriptor(field);
-    if (fd != null) {
-      return Optional.ofNullable(readField(fd));
+    Optional<FieldLiteDescriptor> fd = findFieldDescriptor(field);
+    if (fd.isPresent()) {
+      return Optional.ofNullable(readField(fd.get()));
     }
     try {
       return protoLiteCelValueConverter().findByFieldNumber(toByteString(), field);
@@ -208,10 +209,12 @@ abstract class ProtoMessageLiteValue extends StructValue<String, MessageLite>
     }
   }
 
-  private @Nullable FieldLiteDescriptor findFieldDescriptor(SelectField field) {
-    return protoLiteCelValueConverter()
-        .findFieldDescriptor(celType().name(), field.fieldNumber())
-        .orElse(null);
+  private Optional<FieldLiteDescriptor> findFieldDescriptor(SelectField field) {
+    return protoLiteCelValueConverter().findFieldDescriptor(celType().name(), field.fieldNumber());
+  }
+
+  private Optional<FieldLiteDescriptor> findFieldDescriptor(String fieldName) {
+    return protoLiteCelValueConverter().findFieldDescriptor(celType().name(), fieldName);
   }
 
   static ProtoMessageLiteValue create(

@@ -318,6 +318,69 @@ public final class ProtoMessageLiteValueTest {
     assertThat(thrown).hasCauseThat().hasMessageThat().contains("unexpected wire type");
   }
 
+  @Test
+  public void select_otherFieldHasMismatchedWireType_decodesOnlySelectedField() {
+    // single_fixed32 (7) encoded as a varint precedes single_int64 (2) = 42. The malformed field
+    // fails to decode only if it is selected.
+    ByteString bytes =
+        ByteString.copyFrom(new byte[] {0x38, 0x01})
+            .concat(TestAllTypes.newBuilder().setSingleInt64(42L).build().toByteString());
+    ProtoMessageLiteValue messageLiteValue =
+        ProtoMessageLiteValue.create(
+            bytes, "cel.expr.conformance.proto3.TestAllTypes", PROTO_LITE_CEL_VALUE_CONVERTER);
+
+    Object result = messageLiteValue.select("single_int64");
+
+    assertThat(result).isEqualTo(42L);
+  }
+
+  @Test
+  public void select_undeclaredField_throwsCelAttributeNotFoundException() {
+    ProtoMessageLiteValue messageLiteValue =
+        ProtoMessageLiteValue.create(
+            TestAllTypes.getDefaultInstance(),
+            "cel.expr.conformance.proto3.TestAllTypes",
+            PROTO_LITE_CEL_VALUE_CONVERTER);
+
+    CelAttributeNotFoundException thrown =
+        assertThrows(
+            CelAttributeNotFoundException.class, () -> messageLiteValue.select("undeclared_field"));
+
+    assertThat(thrown)
+        .hasMessageThat()
+        .isEqualTo(
+            "field 'undeclared_field' is not declared in message"
+                + " 'cel.expr.conformance.proto3.TestAllTypes'");
+  }
+
+  @SuppressWarnings("ImmutableEnumChecker") // Test only
+  private enum FindFieldTestCase {
+    PRESENT("single_string", Optional.of("foo")),
+    ABSENT("single_int64", Optional.empty()),
+    UNDECLARED("undeclared_field", Optional.empty());
+
+    private final String fieldName;
+    private final Optional<Object> expected;
+
+    FindFieldTestCase(String fieldName, Optional<Object> expected) {
+      this.fieldName = fieldName;
+      this.expected = expected;
+    }
+  }
+
+  @Test
+  public void find_returnsValueOnlyIfFieldIsPresent(@TestParameter FindFieldTestCase testCase) {
+    ProtoMessageLiteValue messageLiteValue =
+        ProtoMessageLiteValue.create(
+            TestAllTypes.newBuilder().setSingleString("foo").build(),
+            "cel.expr.conformance.proto3.TestAllTypes",
+            PROTO_LITE_CEL_VALUE_CONVERTER);
+
+    Optional<Object> result = messageLiteValue.find(testCase.fieldName);
+
+    assertThat(result).isEqualTo(testCase.expected);
+  }
+
   @SuppressWarnings("ImmutableEnumChecker") // Test only
   private enum SelectFieldTestCase {
     BOOL("single_bool", true),

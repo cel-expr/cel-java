@@ -161,11 +161,6 @@ public final class ProtoLiteCelValueConverter extends BaseProtoCelValueConverter
     return wellKnownProto == null || wellKnownProto == WellKnownProto.FIELD_MASK;
   }
 
-  Object getDefaultCelValue(String protoTypeName, String fieldName) {
-    MessageLiteDescriptor messageDescriptor = descriptorPool.getDescriptorOrThrow(protoTypeName);
-    return getDefaultCelValue(messageDescriptor.getByFieldNameOrThrow(fieldName));
-  }
-
   Object getDefaultCelValue(FieldLiteDescriptor fieldDescriptor) {
     return toRuntimeValue(getDefaultValue(fieldDescriptor));
   }
@@ -174,6 +169,12 @@ public final class ProtoLiteCelValueConverter extends BaseProtoCelValueConverter
     return descriptorPool
         .findDescriptor(protoTypeName)
         .flatMap(desc -> desc.findByFieldNumber(fieldNumber));
+  }
+
+  Optional<FieldLiteDescriptor> findFieldDescriptor(String protoTypeName, String fieldName) {
+    return descriptorPool
+        .findDescriptor(protoTypeName)
+        .flatMap(desc -> desc.findByFieldName(fieldName));
   }
 
   MessageLite parseMessageLite(ByteString bytes, String protoTypeName) {
@@ -304,6 +305,11 @@ public final class ProtoLiteCelValueConverter extends BaseProtoCelValueConverter
     return new AbstractMap.SimpleImmutableEntry<>(key, value);
   }
 
+  /**
+   * Decodes only {@code fieldDescriptor}'s occurrences in {@code bytes} into its CEL value,
+   * skipping every other field. Returns null if the field is absent (or a repeated field has only
+   * empty packed records on the wire).
+   */
   @Nullable Object readSingleField(ByteString bytes, FieldLiteDescriptor fieldDescriptor)
       throws IOException {
     CodedInputStream inputStream = bytes.newCodedInput();
@@ -318,8 +324,6 @@ public final class ProtoLiteCelValueConverter extends BaseProtoCelValueConverter
       int tagWireType = WireFormat.getTagWireType(tag);
       fieldValue = readFieldValue(tagWireType, inputStream, fieldDescriptor, fieldValue);
     }
-    // Only this field is decoded, so unlike readAllFields, a failed conversion can't affect access
-    // to any other field.
     return fieldValue == null ? null : resolveFieldValue(finalizeFieldValue(fieldValue));
   }
 
@@ -472,49 +476,8 @@ public final class ProtoLiteCelValueConverter extends BaseProtoCelValueConverter
         protoTypeName);
   }
 
-  /**
-   * Decodes every known field in {@code bytes}, keyed by field name. Each value must be passed to
-   * {@link #resolveFieldValue} to obtain its CEL value.
-   */
-  ImmutableMap<String, Object> readAllFields(ByteString bytes, String protoTypeName)
-      throws IOException {
-    MessageLiteDescriptor messageDescriptor = descriptorPool.getDescriptorOrThrow(protoTypeName);
-    if (bytes.isEmpty()) {
-      return ImmutableMap.of();
-    }
-    return readAllFields(bytes.newCodedInput(), messageDescriptor);
-  }
-
-  private ImmutableMap<String, Object> readAllFields(
-      CodedInputStream inputStream, MessageLiteDescriptor messageDescriptor) throws IOException {
-    Map<String, Object> fieldValues = new LinkedHashMap<>();
-    for (int tag = inputStream.readTag(); tag != 0; tag = inputStream.readTag()) {
-      int tagWireType = WireFormat.getTagWireType(tag);
-      int fieldNumber = WireFormat.getTagFieldNumber(tag);
-      FieldLiteDescriptor fieldDescriptor =
-          messageDescriptor.findByFieldNumber(fieldNumber).orElse(null);
-      if (fieldDescriptor == null) {
-        skipWireField(tag, inputStream);
-        continue;
-      }
-
-      String fieldName = fieldDescriptor.getFieldName();
-      Object fieldValue =
-          readFieldValue(tagWireType, inputStream, fieldDescriptor, fieldValues.get(fieldName));
-      if (fieldValue != null) {
-        fieldValues.put(fieldName, fieldValue);
-      }
-    }
-
-    fieldValues.replaceAll((fieldName, fieldValue) -> finalizeFieldValue(fieldValue));
-    return ImmutableMap.copyOf(fieldValues);
-  }
-
-  /**
-   * Returns the CEL value of a field decoded by {@link #readAllFields}, completing any conversion
-   * that was deferred.
-   */
-  Object resolveFieldValue(Object fieldValue) {
+  /** Returns the CEL value of a scanned field, completing any conversion that was deferred. */
+  private Object resolveFieldValue(Object fieldValue) {
     if (fieldValue instanceof DeferredConversion) {
       return toRuntimeValue(((DeferredConversion) fieldValue).value);
     }

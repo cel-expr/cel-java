@@ -26,6 +26,7 @@ import dev.cel.protobuf.CelLiteDescriptor.FieldLiteDescriptor.EncodingType;
 import dev.cel.protobuf.CelLiteDescriptor.FieldLiteDescriptor.JavaType;
 import dev.cel.protobuf.CelLiteDescriptor.MessageLiteDescriptor;
 import java.util.Map;
+import java.util.Optional;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
@@ -66,6 +67,32 @@ public class CelLiteDescriptorTest {
     FieldLiteDescriptor fieldLiteDescriptor = testAllTypesDescriptor.getByFieldNumberOrThrow(14);
 
     assertThat(fieldLiteDescriptor.getFieldName()).isEqualTo("single_string");
+  }
+
+  @Test
+  public void findByFieldName_declaredField_returnsDescriptor() {
+    MessageLiteDescriptor testAllTypesDescriptor =
+        TEST_ALL_TYPES_CEL_LITE_DESCRIPTOR
+            .getProtoTypeNamesToDescriptors()
+            .get("cel.expr.conformance.proto3.TestAllTypes");
+
+    Optional<FieldLiteDescriptor> fieldLiteDescriptor =
+        testAllTypesDescriptor.findByFieldName("single_string");
+
+    assertThat(fieldLiteDescriptor.map(FieldLiteDescriptor::getFieldNumber)).hasValue(14);
+  }
+
+  @Test
+  public void findByFieldName_undeclaredField_returnsEmpty() {
+    MessageLiteDescriptor testAllTypesDescriptor =
+        TEST_ALL_TYPES_CEL_LITE_DESCRIPTOR
+            .getProtoTypeNamesToDescriptors()
+            .get("cel.expr.conformance.proto3.TestAllTypes");
+
+    Optional<FieldLiteDescriptor> fieldLiteDescriptor =
+        testAllTypesDescriptor.findByFieldName("undeclared_field");
+
+    assertThat(fieldLiteDescriptor).isEmpty();
   }
 
   @Test
