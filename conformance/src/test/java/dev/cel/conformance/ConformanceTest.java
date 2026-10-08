@@ -31,9 +31,13 @@ import com.google.protobuf.ExtensionRegistry;
 import com.google.protobuf.TypeRegistry;
 import dev.cel.checker.CelChecker;
 import dev.cel.checker.CelCheckerBuilder;
+import dev.cel.common.CelAbstractSyntaxTree;
 import dev.cel.common.CelContainer;
 import dev.cel.common.CelIssue;
 import dev.cel.common.CelOptions;
+import dev.cel.common.CelSource.Extension;
+import dev.cel.common.CelSource.Extension.Component;
+import dev.cel.common.CelSource.Extension.Version;
 import dev.cel.common.CelValidationResult;
 import dev.cel.common.CelVarDecl;
 import dev.cel.common.ast.CelBlock;
@@ -227,7 +231,19 @@ public final class ConformanceTest extends Statement {
       response = getChecker(test).check(response.getAst());
     }
     assertThat(response.getErrors()).isEmpty();
-    Type resultType = CelProtoTypes.celTypeToType(response.getAst().getResultType());
+    CelAbstractSyntaxTree ast = response.getAst();
+    if (ast.getExpr().callOrDefault().function().equals(CelBlock.FUNCTION_NAME)) {
+      ast =
+          CelAbstractSyntaxTree.newCheckedAst(
+              ast.getExpr(),
+              ast.getSource().toBuilder()
+                  .addAllExtensions(
+                      Extension.create("cel_block", Version.of(1, 1), Component.COMPONENT_RUNTIME))
+                  .build(),
+              ast.getReferenceMap(),
+              ast.getTypeMap());
+    }
+    Type resultType = CelProtoTypes.celTypeToType(ast.getResultType());
 
     if (test.getCheckOnly()) {
       assertThat(test.hasTypedResult()).isTrue();
@@ -244,8 +260,8 @@ public final class ConformanceTest extends Statement {
     ExprValue result = null;
     CelEvaluationException error = null;
     try {
-      Program program = runtime.createProgram(response.getAst());
-      result = toExprValue(program.eval(getBindings(test)), response.getAst().getResultType());
+      Program program = runtime.createProgram(ast);
+      result = toExprValue(program.eval(getBindings(test)), ast.getResultType());
     } catch (CelEvaluationException e) {
       error = e;
     }
