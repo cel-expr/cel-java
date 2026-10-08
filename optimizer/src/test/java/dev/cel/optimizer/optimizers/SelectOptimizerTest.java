@@ -51,9 +51,11 @@ import dev.cel.common.ast.CelReference;
 import dev.cel.common.navigation.CelNavigableMutableAst;
 import dev.cel.common.types.ListType;
 import dev.cel.common.types.MapType;
+import dev.cel.common.types.NullableType;
 import dev.cel.common.types.SimpleType;
 import dev.cel.common.types.StructTypeReference;
 import dev.cel.common.values.CelByteString;
+import dev.cel.common.values.NullValue;
 import dev.cel.expr.conformance.proto2.NestedTestAllTypes;
 import dev.cel.expr.conformance.proto2.TestAllTypesProto;
 import dev.cel.expr.conformance.proto3.TestAllTypes;
@@ -304,6 +306,9 @@ public final class SelectOptimizerTest {
         "msg.single_duration == duration(\"1h\")",
         "cel.@attribute(msg, [[101, \"single_duration\", 11]], google.protobuf.Duration{}) =="
             + " duration(\"1h\")"),
+    PROTO3_WRAPPER(
+        "msg.single_int64_wrapper",
+        "cel.@attribute(msg, [[105, \"single_int64_wrapper\", 11]], google.protobuf.Int64Value{})"),
 
     // Map selects
     MAP_STRING_STRING(
@@ -781,6 +786,15 @@ public final class SelectOptimizerTest {
         "msg.single_timestamp",
         ImmutableMap.of("msg", TestAllTypes.getDefaultInstance()),
         Instant.EPOCH),
+    PROTO3_WRAPPER_SET_TO_ZERO_UNWRAPS(
+        "msg.single_int64_wrapper",
+        ImmutableMap.of(
+            "msg", TestAllTypes.newBuilder().setSingleInt64Wrapper(Int64Value.of(0)).build()),
+        0L),
+    PROTO3_WRAPPER_UNSET_IS_NULL(
+        "msg.single_int64_wrapper",
+        ImmutableMap.of("msg", TestAllTypes.getDefaultInstance()),
+        NullValue.NULL_VALUE),
     PROTO3_MAP_OF_ANY_UNPACKS_VALUE(
         "msg.map_string_any['k']",
         ImmutableMap.of(
@@ -847,6 +861,11 @@ public final class SelectOptimizerTest {
         true),
     HAS_FIELD_PROTO3_OPTIONAL_SCALAR_UNSET(
         "has(msg.optional_bool)", ImmutableMap.of("msg", TestAllTypes.getDefaultInstance()), false),
+    HAS_FIELD_PROTO3_WRAPPER_SET_TO_ZERO(
+        "has(msg.single_int64_wrapper)",
+        ImmutableMap.of(
+            "msg", TestAllTypes.newBuilder().setSingleInt64Wrapper(Int64Value.of(0)).build()),
+        true),
     HAS_FIELD_PROTO2_SCALAR_SET_TO_DEFAULT(
         "has(proto2_msg.single_int32)",
         ImmutableMap.of(
@@ -1068,9 +1087,7 @@ public final class SelectOptimizerTest {
     STRUCT("msg.single_struct", "Optimization of Struct fields is currently unimplemented"),
     LIST_VALUE("msg.list_value", "Optimization of ListValue fields is currently unimplemented"),
     VALUE("msg.single_value", "Optimization of Value fields is currently unimplemented"),
-    ANY("msg.single_any", "Optimization of Any fields is currently unimplemented"),
-    WRAPPER(
-        "msg.single_int64_wrapper", "Optimization of wrapper fields is currently unimplemented");
+    ANY("msg.single_any", "Optimization of Any fields is currently unimplemented");
 
     private final String expression;
     private final String expectedMessageSubstring;
@@ -1329,6 +1346,15 @@ public final class SelectOptimizerTest {
     assertThat(optimizedAst.getResultType()).isEqualTo(SimpleType.STRING);
     assertThat(CEL_UNPARSER.unparse(optimizedAst))
         .isEqualTo("cel.@attribute(msg, [[14, \"single_string\", 9]], \"\") + \"suffix\"");
+  }
+
+  @Test
+  public void optimize_wrapperFieldSelect_preservesNullableResultType() throws Exception {
+    CelAbstractSyntaxTree ast = cel.compile("msg.single_int64_wrapper").getAst();
+
+    CelAbstractSyntaxTree optimizedAst = celOptimizer.optimize(ast);
+
+    assertThat(optimizedAst.getResultType()).isEqualTo(NullableType.create(SimpleType.INT));
   }
 
   @Test

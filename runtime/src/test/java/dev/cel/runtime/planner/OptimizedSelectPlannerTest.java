@@ -551,13 +551,12 @@ public final class OptimizedSelectPlannerTest {
                             CelExpr.ofList(
                                 4L,
                                 ImmutableList.of(
-                                    CelExpr.ofConstant(5L, CelConstant.ofValue(105L)),
-                                    CelExpr.ofConstant(
-                                        6L, CelConstant.ofValue("single_int64_wrapper")),
+                                    CelExpr.ofConstant(5L, CelConstant.ofValue(100L)),
+                                    CelExpr.ofConstant(6L, CelConstant.ofValue("single_any")),
                                     CelExpr.ofConstant(7L, CelConstant.ofValue(11L))),
                                 ImmutableList.of())),
                         ImmutableList.of()),
-                    CelExpr.ofStruct(8L, "google.protobuf.Int64Value", ImmutableList.of()))),
+                    CelExpr.ofStruct(8L, "google.protobuf.Any", ImmutableList.of()))),
             CelSource.newBuilder().build());
 
     CelEvaluationException e = assertThrows(CelEvaluationException.class, () -> PLANNER.plan(ast));
@@ -565,7 +564,7 @@ public final class OptimizedSelectPlannerTest {
     assertThat(e).hasCauseThat().isInstanceOf(IllegalArgumentException.class);
     assertThat(e)
         .hasMessageThat()
-        .contains("Leaf well-known type 'google.protobuf.Int64Value' is not supported");
+        .contains("Leaf well-known type 'google.protobuf.Any' is not supported");
   }
 
   @Test
@@ -839,7 +838,12 @@ public final class OptimizedSelectPlannerTest {
 
   @Test
   public void plan_invalidAst_repeatedMessageWithUnsupportedWellKnownType_throwsEvaluationException(
-      @TestParameter({"google.protobuf.Int64Value", "google.protobuf.Any"})
+      @TestParameter({
+            "google.protobuf.Any",
+            "google.protobuf.Struct",
+            "google.protobuf.Value",
+            "google.protobuf.ListValue"
+          })
           String unsupportedProtoTypeName) {
     CelAbstractSyntaxTree ast =
         CelAbstractSyntaxTree.newParsedAst(

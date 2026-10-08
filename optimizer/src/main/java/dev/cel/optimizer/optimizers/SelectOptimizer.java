@@ -99,8 +99,9 @@ import java.util.Optional;
  * <p>The 3rd argument of {@code cel.@attribute} is a typed expression that binds the result type
  * {@code T}. For singular scalar leaves it is also the field's default value (e.g. {@code 0} or a
  * proto2 custom default). For repeated, map, and message leaves (including {@code
- * google.protobuf.Duration} and {@code google.protobuf.Timestamp}) it is a type-only dummy (e.g.
- * {@code [0]}, {@code {"": 0}}, {@code Msg{}}) that the runtime never evaluates.
+ * google.protobuf.Duration}, {@code google.protobuf.Timestamp}, and wrapper types) it is a
+ * type-only dummy (e.g. {@code [0]}, {@code {"": 0}}, {@code Msg{}}) that the runtime never
+ * evaluates.
  *
  * <p>Field presence paths ({@code cel.@hasField}) represent each step as a 2-tuple: {@code
  * [field_num, field_name]}.
@@ -344,8 +345,7 @@ public final class SelectOptimizer implements CelAstOptimizer {
         && !node.parent().flatMap(parent -> getOptimizableField(navAst, parent)).isPresent();
   }
 
-  // TODO: Support STRUCT_MESSAGE, LIST_VALUE_MESSAGE, VALUE_MESSAGE, ANY_MESSAGE,
-  // and wrapper types.
+  // TODO: Support the remaining well-known types below.
   private static void checkUnsupportedMessageType(String messageFullName, String fieldFullName) {
     if (messageFullName.equals(CelTypes.STRUCT_MESSAGE)) {
       throw new UnsupportedOperationException(
@@ -362,10 +362,6 @@ public final class SelectOptimizer implements CelAstOptimizer {
     if (messageFullName.equals(CelTypes.ANY_MESSAGE)) {
       throw new UnsupportedOperationException(
           "Optimization of Any fields is currently unimplemented: " + fieldFullName);
-    }
-    if (CelTypes.isWrapperType(messageFullName)) {
-      throw new UnsupportedOperationException(
-          "Optimization of wrapper fields is currently unimplemented: " + fieldFullName);
     }
   }
 

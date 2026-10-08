@@ -49,8 +49,7 @@ final class OptimizedSelectPlanner {
 
   /**
    * Well-known message types whose CEL semantics (Any unpacking, JSON value conversion) are not
-   * implemented by the optimized traversal. Wrapper types are rejected via {@link
-   * CelTypes#isWrapperType}.
+   * implemented by the optimized traversal.
    */
   private static final ImmutableSet<String> UNSUPPORTED_WELL_KNOWN_TYPE_IDENTS =
       ImmutableSet.of(
@@ -167,8 +166,8 @@ final class OptimizedSelectPlanner {
     CelMap.Entry entry = dummyExpr.map().entries().get(0);
     validateScalarDummy(mapEntrySpec.keyTypeCode(), entry.key());
     if (mapEntrySpec.valueTypeCode() == SelectField.MESSAGE_TYPE_CODE) {
-      // Unlike leaf fields, map values of Any, Struct, Value, and wrapper types are permitted:
-      // the traversal only produces the map, and indexing it applies standard CEL conversion.
+      // Unlike leaf fields, map values of unsupported well-known types are permitted: the
+      // traversal only produces the map, and indexing it applies standard CEL conversion.
       return SelectField.createMap(
           fieldNumber, fieldName, mapEntrySpec, parseMessageProtoTypeName(entry.value()));
     }
@@ -301,8 +300,7 @@ final class OptimizedSelectPlanner {
   private static String parseLeafMessageProtoTypeName(CelExpr expr) {
     String protoTypeName = parseMessageProtoTypeName(expr);
     checkArgument(
-        !CelTypes.isWrapperType(protoTypeName)
-            && !UNSUPPORTED_WELL_KNOWN_TYPE_IDENTS.contains(protoTypeName),
+        !UNSUPPORTED_WELL_KNOWN_TYPE_IDENTS.contains(protoTypeName),
         "Leaf well-known type '%s' is not supported by the select-optimized runtime",
         protoTypeName);
     return protoTypeName;

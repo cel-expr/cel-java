@@ -26,6 +26,7 @@ import com.google.common.primitives.UnsignedLong;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.CodedOutputStream;
 import com.google.protobuf.ExtensionRegistryLite;
+import com.google.protobuf.Int64Value;
 import com.google.protobuf.UnknownFieldSet;
 import com.google.testing.junit.testparameterinjector.TestParameter;
 import com.google.testing.junit.testparameterinjector.TestParameterInjector;
@@ -2190,6 +2191,15 @@ public final class CelLiteRuntimeVersionSkewTest {
             + " && msg.repeated_duration[0] == duration('5m')"
             + " && msg.map_string_duration['d'] == duration('5m')",
         POPULATED_SERVER_MESSAGE,
+        true),
+    WRAPPERS(
+        "msg.single_int64_wrapper == 0 && has(msg.single_int64_wrapper)"
+            + " && msg.single_string_wrapper == null && msg.repeated_int64_wrapper == [1, 0]",
+        TestAllTypes.newBuilder()
+            .setSingleInt64Wrapper(Int64Value.of(0))
+            .addRepeatedInt64Wrapper(Int64Value.of(1))
+            .addRepeatedInt64Wrapper(Int64Value.of(0))
+            .build(),
         true),
     ;
 
