@@ -299,7 +299,11 @@ public final class ProtoLiteCelValueConverter extends BaseProtoCelValueConverter
       key = getDefaultCelValue(keyDescriptor);
     }
     if (value == null) {
-      value = getDefaultCelValue(valueDescriptor);
+      // Map values have no presence, so a missing message (even a wrapper) is empty, not null.
+      value =
+          valueDescriptor.getJavaType().equals(JavaType.MESSAGE)
+              ? readMessageField(ByteString.EMPTY, valueDescriptor.getFieldProtoTypeName())
+              : getDefaultCelValue(valueDescriptor);
     }
 
     return new AbstractMap.SimpleImmutableEntry<>(key, value);

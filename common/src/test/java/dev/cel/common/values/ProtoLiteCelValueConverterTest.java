@@ -478,6 +478,8 @@ public final class ProtoLiteCelValueConverterTest {
     REPEATED_INT32(TestAllTypes.REPEATED_INT32_FIELD_NUMBER, ImmutableList.of(1L, 2L)),
     MAP_STRING_STRING(
         TestAllTypes.MAP_STRING_STRING_FIELD_NUMBER, ImmutableMap.of("k", "v", "k2", "v2", "", "")),
+    MAP_STRING_INT64_WRAPPER(
+        TestAllTypes.MAP_STRING_INT64_WRAPPER_FIELD_NUMBER, ImmutableMap.of("", 0L)),
     SPLIT_DURATION(
         TestAllTypes.SINGLE_DURATION_FIELD_NUMBER, java.time.Duration.ofSeconds(10, 500));
 
@@ -521,6 +523,8 @@ public final class ProtoLiteCelValueConverterTest {
     extraWireCos.writeByteArray(TestAllTypes.REPEATED_INT32_FIELD_NUMBER, new byte[0]);
     extraWireCos.writeByteArray(
         TestAllTypes.MAP_STRING_STRING_FIELD_NUMBER, mapEntryWithUnknownOut.toByteArray());
+    extraWireCos.writeByteArray(
+        TestAllTypes.MAP_STRING_INT64_WRAPPER_FIELD_NUMBER, mapEntryWithUnknownOut.toByteArray());
     extraWireCos.flush();
     ByteString bytes =
         part1
