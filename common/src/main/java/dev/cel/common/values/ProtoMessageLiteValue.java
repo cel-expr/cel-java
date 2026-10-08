@@ -138,7 +138,7 @@ abstract class ProtoMessageLiteValue extends StructValue<String, MessageLite>
   @Override
   public Optional<Object> find(String field) {
     return Optional.ofNullable(fieldValues().get(field))
-        .map(protoLiteCelValueConverter()::toRuntimeValue);
+        .map(protoLiteCelValueConverter()::resolveFieldValue);
   }
 
   @Override
@@ -147,7 +147,7 @@ abstract class ProtoMessageLiteValue extends StructValue<String, MessageLite>
     if (fd != null) {
       Object known = readField(fd);
       if (known != null) {
-        return protoLiteCelValueConverter().toRuntimeValue(known);
+        return known;
       }
       if (field.defaultValue() != null) {
         return field.defaultValue();
@@ -173,7 +173,7 @@ abstract class ProtoMessageLiteValue extends StructValue<String, MessageLite>
   public Optional<Object> findByFieldNumber(SelectField field) {
     FieldLiteDescriptor fd = findFieldDescriptor(field);
     if (fd != null) {
-      return Optional.ofNullable(readField(fd)).map(protoLiteCelValueConverter()::toRuntimeValue);
+      return Optional.ofNullable(readField(fd));
     }
     return RawProtoMessageLiteValue.navigateWire(
         field,

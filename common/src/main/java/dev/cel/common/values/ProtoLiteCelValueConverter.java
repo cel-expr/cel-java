@@ -19,11 +19,13 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import com.google.common.base.Defaults;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Iterables;
 import com.google.common.primitives.UnsignedLong;
 import com.google.errorprone.annotations.Immutable;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.CodedInputStream;
 import com.google.protobuf.ExtensionRegistryLite;
+import com.google.protobuf.InvalidProtocolBufferException;
 import com.google.protobuf.MessageLite;
 import com.google.protobuf.WireFormat;
 import dev.cel.common.annotations.Internal;
@@ -69,12 +71,12 @@ public final class ProtoLiteCelValueConverter extends BaseProtoCelValueConverter
       CodedInputStream inputStream, FieldLiteDescriptor fieldDescriptor) throws IOException {
     switch (fieldDescriptor.getProtoFieldType()) {
       case SINT32:
-        return inputStream.readSInt32();
+        return (long) inputStream.readSInt32();
       case SINT64:
         return inputStream.readSInt64();
       case INT32:
       case ENUM:
-        return inputStream.readInt32();
+        return (long) inputStream.readInt32();
       case INT64:
         return inputStream.readInt64();
       case UINT32:
@@ -84,38 +86,12 @@ public final class ProtoLiteCelValueConverter extends BaseProtoCelValueConverter
       case BOOL:
         return inputStream.readBool();
       case FLOAT:
-      case FIXED32:
-      case SFIXED32:
-        return readFixed32BitField(inputStream, fieldDescriptor);
-      case DOUBLE:
-      case FIXED64:
-      case SFIXED64:
-        return readFixed64BitField(inputStream, fieldDescriptor);
-      default:
-        throw new IllegalStateException(
-            "Unexpected field type: " + fieldDescriptor.getProtoFieldType());
-    }
-  }
-
-  private static Object readFixed32BitField(
-      CodedInputStream inputStream, FieldLiteDescriptor fieldDescriptor) throws IOException {
-    switch (fieldDescriptor.getProtoFieldType()) {
-      case FLOAT:
-        return inputStream.readFloat();
+        return (double) inputStream.readFloat();
       case FIXED32:
         return UnsignedLong.fromLongBits(
             Integer.toUnsignedLong(inputStream.readRawLittleEndian32()));
       case SFIXED32:
-        return inputStream.readRawLittleEndian32();
-      default:
-        throw new IllegalStateException(
-            "Unexpected field type: " + fieldDescriptor.getProtoFieldType());
-    }
-  }
-
-  private static Object readFixed64BitField(
-      CodedInputStream inputStream, FieldLiteDescriptor fieldDescriptor) throws IOException {
-    switch (fieldDescriptor.getProtoFieldType()) {
+        return (long) inputStream.readRawLittleEndian32();
       case DOUBLE:
         return inputStream.readDouble();
       case FIXED64:
@@ -137,7 +113,7 @@ public final class ProtoLiteCelValueConverter extends BaseProtoCelValueConverter
 
     switch (fieldType) {
       case BYTES:
-        return inputStream.readBytes();
+        return CelByteString.of(inputStream.readByteArray());
       case MESSAGE:
         return mergeOrReadMessageField(
             inputStream.readBytes(), fieldDescriptor.getFieldProtoTypeName(), existingValue);
@@ -355,15 +331,16 @@ public final class ProtoLiteCelValueConverter extends BaseProtoCelValueConverter
       int tagWireType = WireFormat.getTagWireType(tag);
       fieldValue = readFieldValue(tagWireType, inputStream, fieldDescriptor, fieldValue);
     }
-    return fieldValue;
+    // Only this field is decoded, so unlike readAllFields, a failed conversion can't affect access
+    // to any other field.
+    return fieldValue == null ? null : resolveFieldValue(finalizeFieldValue(fieldValue));
   }
 
   boolean hasSingleField(ByteString bytes, FieldLiteDescriptor fieldDescriptor) throws IOException {
     return hasSingleField(
         bytes,
         fieldDescriptor.getFieldNumber(),
-        fieldDescriptor.getEncodingType().equals(EncodingType.LIST)
-            && fieldDescriptor.getIsPacked());
+        fieldDescriptor.getEncodingType().equals(EncodingType.LIST) && isPackable(fieldDescriptor));
   }
 
   static boolean hasSingleField(ByteString bytes, int targetFieldNumber, boolean isPackableList)
@@ -393,6 +370,10 @@ public final class ProtoLiteCelValueConverter extends BaseProtoCelValueConverter
     return false;
   }
 
+  /**
+   * Decodes every known field in {@code bytes}, keyed by field name. Each value must be passed to
+   * {@link #resolveFieldValue} to obtain its CEL value.
+   */
   ImmutableMap<String, Object> readAllFields(ByteString bytes, String protoTypeName)
       throws IOException {
     MessageLiteDescriptor messageDescriptor = descriptorPool.getDescriptorOrThrow(protoTypeName);
@@ -423,7 +404,46 @@ public final class ProtoLiteCelValueConverter extends BaseProtoCelValueConverter
       }
     }
 
+    fieldValues.replaceAll((fieldName, fieldValue) -> finalizeFieldValue(fieldValue));
     return ImmutableMap.copyOf(fieldValues);
+  }
+
+  /**
+   * Returns the CEL value of a field decoded by {@link #readAllFields}, completing any conversion
+   * that was deferred.
+   */
+  Object resolveFieldValue(Object fieldValue) {
+    if (fieldValue instanceof DeferredConversion) {
+      return toRuntimeValue(((DeferredConversion) fieldValue).value);
+    }
+    return fieldValue;
+  }
+
+  /**
+   * Converts a value accumulated while scanning a field into its final immutable form.
+   *
+   * <p>Repeated and map fields accumulate into mutable containers, which are copied into immutable
+   * ones. Well-known types other than FieldMask (see {@link #isStructLike}) are kept as parsed
+   * {@link MessageLite}s until the scan completes so that split occurrences can be merged, and
+   * values holding them are wrapped in a {@link DeferredConversion}. All other messages are wrapped
+   * as CEL values as soon as they are read.
+   */
+  private static Object finalizeFieldValue(Object accumulatedValue) {
+    if (accumulatedValue instanceof List) {
+      ImmutableList<?> list = ImmutableList.copyOf((List<?>) accumulatedValue);
+      return Iterables.any(list, MessageLite.class::isInstance)
+          ? new DeferredConversion(list)
+          : list;
+    }
+    if (accumulatedValue instanceof Map) {
+      ImmutableMap<?, ?> map = ImmutableMap.copyOf((Map<?, ?>) accumulatedValue);
+      return Iterables.any(map.values(), MessageLite.class::isInstance)
+          ? new DeferredConversion(map)
+          : map;
+    }
+    return accumulatedValue instanceof MessageLite
+        ? new DeferredConversion(accumulatedValue)
+        : accumulatedValue;
   }
 
   private @Nullable Object readFieldValue(
@@ -450,21 +470,11 @@ public final class ProtoLiteCelValueConverter extends BaseProtoCelValueConverter
       FieldLiteDescriptor fieldDescriptor,
       @Nullable Object existingValue)
       throws IOException {
-    switch (tagWireType) {
-      case WireFormat.WIRETYPE_VARINT:
-        return readPrimitiveField(inputStream, fieldDescriptor);
-      case WireFormat.WIRETYPE_FIXED32:
-        return readFixed32BitField(inputStream, fieldDescriptor);
-      case WireFormat.WIRETYPE_FIXED64:
-        return readFixed64BitField(inputStream, fieldDescriptor);
-      case WireFormat.WIRETYPE_LENGTH_DELIMITED:
-        return readLengthDelimitedField(inputStream, fieldDescriptor, existingValue);
-      case WireFormat.WIRETYPE_START_GROUP:
-      case WireFormat.WIRETYPE_END_GROUP:
-        throw new UnsupportedOperationException("Groups are not supported");
-      default:
-        throw new IllegalArgumentException("Unexpected wire type: " + tagWireType);
+    checkWireType(tagWireType, fieldDescriptor);
+    if (tagWireType == WireFormat.WIRETYPE_LENGTH_DELIMITED) {
+      return readLengthDelimitedField(inputStream, fieldDescriptor, existingValue);
     }
+    return readPrimitiveField(inputStream, fieldDescriptor);
   }
 
   // Safe because LIST fields only ever store an ArrayList as their accumulated value.
@@ -476,7 +486,9 @@ public final class ProtoLiteCelValueConverter extends BaseProtoCelValueConverter
       @Nullable Object existingValue)
       throws IOException {
     List<Object> repeatedValues = (List<Object>) existingValue;
-    if (tagWireType == WireFormat.WIRETYPE_LENGTH_DELIMITED && fieldDescriptor.getIsPacked()) {
+    // Parsers must accept both packed and unpacked encodings of a packable repeated field,
+    // regardless of whether the field is declared as packed.
+    if (tagWireType == WireFormat.WIRETYPE_LENGTH_DELIMITED && isPackable(fieldDescriptor)) {
       return readPackedRepeatedFields(inputStream, fieldDescriptor, repeatedValues);
     }
     Object element =
@@ -516,14 +528,41 @@ public final class ProtoLiteCelValueConverter extends BaseProtoCelValueConverter
       FieldLiteDescriptor fieldDescriptor,
       @Nullable Object existingValue)
       throws IOException {
-    if (tagWireType != WireFormat.WIRETYPE_LENGTH_DELIMITED) {
-      throw new IllegalStateException("Unexpected wire type for map field: " + tagWireType);
-    }
+    checkWireType(tagWireType, fieldDescriptor);
     Map<Object, Object> mapValues =
         existingValue != null ? (Map<Object, Object>) existingValue : new LinkedHashMap<>();
     Map.Entry<Object, Object> mapEntry = readSingleMapEntry(inputStream, fieldDescriptor);
     mapValues.put(mapEntry.getKey(), mapEntry.getValue());
     return mapValues;
+  }
+
+  /**
+   * Throws if a known field was encoded with a wire type that doesn't match its declared type.
+   *
+   * <p>This is deliberately stricter than protobuf-java, which parses such a field as an unknown
+   * field. A mismatch indicates an incompatible schema change or corrupt bytes, so decoding fails
+   * rather than silently dropping or misreading the value.
+   */
+  private static void checkWireType(int tagWireType, FieldLiteDescriptor fieldDescriptor)
+      throws InvalidProtocolBufferException {
+    if (tagWireType == WireFormat.WIRETYPE_START_GROUP
+        || tagWireType == WireFormat.WIRETYPE_END_GROUP) {
+      throw new UnsupportedOperationException("Groups are not supported");
+    }
+    FieldLiteDescriptor.Type fieldType = fieldDescriptor.getProtoFieldType();
+    if (tagWireType != fieldType.toWireFormatFieldType().getWireType()) {
+      throw new InvalidProtocolBufferException(
+          String.format(
+              "Field '%s' (number %d) of type %s has unexpected wire type %d",
+              fieldDescriptor.getFieldName(),
+              fieldDescriptor.getFieldNumber(),
+              fieldType,
+              tagWireType));
+    }
+  }
+
+  private static boolean isPackable(FieldLiteDescriptor fieldDescriptor) {
+    return fieldDescriptor.getProtoFieldType().toWireFormatFieldType().isPackable();
   }
 
   static void skipWireField(int tag, CodedInputStream inputStream) throws IOException {
@@ -559,6 +598,18 @@ public final class ProtoLiteCelValueConverter extends BaseProtoCelValueConverter
         throw new UnsupportedOperationException("Groups are not supported");
       default:
         throw new IllegalArgumentException("Unknown wire type: " + tagWireType);
+    }
+  }
+
+  /**
+   * A field value holding well-known type messages, whose conversion to CEL values is deferred
+   * until {@link #resolveFieldValue}.
+   */
+  private static final class DeferredConversion {
+    private final Object value;
+
+    private DeferredConversion(Object value) {
+      this.value = checkNotNull(value);
     }
   }
 

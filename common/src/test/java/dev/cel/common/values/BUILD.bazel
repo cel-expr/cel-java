@@ -40,6 +40,7 @@ java_library(
         "//common/values:proto_message_value_provider",
         "//common/values:select_field",
         "//protobuf:cel_lite_descriptor",
+        "//testing/protos:test_all_types_cel_java_proto2",
         "//testing/protos:test_all_types_cel_java_proto3",
         "@cel_spec//proto/cel/expr/conformance/proto2:test_all_types_java_proto",
         "@cel_spec//proto/cel/expr/conformance/proto3:test_all_types_java_proto",

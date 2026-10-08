@@ -52,7 +52,7 @@ import dev.cel.protobuf.CelLiteDescriptor.MessageLiteDescriptor;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.time.Instant;
-import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Optional;
 import org.junit.Test;
@@ -80,7 +80,9 @@ public final class ProtoLiteCelValueConverterTest {
 
   private static final CelLiteDescriptorPool DESCRIPTOR_POOL =
       DefaultLiteDescriptorPool.newInstance(
-          ImmutableSet.of(TestAllTypesCelDescriptor.getDescriptor()));
+          ImmutableSet.of(
+              TestAllTypesCelDescriptor.getDescriptor(),
+              dev.cel.expr.conformance.proto2.TestAllTypesCelDescriptor.getDescriptor()));
 
   private static final ProtoLiteCelValueConverter PROTO_LITE_CEL_VALUE_CONVERTER =
       ProtoLiteCelValueConverter.newInstance(DESCRIPTOR_POOL);
@@ -172,12 +174,19 @@ public final class ProtoLiteCelValueConverterTest {
     }
   }
 
+  // repeated_int64 is declared unpacked in proto2 and packed in proto3.
   @Test
   public void readAllFields_repeatedFields_packedBytesCombinations(
-      @TestParameter RepeatedFieldBytesTestCase testCase) throws Exception {
+      @TestParameter RepeatedFieldBytesTestCase testCase,
+      @TestParameter({
+            "cel.expr.conformance.proto2.TestAllTypes",
+            "cel.expr.conformance.proto3.TestAllTypes"
+          })
+          String messageName)
+      throws Exception {
     ImmutableMap<String, Object> fields =
         PROTO_LITE_CEL_VALUE_CONVERTER.readAllFields(
-            ByteString.copyFrom(testCase.bytes), "cel.expr.conformance.proto3.TestAllTypes");
+            ByteString.copyFrom(testCase.bytes), messageName);
 
     assertThat(fields).containsExactly("repeated_int64", ImmutableList.of(1L, 2L, 3L));
   }
@@ -302,8 +311,7 @@ public final class ProtoLiteCelValueConverterTest {
                 + "  2: 5\n"
                 + "}\n");
     assertThat(fields).containsKey("map_bool_double");
-    LinkedHashMap<Boolean, Double> mapBoolDoubleValues =
-        (LinkedHashMap<Boolean, Double>) fields.get("map_bool_double");
+    Map<Boolean, Double> mapBoolDoubleValues = (Map<Boolean, Double>) fields.get("map_bool_double");
     assertThat(mapBoolDoubleValues).containsExactly(true, 1.5d, false, 2.5d).inOrder();
   }
 
@@ -490,8 +498,8 @@ public final class ProtoLiteCelValueConverterTest {
         PROTO_LITE_CEL_VALUE_CONVERTER.readAllFields(
             splitWireBytes, "cel.expr.conformance.proto3.TestAllTypes");
 
-    assertThat(fields.get("single_duration"))
-        .isEqualTo(Duration.newBuilder().setSeconds(10).setNanos(500).build());
+    assertThat(PROTO_LITE_CEL_VALUE_CONVERTER.resolveFieldValue(fields.get("single_duration")))
+        .isEqualTo(java.time.Duration.ofSeconds(10, 500));
     ProtoMessageLiteValue nestedMsg = (ProtoMessageLiteValue) fields.get("single_nested_message");
     assertThat(nestedMsg.rawValue()).isNull();
     assertThat(nestedMsg.select("bb")).isEqualTo(99L);
@@ -576,12 +584,11 @@ public final class ProtoLiteCelValueConverterTest {
   private enum ReadSingleFieldTestCase {
     SINGLE_STRING(TestAllTypes.SINGLE_STRING_FIELD_NUMBER, "target_str"),
     REPEATED_STRING(TestAllTypes.REPEATED_STRING_FIELD_NUMBER, ImmutableList.of("a", "b")),
-    REPEATED_INT32(TestAllTypes.REPEATED_INT32_FIELD_NUMBER, ImmutableList.of(1, 2)),
+    REPEATED_INT32(TestAllTypes.REPEATED_INT32_FIELD_NUMBER, ImmutableList.of(1L, 2L)),
     MAP_STRING_STRING(
         TestAllTypes.MAP_STRING_STRING_FIELD_NUMBER, ImmutableMap.of("k", "v", "k2", "v2", "", "")),
     SPLIT_DURATION(
-        TestAllTypes.SINGLE_DURATION_FIELD_NUMBER,
-        Duration.newBuilder().setSeconds(10).setNanos(500).build());
+        TestAllTypes.SINGLE_DURATION_FIELD_NUMBER, java.time.Duration.ofSeconds(10, 500));
 
     private final int fieldNumber;
     private final Object expected;
@@ -652,13 +659,18 @@ public final class ProtoLiteCelValueConverterTest {
     assertThat(result).isFalse();
   }
 
+  // repeated_int32 is declared unpacked in proto2 and packed in proto3.
   @Test
-  public void hasSingleField_emptyPackedRepeatedField_returnsFalse() throws Exception {
+  public void hasSingleField_emptyPackedRepeatedField_returnsFalse(
+      @TestParameter({
+            "cel.expr.conformance.proto2.TestAllTypes",
+            "cel.expr.conformance.proto3.TestAllTypes"
+          })
+          String messageName)
+      throws Exception {
     FieldLiteDescriptor repeatedInt32Fd =
         PROTO_LITE_CEL_VALUE_CONVERTER
-            .findFieldDescriptor(
-                "cel.expr.conformance.proto3.TestAllTypes",
-                TestAllTypes.REPEATED_INT32_FIELD_NUMBER)
+            .findFieldDescriptor(messageName, TestAllTypes.REPEATED_INT32_FIELD_NUMBER)
             .get();
     ByteArrayOutputStream emptyPackedOut = new ByteArrayOutputStream();
     CodedOutputStream emptyPackedCos = CodedOutputStream.newInstance(emptyPackedOut);

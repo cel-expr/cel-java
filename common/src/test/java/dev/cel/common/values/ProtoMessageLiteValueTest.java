@@ -33,6 +33,7 @@ import com.google.protobuf.ExtensionRegistryLite;
 import com.google.protobuf.FloatValue;
 import com.google.protobuf.Int32Value;
 import com.google.protobuf.Int64Value;
+import com.google.protobuf.InvalidProtocolBufferException;
 import com.google.protobuf.StringValue;
 import com.google.protobuf.Timestamp;
 import com.google.protobuf.UInt32Value;
@@ -268,6 +269,55 @@ public final class ProtoMessageLiteValueTest {
     assertThat(thrown).hasCauseThat().isInstanceOf(IOException.class);
   }
 
+  /** Known fields encoded with a wire type that doesn't match their declared type. */
+  @SuppressWarnings("ImmutableEnumChecker") // Test only
+  private enum MismatchedWireTypeTestCase {
+    // single_fixed32 (7) as a 4-byte varint, which reads as a valid fixed32 if the wire type is
+    // ignored.
+    FIXED32_AS_VARINT(
+        "single_fixed32", new byte[] {0x38, (byte) 0x80, (byte) 0x80, (byte) 0x80, 0x01}),
+    // repeated_int64 (32) as fixed32, whose 4 bytes read as a valid varint if the wire type is
+    // ignored.
+    REPEATED_INT64_AS_FIXED32(
+        "repeated_int64",
+        new byte[] {(byte) 0x85, 0x02, (byte) 0x80, (byte) 0x80, (byte) 0x80, 0x01}),
+    // map_string_string (61) as the varint 0, which reads as an empty entry if the wire type is
+    // ignored.
+    MAP_AS_VARINT("map_string_string", new byte[] {(byte) 0xE8, 0x03, 0x00}),
+    // map_string_string (61) entry {key: "k"} whose string value (2) is a varint.
+    MAP_VALUE_AS_VARINT(
+        "map_string_string", new byte[] {(byte) 0xEA, 0x03, 0x05, 0x0A, 0x01, 0x6B, 0x10, 0x01});
+
+    private final String fieldName;
+    private final byte[] bytes;
+
+    MismatchedWireTypeTestCase(String fieldName, byte[] bytes) {
+      this.fieldName = fieldName;
+      this.bytes = bytes;
+    }
+  }
+
+  @Test
+  public void create_withMismatchedWireType_throwsOnSelect(
+      @TestParameter MismatchedWireTypeTestCase testCase) {
+    ProtoMessageLiteValue messageLiteValue =
+        ProtoMessageLiteValue.create(
+            ByteString.copyFrom(testCase.bytes),
+            "cel.expr.conformance.proto3.TestAllTypes",
+            PROTO_LITE_CEL_VALUE_CONVERTER);
+
+    IllegalArgumentException thrown =
+        assertThrows(
+            IllegalArgumentException.class, () -> messageLiteValue.select(testCase.fieldName));
+
+    assertThat(thrown)
+        .hasMessageThat()
+        .contains(
+            "Failed to decode proto message of type: cel.expr.conformance.proto3.TestAllTypes");
+    assertThat(thrown).hasCauseThat().isInstanceOf(InvalidProtocolBufferException.class);
+    assertThat(thrown).hasCauseThat().hasMessageThat().contains("unexpected wire type");
+  }
+
   @SuppressWarnings("ImmutableEnumChecker") // Test only
   private enum SelectFieldTestCase {
     BOOL("single_bool", true),
@@ -314,6 +364,7 @@ public final class ProtoMessageLiteValueTest {
                 NestedMessage.newBuilder().setBb(10).build(),
                 "cel.expr.conformance.proto3.TestAllTypes.NestedMessage",
                 PROTO_LITE_CEL_VALUE_CONVERTER))),
+    REPEATED_INT64_WRAPPER("repeated_int64_wrapper", ImmutableList.of(11L, 12L)),
 
     MAP_INT64_INT64("map_int64_int64", ImmutableMap.of(1L, 2L, 3L, 4L)),
 
@@ -326,6 +377,7 @@ public final class ProtoMessageLiteValueTest {
             UnsignedLong.valueOf(8L))),
 
     MAP_STRING_STRING("map_string_string", ImmutableMap.of("a", "b")),
+    MAP_INT64_INT64_WRAPPER("map_int64_int64_wrapper", ImmutableMap.of(13L, 14L)),
 
     NESTED_ENUM("standalone_enum", 1L);
 
@@ -340,6 +392,9 @@ public final class ProtoMessageLiteValueTest {
 
   @Test
   public void selectField_success(@TestParameter SelectFieldTestCase testCase) {
+    // Converting Any isn't supported in lite yet, so it's set in a singular, a repeated and a map
+    // field to verify that selecting any other field doesn't attempt to convert it.
+    Any any = Any.pack(DynamicMessage.newBuilder(BoolValue.of(true)).build());
     TestAllTypes testAllTypes =
         TestAllTypes.newBuilder()
             .setSingleBool(true)
@@ -357,7 +412,7 @@ public final class ProtoMessageLiteValueTest {
             .setSingleDouble(2.5d)
             .setSingleString("test")
             .setSingleBytes(ByteString.copyFrom(new byte[] {0x01}))
-            .setSingleAny(Any.pack(DynamicMessage.newBuilder(BoolValue.of(true)).build()))
+            .setSingleAny(any)
             .setSingleDuration(com.google.protobuf.Duration.newBuilder().setSeconds(100))
             .setSingleTimestamp(Timestamp.newBuilder().setSeconds(100))
             .setSingleInt32Wrapper(Int32Value.of(5))
@@ -383,11 +438,16 @@ public final class ProtoMessageLiteValueTest {
             .addRepeatedString("foo")
             .addRepeatedString("bar")
             .addRepeatedNestedMessage(NestedMessage.newBuilder().setBb(10))
+            .addRepeatedAny(any)
+            .addRepeatedInt64Wrapper(Int64Value.of(11L))
+            .addRepeatedInt64Wrapper(Int64Value.of(12L))
             .putMapStringString("a", "b")
             .putMapInt64Int64(1L, 2L)
             .putMapInt64Int64(3L, 4L)
             .putMapUint32Uint64(5, 6L)
             .putMapUint32Uint64(7, 8L)
+            .putMapStringAny("key", any)
+            .putMapInt64Int64Wrapper(13L, Int64Value.of(14L))
             .setStandaloneMessage(NestedMessage.getDefaultInstance())
             .setStandaloneEnum(NestedEnum.BAR)
             .build();
@@ -400,6 +460,54 @@ public final class ProtoMessageLiteValueTest {
     Object selectedValue = protoMessageValue.select(testCase.fieldName);
 
     assertThat(selectedValue).isEqualTo(testCase.value);
+  }
+
+  private enum ContainerFieldTestCase {
+    REPEATED(
+        SelectField.create(TestAllTypes.REPEATED_INT64_FIELD_NUMBER, "repeated_int64", 3),
+        ImmutableList.class),
+    MAP(
+        SelectField.createMap(
+            TestAllTypes.MAP_INT64_INT64_FIELD_NUMBER,
+            "map_int64_int64",
+            SelectField.MapEntrySpec.create(3, 3)),
+        ImmutableMap.class);
+
+    private final SelectField selectField;
+    private final Class<?> immutableType;
+
+    ContainerFieldTestCase(SelectField selectField, Class<?> immutableType) {
+      this.selectField = selectField;
+      this.immutableType = immutableType;
+    }
+  }
+
+  @Test
+  public void selectField_containerField_returnsImmutableContainer(
+      @TestParameter ContainerFieldTestCase testCase) {
+    ProtoMessageLiteValue protoMessageValue =
+        ProtoMessageLiteValue.create(
+            TestAllTypes.newBuilder().addRepeatedInt64(1L).putMapInt64Int64(1L, 2L).build(),
+            "cel.expr.conformance.proto3.TestAllTypes",
+            PROTO_LITE_CEL_VALUE_CONVERTER);
+
+    Object selectedValue = protoMessageValue.select(testCase.selectField.fieldName());
+
+    assertThat(selectedValue).isInstanceOf(testCase.immutableType);
+  }
+
+  @Test
+  public void selectByFieldNumber_containerField_returnsImmutableContainer(
+      @TestParameter ContainerFieldTestCase testCase) {
+    ProtoMessageLiteValue protoMessageValue =
+        ProtoMessageLiteValue.create(
+            TestAllTypes.newBuilder().addRepeatedInt64(1L).putMapInt64Int64(1L, 2L).build(),
+            "cel.expr.conformance.proto3.TestAllTypes",
+            PROTO_LITE_CEL_VALUE_CONVERTER);
+
+    Object selectedValue = protoMessageValue.selectByFieldNumber(testCase.selectField);
+
+    assertThat(selectedValue).isInstanceOf(testCase.immutableType);
   }
 
   @SuppressWarnings("ImmutableEnumChecker") // Test only
