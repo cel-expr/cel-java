@@ -1,0 +1,7 @@
+# Copyright 2026 Google LLC
+name: "test_policy"
+rule:
+  match:
+    - condition: proto3.single_int32 == 100 && has(proto3.single_nested_message)
+      output: '"ALLOW"'
+    - output: '"DENY"'

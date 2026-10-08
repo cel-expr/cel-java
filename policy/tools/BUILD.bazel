@@ -1,0 +1,27 @@
+load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
+load("@rules_java//java:defs.bzl", "java_library")
+
+package(
+    default_applicable_licenses = ["//:license"],
+    default_visibility = ["//visibility:public"],
+)
+
+exports_files(["compile_cel_policy.bzl"])
+
+java_library(
+    name = "tools",
+    visibility = ["//:internal"],
+    exports = ["//policy/src/main/java/dev/cel/policy/tools"],
+)
+
+alias(
+    name = "cel_policy_compiler_tool",
+    actual = "//policy/src/main/java/dev/cel/policy/tools:cel_policy_compiler_tool",
+)
+
+bzl_library(
+    name = "compile_cel_policy_bzl",
+    srcs = ["compile_cel_policy.bzl"],
+    visibility = ["//visibility:private"],
+    deps = ["@rules_proto//proto:defs"],
+)

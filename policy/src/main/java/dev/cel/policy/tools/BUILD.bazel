@@ -1,0 +1,49 @@
+load("@rules_java//java:defs.bzl", "java_binary", "java_library")
+
+package(
+    default_applicable_licenses = [
+        "//:license",
+    ],
+    default_visibility = [
+        "//policy/tools:__pkg__",
+    ],
+)
+
+java_library(
+    name = "tools",
+    srcs = ["CelPolicyCompilerTool.java"],
+    tags = [
+    ],
+    deps = [
+        "//bundle:cel",
+        "//bundle:environment",
+        "//bundle:environment_yaml_parser",
+        "//common:cel_ast",
+        "//common:cel_descriptor_util",
+        "//common:options",
+        "//common:proto_ast",
+        "//common:proto_v1alpha1_ast",
+        "//extensions",
+        "//extensions:optional_library",
+        "//optimizer/optimizers:common_subexpression_elimination",
+        "//optimizer/optimizers:constant_folding",
+        "//optimizer/optimizers:select_optimizer",
+        "//parser:macro",
+        "//policy",
+        "//policy:compiler",
+        "//policy:compiler_builder",
+        "//policy:compiler_factory",
+        "//policy:parser",
+        "//policy:parser_factory",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_protobuf_protobuf_java",
+        "@maven//:info_picocli_picocli",
+    ],
+)
+
+java_binary(
+    name = "cel_policy_compiler_tool",
+    main_class = "dev.cel.policy.tools.CelPolicyCompilerTool",
+    neverlink = 1,
+    runtime_deps = [":tools"],
+)
