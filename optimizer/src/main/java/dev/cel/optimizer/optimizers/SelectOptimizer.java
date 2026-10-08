@@ -41,6 +41,7 @@ import dev.cel.common.CelSource;
 import dev.cel.common.CelSource.Extension;
 import dev.cel.common.CelSource.Extension.Component;
 import dev.cel.common.CelSource.Extension.Version;
+import dev.cel.common.Operator;
 import dev.cel.common.ast.CelConstant;
 import dev.cel.common.ast.CelExpr.ExprKind.Kind;
 import dev.cel.common.ast.CelExprIdGeneratorFactory;
@@ -59,8 +60,10 @@ import dev.cel.common.navigation.CelNavigableMutableAst;
 import dev.cel.common.navigation.CelNavigableMutableExpr;
 import dev.cel.common.navigation.TraversalOrder;
 import dev.cel.common.types.CelKind;
+import dev.cel.common.types.CelType;
 import dev.cel.common.types.CelTypes;
 import dev.cel.common.types.ListType;
+import dev.cel.common.types.OptionalType;
 import dev.cel.common.types.SimpleType;
 import dev.cel.common.types.TypeParamType;
 import dev.cel.common.values.CelByteString;
@@ -122,7 +125,7 @@ import java.util.Optional;
  *
  * <p>Map indexing and non-protobuf selects pass through untouched.
  *
- * <p><b>Rename Resilience & Dynamic Type Limitations:</b>
+ * <p><b>Limitations:</b>
  *
  * <ul>
  *   <li><b>Protobuf Extensions:</b> Extension fields are not rename-resilient; runtime lookup
@@ -131,6 +134,11 @@ import java.util.Optional;
  *       from {@code google.protobuf.Any}, or evaluated via classless wire payloads ({@code
  *       RawProtoMessageLiteValue}), no cross-check between the embedded field number and field name
  *       is performed at runtime.
+ *   <li><b>Oneofs:</b> The lite runtime reads fields from the wire, so it reports every serialized
+ *       member of a oneof as present. Protobuf serializes at most one, unless an older-schema
+ *       binary merges or mutates the message, or the bytes are concatenated or altered by hand.
+ *   <li><b>Optionals:</b> Optional field selection on a message ({@code msg.?field}, or a field of
+ *       an optional message) is not yet supported and throws during optimization.
  * </ul>
  */
 public final class SelectOptimizer implements CelAstOptimizer {
@@ -213,6 +221,7 @@ public final class SelectOptimizer implements CelAstOptimizer {
 
     CelMutableAst astToModify = CelMutableAst.fromCelAst(ast);
     CelNavigableMutableAst navAst = CelNavigableMutableAst.fromAst(astToModify);
+    navAst.getRoot().allNodes().forEach(node -> checkNotOptionalFieldSelection(navAst, node));
     ImmutableList<CelNavigableMutableExpr> topOfChainSelects =
         navAst
             .getRoot()
@@ -259,7 +268,6 @@ public final class SelectOptimizer implements CelAstOptimizer {
                 () -> new IllegalStateException("Expected optimizable field on select node"));
     fields.add(topField);
 
-    // TODO: Support optional field selection (_?._) once integrated with lite runtime.
     CelMutableExpr currentExpr = topNode.expr().select().operand();
     while (currentExpr.getKind() == Kind.SELECT) {
       CelMutableSelect select = currentExpr.select();
@@ -357,11 +365,43 @@ public final class SelectOptimizer implements CelAstOptimizer {
 
   private Optional<FieldDescriptor> getOptimizableFieldForExpr(
       CelNavigableMutableAst navAst, CelMutableSelect select) {
-    return navAst
-        .getType(select.operand().id())
-        .filter(type -> type.kind() == CelKind.STRUCT)
-        .flatMap(type -> descriptorPool.findDescriptor(type.name()))
-        .map(desc -> desc.findFieldByName(select.field()));
+    return navAst.getType(select.operand().id()).flatMap(type -> findField(type, select.field()));
+  }
+
+  private Optional<FieldDescriptor> findField(CelType type, String field) {
+    if (type.kind() != CelKind.STRUCT) {
+      return Optional.empty();
+    }
+    return descriptorPool.findDescriptor(type.name()).map(desc -> desc.findFieldByName(field));
+  }
+
+  // TODO: Support optional field selection once integrated with lite runtime.
+  private void checkNotOptionalFieldSelection(
+      CelNavigableMutableAst navAst, CelNavigableMutableExpr node) {
+    Optional<FieldDescriptor> field = Optional.empty();
+    if (node.getKind() == Kind.SELECT) {
+      // A field of an optional message, e.g. `.bb` in `msg.repeated_nested_message[?0].bb`
+      CelMutableSelect select = node.expr().select();
+      field =
+          navAst
+              .getType(select.operand().id())
+              .filter(OptionalType.class::isInstance)
+              .flatMap(type -> findField(type.parameters().get(0), select.field()));
+    } else if (node.getKind() == Kind.CALL
+        && node.expr().call().function().equals(Operator.OPTIONAL_SELECT.getFunction())) {
+      // `msg.?field`, where `msg` may itself be optional
+      List<CelMutableExpr> args = node.expr().call().args();
+      field =
+          navAst
+              .getType(args.get(0).id())
+              .map(type -> type instanceof OptionalType ? type.parameters().get(0) : type)
+              .flatMap(type -> findField(type, args.get(1).constant().stringValue()));
+    }
+    if (field.isPresent()) {
+      throw new UnsupportedOperationException(
+          "Optimization of optional field selection is currently unimplemented: "
+              + field.get().getFullName());
+    }
   }
 
   private static CelMutableExpr resolveDummyOrDefExpr(

@@ -32,6 +32,9 @@ import dev.cel.common.CelContainer;
 import dev.cel.common.CelDescriptorUtil;
 import dev.cel.common.CelOptions;
 import dev.cel.common.CelSource;
+import dev.cel.common.CelSource.Extension;
+import dev.cel.common.CelSource.Extension.Component;
+import dev.cel.common.CelSource.Extension.Version;
 import dev.cel.common.ast.CelConstant;
 import dev.cel.common.ast.CelExpr;
 import dev.cel.common.exceptions.CelAttributeNotFoundException;
@@ -154,6 +157,13 @@ public final class OptimizedSelectPlannerTest {
                   SelectOptimizerOptions.newBuilder().build(),
                   TestAllTypes.getDescriptor().getFile(),
                   NestedTestAllTypes.getDescriptor().getFile()))
+          .build();
+
+  private static final CelSource SELECT_OPTIMIZED_SOURCE =
+      CelSource.newBuilder()
+          .addAllExtensions(
+              Extension.create(
+                  "select_optimization", Version.of(1, 0), Component.COMPONENT_RUNTIME))
           .build();
 
   @Test
@@ -444,7 +454,7 @@ public final class OptimizedSelectPlannerTest {
             .setCall(selectCall.call().toBuilder().setArg(0, prefixAst.getExpr()).build())
             .build();
     CelAbstractSyntaxTree combinedAst =
-        CelAbstractSyntaxTree.newParsedAst(combinedExpr, wrapperAst.getSource());
+        CelAbstractSyntaxTree.newParsedAst(combinedExpr, prefixAst.getSource());
     Program program = PLANNER.plan(combinedAst);
     TestAllTypes msg =
         TestAllTypes.newBuilder()
@@ -463,6 +473,20 @@ public final class OptimizedSelectPlannerTest {
   }
 
   @Test
+  public void plan_missingSelectOptimizationExtension_throwsEvaluationException(
+      @TestParameter({"msg.single_int64", "has(msg.single_nested_message.bb)"}) String expression)
+      throws Exception {
+    CelAbstractSyntaxTree optimizedAst = optimizeSelectAst(expression);
+    CelAbstractSyntaxTree ast =
+        CelAbstractSyntaxTree.newParsedAst(optimizedAst.getExpr(), CelSource.newBuilder().build());
+
+    CelEvaluationException e = assertThrows(CelEvaluationException.class, () -> PLANNER.plan(ast));
+
+    assertThat(e).hasCauseThat().isInstanceOf(IllegalArgumentException.class);
+    assertThat(e).hasMessageThat().contains("requires the select_optimization AST extension");
+  }
+
+  @Test
   public void plan_invalidAst_wrongArgCount_throwsEvaluationException() {
     CelAbstractSyntaxTree ast =
         CelAbstractSyntaxTree.newParsedAst(
@@ -470,7 +494,7 @@ public final class OptimizedSelectPlannerTest {
                 1L,
                 OptimizedSelectPlanner.CEL_ATTRIBUTE_FUNCTION_NAME,
                 ImmutableList.of(CelExpr.ofIdent(2L, "msg"))),
-            CelSource.newBuilder().build());
+            SELECT_OPTIMIZED_SOURCE);
 
     CelEvaluationException e = assertThrows(CelEvaluationException.class, () -> PLANNER.plan(ast));
 
@@ -496,7 +520,7 @@ public final class OptimizedSelectPlannerTest {
                                 ImmutableList.of())),
                         ImmutableList.of()),
                     CelExpr.ofConstant(6L, CelConstant.ofValue(0L)))),
-            CelSource.newBuilder().build());
+            SELECT_OPTIMIZED_SOURCE);
 
     CelEvaluationException e = assertThrows(CelEvaluationException.class, () -> PLANNER.plan(ast));
 
@@ -528,7 +552,7 @@ public final class OptimizedSelectPlannerTest {
                                 ImmutableList.of())),
                         ImmutableList.of()),
                     CelExpr.ofConstant(8L, CelConstant.ofValue(0L)))),
-            CelSource.newBuilder().build());
+            SELECT_OPTIMIZED_SOURCE);
 
     CelEvaluationException e = assertThrows(CelEvaluationException.class, () -> PLANNER.plan(ast));
 
@@ -557,7 +581,7 @@ public final class OptimizedSelectPlannerTest {
                                 ImmutableList.of())),
                         ImmutableList.of()),
                     CelExpr.ofStruct(8L, "google.protobuf.Any", ImmutableList.of()))),
-            CelSource.newBuilder().build());
+            SELECT_OPTIMIZED_SOURCE);
 
     CelEvaluationException e = assertThrows(CelEvaluationException.class, () -> PLANNER.plan(ast));
 
@@ -592,7 +616,7 @@ public final class OptimizedSelectPlannerTest {
                         9L,
                         ImmutableList.of(CelExpr.ofConstant(10L, CelConstant.ofValue(0L))),
                         ImmutableList.of()))),
-            CelSource.newBuilder().build());
+            SELECT_OPTIMIZED_SOURCE);
 
     CelEvaluationException e = assertThrows(CelEvaluationException.class, () -> PLANNER.plan(ast));
 
@@ -629,7 +653,7 @@ public final class OptimizedSelectPlannerTest {
                                 CelExpr.ofConstant(10L, CelConstant.ofValue("")),
                                 CelExpr.ofConstant(11L, CelConstant.ofValue("")),
                                 /* isOptionalEntry= */ false))))),
-            CelSource.newBuilder().build());
+            SELECT_OPTIMIZED_SOURCE);
 
     CelEvaluationException e = assertThrows(CelEvaluationException.class, () -> PLANNER.plan(ast));
 
@@ -673,7 +697,7 @@ public final class OptimizedSelectPlannerTest {
                                 CelExpr.ofConstant(14L, CelConstant.ofValue("")),
                                 CelExpr.ofConstant(15L, CelConstant.ofValue("")),
                                 /* isOptionalEntry= */ false))))),
-            CelSource.newBuilder().build());
+            SELECT_OPTIMIZED_SOURCE);
 
     CelEvaluationException e = assertThrows(CelEvaluationException.class, () -> PLANNER.plan(ast));
 
@@ -707,7 +731,7 @@ public final class OptimizedSelectPlannerTest {
                                 ImmutableList.of())),
                         ImmutableList.of()),
                     CelExpr.ofList(8L, ImmutableList.of(), ImmutableList.of()))),
-            CelSource.newBuilder().build());
+            SELECT_OPTIMIZED_SOURCE);
 
     CelEvaluationException e = assertThrows(CelEvaluationException.class, () -> PLANNER.plan(ast));
 
@@ -790,7 +814,7 @@ public final class OptimizedSelectPlannerTest {
                             CelExpr.ofList(4L, testCase.hopElements, ImmutableList.of())),
                         ImmutableList.of()),
                     testCase.dummy)),
-            CelSource.newBuilder().build());
+            SELECT_OPTIMIZED_SOURCE);
 
     CelEvaluationException e = assertThrows(CelEvaluationException.class, () -> PLANNER.plan(ast));
 
@@ -826,7 +850,7 @@ public final class OptimizedSelectPlannerTest {
                                 ImmutableList.of())),
                         ImmutableList.of()),
                     CelExpr.ofMap(11L, ImmutableList.of()))),
-            CelSource.newBuilder().build());
+            SELECT_OPTIMIZED_SOURCE);
 
     CelEvaluationException e = assertThrows(CelEvaluationException.class, () -> PLANNER.plan(ast));
 
@@ -863,7 +887,7 @@ public final class OptimizedSelectPlannerTest {
                         ImmutableList.of(
                             CelExpr.ofStruct(9L, "google.protobuf.Any", ImmutableList.of())),
                         ImmutableList.of()))),
-            CelSource.newBuilder().build());
+            SELECT_OPTIMIZED_SOURCE);
 
     CelEvaluationException e = assertThrows(CelEvaluationException.class, () -> PLANNER.plan(ast));
 
@@ -898,7 +922,7 @@ public final class OptimizedSelectPlannerTest {
                         8L,
                         ImmutableList.of(CelExpr.ofStruct(9L, "", ImmutableList.of())),
                         ImmutableList.of()))),
-            CelSource.newBuilder().build());
+            SELECT_OPTIMIZED_SOURCE);
 
     CelEvaluationException e = assertThrows(CelEvaluationException.class, () -> PLANNER.plan(ast));
 
