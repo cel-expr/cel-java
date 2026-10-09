@@ -75,7 +75,7 @@ import java.util.stream.Stream;
  * Performs Common Subexpression Elimination.
  *
  * <pre>
- * Subexpressions are extracted into `cel.bind` calls. For example, the expression below:
+ * Subexpressions are extracted into `cel.@block` calls. For example, the expression below:
  *
  * {@code
  *    message.child.text_map[x].startsWith("hello") && message.child.text_map[x].endsWith("world")
@@ -84,14 +84,8 @@ import java.util.stream.Stream;
  * will be optimized into the following form:
  *
  * {@code
- *    cel.bind(@r0, message.child.text_map[x],
- *        @r0.startsWith("hello") && @r0.endsWith("world"))
- * }
- *
- * Or, using the equivalent form of cel.@block (requires special runtime support):
- * {@code
- *    cel.block([message.child.text_map[x]],
- *        @index0.startsWith("hello") && @index1.endsWith("world"))
+ *    cel.@block([message.child.text_map[x]],
+ *        @index0.startsWith("hello") && @index0.endsWith("world"))
  * }
  * </pre>
  *
