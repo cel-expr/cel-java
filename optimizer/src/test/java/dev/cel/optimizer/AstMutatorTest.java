@@ -309,77 +309,6 @@ public class AstMutatorTest {
   }
 
   @Test
-  @SuppressWarnings("unchecked") // Test only
-  public void replaceSubtree_replaceExtraneousListCreatedByMacro_unparseSuccess() throws Exception {
-    // Certain macros such as `map` or `filter` generates an extraneous list_expr in the loop step's
-    // argument that does not exist in the original expression.
-    // For example, the loop step of this expression looks like:
-    // CALL [10] {
-    //    function: _+_
-    //    args: {
-    //      IDENT [8] {
-    //        name: __result__
-    //      }
-    //      LIST [9] {
-    //        elements: {
-    //          CONSTANT [5] { value: 1 }
-    //        }
-    //      }
-    //    }
-    //  }
-    CelAbstractSyntaxTree ast = CEL.compile("[1].map(x, 1)").getAst();
-    CelMutableAst mutableAst = CelMutableAst.fromCelAst(ast);
-    CelMutableAst mutableAst2 = CelMutableAst.fromCelAst(ast);
-
-    // These two mutation are equivalent.
-    CelAbstractSyntaxTree mutatedAstWithList =
-        AST_MUTATOR
-            .replaceSubtree(
-                mutableAst,
-                CelMutableExpr.ofList(
-                    CelMutableList.create(CelMutableExpr.ofConstant(CelConstant.ofValue(2L)))),
-                9L)
-            .toParsedAst();
-    CelAbstractSyntaxTree mutatedAstWithConstant =
-        AST_MUTATOR
-            .replaceSubtree(mutableAst2, CelMutableExpr.ofConstant(CelConstant.ofValue(2L)), 5L)
-            .toParsedAst();
-
-    assertThat(CEL_UNPARSER.unparse(mutatedAstWithList)).isEqualTo("[1].map(x, 2)");
-    assertThat(CEL_UNPARSER.unparse(mutatedAstWithConstant)).isEqualTo("[1].map(x, 2)");
-    assertThat((List<Long>) CEL.createProgram(CEL.check(mutatedAstWithList).getAst()).eval())
-        .containsExactly(2L);
-  }
-
-  @Test
-  @SuppressWarnings("unchecked") // Test only
-  public void replaceSubtree_replaceExtraneousListCreatedByThreeArgMacro_unparseSuccess()
-      throws Exception {
-    CelAbstractSyntaxTree ast = CEL.compile("[1].map(x, true, 1)").getAst();
-    CelMutableAst mutableAst = CelMutableAst.fromCelAst(ast);
-    CelMutableAst mutableAst2 = CelMutableAst.fromCelAst(ast);
-
-    // These two mutation are equivalent.
-    CelAbstractSyntaxTree mutatedAstWithList =
-        AST_MUTATOR
-            .replaceSubtree(
-                mutableAst,
-                CelMutableExpr.ofList(
-                    CelMutableList.create(CelMutableExpr.ofConstant(CelConstant.ofValue(2L)))),
-                10L)
-            .toParsedAst();
-    CelAbstractSyntaxTree mutatedAstWithConstant =
-        AST_MUTATOR
-            .replaceSubtree(mutableAst2, CelMutableExpr.ofConstant(CelConstant.ofValue(2L)), 6L)
-            .toParsedAst();
-
-    assertThat(CEL_UNPARSER.unparse(mutatedAstWithList)).isEqualTo("[1].map(x, true, 2)");
-    assertThat(CEL_UNPARSER.unparse(mutatedAstWithConstant)).isEqualTo("[1].map(x, true, 2)");
-    assertThat((List<Long>) CEL.createProgram(CEL.check(mutatedAstWithList).getAst()).eval())
-        .containsExactly(2L);
-  }
-
-  @Test
   public void globalCallExpr_replaceRoot() throws Exception {
     // Tree shape (brackets are expr IDs):
     //           + [4]
@@ -580,8 +509,19 @@ public class AstMutatorTest {
   }
 
   @Test
-  public void list_replaceSubtreeWithListInAstWithHasMacro_success() throws Exception {
-    CelAbstractSyntaxTree ast = CEL.compile("has(msg.single_int64) && 1 in [2]").getAst();
+  @TestParameters(
+      "{source: 'has(msg.single_int64) && 1 in [2]', exprIdToReplace: 8,"
+          + " expected: 'has(msg.single_int64) && 1 in [1, 2]'}")
+  @TestParameters(
+      "{source: '[1].filter(x, x in [2])', exprIdToReplace: 7,"
+          + " expected: '[1].filter(x, x in [1, 2])'}")
+  @TestParameters("{source: '[1].map(x, [2])', exprIdToReplace: 5, expected: '[1].map(x, [1, 2])'}")
+  @TestParameters(
+      "{source: '[1].map(x, true, [2])', exprIdToReplace: 6,"
+          + " expected: '[1].map(x, true, [1, 2])'}")
+  public void list_replaceSubtreeWithListInAstWithMacro_success(
+      String source, long exprIdToReplace, String expected) throws Exception {
+    CelAbstractSyntaxTree ast = CEL.compile(source).getAst();
     CelMutableAst mutableAst = CelMutableAst.fromCelAst(ast);
     CelMutableExpr foldedList =
         CelMutableExpr.ofList(
@@ -589,12 +529,10 @@ public class AstMutatorTest {
                 CelMutableExpr.ofConstant(CelConstant.ofValue(1)),
                 CelMutableExpr.ofConstant(CelConstant.ofValue(2))));
 
-    // Node 8 is `[2]`; replacing it with a LIST triggers normalizeMacroSource while `has(...)` is
-    // present in macroCalls as a SELECT node rather than a COMPREHENSION node.
     CelAbstractSyntaxTree replacedAst =
-        AST_MUTATOR.replaceSubtree(mutableAst, foldedList, 8).toParsedAst();
+        AST_MUTATOR.replaceSubtree(mutableAst, foldedList, exprIdToReplace).toParsedAst();
 
-    assertThat(CEL_UNPARSER.unparse(replacedAst)).isEqualTo("has(msg.single_int64) && 1 in [1, 2]");
+    assertThat(CEL_UNPARSER.unparse(replacedAst)).isEqualTo(expected);
     assertConsistentMacroCalls(replacedAst);
   }
 

@@ -889,38 +889,6 @@ public final class AstMutator {
         }
       }
 
-      // Handle replacing the synthetic single-element list inside a `map` or `filter` loop_step.
-      //
-      // Example: `[1].map(x, 10)`
-      //   - In the main AST, `loop_step` is `@result + [10]` (where `[10]` is a synthetic LIST
-      //     node wrapping the body `10`).
-      //   - In `macro_calls`, the call is `[1].map(x, 10)`, which only references the inner `10`
-      //     node—NOT the synthetic `[10]` LIST node.
-      //
-      // If a mutation replaces the `[10]` LIST node itself (e.g. with `[20]`), the loop above
-      // won't find `[10]`'s ID in `macro_calls`, so we unwrap `20` from `[20]` into the macro
-      // call (`[1].map(x, 20)`).
-      //
-      // We must first verify that:
-      //   1. This macro is actually a COMPREHENSION (e.g. `has(msg.f)` is in `macro_calls` too,
-      //      but expands to a SELECT node, not a COMPREHENSION).
-      //   2. The replaced LIST node is inside *this* comprehension's `loop_step` (not an unrelated
-      //      list replacement elsewhere in the AST, such as folding `[1, 2] + [3, 4]`).
-      if (exprIdToReplace > 0
-          && allExprs.get(callId).getKind().equals(ExprKind.Kind.COMPREHENSION)) {
-        long replacedId = idGenerator.generate(exprIdToReplace);
-        CelMutableComprehension comprehension = allExprs.get(callId).comprehension();
-        boolean isListExprBeingReplaced =
-            allExprs.containsKey(replacedId)
-                && allExprs.get(replacedId).getKind().equals(ExprKind.Kind.LIST)
-                && CelNavigableMutableExpr.fromExpr(comprehension.loopStep())
-                    .allNodes()
-                    .anyMatch(node -> node.id() == replacedId);
-        if (isListExprBeingReplaced) {
-          unwrapListArgumentsInMacroCallExpr(comprehension, newMacroCallExpr);
-        }
-      }
-
       newMacroSource.addMacroCalls(callId, newMacroCallExpr);
     }
 
@@ -961,57 +929,6 @@ public final class AstMutator {
     }
 
     return newMacroSource;
-  }
-
-  /**
-   * Unwraps the arguments in the extraneous list_expr which is present in the AST but does not
-   * exist in the macro call map. `map`, `filter` are examples of such.
-   *
-   * <p>This method inspects the comprehension's accumulator initializer to infer that the list_expr
-   * solely exists to match the expected result type of the macro call signature.
-   *
-   * @param comprehension Comprehension in the main AST to extract the macro call arguments from
-   *     (loop step).
-   * @param newMacroCallExpr (Output parameter) Modified macro call expression with the call
-   *     arguments unwrapped.
-   */
-  private static void unwrapListArgumentsInMacroCallExpr(
-      CelMutableComprehension comprehension, CelMutableExpr newMacroCallExpr) {
-    CelMutableExpr accuInit = comprehension.accuInit();
-    if (!accuInit.getKind().equals(ExprKind.Kind.LIST) || !accuInit.list().elements().isEmpty()) {
-      // Does not contain an extraneous list.
-      return;
-    }
-
-    CelMutableExpr loopStepExpr = comprehension.loopStep();
-    List<CelMutableExpr> loopStepArgs = loopStepExpr.call().args();
-    if (loopStepArgs.size() != 2 && loopStepArgs.size() != 3) {
-      throw new IllegalArgumentException(
-          String.format(
-              "Expected exactly 2 or 3 arguments but got %d instead on expr id: %d",
-              loopStepArgs.size(), loopStepExpr.id()));
-    }
-
-    CelMutableCall existingMacroCall = newMacroCallExpr.call();
-    CelMutableCall newMacroCall =
-        existingMacroCall.target().isPresent()
-            ? CelMutableCall.create(existingMacroCall.target().get(), existingMacroCall.function())
-            : CelMutableCall.create(existingMacroCall.function());
-    newMacroCall.addArgs(
-        existingMacroCall.args().get(0)); // iter_var is first argument of the call by convention
-
-    CelMutableList extraneousList;
-    if (loopStepArgs.size() == 2) {
-      extraneousList = loopStepArgs.get(1).list();
-    } else {
-      newMacroCall.addArgs(loopStepArgs.get(0));
-      // For map(x,y,z), z is wrapped in a _+_(@result, [z])
-      extraneousList = loopStepArgs.get(1).call().args().get(1).list();
-    }
-
-    newMacroCall.addArgs(extraneousList.elements());
-
-    newMacroCallExpr.setCall(newMacroCall);
   }
 
   private CelMutableExpr mutateExpr(
