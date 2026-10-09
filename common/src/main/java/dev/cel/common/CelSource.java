@@ -367,19 +367,19 @@ public abstract class CelSource implements Source {
   public abstract static class Extension {
 
     /** Identifier for the extension. Example: constant_folding */
-    abstract String id();
+    public abstract String id();
 
     /**
      * Version info. May be skipped if it isn't meaningful for the extension. (for example
      * constant_folding might always be v0.0).
      */
-    abstract Version version();
+    public abstract Version version();
 
     /**
      * If set, the listed components must understand the extension for the expression to evaluate
      * correctly.
      */
-    abstract ImmutableList<Component> affectedComponents();
+    public abstract ImmutableList<Component> affectedComponents();
 
     /** Version of the extension */
     @AutoValue
@@ -390,18 +390,20 @@ public abstract class CelSource implements Source {
        * Major version changes indicate different required support level from the required
        * components.
        */
-      abstract long major();
+      public abstract long major();
 
       /**
        * Minor version changes must not change the observed behavior from existing implementations,
        * but may be provided informational.
        */
-      abstract long minor();
+      public abstract long minor();
 
       /** Create a new instance of Version with the provided major and minor values. */
       public static Version of(long major, long minor) {
         return new AutoValue_CelSource_Extension_Version(major, minor);
       }
+
+      Version() {}
     }
 
     /** CEL component specifier. */
@@ -427,5 +429,7 @@ public abstract class CelSource implements Source {
     public static Extension create(String id, Version version, Component... components) {
       return create(id, version, Arrays.asList(components));
     }
+
+    Extension() {}
   }
 }

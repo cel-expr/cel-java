@@ -128,6 +128,7 @@ java_library(
         "//common:cel_source",
         "//common:compiler_common",
         "//common:mutable_ast",
+        "//common:operator",
         "//common/ast",
         "//common/ast:expr_factory",
         "//common/ast:mutable_expr",

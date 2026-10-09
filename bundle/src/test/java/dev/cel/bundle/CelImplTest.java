@@ -2119,17 +2119,11 @@ public final class CelImplTest {
     CelAbstractSyntaxTree ast = celCompiler.compile("file.int64CamelCaseJsonName").getAst();
 
     CelEvaluationException e =
-        assertThrows(
-            CelEvaluationException.class,
-            () ->
-                celRuntime
-                    .createProgram(ast)
-                    .eval(ImmutableMap.of("file", SingleFile.getDefaultInstance())));
+        assertThrows(CelEvaluationException.class, () -> celRuntime.createProgram(ast));
+
     assertThat(e)
         .hasMessageThat()
-        .contains(
-            "field 'int64CamelCaseJsonName' is not declared in message"
-                + " 'dev.cel.testing.testdata.SingleFile");
+        .contains("json_name extension requires CelOptions.enableJsonFieldNames(true)");
   }
 
   @Test

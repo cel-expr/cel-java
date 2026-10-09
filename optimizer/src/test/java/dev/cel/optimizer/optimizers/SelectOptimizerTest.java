@@ -367,6 +367,10 @@ public final class SelectOptimizerTest {
             + "cel.@attribute(msg, [[227, \"map_string_message\", -1, [9, 11]]],"
             + " {\"\": cel.expr.conformance.proto3.TestAllTypes.NestedMessage{}}).key, "
             + "[[1, \"bb\"]])"),
+    PROTO_MAP_FIELD_SELECT_STOPS_AT_ANY_BOUNDARY(
+        "msg.map_string_any['k'].value",
+        "cel.@attribute(msg, [[311, \"map_string_any\", -1, [9, 11]]],"
+            + " {\"\": google.protobuf.Any{}})[\"k\"].value"),
 
     MIXED_BOOLEAN_EXPRESSION(
         "msg.single_int64 > 0 && has(msg.single_nested_message)",
@@ -1469,24 +1473,37 @@ public final class SelectOptimizerTest {
   }
 
   @Test
-  public void optimize_optionalSelect_passesThroughUntouched() throws Exception {
-    Cel celWithOptional =
-        cel.toCelBuilder()
-            .addCompilerLibraries(CelExtensions.optional())
-            .addRuntimeLibraries(CelExtensions.optional())
-            .build();
-    CelOptimizer optimizer =
-        CelOptimizerFactory.standardCelOptimizerBuilder(celWithOptional)
-            .addAstOptimizers(
-                SelectOptimizer.newInstance(
-                    SelectOptimizerOptions.newBuilder().build(),
-                    TestAllTypes.getDescriptor().getFile()))
-            .build();
-    CelAbstractSyntaxTree ast = celWithOptional.compile("msg.?single_nested_message.bb").getAst();
+  public void optimize_optionalFieldSelection_throwsUnsupportedOperationException(
+      @TestParameter({
+            "msg.?single_nested_message",
+            "msg.repeated_nested_message[?0].?bb",
+            "msg.repeated_nested_message[?0].bb"
+          })
+          String expression)
+      throws Exception {
+    Cel celWithOptional = cel.toCelBuilder().addCompilerLibraries(CelExtensions.optional()).build();
+    CelAbstractSyntaxTree ast = celWithOptional.compile(expression).getAst();
+    SelectOptimizer optimizer = SelectOptimizer.newInstance(TestAllTypes.getDescriptor().getFile());
 
-    CelAbstractSyntaxTree optimizedAst = optimizer.optimize(ast);
+    UnsupportedOperationException e =
+        assertThrows(
+            UnsupportedOperationException.class, () -> optimizer.optimize(ast, celWithOptional));
 
-    assertThat(optimizedAst.getExpr()).isEqualTo(ast.getExpr());
+    assertThat(e)
+        .hasMessageThat()
+        .contains("Optimization of optional field selection is currently unimplemented");
+  }
+
+  @Test
+  public void optimize_optionalMapKeySelection_rewritesMapField() throws Exception {
+    Cel celWithOptional = cel.toCelBuilder().addCompilerLibraries(CelExtensions.optional()).build();
+    CelAbstractSyntaxTree ast = celWithOptional.compile("msg.map_string_string.?key").getAst();
+
+    CelAbstractSyntaxTree optimizedAst = newSelectOptimizer(celWithOptional).optimize(ast);
+
+    assertThat(CEL_UNPARSER.unparse(optimizedAst))
+        .isEqualTo(
+            "cel.@attribute(msg, [[61, \"map_string_string\", -1, [9, 9]]], {\"\": \"\"}).?key");
   }
 
   private static CelOptimizer newSelectOptimizer(Cel cel) {

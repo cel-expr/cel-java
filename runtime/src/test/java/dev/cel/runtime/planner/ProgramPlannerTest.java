@@ -39,6 +39,9 @@ import dev.cel.common.CelDescriptorUtil;
 import dev.cel.common.CelErrorCode;
 import dev.cel.common.CelOptions;
 import dev.cel.common.CelSource;
+import dev.cel.common.CelSource.Extension;
+import dev.cel.common.CelSource.Extension.Component;
+import dev.cel.common.CelSource.Extension.Version;
 import dev.cel.common.ast.CelConstant;
 import dev.cel.common.ast.CelExpr;
 import dev.cel.common.exceptions.CelDivideByZeroException;
@@ -292,6 +295,80 @@ public final class ProgramPlannerTest {
         assertThrows(CelEvaluationException.class, () -> PLANNER.plan(invalidAst));
 
     assertThat(e).hasMessageThat().contains("evaluation error: Unsupported kind: NOT_SET");
+  }
+
+  @Test
+  @TestParameters("{id: 'unknown', major: 1, minor: 0}")
+  @TestParameters("{id: 'select_optimization', major: 2, minor: 0}")
+  @TestParameters("{id: 'select_optimization', major: 1, minor: 1}")
+  @TestParameters("{id: 'cel_block', major: 0, minor: 0}")
+  @TestParameters("{id: 'cel_block', major: 1, minor: 2}")
+  @TestParameters("{id: 'json_name', major: 1, minor: 2}")
+  public void plan_unsupportedRuntimeExtension_throws(String id, int major, int minor) {
+    CelAbstractSyntaxTree ast =
+        newAstWithExtensions(
+            Extension.create(id, Version.of(major, minor), Component.COMPONENT_RUNTIME));
+
+    CelEvaluationException e = assertThrows(CelEvaluationException.class, () -> PLANNER.plan(ast));
+
+    assertThat(e).hasCauseThat().isInstanceOf(IllegalArgumentException.class);
+    assertThat(e)
+        .hasMessageThat()
+        .contains(String.format("unsupported CEL extension: %s@%d.%d", id, major, minor));
+  }
+
+  @Test
+  public void plan_supportedOrNonRuntimeExtensions_succeeds() throws Exception {
+    CelAbstractSyntaxTree ast =
+        newAstWithExtensions(
+            Extension.create("cel_block", Version.of(1, 0), Component.COMPONENT_RUNTIME),
+            Extension.create("cel_block", Version.of(1, 1), Component.COMPONENT_RUNTIME),
+            Extension.create("json_name", Version.of(1, 1), Component.COMPONENT_RUNTIME),
+            Extension.create("select_optimization", Version.of(1, 0), Component.COMPONENT_RUNTIME),
+            // Extensions not affecting the runtime are ignored.
+            Extension.create("unknown", Version.of(2, 0), Component.COMPONENT_PARSER));
+    ProgramPlanner planner =
+        newPlannerWithOptions(CelOptions.current().enableJsonFieldNames(true).build());
+
+    Object result = planner.plan(ast).eval();
+
+    assertThat(result).isEqualTo(true);
+  }
+
+  @Test
+  public void plan_celBlock_missingExtension_throws() {
+    CelAbstractSyntaxTree ast =
+        CelAbstractSyntaxTree.newParsedAst(
+            CelExpr.ofCall(
+                1L,
+                Optional.empty(),
+                "cel.@block",
+                ImmutableList.of(
+                    CelExpr.ofList(
+                        2L,
+                        ImmutableList.of(CelExpr.ofConstant(3L, CelConstant.ofValue(true))),
+                        ImmutableList.of()),
+                    CelExpr.ofIdent(4L, "@index0"))),
+            CelSource.newBuilder().build());
+
+    CelEvaluationException e = assertThrows(CelEvaluationException.class, () -> PLANNER.plan(ast));
+
+    assertThat(e).hasCauseThat().isInstanceOf(IllegalArgumentException.class);
+    assertThat(e).hasMessageThat().contains("cel.@block requires the cel_block AST extension");
+  }
+
+  @Test
+  public void plan_jsonNameExtension_optionDisabled_throws() {
+    CelAbstractSyntaxTree ast =
+        newAstWithExtensions(
+            Extension.create("json_name", Version.of(1, 1), Component.COMPONENT_RUNTIME));
+
+    CelEvaluationException e = assertThrows(CelEvaluationException.class, () -> PLANNER.plan(ast));
+
+    assertThat(e).hasCauseThat().isInstanceOf(IllegalArgumentException.class);
+    assertThat(e)
+        .hasMessageThat()
+        .contains("json_name extension requires CelOptions.enableJsonFieldNames(true)");
   }
 
   @Test
@@ -1785,6 +1862,12 @@ public final class ProgramPlannerTest {
     }
 
     return compiler.check(ast).getAst();
+  }
+
+  private static CelAbstractSyntaxTree newAstWithExtensions(Extension... extensions) {
+    return CelAbstractSyntaxTree.newParsedAst(
+        CelExpr.ofConstant(1L, CelConstant.ofValue(true)),
+        CelSource.newBuilder().addAllExtensions(extensions).build());
   }
 
   private static CelByteString concatenateByteArrays(CelByteString bytes1, CelByteString bytes2) {

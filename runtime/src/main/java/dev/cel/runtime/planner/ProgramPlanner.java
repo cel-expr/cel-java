@@ -14,6 +14,7 @@
 
 package dev.cel.runtime.planner;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.google.auto.value.AutoValue;
@@ -27,6 +28,9 @@ import com.google.errorprone.annotations.Immutable;
 import dev.cel.common.CelAbstractSyntaxTree;
 import dev.cel.common.CelContainer;
 import dev.cel.common.CelOptions;
+import dev.cel.common.CelSource.Extension;
+import dev.cel.common.CelSource.Extension.Component;
+import dev.cel.common.CelSource.Extension.Version;
 import dev.cel.common.Operator;
 import dev.cel.common.annotations.Internal;
 import dev.cel.common.ast.CelBlock;
@@ -57,6 +61,7 @@ import dev.cel.runtime.DefaultDispatcher;
 import dev.cel.runtime.RuntimeEquality;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Optional;
 import org.jspecify.annotations.Nullable;
@@ -68,6 +73,16 @@ import org.jspecify.annotations.Nullable;
 @Immutable
 @Internal
 public final class ProgramPlanner {
+  private static final String CEL_BLOCK_EXTENSION = "cel_block";
+  private static final String JSON_NAME_EXTENSION = "json_name";
+  private static final String SELECT_OPTIMIZATION_EXTENSION = "select_optimization";
+
+  private static final ImmutableMap<String, Version> SUPPORTED_RUNTIME_EXTENSIONS =
+      ImmutableMap.of(
+          CEL_BLOCK_EXTENSION, Version.of(1, 1),
+          JSON_NAME_EXTENSION, Version.of(1, 1),
+          SELECT_OPTIMIZATION_EXTENSION, Version.of(1, 0));
+
   private final CelTypeProvider typeProvider;
   private final CelValueProvider valueProvider;
   private final DefaultDispatcher dispatcher;
@@ -97,7 +112,7 @@ public final class ProgramPlanner {
     ErrorMetadata errorMetadata =
         ErrorMetadata.create(ast.getSource().getPositionsMap(), ast.getSource().getDescription());
     try {
-      PlannerContext ctx = PlannerContext.create(ast);
+      PlannerContext ctx = PlannerContext.create(ast, options);
       plannedInterpretable =
           CelBlock.extract(ast)
               .map(celBlock -> planBlock(celBlock, ctx))
@@ -238,6 +253,11 @@ public final class ProgramPlanner {
     // map key lookup on Map, and SelectableValue fallback).
     if (functionName.equals(OptimizedSelectPlanner.CEL_ATTRIBUTE_FUNCTION_NAME)
         || functionName.equals(OptimizedSelectPlanner.CEL_HAS_FIELD_FUNCTION_NAME)) {
+      checkArgument(
+          ctx.runtimeExtensions.contains(SELECT_OPTIMIZATION_EXTENSION),
+          "%s requires the %s AST extension",
+          functionName,
+          SELECT_OPTIMIZATION_EXTENSION);
       return optimizedSelectPlanner.plan(expr, functionName, operandExpr -> plan(operandExpr, ctx));
     }
 
@@ -365,6 +385,11 @@ public final class ProgramPlanner {
   }
 
   private PlannedInterpretable planBlock(CelBlock celBlock, PlannerContext ctx) {
+    checkArgument(
+        ctx.runtimeExtensions.contains(CEL_BLOCK_EXTENSION),
+        "%s requires the %s AST extension",
+        CelBlock.FUNCTION_NAME,
+        CEL_BLOCK_EXTENSION);
     ImmutableList<CelExpr> indices = celBlock.indices();
 
     PlannedInterpretable[] slotExprs = new PlannedInterpretable[indices.size()];
@@ -661,23 +686,20 @@ public final class ProgramPlanner {
     }
   }
 
-  static final class PlannerContext {
+  private static final class PlannerContext {
     private final CelAbstractSyntaxTree ast;
-    private final HashMap<String, Integer> localVars = new HashMap<>();
+    private final ImmutableSet<String> runtimeExtensions;
+    private final Map<String, Integer> localVars;
 
-    CelAbstractSyntaxTree ast() {
-      return ast;
-    }
-
-    ImmutableMap<Long, CelReference> referenceMap() {
+    private ImmutableMap<Long, CelReference> referenceMap() {
       return ast.getReferenceMap();
     }
 
-    ImmutableMap<Long, CelType> typeMap() {
+    private ImmutableMap<Long, CelType> typeMap() {
       return ast.getTypeMap();
     }
 
-    boolean isChecked() {
+    private boolean isChecked() {
       return ast.isChecked();
     }
 
@@ -711,12 +733,35 @@ public final class ProgramPlanner {
       return localVars.containsKey(name);
     }
 
-    static PlannerContext create(CelAbstractSyntaxTree ast) {
-      return new PlannerContext(ast);
+    private static PlannerContext create(CelAbstractSyntaxTree ast, CelOptions options) {
+      ImmutableSet.Builder<String> runtimeExtensions = ImmutableSet.builder();
+      for (Extension extension : ast.getSource().getExtensions()) {
+        if (!extension.affectedComponents().contains(Component.COMPONENT_RUNTIME)) {
+          continue;
+        }
+        Version version = extension.version();
+        Version supportedVersion = SUPPORTED_RUNTIME_EXTENSIONS.get(extension.id());
+        checkArgument(
+            supportedVersion != null
+                && version.major() == supportedVersion.major()
+                && version.minor() <= supportedVersion.minor(),
+            "unsupported CEL extension: %s@%s.%s",
+            extension.id(),
+            version.major(),
+            version.minor());
+        runtimeExtensions.add(extension.id());
+      }
+      ImmutableSet<String> extensions = runtimeExtensions.build();
+      checkArgument(
+          !extensions.contains(JSON_NAME_EXTENSION) || options.enableJsonFieldNames(),
+          "json_name extension requires CelOptions.enableJsonFieldNames(true)");
+      return new PlannerContext(ast, extensions);
     }
 
-    private PlannerContext(CelAbstractSyntaxTree ast) {
+    private PlannerContext(CelAbstractSyntaxTree ast, ImmutableSet<String> runtimeExtensions) {
       this.ast = checkNotNull(ast);
+      this.runtimeExtensions = runtimeExtensions;
+      this.localVars = new HashMap<>();
     }
   }
 
