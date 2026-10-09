@@ -25,6 +25,7 @@ java_library(
         "//common:proto_v1alpha1_ast",
         "//extensions",
         "//extensions:optional_library",
+        "//optimizer:ast_optimizer",
         "//optimizer/optimizers:common_subexpression_elimination",
         "//optimizer/optimizers:constant_folding",
         "//optimizer/optimizers:select_optimizer",

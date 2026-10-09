@@ -300,6 +300,34 @@ public final class CelPolicyCompilerToolTest {
   }
 
   @Test
+  public void compile_withIterationLimitReached_returnsError() throws Exception {
+    String configPath = createFile("config.yaml", "name: test-env\n");
+    String policyPath =
+        createFile(
+            "policy.yaml",
+            "name: p\n"
+                + "rule:\n"
+                + "  variables:\n"
+                + "    - a: 1 + 2\n"
+                + "    - b: variables.a + 3\n"
+                + "  match:\n"
+                + "    - condition: variables.b == 6\n"
+                + "      output: 'true'\n");
+
+    String stdErr =
+        executeExpectingError(
+            "--policy",
+            policyPath,
+            "--config",
+            configPath,
+            "--simple_variables",
+            "--iteration_limit",
+            "1");
+
+    assertThat(stdErr).contains("Reason: Unexpected error while composing rules.");
+  }
+
+  @Test
   public void compile_withOptimizeFieldSelection_rewritesSelectAndEvaluates() throws Exception {
     String configRlocation =
         "cel_java/testing/src/test/resources/environment/proto3_message_variables.yaml";
