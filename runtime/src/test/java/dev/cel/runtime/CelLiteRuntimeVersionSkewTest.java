@@ -27,7 +27,10 @@ import com.google.protobuf.ByteString;
 import com.google.protobuf.CodedOutputStream;
 import com.google.protobuf.ExtensionRegistryLite;
 import com.google.protobuf.Int64Value;
+import com.google.protobuf.NullValue;
+import com.google.protobuf.Struct;
 import com.google.protobuf.UnknownFieldSet;
+import com.google.protobuf.Value;
 import com.google.testing.junit.testparameterinjector.TestParameter;
 import com.google.testing.junit.testparameterinjector.TestParameterInjector;
 import dev.cel.bundle.Cel;
@@ -2199,6 +2202,16 @@ public final class CelLiteRuntimeVersionSkewTest {
             .setSingleInt64Wrapper(Int64Value.of(0))
             .addRepeatedInt64Wrapper(Int64Value.of(1))
             .addRepeatedInt64Wrapper(Int64Value.of(0))
+            .build(),
+        true),
+    JSON_TYPES(
+        "msg.single_struct.a == 1.0 && msg.single_value == null && has(msg.single_value)"
+            + " && msg.list_value == [] && !has(msg.list_value) && msg.repeated_value == [null]",
+        TestAllTypes.newBuilder()
+            .setSingleStruct(
+                Struct.newBuilder().putFields("a", Value.newBuilder().setNumberValue(1).build()))
+            .setSingleValue(Value.newBuilder().setNullValue(NullValue.NULL_VALUE))
+            .addRepeatedValue(Value.newBuilder().setNullValue(NullValue.NULL_VALUE))
             .build(),
         true),
     ;

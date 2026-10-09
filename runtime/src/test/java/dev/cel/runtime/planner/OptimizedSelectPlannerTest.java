@@ -837,14 +837,8 @@ public final class OptimizedSelectPlannerTest {
   }
 
   @Test
-  public void plan_invalidAst_repeatedMessageWithUnsupportedWellKnownType_throwsEvaluationException(
-      @TestParameter({
-            "google.protobuf.Any",
-            "google.protobuf.Struct",
-            "google.protobuf.Value",
-            "google.protobuf.ListValue"
-          })
-          String unsupportedProtoTypeName) {
+  public void
+      plan_invalidAst_repeatedMessageWithUnsupportedWellKnownType_throwsEvaluationException() {
     CelAbstractSyntaxTree ast =
         CelAbstractSyntaxTree.newParsedAst(
             CelExpr.ofCall(
@@ -867,7 +861,7 @@ public final class OptimizedSelectPlannerTest {
                     CelExpr.ofList(
                         8L,
                         ImmutableList.of(
-                            CelExpr.ofStruct(9L, unsupportedProtoTypeName, ImmutableList.of())),
+                            CelExpr.ofStruct(9L, "google.protobuf.Any", ImmutableList.of())),
                         ImmutableList.of()))),
             CelSource.newBuilder().build());
 
@@ -876,7 +870,7 @@ public final class OptimizedSelectPlannerTest {
     assertThat(e).hasCauseThat().isInstanceOf(IllegalArgumentException.class);
     assertThat(e)
         .hasMessageThat()
-        .contains("Leaf well-known type '" + unsupportedProtoTypeName + "' is not supported");
+        .contains("Leaf well-known type 'google.protobuf.Any' is not supported");
   }
 
   @Test

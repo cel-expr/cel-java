@@ -18,7 +18,6 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.primitives.UnsignedLong;
 import com.google.errorprone.annotations.Immutable;
@@ -46,17 +45,6 @@ final class OptimizedSelectPlanner {
 
   static final String CEL_ATTRIBUTE_FUNCTION_NAME = "cel.@attribute";
   static final String CEL_HAS_FIELD_FUNCTION_NAME = "cel.@hasField";
-
-  /**
-   * Well-known message types whose CEL semantics (Any unpacking, JSON value conversion) are not
-   * implemented by the optimized traversal.
-   */
-  private static final ImmutableSet<String> UNSUPPORTED_WELL_KNOWN_TYPE_IDENTS =
-      ImmutableSet.of(
-          CelTypes.ANY_MESSAGE,
-          CelTypes.STRUCT_MESSAGE,
-          CelTypes.VALUE_MESSAGE,
-          CelTypes.LIST_VALUE_MESSAGE);
 
   private final AttributeFactory attributeFactory;
   private final CelValueConverter celValueConverter;
@@ -299,8 +287,9 @@ final class OptimizedSelectPlanner {
 
   private static String parseLeafMessageProtoTypeName(CelExpr expr) {
     String protoTypeName = parseMessageProtoTypeName(expr);
+    // TODO: Support Any.
     checkArgument(
-        !UNSUPPORTED_WELL_KNOWN_TYPE_IDENTS.contains(protoTypeName),
+        !protoTypeName.equals(CelTypes.ANY_MESSAGE),
         "Leaf well-known type '%s' is not supported by the select-optimized runtime",
         protoTypeName);
     return protoTypeName;

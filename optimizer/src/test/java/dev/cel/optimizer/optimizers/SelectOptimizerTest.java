@@ -51,7 +51,6 @@ import dev.cel.common.ast.CelReference;
 import dev.cel.common.navigation.CelNavigableMutableAst;
 import dev.cel.common.types.ListType;
 import dev.cel.common.types.MapType;
-import dev.cel.common.types.NullableType;
 import dev.cel.common.types.SimpleType;
 import dev.cel.common.types.StructTypeReference;
 import dev.cel.common.values.CelByteString;
@@ -309,6 +308,15 @@ public final class SelectOptimizerTest {
     PROTO3_WRAPPER(
         "msg.single_int64_wrapper",
         "cel.@attribute(msg, [[105, \"single_int64_wrapper\", 11]], google.protobuf.Int64Value{})"),
+    PROTO3_STRUCT(
+        "msg.single_struct.key",
+        "cel.@attribute(msg, [[103, \"single_struct\", 11]], google.protobuf.Struct{}).key"),
+    PROTO3_VALUE(
+        "msg.single_value",
+        "cel.@attribute(msg, [[104, \"single_value\", 11]], google.protobuf.Value{})"),
+    PROTO3_LIST_VALUE(
+        "msg.list_value[0]",
+        "cel.@attribute(msg, [[114, \"list_value\", 11]], google.protobuf.ListValue{})[0]"),
 
     // Map selects
     MAP_STRING_STRING(
@@ -795,6 +803,24 @@ public final class SelectOptimizerTest {
         "msg.single_int64_wrapper",
         ImmutableMap.of("msg", TestAllTypes.getDefaultInstance()),
         NullValue.NULL_VALUE),
+    PROTO3_STRUCT_CONVERTS_TO_MAP(
+        "msg.single_struct",
+        ImmutableMap.of(
+            "msg",
+            TestAllTypes.newBuilder()
+                .setSingleStruct(
+                    Struct.newBuilder()
+                        .putFields("a", Value.newBuilder().setNumberValue(1.5).build()))
+                .build()),
+        ImmutableMap.of("a", 1.5)),
+    PROTO3_VALUE_UNSET_IS_NULL(
+        "msg.single_value",
+        ImmutableMap.of("msg", TestAllTypes.getDefaultInstance()),
+        NullValue.NULL_VALUE),
+    PROTO3_LIST_VALUE_UNSET_IS_EMPTY(
+        "msg.list_value",
+        ImmutableMap.of("msg", TestAllTypes.getDefaultInstance()),
+        ImmutableList.of()),
     PROTO3_MAP_OF_ANY_UNPACKS_VALUE(
         "msg.map_string_any['k']",
         ImmutableMap.of(
@@ -1083,31 +1109,18 @@ public final class SelectOptimizerTest {
     assertThat(e).hasMessageThat().isEqualTo("Max iteration count reached.");
   }
 
-  private enum UnsupportedWellKnownFieldTestCase {
-    STRUCT("msg.single_struct", "Optimization of Struct fields is currently unimplemented"),
-    LIST_VALUE("msg.list_value", "Optimization of ListValue fields is currently unimplemented"),
-    VALUE("msg.single_value", "Optimization of Value fields is currently unimplemented"),
-    ANY("msg.single_any", "Optimization of Any fields is currently unimplemented");
-
-    private final String expression;
-    private final String expectedMessageSubstring;
-
-    UnsupportedWellKnownFieldTestCase(String expression, String expectedMessageSubstring) {
-      this.expression = expression;
-      this.expectedMessageSubstring = expectedMessageSubstring;
-    }
-  }
-
   @Test
-  public void optimize_unsupportedWellKnownField_throwsUnsupportedOperationException(
-      @TestParameter UnsupportedWellKnownFieldTestCase testCase) throws Exception {
-    CelAbstractSyntaxTree ast = cel.compile(testCase.expression).getAst();
+  public void optimize_unsupportedWellKnownField_throwsUnsupportedOperationException()
+      throws Exception {
+    CelAbstractSyntaxTree ast = cel.compile("msg.single_any").getAst();
     SelectOptimizer optimizer = SelectOptimizer.newInstance(TestAllTypes.getDescriptor().getFile());
 
     UnsupportedOperationException e =
         assertThrows(UnsupportedOperationException.class, () -> optimizer.optimize(ast, cel));
 
-    assertThat(e).hasMessageThat().contains(testCase.expectedMessageSubstring);
+    assertThat(e)
+        .hasMessageThat()
+        .contains("Optimization of Any fields is currently unimplemented");
   }
 
   @Test
@@ -1349,12 +1362,20 @@ public final class SelectOptimizerTest {
   }
 
   @Test
-  public void optimize_wrapperFieldSelect_preservesNullableResultType() throws Exception {
-    CelAbstractSyntaxTree ast = cel.compile("msg.single_int64_wrapper").getAst();
+  public void optimize_wellKnownTypeFieldSelect_preservesResultType(
+      @TestParameter({
+            "msg.single_int64_wrapper",
+            "msg.single_struct",
+            "msg.single_value",
+            "msg.list_value"
+          })
+          String expression)
+      throws Exception {
+    CelAbstractSyntaxTree ast = cel.compile(expression).getAst();
 
     CelAbstractSyntaxTree optimizedAst = celOptimizer.optimize(ast);
 
-    assertThat(optimizedAst.getResultType()).isEqualTo(NullableType.create(SimpleType.INT));
+    assertThat(optimizedAst.getResultType()).isEqualTo(ast.getResultType());
   }
 
   @Test

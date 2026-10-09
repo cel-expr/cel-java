@@ -98,10 +98,9 @@ import java.util.Optional;
  *
  * <p>The 3rd argument of {@code cel.@attribute} is a typed expression that binds the result type
  * {@code T}. For singular scalar leaves it is also the field's default value (e.g. {@code 0} or a
- * proto2 custom default). For repeated, map, and message leaves (including {@code
- * google.protobuf.Duration}, {@code google.protobuf.Timestamp}, and wrapper types) it is a
- * type-only dummy (e.g. {@code [0]}, {@code {"": 0}}, {@code Msg{}}) that the runtime never
- * evaluates.
+ * proto2 custom default). For repeated, map, and message leaves (including well-known types such as
+ * {@code google.protobuf.Duration} and {@code google.protobuf.Struct}) it is a type-only dummy
+ * (e.g. {@code [0]}, {@code {"": 0}}, {@code Msg{}}) that the runtime never evaluates.
  *
  * <p>Field presence paths ({@code cel.@hasField}) represent each step as a 2-tuple: {@code
  * [field_num, field_name]}.
@@ -280,8 +279,11 @@ public final class SelectOptimizer implements CelAstOptimizer {
         throw new UnsupportedOperationException(
             "Optimization of Group fields is unsupported: " + field.getFullName());
       }
-      if (field.getType() == FieldDescriptor.Type.MESSAGE) {
-        checkUnsupportedMessageType(field.getMessageType().getFullName(), field.getFullName());
+      // TODO: Support Any.
+      if (field.getType() == FieldDescriptor.Type.MESSAGE
+          && field.getMessageType().getFullName().equals(CelTypes.ANY_MESSAGE)) {
+        throw new UnsupportedOperationException(
+            "Optimization of Any fields is currently unimplemented: " + field.getFullName());
       }
 
       CelMutableList qualifierElements =
@@ -343,26 +345,6 @@ public final class SelectOptimizer implements CelAstOptimizer {
   private boolean isTopOfSelectChain(CelNavigableMutableAst navAst, CelNavigableMutableExpr node) {
     return getOptimizableField(navAst, node).isPresent()
         && !node.parent().flatMap(parent -> getOptimizableField(navAst, parent)).isPresent();
-  }
-
-  // TODO: Support the remaining well-known types below.
-  private static void checkUnsupportedMessageType(String messageFullName, String fieldFullName) {
-    if (messageFullName.equals(CelTypes.STRUCT_MESSAGE)) {
-      throw new UnsupportedOperationException(
-          "Optimization of Struct fields is currently unimplemented: " + fieldFullName);
-    }
-    if (messageFullName.equals(CelTypes.LIST_VALUE_MESSAGE)) {
-      throw new UnsupportedOperationException(
-          "Optimization of ListValue fields is currently unimplemented: " + fieldFullName);
-    }
-    if (messageFullName.equals(CelTypes.VALUE_MESSAGE)) {
-      throw new UnsupportedOperationException(
-          "Optimization of Value fields is currently unimplemented: " + fieldFullName);
-    }
-    if (messageFullName.equals(CelTypes.ANY_MESSAGE)) {
-      throw new UnsupportedOperationException(
-          "Optimization of Any fields is currently unimplemented: " + fieldFullName);
-    }
   }
 
   private Optional<FieldDescriptor> getOptimizableField(
