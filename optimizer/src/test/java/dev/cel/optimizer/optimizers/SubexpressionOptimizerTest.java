@@ -800,10 +800,17 @@ public class SubexpressionOptimizerTest {
               indexExpr.ident().setName(internalIdentName);
             });
 
+    CelAbstractSyntaxTree parsedAst =
+        CelAbstractSyntaxTree.newParsedAst(
+            mutableAst.toParsedAst().getExpr(),
+            astToModify.getSource().toBuilder()
+                .addAllExtensions(
+                    Extension.create("cel_block", Version.of(1L, 1L), Component.COMPONENT_RUNTIME))
+                .build());
     if (parsedOnly) {
-      return mutableAst.toParsedAst();
+      return parsedAst;
     }
-    return celForEvaluatingBlock.check(mutableAst.toParsedAst()).getAst();
+    return celForEvaluatingBlock.check(parsedAst).getAst();
   }
 
   private CelAbstractSyntaxTree compileUsingInternalFunctions(String expression)

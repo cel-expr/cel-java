@@ -17,6 +17,8 @@ java_library(
     deps = [
         "//:java_truth",
         "//checker:checker_builder",
+        "//common:cel_ast",
+        "//common:cel_source",
         "//common:compiler_common",
         "//common:container",
         "//common:options",

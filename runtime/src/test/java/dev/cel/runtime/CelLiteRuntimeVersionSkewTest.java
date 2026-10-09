@@ -18,7 +18,7 @@ import static com.google.common.truth.Truth.assertThat;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.Assert.assertThrows;
 
-import com.google.api.expr.v1alpha1.CheckedExpr;
+import dev.cel.expr.CheckedExpr;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -40,7 +40,7 @@ import dev.cel.common.CelContainer;
 import dev.cel.common.CelFunctionDecl;
 import dev.cel.common.CelOptions;
 import dev.cel.common.CelOverloadDecl;
-import dev.cel.common.CelProtoV1Alpha1AbstractSyntaxTree;
+import dev.cel.common.CelProtoAbstractSyntaxTree;
 import dev.cel.common.ast.CelBlock;
 import dev.cel.common.internal.ProtoTimeUtils;
 import dev.cel.common.types.ListType;
@@ -1879,11 +1879,11 @@ public final class CelLiteRuntimeVersionSkewTest {
             .getAst();
     CelAbstractSyntaxTree optimizedAst = serverOptimizer.optimize(ast);
     byte[] serializedCheckedExpr =
-        CelProtoV1Alpha1AbstractSyntaxTree.fromCelAst(optimizedAst).toCheckedExpr().toByteArray();
+        CelProtoAbstractSyntaxTree.fromCelAst(optimizedAst).toCheckedExpr().toByteArray();
     CheckedExpr deserializedCheckedExpr =
         CheckedExpr.parseFrom(serializedCheckedExpr, ExtensionRegistryLite.getEmptyRegistry());
     CelAbstractSyntaxTree deserializedAst =
-        CelProtoV1Alpha1AbstractSyntaxTree.fromCheckedExpr(deserializedCheckedExpr).getAst();
+        CelProtoAbstractSyntaxTree.fromCheckedExpr(deserializedCheckedExpr).getAst();
 
     Object result =
         clientRuntime
