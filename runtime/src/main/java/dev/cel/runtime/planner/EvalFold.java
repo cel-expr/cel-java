@@ -62,16 +62,13 @@ final class EvalFold extends PlannedInterpretable {
     }
     Folder folder = new Folder(resolver, frame, accuInit, accuVar, iterVar, iterVar2);
 
-    Object result;
     if (iterRangeRaw instanceof Map) {
-      result = evalMap((Map<?, ?>) iterRangeRaw, folder, frame);
+      return evalMap((Map<?, ?>) iterRangeRaw, folder, frame);
     } else if (iterRangeRaw instanceof Collection) {
-      result = evalList((Collection<?>) iterRangeRaw, folder, frame);
+      return evalList((Collection<?>) iterRangeRaw, folder, frame);
     } else {
       throw new IllegalArgumentException("Unexpected iter_range type: " + iterRangeRaw.getClass());
     }
-
-    return maybeUnwrapAccumulator(result);
   }
 
   private Object evalMap(Map<?, ?> iterRange, Folder folder, ExecutionFrame frame)
@@ -94,16 +91,14 @@ final class EvalFold extends PlannedInterpretable {
       }
       boolean cond = (boolean) condResult;
       if (!cond) {
-        folder.computeResult = true;
-        return result.eval(folder, frame);
+        break;
       }
 
       Object stepResult = loopStep.eval(folder, frame);
       folder.accuVal = mergeAccumulator(folder.accuVal, stepResult);
       folder.initialized = true;
     }
-    folder.computeResult = true;
-    return result.eval(folder, frame);
+    return folder.evalResult(result);
   }
 
   private Object evalList(Collection<?> iterRange, Folder folder, ExecutionFrame frame)
@@ -129,8 +124,7 @@ final class EvalFold extends PlannedInterpretable {
       }
       boolean cond = (boolean) condResult;
       if (!cond) {
-        folder.computeResult = true;
-        return result.eval(folder, frame);
+        break;
       }
 
       Object stepResult = loopStep.eval(folder, frame);
@@ -138,8 +132,7 @@ final class EvalFold extends PlannedInterpretable {
       folder.initialized = true;
       index++;
     }
-    folder.computeResult = true;
-    return result.eval(folder, frame);
+    return folder.evalResult(result);
   }
 
   private static Object mergeAccumulator(@Nullable Object currentAccu, Object newVal) {
@@ -155,16 +148,6 @@ final class EvalFold extends PlannedInterpretable {
     }
     if (val instanceof Map) {
       return MutableMapValue.create((Map<?, ?>) val);
-    }
-    return val;
-  }
-
-  private static Object maybeUnwrapAccumulator(Object val) {
-    if (val instanceof ConcatenatedListView) {
-      return ImmutableList.copyOf((ConcatenatedListView<?>) val);
-    }
-    if (val instanceof MutableMapValue) {
-      return ImmutableMap.copyOf((MutableMapValue) val);
     }
     return val;
   }
@@ -220,7 +203,11 @@ final class EvalFold extends PlannedInterpretable {
         if (!initialized) {
           initialized = true;
           try {
-            accuVal = maybeWrapAccumulator(accuInit.eval(resolver, frame));
+            Object initVal = accuInit.eval(resolver, frame);
+            accuVal =
+                !computeResult && frame.enableShortCircuiting()
+                    ? maybeWrapAccumulator(initVal)
+                    : initVal;
           } catch (CelEvaluationException e) {
             throw new LazyEvaluationRuntimeException(e);
           }
@@ -239,6 +226,17 @@ final class EvalFold extends PlannedInterpretable {
       }
 
       return resolver.resolve(name);
+    }
+
+    private Object evalResult(PlannedInterpretable result) throws CelEvaluationException {
+      computeResult = true;
+      // Materialize the mutable accumulator so the result expr never observes in-place mutation.
+      if (accuVal instanceof ConcatenatedListView) {
+        accuVal = ImmutableList.copyOf((ConcatenatedListView<?>) accuVal);
+      } else if (accuVal instanceof MutableMapValue) {
+        accuVal = ImmutableMap.copyOf((MutableMapValue) accuVal);
+      }
+      return result.eval(this, frame);
     }
 
     private Folder(

@@ -166,7 +166,8 @@ public final class ProgramPlannerTest {
                   newMemberOverload(
                       "bytes_concat_bytes", SimpleType.BYTES, SimpleType.BYTES, SimpleType.BYTES)))
           .addMessageTypes(TestAllTypes.getDescriptor())
-          .addLibraries(CelExtensions.optional(), CelExtensions.comprehensions())
+          .addLibraries(
+              CelExtensions.optional(), CelExtensions.comprehensions(), CelExtensions.bindings())
           .setContainer(CEL_CONTAINER)
           .build();
 
@@ -200,6 +201,14 @@ public final class ProgramPlannerTest {
             DescriptorTypeResolver.create(TYPE_PROVIDER, CelValueConverter.getDefaultInstance()));
     addBindingsToDispatcher(
         builder, typeFunction.newFunctionBindings(CEL_OPTIONS, RUNTIME_EQUALITY));
+    addBindingsToDispatcher(
+        builder,
+        CelFunctionBinding.fromOverloads(
+            "cel.@mapInsert",
+            CelFunctionBinding.from(
+                "cel_@mapInsert_map_key_value",
+                ImmutableList.of(Map.class, Object.class, Object.class),
+                args -> args[0])));
 
     // Custom functions
     addBindingsToDispatcher(
@@ -1002,6 +1011,9 @@ public final class ProgramPlannerTest {
   @TestParameters("{expression: '[1,2,3].exists(i, v, i >= 0 && v > 0) == true'}")
   @TestParameters("{expression: '[1,2,3].exists(i, v, i < 0 || v < 0) == false'}")
   @TestParameters("{expression: '[1,2,3].map(x, x + 1) == [2,3,4]'}")
+  @TestParameters(
+      "{expression: 'cel.bind(x, [1, 2], [x + [3], x + [4]]) == [[1, 2, 3], [1, 2, 4]]'}")
+  @TestParameters("{expression: 'cel.bind(m, {\"a\": 1}, [m]) == [{\"a\": 1}]'}")
   public void plan_comprehension_lists(String expression) throws Exception {
     CelAbstractSyntaxTree ast = compile(expression);
     Program program = PLANNER.plan(ast);
@@ -1016,6 +1028,7 @@ public final class ProgramPlannerTest {
   @TestParameters("{expression: '{\"a\": 1, \"b\": 2}.exists(k, k == \"c\") == false'}")
   @TestParameters("{expression: '{\"a\": \"b\", \"c\": \"c\"}.exists(k, v, k == v)'}")
   @TestParameters("{expression: '{\"a\": 1, \"b\": 2}.exists(k, v, v == 3) == false'}")
+  @TestParameters("{expression: '({}.map(k, k) + [1])[0] == 1'}")
   public void plan_comprehension_maps(String expression) throws Exception {
     CelAbstractSyntaxTree ast = compile(expression);
     Program program = PLANNER.plan(ast);
@@ -2052,6 +2065,95 @@ public final class ProgramPlannerTest {
     Object result = program.eval();
 
     assertThat(result).isEqualTo(42L);
+  }
+
+  @Test
+  public void plan_exhaustiveComprehension_filterDoesNotMutateUntakenBranch() throws Exception {
+    CelAbstractSyntaxTree ast = CEL_COMPILER.compile("[1, 2, 3].filter(x, x > 1)").getAst();
+    ProgramPlanner planner =
+        newPlannerWithOptions(CelOptions.current().enableShortCircuiting(false).build());
+    Program program = planner.plan(ast);
+
+    Object result = program.eval();
+
+    assertThat(result).isEqualTo(ImmutableList.of(2L, 3L));
+  }
+
+  @Test
+  @TestParameters("{expression: '[1, 2, 3].map(x, x + 1) == [2, 3, 4]'}")
+  @TestParameters("{expression: '{\"a\": 1, \"b\": 2}.transformMap(k, v, v) == {}'}")
+  @SuppressWarnings("Immutable") // Test only
+  public void plan_comprehension_accumulationSkipsIntermediateConversion(String expression)
+      throws Exception {
+    int[] containerConversions = new int[1];
+    CelValueConverter countingConverter =
+        new CelValueConverter() {
+          @Override
+          public Object toRuntimeValue(Object value) {
+            if (value instanceof Iterable || value instanceof ImmutableMap) {
+              containerConversions[0]++;
+            }
+            return super.toRuntimeValue(value);
+          }
+        };
+    ProgramPlanner planner =
+        ProgramPlanner.newPlanner(
+            TYPE_PROVIDER,
+            VALUE_PROVIDER,
+            newDispatcher(),
+            countingConverter,
+            CEL_CONTAINER,
+            CEL_OPTIONS,
+            ImmutableSet.of(),
+            RUNTIME_EQUALITY,
+            CelAsyncEvaluationOptions.defaultOptions(),
+            /* asyncExecutor= */ null);
+    Program program = planner.plan(CEL_COMPILER.compile(expression).getAst());
+
+    boolean result = (boolean) program.eval();
+
+    assertThat(result).isTrue();
+    assertThat(containerConversions[0]).isEqualTo(1);
+  }
+
+  @Test
+  public void plan_nonStrictFunction_withErrorArg_adaptsToException() throws Exception {
+    CelCompiler compiler =
+        CelCompilerFactory.standardCelCompilerBuilder()
+            .addFunctionDeclarations(
+                newFunctionDeclaration(
+                    "is_error", newGlobalOverload("is_error_int", SimpleType.BOOL, SimpleType.INT)))
+            .build();
+    DefaultDispatcher.Builder builder = DefaultDispatcher.newBuilder();
+    addBindingsToDispatcher(
+        builder,
+        CelStandardFunctions.newBuilder()
+            .includeFunctions(StandardFunction.DIVIDE)
+            .build()
+            .newFunctionBindings(RUNTIME_EQUALITY, CEL_OPTIONS));
+    builder.addOverload(
+        "is_error",
+        "is_error_int",
+        ImmutableList.of(Long.class),
+        /* isStrict= */ false,
+        args -> args[0] instanceof Exception);
+    ProgramPlanner planner =
+        ProgramPlanner.newPlanner(
+            TYPE_PROVIDER,
+            VALUE_PROVIDER,
+            builder.build(),
+            CEL_VALUE_CONVERTER,
+            CEL_CONTAINER,
+            CEL_OPTIONS,
+            ImmutableSet.of(),
+            RUNTIME_EQUALITY,
+            CelAsyncEvaluationOptions.defaultOptions(),
+            /* asyncExecutor= */ null);
+    Program program = planner.plan(compiler.compile("is_error(1 / 0)").getAst());
+
+    Object result = program.eval();
+
+    assertThat(result).isEqualTo(true);
   }
 
   private static ProgramPlanner newPlannerWithOptions(CelOptions options) {

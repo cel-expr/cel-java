@@ -23,6 +23,7 @@ import dev.cel.runtime.AccumulatedUnknowns;
 import dev.cel.runtime.CelEvaluationException;
 import dev.cel.runtime.CelResolvedOverload;
 import dev.cel.runtime.CelUnknownSet;
+import dev.cel.runtime.ConcatenatedListView;
 import dev.cel.runtime.GlobalResolver;
 import dev.cel.runtime.InterpreterUtil;
 
@@ -130,7 +131,10 @@ final class EvalHelpers {
    * adapts any public {@link CelUnknownSet} instances into internal {@link AccumulatedUnknowns} for
    * AST evaluation.
    */
-  private static Object convertAndAdaptResult(CelValueConverter valueConverter, Object result) {
+  static Object convertAndAdaptResult(CelValueConverter valueConverter, Object result) {
+    if (result instanceof ConcatenatedListView) {
+      return result;
+    }
     return InterpreterUtil.maybeAdaptToAccumulatedUnknowns(
         valueConverter.maybeUnwrap(valueConverter.toRuntimeValue(result)));
   }

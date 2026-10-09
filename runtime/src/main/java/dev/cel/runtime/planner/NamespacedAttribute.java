@@ -198,7 +198,7 @@ final class NamespacedAttribute implements Attribute {
       }
     }
 
-    return celValueConverter.maybeUnwrap(celValueConverter.toRuntimeValue(obj));
+    return EvalHelpers.convertAndAdaptResult(celValueConverter, obj);
   }
 
   private static Optional<CelAttributePattern> findPartialMatchingPattern(

@@ -32,6 +32,7 @@ import org.jspecify.annotations.Nullable;
 final class ExecutionFrame {
 
   private final int comprehensionIterationLimit;
+  private final boolean enableShortCircuiting;
   private final CelFunctionResolver functionResolver;
   private final @Nullable PartialVars partialVars;
   private final @Nullable CelEvaluationListener listener;
@@ -45,11 +46,7 @@ final class ExecutionFrame {
       @Nullable PartialVars partialVars,
       @Nullable CelEvaluationListener listener) {
     return new ExecutionFrame(
-        functionResolver,
-        getComprehensionMaxIterations(celOptions),
-        partialVars,
-        listener,
-        /* asyncTracker= */ null);
+        functionResolver, celOptions, partialVars, listener, /* asyncTracker= */ null);
   }
 
   static ExecutionFrame createForAsync(
@@ -59,12 +56,7 @@ final class ExecutionFrame {
       @Nullable CelEvaluationListener listener,
       AsyncCallStateTracker asyncTracker) {
     checkNotNull(asyncTracker, "asyncTracker");
-    return new ExecutionFrame(
-        functionResolver,
-        getComprehensionMaxIterations(celOptions),
-        partialVars,
-        listener,
-        asyncTracker);
+    return new ExecutionFrame(functionResolver, celOptions, partialVars, listener, asyncTracker);
   }
 
   private static int getComprehensionMaxIterations(CelOptions celOptions) {
@@ -109,6 +101,10 @@ final class ExecutionFrame {
     return asyncTracker;
   }
 
+  boolean enableShortCircuiting() {
+    return enableShortCircuiting;
+  }
+
   Optional<PartialVars> partialVars() {
     return Optional.ofNullable(partialVars);
   }
@@ -119,11 +115,12 @@ final class ExecutionFrame {
 
   private ExecutionFrame(
       CelFunctionResolver functionResolver,
-      int limit,
+      CelOptions celOptions,
       @Nullable PartialVars partialVars,
       @Nullable CelEvaluationListener listener,
       @Nullable AsyncCallStateTracker asyncTracker) {
-    this.comprehensionIterationLimit = limit;
+    this.comprehensionIterationLimit = getComprehensionMaxIterations(celOptions);
+    this.enableShortCircuiting = celOptions.enableShortCircuiting();
     this.functionResolver = functionResolver;
     this.partialVars = partialVars;
     this.listener = listener;
