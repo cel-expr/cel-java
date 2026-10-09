@@ -38,6 +38,7 @@ import dev.cel.optimizer.CelOptimizationException;
 import dev.cel.optimizer.CelOptimizer;
 import dev.cel.optimizer.CelOptimizerFactory;
 import dev.cel.optimizer.optimizers.ConstantFoldingOptimizer;
+import dev.cel.optimizer.optimizers.ConstantFoldingOptimizer.ConstantFoldingOptions;
 import dev.cel.optimizer.optimizers.SubexpressionOptimizer;
 import dev.cel.optimizer.optimizers.SubexpressionOptimizer.SubexpressionOptimizerOptions;
 import dev.cel.policy.CelCompiledRule.CelCompiledMatch;
@@ -419,9 +420,15 @@ final class CelPolicyCompilerImpl implements CelPolicyCompiler {
         .setIterationLimit(DEFAULT_ITERATION_LIMIT)
         .setOptimizers(
             ImmutableList.of(
-                ConstantFoldingOptimizer.getInstance(),
+                ConstantFoldingOptimizer.newInstance(
+                    ConstantFoldingOptions.newBuilder()
+                        .maxIterationLimit(DEFAULT_ITERATION_LIMIT)
+                        .build()),
                 SubexpressionOptimizer.newInstance(
-                    SubexpressionOptimizerOptions.newBuilder().populateMacroCalls(true).build())));
+                    SubexpressionOptimizerOptions.newBuilder()
+                        .iterationLimit(DEFAULT_ITERATION_LIMIT)
+                        .populateMacroCalls(true)
+                        .build())));
   }
 
   private CelPolicyCompilerImpl(

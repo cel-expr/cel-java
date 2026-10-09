@@ -36,7 +36,9 @@ import dev.cel.common.CelProtoAbstractSyntaxTree;
 import dev.cel.common.CelProtoV1Alpha1AbstractSyntaxTree;
 import dev.cel.extensions.CelExtensions;
 import dev.cel.extensions.CelOptionalLibrary;
+import dev.cel.optimizer.CelAstOptimizer;
 import dev.cel.optimizer.optimizers.ConstantFoldingOptimizer;
+import dev.cel.optimizer.optimizers.ConstantFoldingOptimizer.ConstantFoldingOptions;
 import dev.cel.optimizer.optimizers.SelectOptimizer;
 import dev.cel.optimizer.optimizers.SelectOptimizer.SelectOptimizerOptions;
 import dev.cel.optimizer.optimizers.SubexpressionOptimizer;
@@ -124,6 +126,12 @@ public final class CelPolicyCompilerTool implements Callable<Integer> {
       names = {"--simple_variables"},
       description = "Enable inline variable definitions (e.g., '- var_name: expr') in the policy")
   private boolean simpleVariables = false;
+
+  @Option(
+      names = {"--iteration_limit"},
+      defaultValue = "1000",
+      description = "Maximum iteration limit for composing and optimizing the policy")
+  private int iterationLimit = 1000;
 
   private static final CelOptions CEL_OPTIONS =
       CelOptions.current()
@@ -214,18 +222,28 @@ public final class CelPolicyCompilerTool implements Callable<Integer> {
     }
 
     try {
-      CelPolicyCompilerBuilder policyCompilerBuilder =
-          CelPolicyCompilerFactory.newPolicyCompiler(cel);
-
+      ImmutableList.Builder<CelAstOptimizer> optimizersBuilder =
+          ImmutableList.<CelAstOptimizer>builder()
+              .add(
+                  ConstantFoldingOptimizer.newInstance(
+                      ConstantFoldingOptions.newBuilder()
+                          .maxIterationLimit(iterationLimit)
+                          .build()),
+                  SubexpressionOptimizer.newInstance(
+                      SubexpressionOptimizerOptions.newBuilder()
+                          .iterationLimit(iterationLimit)
+                          .populateMacroCalls(true)
+                          .build()));
       if (optimizeFieldSelection) {
-        policyCompilerBuilder.setOptimizers(
-            ImmutableList.of(
-                ConstantFoldingOptimizer.getInstance(),
-                SubexpressionOptimizer.newInstance(
-                    SubexpressionOptimizerOptions.newBuilder().populateMacroCalls(true).build()),
-                SelectOptimizer.newInstance(
-                    SelectOptimizerOptions.newBuilder().build(), transitiveFileDescriptors)));
+        optimizersBuilder.add(
+            SelectOptimizer.newInstance(
+                SelectOptimizerOptions.newBuilder().build(), transitiveFileDescriptors));
       }
+
+      CelPolicyCompilerBuilder policyCompilerBuilder =
+          CelPolicyCompilerFactory.newPolicyCompiler(cel)
+              .setIterationLimit(iterationLimit)
+              .setOptimizers(optimizersBuilder.build());
 
       CelPolicyCompiler policyCompiler = policyCompilerBuilder.build();
       CelAbstractSyntaxTree ast = policyCompiler.compile(policy);
