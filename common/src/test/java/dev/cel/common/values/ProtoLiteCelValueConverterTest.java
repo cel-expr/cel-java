@@ -540,6 +540,29 @@ public final class ProtoLiteCelValueConverterTest {
   }
 
   @Test
+  public void readSingleField_repeatedMapKey_convertsOnlyFinalValue() throws Exception {
+    // The first value is out of Timestamp's range, so converting it would throw.
+    ByteString bytes =
+        TestAllTypes.newBuilder()
+            .putMapStringTimestamp("k", Timestamp.newBuilder().setSeconds(1L << 60).build())
+            .build()
+            .toByteString()
+            .concat(
+                TestAllTypes.newBuilder()
+                    .putMapStringTimestamp("k", Timestamp.newBuilder().setSeconds(100).build())
+                    .build()
+                    .toByteString());
+    FieldLiteDescriptor fd =
+        fieldDescriptor(
+            "cel.expr.conformance.proto3.TestAllTypes",
+            TestAllTypes.MAP_STRING_TIMESTAMP_FIELD_NUMBER);
+
+    Object result = PROTO_LITE_CEL_VALUE_CONVERTER.readSingleField(bytes, fd);
+
+    assertThat(result).isEqualTo(ImmutableMap.of("k", Instant.ofEpochSecond(100)));
+  }
+
+  @Test
   public void hasSingleField_emptyBytes_returnsFalse() throws Exception {
     FieldLiteDescriptor singleInt64Fd =
         fieldDescriptor(

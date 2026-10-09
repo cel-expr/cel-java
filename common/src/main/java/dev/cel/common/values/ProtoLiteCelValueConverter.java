@@ -328,7 +328,7 @@ public final class ProtoLiteCelValueConverter extends BaseProtoCelValueConverter
       int tagWireType = WireFormat.getTagWireType(tag);
       fieldValue = readFieldValue(tagWireType, inputStream, fieldDescriptor, fieldValue);
     }
-    return fieldValue == null ? null : resolveFieldValue(finalizeFieldValue(fieldValue));
+    return fieldValue == null ? null : finalizeFieldValue(fieldValue);
   }
 
   boolean hasSingleField(ByteString bytes, FieldLiteDescriptor fieldDescriptor) throws IOException {
@@ -430,7 +430,7 @@ public final class ProtoLiteCelValueConverter extends BaseProtoCelValueConverter
               valueDescriptor,
               mapValues);
     }
-    return mapValues == null ? null : resolveFieldValue(finalizeFieldValue(mapValues));
+    return mapValues == null ? null : finalizeFieldValue(mapValues);
   }
 
   /** Describes {@code field} by the type information it carries. */
@@ -480,38 +480,26 @@ public final class ProtoLiteCelValueConverter extends BaseProtoCelValueConverter
         protoTypeName);
   }
 
-  /** Returns the CEL value of a scanned field, completing any conversion that was deferred. */
-  private Object resolveFieldValue(Object fieldValue) {
-    if (fieldValue instanceof DeferredConversion) {
-      return toRuntimeValue(((DeferredConversion) fieldValue).value);
-    }
-    return fieldValue;
-  }
-
   /**
    * Converts a value accumulated while scanning a field into its final immutable form.
    *
    * <p>Repeated and map fields accumulate into mutable containers, which are copied into immutable
    * ones. Well-known types other than FieldMask (see {@link #isStructLike}) are kept as parsed
-   * {@link MessageLite}s until the scan completes so that split occurrences can be merged, and
-   * values holding them are wrapped in a {@link DeferredConversion}. All other messages are wrapped
-   * as CEL values as soon as they are read.
+   * {@link MessageLite}s until the scan completes, so that split occurrences can be merged and map
+   * values replaced by a repeated key are never converted. All other messages are wrapped as CEL
+   * values as soon as they are read.
    */
-  private static Object finalizeFieldValue(Object accumulatedValue) {
+  private Object finalizeFieldValue(Object accumulatedValue) {
     if (accumulatedValue instanceof List) {
       ImmutableList<?> list = ImmutableList.copyOf((List<?>) accumulatedValue);
-      return Iterables.any(list, MessageLite.class::isInstance)
-          ? new DeferredConversion(list)
-          : list;
+      return Iterables.any(list, MessageLite.class::isInstance) ? toRuntimeValue(list) : list;
     }
     if (accumulatedValue instanceof Map) {
       ImmutableMap<?, ?> map = ImmutableMap.copyOf((Map<?, ?>) accumulatedValue);
-      return Iterables.any(map.values(), MessageLite.class::isInstance)
-          ? new DeferredConversion(map)
-          : map;
+      return Iterables.any(map.values(), MessageLite.class::isInstance) ? toRuntimeValue(map) : map;
     }
     return accumulatedValue instanceof MessageLite
-        ? new DeferredConversion(accumulatedValue)
+        ? toRuntimeValue(accumulatedValue)
         : accumulatedValue;
   }
 
@@ -669,18 +657,6 @@ public final class ProtoLiteCelValueConverter extends BaseProtoCelValueConverter
         throw new UnsupportedOperationException("Groups are not supported");
       default:
         throw new IllegalArgumentException("Unknown wire type: " + tagWireType);
-    }
-  }
-
-  /**
-   * A field value holding well-known type messages, whose conversion to CEL values is deferred
-   * until {@link #resolveFieldValue}.
-   */
-  private static final class DeferredConversion {
-    private final Object value;
-
-    private DeferredConversion(Object value) {
-      this.value = checkNotNull(value);
     }
   }
 
