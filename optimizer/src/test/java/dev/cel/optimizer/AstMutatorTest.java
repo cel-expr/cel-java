@@ -580,6 +580,25 @@ public class AstMutatorTest {
   }
 
   @Test
+  public void list_replaceSubtreeWithListInAstWithHasMacro_success() throws Exception {
+    CelAbstractSyntaxTree ast = CEL.compile("has(msg.single_int64) && 1 in [2]").getAst();
+    CelMutableAst mutableAst = CelMutableAst.fromCelAst(ast);
+    CelMutableExpr foldedList =
+        CelMutableExpr.ofList(
+            CelMutableList.create(
+                CelMutableExpr.ofConstant(CelConstant.ofValue(1)),
+                CelMutableExpr.ofConstant(CelConstant.ofValue(2))));
+
+    // Node 8 is `[2]`; replacing it with a LIST triggers normalizeMacroSource while `has(...)` is
+    // present in macroCalls as a SELECT node rather than a COMPREHENSION node.
+    CelAbstractSyntaxTree replacedAst =
+        AST_MUTATOR.replaceSubtree(mutableAst, foldedList, 8).toParsedAst();
+
+    assertThat(CEL_UNPARSER.unparse(replacedAst)).isEqualTo("has(msg.single_int64) && 1 in [1, 2]");
+    assertConsistentMacroCalls(replacedAst);
+  }
+
+  @Test
   public void struct_replaceValue() throws Exception {
     // Tree shape (brackets are expr IDs):
     //        TestAllTypes [1]
