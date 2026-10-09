@@ -39,6 +39,7 @@ final class EvalFold extends PlannedInterpretable {
   private final PlannedInterpretable condition;
   private final PlannedInterpretable loopStep;
   private final PlannedInterpretable result;
+  private final boolean mutableAccu;
 
   static EvalFold create(
       CelExpr expr,
@@ -49,9 +50,19 @@ final class EvalFold extends PlannedInterpretable {
       PlannedInterpretable iterRange,
       PlannedInterpretable loopCondition,
       PlannedInterpretable loopStep,
-      PlannedInterpretable result) {
+      PlannedInterpretable result,
+      boolean mutableAccu) {
     return new EvalFold(
-        expr, accuVar, accuInit, iterVar, iterVar2, iterRange, loopCondition, loopStep, result);
+        expr,
+        accuVar,
+        accuInit,
+        iterVar,
+        iterVar2,
+        iterRange,
+        loopCondition,
+        loopStep,
+        result,
+        mutableAccu);
   }
 
   @Override
@@ -60,7 +71,7 @@ final class EvalFold extends PlannedInterpretable {
     if (iterRangeRaw instanceof AccumulatedUnknowns) {
       return iterRangeRaw;
     }
-    Folder folder = new Folder(resolver, frame, accuInit, accuVar, iterVar, iterVar2);
+    Folder folder = new Folder(resolver, frame, accuInit, accuVar, iterVar, iterVar2, mutableAccu);
 
     if (iterRangeRaw instanceof Map) {
       return evalMap((Map<?, ?>) iterRangeRaw, folder, frame);
@@ -161,7 +172,8 @@ final class EvalFold extends PlannedInterpretable {
       PlannedInterpretable iterRange,
       PlannedInterpretable condition,
       PlannedInterpretable loopStep,
-      PlannedInterpretable result) {
+      PlannedInterpretable result,
+      boolean mutableAccu) {
     super(expr);
     this.accuVar = accuVar;
     this.accuInit = accuInit;
@@ -171,6 +183,7 @@ final class EvalFold extends PlannedInterpretable {
     this.condition = condition;
     this.loopStep = loopStep;
     this.result = result;
+    this.mutableAccu = mutableAccu;
   }
 
   private static final class Folder implements ActivationWrapper {
@@ -180,6 +193,7 @@ final class EvalFold extends PlannedInterpretable {
     private final String accuVar;
     private final String iterVar;
     private final String iterVar2;
+    private final boolean mutableAccu;
 
     private @Nullable Object iterVarVal;
     private @Nullable Object iterVar2Val;
@@ -205,7 +219,7 @@ final class EvalFold extends PlannedInterpretable {
           try {
             Object initVal = accuInit.eval(resolver, frame);
             accuVal =
-                !computeResult && frame.enableShortCircuiting()
+                mutableAccu && !computeResult && frame.enableShortCircuiting()
                     ? maybeWrapAccumulator(initVal)
                     : initVal;
           } catch (CelEvaluationException e) {
@@ -245,13 +259,15 @@ final class EvalFold extends PlannedInterpretable {
         PlannedInterpretable accuInit,
         String accuVar,
         String iterVar,
-        String iterVar2) {
+        String iterVar2,
+        boolean mutableAccu) {
       this.resolver = resolver;
       this.frame = frame;
       this.accuInit = accuInit;
       this.accuVar = accuVar;
       this.iterVar = iterVar;
       this.iterVar2 = iterVar2;
+      this.mutableAccu = mutableAccu;
     }
   }
 

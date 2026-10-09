@@ -41,6 +41,7 @@ import dev.cel.common.CelOptions;
 import dev.cel.common.CelSource;
 import dev.cel.common.ast.CelConstant;
 import dev.cel.common.ast.CelExpr;
+import dev.cel.common.ast.CelExpr.CelComprehension;
 import dev.cel.common.exceptions.CelDivideByZeroException;
 import dev.cel.common.exceptions.CelInvalidArgumentException;
 import dev.cel.common.internal.CelDescriptorPool;
@@ -70,6 +71,7 @@ import dev.cel.expr.conformance.proto3.GlobalEnum;
 import dev.cel.expr.conformance.proto3.TestAllTypes;
 import dev.cel.expr.conformance.proto3.TestAllTypes.NestedMessage;
 import dev.cel.extensions.CelExtensions;
+import dev.cel.parser.CelMacro;
 import dev.cel.parser.CelStandardMacro;
 import dev.cel.runtime.CelAsyncEvaluationOptions;
 import dev.cel.runtime.CelAttribute;
@@ -135,9 +137,47 @@ public final class ProgramPlannerTest {
           CelAsyncEvaluationOptions.defaultOptions(),
           /* asyncExecutor= */ null);
 
+  // Raw comprehensions: compre(iterVar, accuVar, iterRange, accuInit, loopCondition, loopStep,
+  // result), its two-variable form compre2(iterVar, iterVar2, accuVar, ...), and insert(map, ...)
+  // for cel.@mapInsert, which cannot be written in CEL source.
+  private static final ImmutableList<CelMacro> COMPREHENSION_TEST_MACROS =
+      ImmutableList.of(
+          CelMacro.newGlobalMacro(
+              "compre",
+              7,
+              (factory, unused, args) ->
+                  Optional.of(
+                      factory.fold(
+                          args.get(0).ident().name(),
+                          args.get(2),
+                          args.get(1).ident().name(),
+                          args.get(3),
+                          args.get(4),
+                          args.get(5),
+                          args.get(6)))),
+          CelMacro.newGlobalMacro(
+              "compre2",
+              8,
+              (factory, unused, args) ->
+                  Optional.of(
+                      factory.fold(
+                          args.get(0).ident().name(),
+                          args.get(1).ident().name(),
+                          args.get(3),
+                          args.get(2).ident().name(),
+                          args.get(4),
+                          args.get(5),
+                          args.get(6),
+                          args.get(7)))),
+          CelMacro.newGlobalVarArgMacro(
+              "insert",
+              (factory, unused, args) ->
+                  Optional.of(factory.newGlobalCall("cel.@mapInsert", args))));
+
   private static final CelCompiler CEL_COMPILER =
       CelCompilerFactory.standardCelCompilerBuilder()
           .setStandardMacros(CelStandardMacro.STANDARD_MACROS)
+          .addMacros(COMPREHENSION_TEST_MACROS)
           .addFunctionDeclarations(
               newFunctionDeclaration(
                   "late_bound_func",
@@ -191,6 +231,7 @@ public final class ProgramPlannerTest {
                 StandardFunction.DIVIDE,
                 StandardFunction.EQUALS,
                 StandardFunction.NOT_STRICTLY_FALSE,
+                StandardFunction.SIZE,
                 StandardFunction.DYN)
             .build();
     addBindingsToDispatcher(
@@ -1014,6 +1055,13 @@ public final class ProgramPlannerTest {
   @TestParameters(
       "{expression: 'cel.bind(x, [1, 2], [x + [3], x + [4]]) == [[1, 2, 3], [1, 2, 4]]'}")
   @TestParameters("{expression: 'cel.bind(m, {\"a\": 1}, [m]) == [{\"a\": 1}]'}")
+  @TestParameters(
+      "{expression: 'compre(i, acc, [1, 2], [], true, acc + [size(acc + [0])], acc) == [1, 2]'}")
+  @TestParameters(
+      "{expression: 'compre(i, acc, [1, 2], [10], true, acc + [acc[0]], acc) == [10, 10, 10]'}")
+  @TestParameters(
+      "{expression: 'compre(i, acc, [1, 2, 3], [], size(acc + [i]) < 3, acc + [i], acc)"
+          + " == [1, 2]'}")
   public void plan_comprehension_lists(String expression) throws Exception {
     CelAbstractSyntaxTree ast = compile(expression);
     Program program = PLANNER.plan(ast);
@@ -1036,6 +1084,48 @@ public final class ProgramPlannerTest {
     boolean result = (boolean) program.eval();
 
     assertThat(result).isTrue();
+  }
+
+  @Test
+  @TestParameters("{expression: '[1].map(x, x)', safe: true}")
+  @TestParameters("{expression: '[1].filter(x, x > 0)', safe: true}")
+  @TestParameters("{expression: '{1: 2}.transformMap(k, v, v)', safe: true}")
+  @TestParameters("{expression: '[1].exists(x, x > 0)', safe: false}")
+  @TestParameters("{expression: 'compre(i, acc, [1], [], true, acc + [i], acc)', safe: false}")
+  public void isMutableAccuSafe(String expression, boolean safe) throws Exception {
+    CelComprehension comprehension =
+        CEL_COMPILER.parse(expression).getAst().getExpr().comprehension();
+
+    assertThat(ProgramPlanner.isMutableAccuSafe(comprehension)).isEqualTo(safe);
+  }
+
+  @Test
+  @TestParameters("{expression: 'compre(i, a, [1], [], true, a + [i], a)', expected: true}")
+  @TestParameters(
+      "{expression: 'compre(i, a, [1], [], true, i > 0 ? a + [i] : a, a)', expected: true}")
+  @TestParameters(
+      "{expression: 'compre2(k, v, a, {1: 2}, {}, true, insert(a, k, v), a)', expected: true}")
+  @TestParameters("{expression: 'compre(a, a, [1], [], true, a + [a], a)', expected: false}")
+  @TestParameters(
+      "{expression: 'compre2(k, a, a, {1: 2}, {}, true, insert(a, k, a), a)', expected: false}")
+  @TestParameters("{expression: 'compre(i, a, [1], [], true, a + [i], [a])', expected: false}")
+  @TestParameters("{expression: 'compre(i, a, [1], [], true, a, a)', expected: false}")
+  @TestParameters("{expression: 'compre(i, a, [1], [], true, i + [i], a)', expected: false}")
+  @TestParameters("{expression: 'compre(i, a, [1], [0], true, a + [i], a)', expected: false}")
+  @TestParameters("{expression: 'compre(i, a, [1], dyn([]), true, a + [i], a)', expected: false}")
+  @TestParameters("{expression: 'compre(i, a, [1], [], true, a + a, a)', expected: false}")
+  @TestParameters("{expression: 'compre(i, a, [1], [], true, a + [i, i], a)', expected: false}")
+  @TestParameters(
+      "{expression: 'compre(i, a, [1], {}, true, insert(a, i, i), a)', expected: false}")
+  @TestParameters(
+      "{expression: 'compre2(k, v, a, {1: 2}, [], true, insert(a, k, v), a)', expected: false}")
+  @TestParameters(
+      "{expression: 'compre2(k, v, a, {1: 2}, {}, true, foo(a, k, v), a)', expected: false}")
+  public void isStandardMacroShape(String expression, boolean expected) throws Exception {
+    CelComprehension comprehension =
+        CEL_COMPILER.parse(expression).getAst().getExpr().comprehension();
+
+    assertThat(ProgramPlanner.isStandardMacroShape(comprehension)).isEqualTo(expected);
   }
 
   @Test

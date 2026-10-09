@@ -730,6 +730,7 @@ cel_android_library(
         "//runtime:resolved_overload_android",
         "//runtime:runtime_equality_android",
         "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:com_google_guava_guava",
         "@maven//:org_jspecify_jspecify",
         "@maven_android//:com_google_guava_guava",
     ],

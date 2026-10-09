@@ -17,6 +17,7 @@ package dev.cel.runtime.planner;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.google.auto.value.AutoValue;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -39,6 +40,7 @@ import dev.cel.common.ast.CelExpr.CelMap;
 import dev.cel.common.ast.CelExpr.CelSelect;
 import dev.cel.common.ast.CelExpr.CelStruct;
 import dev.cel.common.ast.CelExpr.CelStruct.Entry;
+import dev.cel.common.ast.CelExpr.ExprKind.Kind;
 import dev.cel.common.ast.CelReference;
 import dev.cel.common.exceptions.CelOverloadNotFoundException;
 import dev.cel.common.types.CelKind;
@@ -68,6 +70,8 @@ import org.jspecify.annotations.Nullable;
 @Immutable
 @Internal
 public final class ProgramPlanner {
+  private static final String MAP_INSERT_FUNCTION = "cel.@mapInsert";
+
   private final CelTypeProvider typeProvider;
   private final CelValueProvider valueProvider;
   private final DefaultDispatcher dispatcher;
@@ -510,7 +514,45 @@ public final class ProgramPlanner {
         iterRange,
         loopCondition,
         loopStep,
-        result);
+        result,
+        isMutableAccuSafe(comprehension));
+  }
+
+  @VisibleForTesting
+  static boolean isMutableAccuSafe(CelComprehension comprehension) {
+    // '@'-prefixed names cannot be written in CEL source, so user expressions cannot alias them.
+    return comprehension.accuVar().startsWith("@") && isStandardMacroShape(comprehension);
+  }
+
+  @VisibleForTesting
+  static boolean isStandardMacroShape(CelComprehension comprehension) {
+    String accuVar = comprehension.accuVar();
+    if (accuVar.equals(comprehension.iterVar())
+        || accuVar.equals(comprehension.iterVar2())
+        || !isIdent(comprehension.result(), accuVar)) {
+      return false;
+    }
+    CelCall step = comprehension.loopStep().callOrDefault();
+    // filter() wraps the accumulation in a ternary: `cond ? accu + [elem] : accu`.
+    if (step.function().equals(Operator.CONDITIONAL.getFunction())) {
+      step = step.args().get(1).callOrDefault();
+    }
+    if (step.args().isEmpty() || !isIdent(step.args().get(0), accuVar)) {
+      return false;
+    }
+    CelExpr accuInit = comprehension.accuInit();
+    if (step.function().equals(Operator.ADD.getFunction())) {
+      return accuInit.getKind() == Kind.LIST
+          && accuInit.list().elements().isEmpty()
+          && step.args().get(1).listOrDefault().elements().size() == 1;
+    }
+    return step.function().equals(MAP_INSERT_FUNCTION)
+        && !comprehension.iterVar2().isEmpty()
+        && accuInit.getKind() == Kind.MAP;
+  }
+
+  private static boolean isIdent(CelExpr expr, String name) {
+    return expr.identOrDefault().name().equals(name);
   }
 
   /**
