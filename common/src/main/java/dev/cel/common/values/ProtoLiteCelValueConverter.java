@@ -16,7 +16,6 @@ package dev.cel.common.values;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
-import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Defaults;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -316,17 +315,50 @@ public final class ProtoLiteCelValueConverter extends BaseProtoCelValueConverter
    */
   @Nullable Object readSingleField(ByteString bytes, FieldLiteDescriptor fieldDescriptor)
       throws IOException {
+    return scanField(bytes, fieldDescriptor, null, null);
+  }
+
+  /** Scans for {@code fieldDescriptor}; null map entry descriptors are looked up in the pool. */
+  private @Nullable Object scanField(
+      ByteString bytes,
+      FieldLiteDescriptor fieldDescriptor,
+      @Nullable FieldLiteDescriptor keyDescriptor,
+      @Nullable FieldLiteDescriptor valueDescriptor)
+      throws IOException {
     CodedInputStream inputStream = bytes.newCodedInput();
     int targetFieldNumber = fieldDescriptor.getFieldNumber();
     Object fieldValue = null;
     for (int tag = inputStream.readTag(); tag != 0; tag = inputStream.readTag()) {
-      int fieldNumber = WireFormat.getTagFieldNumber(tag);
-      if (fieldNumber != targetFieldNumber) {
+      if (WireFormat.getTagFieldNumber(tag) != targetFieldNumber) {
         skipWireField(tag, inputStream);
         continue;
       }
       int tagWireType = WireFormat.getTagWireType(tag);
-      fieldValue = readFieldValue(tagWireType, inputStream, fieldDescriptor, fieldValue);
+      switch (fieldDescriptor.getEncodingType()) {
+        case SINGULAR:
+          fieldValue = readSingularField(tagWireType, inputStream, fieldDescriptor, fieldValue);
+          break;
+        case LIST:
+          fieldValue = readRepeatedField(tagWireType, inputStream, fieldDescriptor, fieldValue);
+          break;
+        case MAP:
+          if (keyDescriptor == null) {
+            // Looked up at the first entry since an absent map needs no entry descriptor.
+            MessageLiteDescriptor entryDescriptor =
+                descriptorPool.getDescriptorOrThrow(fieldDescriptor.getFieldProtoTypeName());
+            keyDescriptor = entryDescriptor.getByFieldNumberOrThrow(MAP_KEY_FIELD_NUMBER);
+            valueDescriptor = entryDescriptor.getByFieldNumberOrThrow(MAP_VALUE_FIELD_NUMBER);
+          }
+          fieldValue =
+              readMapField(
+                  tagWireType,
+                  inputStream,
+                  fieldDescriptor,
+                  keyDescriptor,
+                  valueDescriptor,
+                  fieldValue);
+          break;
+      }
     }
     return fieldValue == null ? null : finalizeFieldValue(fieldValue);
   }
@@ -394,71 +426,41 @@ public final class ProtoLiteCelValueConverter extends BaseProtoCelValueConverter
 
   private @Nullable Object readFieldByNumber(ByteString bytes, SelectField field)
       throws IOException {
-    FieldLiteDescriptor fieldDescriptor = newFieldDescriptor(field);
     SelectField.MapEntrySpec mapEntrySpec = field.mapEntrySpec();
     if (mapEntrySpec == null) {
-      return readSingleField(bytes, fieldDescriptor);
+      return readSingleField(bytes, newFieldDescriptor(field));
     }
     // The map entry type has no descriptor either, so its key and value are described by the spec.
-    FieldLiteDescriptor keyDescriptor =
+    return scanField(
+        bytes,
+        newFieldDescriptor(field),
         newFieldDescriptor(
             MAP_KEY_FIELD_NUMBER,
             MAP_KEY_FIELD_NAME,
             EncodingType.SINGULAR,
             mapEntrySpec.keyTypeCode(),
-            /* protoTypeName= */ "");
-    FieldLiteDescriptor valueDescriptor =
+            /* protoTypeName= */ ""),
         newFieldDescriptor(
             MAP_VALUE_FIELD_NUMBER,
             MAP_VALUE_FIELD_NAME,
             EncodingType.SINGULAR,
             mapEntrySpec.valueTypeCode(),
-            field.protoTypeName());
-    CodedInputStream inputStream = bytes.newCodedInput();
-    Map<Object, Object> mapValues = null;
-    for (int tag = inputStream.readTag(); tag != 0; tag = inputStream.readTag()) {
-      if (WireFormat.getTagFieldNumber(tag) != field.fieldNumber()) {
-        skipWireField(tag, inputStream);
-        continue;
-      }
-      mapValues =
-          readMapField(
-              WireFormat.getTagWireType(tag),
-              inputStream,
-              fieldDescriptor,
-              keyDescriptor,
-              valueDescriptor,
-              mapValues);
-    }
-    return mapValues == null ? null : finalizeFieldValue(mapValues);
+            field.protoTypeName()));
   }
 
   /** Describes {@code field} by the type information it carries. */
   private static FieldLiteDescriptor newFieldDescriptor(SelectField field) {
-    if (field.mapEntrySpec() != null) {
-      // SelectField doesn't name the map entry type; its protoTypeName() is the map's value type.
-      return newFieldDescriptor(
-          field.fieldNumber(),
-          field.fieldName(),
-          EncodingType.MAP,
-          SelectField.MESSAGE_TYPE_CODE,
-          /* protoTypeName= */ "");
-    }
-    if (field.typeCode() == SelectField.NO_TYPE_CODE) {
-      // Only presence tests omit the type code. Their presence check doesn't depend on the type,
-      // and the fields they navigate through are always messages.
-      return newFieldDescriptor(
-          field.fieldNumber(),
-          field.fieldName(),
-          EncodingType.SINGULAR,
-          SelectField.MESSAGE_TYPE_CODE,
-          /* protoTypeName= */ "");
-    }
+    // Only presence tests omit the type code: their presence check doesn't depend on the type, and
+    // the fields they navigate through are messages, as are map entries.
+    boolean isMap = field.mapEntrySpec() != null;
+    boolean isMessage = isMap || field.typeCode() == SelectField.NO_TYPE_CODE;
     return newFieldDescriptor(
         field.fieldNumber(),
         field.fieldName(),
-        field.defaultValue() instanceof List ? EncodingType.LIST : EncodingType.SINGULAR,
-        field.typeCode(),
+        isMap
+            ? EncodingType.MAP
+            : (field.defaultValue() instanceof List ? EncodingType.LIST : EncodingType.SINGULAR),
+        isMessage ? SelectField.MESSAGE_TYPE_CODE : field.typeCode(),
         field.protoTypeName());
   }
 
@@ -501,24 +503,6 @@ public final class ProtoLiteCelValueConverter extends BaseProtoCelValueConverter
     return accumulatedValue instanceof MessageLite
         ? toRuntimeValue(accumulatedValue)
         : accumulatedValue;
-  }
-
-  private @Nullable Object readFieldValue(
-      int tagWireType,
-      CodedInputStream inputStream,
-      FieldLiteDescriptor fieldDescriptor,
-      @Nullable Object existingValue)
-      throws IOException {
-    EncodingType encodingType = fieldDescriptor.getEncodingType();
-    switch (encodingType) {
-      case SINGULAR:
-        return readSingularField(tagWireType, inputStream, fieldDescriptor, existingValue);
-      case LIST:
-        return readRepeatedField(tagWireType, inputStream, fieldDescriptor, existingValue);
-      case MAP:
-        return readMapField(tagWireType, inputStream, fieldDescriptor, existingValue);
-    }
-    throw new IllegalStateException("Unexpected encoding type: " + encodingType);
   }
 
   private Object readSingularField(
@@ -577,23 +561,6 @@ public final class ProtoLiteCelValueConverter extends BaseProtoCelValueConverter
     return repeatedValues;
   }
 
-  private Map<Object, Object> readMapField(
-      int tagWireType,
-      CodedInputStream inputStream,
-      FieldLiteDescriptor fieldDescriptor,
-      @Nullable Object existingValue)
-      throws IOException {
-    MessageLiteDescriptor entryDescriptor =
-        descriptorPool.getDescriptorOrThrow(fieldDescriptor.getFieldProtoTypeName());
-    return readMapField(
-        tagWireType,
-        inputStream,
-        fieldDescriptor,
-        entryDescriptor.getByFieldNameOrThrow(MAP_KEY_FIELD_NAME),
-        entryDescriptor.getByFieldNameOrThrow(MAP_VALUE_FIELD_NAME),
-        existingValue);
-  }
-
   // Safe because MAP fields only ever store a LinkedHashMap as their accumulated value.
   @SuppressWarnings("unchecked")
   private Map<Object, Object> readMapField(
@@ -642,22 +609,13 @@ public final class ProtoLiteCelValueConverter extends BaseProtoCelValueConverter
     return fieldDescriptor.getProtoFieldType().toWireFormatFieldType().isPackable();
   }
 
-  @VisibleForTesting
-  static void skipWireField(int tag, CodedInputStream inputStream) throws IOException {
+  private static void skipWireField(int tag, CodedInputStream inputStream) throws IOException {
     int tagWireType = WireFormat.getTagWireType(tag);
-    switch (tagWireType) {
-      case WireFormat.WIRETYPE_VARINT:
-      case WireFormat.WIRETYPE_FIXED64:
-      case WireFormat.WIRETYPE_LENGTH_DELIMITED:
-      case WireFormat.WIRETYPE_FIXED32:
-        inputStream.skipField(tag);
-        return;
-      case WireFormat.WIRETYPE_START_GROUP:
-      case WireFormat.WIRETYPE_END_GROUP:
-        throw new UnsupportedOperationException("Groups are not supported");
-      default:
-        throw new IllegalArgumentException("Unknown wire type: " + tagWireType);
+    if (tagWireType == WireFormat.WIRETYPE_START_GROUP
+        || tagWireType == WireFormat.WIRETYPE_END_GROUP) {
+      throw new UnsupportedOperationException("Groups are not supported");
     }
+    inputStream.skipField(tag);
   }
 
   private ProtoLiteCelValueConverter(CelLiteDescriptorPool celLiteDescriptorPool) {

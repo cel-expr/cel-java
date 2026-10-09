@@ -38,7 +38,6 @@ import com.google.protobuf.TextFormat;
 import com.google.protobuf.Timestamp;
 import com.google.protobuf.UInt32Value;
 import com.google.protobuf.UInt64Value;
-import com.google.protobuf.WireFormat;
 import com.google.testing.junit.testparameterinjector.TestParameter;
 import com.google.testing.junit.testparameterinjector.TestParameterInjector;
 import dev.cel.common.internal.CelLiteDescriptorPool;
@@ -616,15 +615,21 @@ public final class ProtoLiteCelValueConverterTest {
     assertThat(result).isTrue();
   }
 
+  // Wire types 3 and 4 are START_GROUP and END_GROUP.
   @Test
-  public void skipWireField_groupWireType_throwsUnsupportedOperationException() {
-    int startGroupTag = (1 << 3) | WireFormat.WIRETYPE_START_GROUP;
+  public void readSingleField_groupInSkippedField_throwsUnsupportedOperationException(
+      @TestParameter({"3", "4"}) int groupWireType) {
+    ByteString bytes = ByteString.copyFrom(new byte[] {(byte) ((1 << 3) | groupWireType)});
+    FieldLiteDescriptor fd =
+        fieldDescriptor(
+            "cel.expr.conformance.proto3.TestAllTypes", TestAllTypes.SINGLE_STRING_FIELD_NUMBER);
 
-    assertThrows(
-        UnsupportedOperationException.class,
-        () ->
-            ProtoLiteCelValueConverter.skipWireField(
-                startGroupTag, ByteString.EMPTY.newCodedInput()));
+    UnsupportedOperationException e =
+        assertThrows(
+            UnsupportedOperationException.class,
+            () -> PROTO_LITE_CEL_VALUE_CONVERTER.readSingleField(bytes, fd));
+
+    assertThat(e).hasMessageThat().isEqualTo("Groups are not supported");
   }
 
   private static FieldLiteDescriptor fieldDescriptor(String messageName, int fieldNumber) {
