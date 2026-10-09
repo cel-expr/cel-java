@@ -234,6 +234,39 @@ public final class CelPolicyCompilerToolTest {
   }
 
   @Test
+  public void compile_withVariables_success() throws Exception {
+    String configPath = createFile("config.yaml", "name: test-env\n");
+    String policyPath =
+        createFile(
+            "policy.yaml",
+            "name: p\n"
+                + "rule:\n"
+                + "  variables:\n"
+                + "    - name: my_sum\n"
+                + "      expression: 10 + 20\n"
+                + "  match:\n"
+                + "    - condition: variables.my_sum == 30\n"
+                + "      output: 'true'\n");
+    File outputFile = tempFolder.newFile("output.binarypb");
+    CommandLine cmd = new CommandLine(new CelPolicyCompilerTool());
+
+    int exitCode =
+        cmd.execute(
+            "--policy",
+            policyPath,
+            "--config",
+            configPath,
+            "--output",
+            outputFile.getAbsolutePath());
+
+    assertThat(exitCode).isEqualTo(0);
+    CheckedExpr checkedExpr =
+        CheckedExpr.parseFrom(Files.toByteArray(outputFile), ExtensionRegistry.getEmptyRegistry());
+    CelAbstractSyntaxTree ast = CelProtoAbstractSyntaxTree.fromCheckedExpr(checkedExpr).getAst();
+    assertThat(celRuntime.createProgram(ast).eval()).isEqualTo(Optional.of(true));
+  }
+
+  @Test
   public void compile_withSimpleVariables_success() throws Exception {
     String configPath = createFile("config.yaml", "name: test-env\n");
     String policyPath =
@@ -246,26 +279,24 @@ public final class CelPolicyCompilerToolTest {
                 + "  match:\n"
                 + "    - condition: variables.my_sum == 30\n"
                 + "      output: 'true'\n");
-
     File outputFile = tempFolder.newFile("output.binarypb");
-
     CommandLine cmd = new CommandLine(new CelPolicyCompilerTool());
+
     int exitCode =
         cmd.execute(
             "--policy",
             policyPath,
             "--config",
             configPath,
+            "--simple_variables",
             "--output",
             outputFile.getAbsolutePath());
 
     assertThat(exitCode).isEqualTo(0);
-
     CheckedExpr checkedExpr =
         CheckedExpr.parseFrom(Files.toByteArray(outputFile), ExtensionRegistry.getEmptyRegistry());
     CelAbstractSyntaxTree ast = CelProtoAbstractSyntaxTree.fromCheckedExpr(checkedExpr).getAst();
-    Object result = celRuntime.createProgram(ast).eval();
-    assertThat(result).isEqualTo(Optional.of(true));
+    assertThat(celRuntime.createProgram(ast).eval()).isEqualTo(Optional.of(true));
   }
 
   @Test

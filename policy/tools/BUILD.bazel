@@ -22,6 +22,5 @@ alias(
 bzl_library(
     name = "compile_cel_policy_bzl",
     srcs = ["compile_cel_policy.bzl"],
-    visibility = ["//visibility:private"],
     deps = ["@rules_proto//proto:defs"],
 )

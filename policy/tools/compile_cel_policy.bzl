@@ -26,6 +26,7 @@ def compile_cel_policy(
         output_format = "binarypb",
         output_version = "canonical",
         optimize_field_selection = False,
+        simple_variables = False,
         visibility = None):
     """Compiles a CEL policy into a CheckedExpr binarypb or textpb with optional select optimization.
 
@@ -43,7 +44,13 @@ def compile_cel_policy(
       output: (optional) str file name for the output checked expression (default derived from label name and format)
       output_format: (optional) str either "binarypb", "textpb", or "textproto" (default "binarypb")
       output_version: (optional) str either "canonical" or "v1alpha1" (default "canonical")
-      optimize_field_selection: (optional) bool whether to enable AST select optimization (default False)
+      optimize_field_selection: (optional) bool whether to enable AST select optimization (default False).
+        When True, embeds field numbers, wire types, and default values directly into the compiled
+        `CheckedExpr` AST. This enables version-skew and field-rename resilience (evaluating unknown
+        fields from raw wire bytes on older clients) and faster field selections, at the cost of a
+        larger serialized AST payload.
+      simple_variables: (optional) bool whether to enable inline variable definitions (e.g.,
+        `- var_name: expr` instead of `- name: var_name` / `expression: expr`) in the policy (default False)
       visibility: (optional) visibility to use on the genrule macro (default None)
     """
     if output_format not in ("binarypb", "textpb", "textproto"):
@@ -86,6 +93,9 @@ def compile_cel_policy(
 
     if optimize_field_selection:
         args.append("--optimize_field_selection")
+
+    if simple_variables:
+        args.append("--simple_variables")
 
     cmd = (
         "$(location //policy/tools:cel_policy_compiler_tool) " +

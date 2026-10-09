@@ -120,6 +120,11 @@ public final class CelPolicyCompilerTool implements Callable<Integer> {
       description = "Optimize field selection for version skew mitigation")
   private boolean optimizeFieldSelection = false;
 
+  @Option(
+      names = {"--simple_variables"},
+      description = "Enable inline variable definitions (e.g., '- var_name: expr') in the policy")
+  private boolean simpleVariables = false;
+
   private static final CelOptions CEL_OPTIONS =
       CelOptions.current()
           .populateMacroCalls(true)
@@ -195,7 +200,9 @@ public final class CelPolicyCompilerTool implements Callable<Integer> {
     CelPolicy policy;
     try {
       CelPolicyParser policyParser =
-          CelPolicyParserFactory.newYamlParserBuilder().enableSimpleVariables(true).build();
+          CelPolicyParserFactory.newYamlParserBuilder()
+              .enableSimpleVariables(simpleVariables)
+              .build();
       String policyYaml = new String(readFileBytes(effectivePolicyPath), UTF_8);
       policy = policyParser.parse(policyYaml, effectivePolicyPath);
     } catch (Exception e) {

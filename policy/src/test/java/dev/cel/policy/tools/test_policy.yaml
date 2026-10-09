@@ -1,7 +1,9 @@
 # Copyright 2026 Google LLC
 name: "test_policy"
 rule:
+  variables:
+    - is_valid_int: proto3.single_int32 == 100
   match:
-    - condition: proto3.single_int32 == 100 && has(proto3.single_nested_message)
+    - condition: variables.is_valid_int && has(proto3.single_nested_message)
       output: '"ALLOW"'
     - output: '"DENY"'

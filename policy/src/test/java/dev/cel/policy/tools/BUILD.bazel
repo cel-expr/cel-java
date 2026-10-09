@@ -19,6 +19,7 @@ compile_cel_policy(
     optimize_field_selection = True,
     policy = ":test_policy.yaml",
     proto_srcs = ["@cel_spec//proto/cel/expr/conformance/proto3:test_all_types_proto"],
+    simple_variables = True,
 )
 
 java_library(
@@ -28,7 +29,6 @@ java_library(
     data = [
         ":compiled_test_policy.binarypb",
         ":test_all_types_fds",
-        ":test_policy.yaml",
         "//testing/environment:proto3_message_variables",
     ],
     deps = [
