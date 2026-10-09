@@ -1045,12 +1045,16 @@ java_library(
     deps = [
         ":standard_overload",
         "//common:options",
-        "//common/exceptions:invalid_argument",
+        "//common/annotations",
         "//runtime:function_binding",
+        "//runtime:function_overload",
+        "//runtime:resolved_overload",
         "//runtime:runtime_equality",
         "//runtime:runtime_helpers",
         "//runtime/standard:standard_function",
+        "@maven//:com_google_errorprone_error_prone_annotations",
         "@maven//:com_google_guava_guava",
+        "@maven//:com_google_re2j_re2j",
     ],
 )
 
@@ -1063,10 +1067,14 @@ cel_android_library(
         ":standard_function_android",
         ":standard_overload_android",
         "//common:options",
-        "//common/exceptions:invalid_argument",
+        "//common/annotations",
         "//runtime:function_binding_android",
+        "//runtime:function_overload_android",
+        "//runtime:resolved_overload_android",
         "//runtime:runtime_equality_android",
         "//runtime:runtime_helpers_android",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:com_google_re2j_re2j",
         "@maven_android//:com_google_guava_guava",
     ],
 )

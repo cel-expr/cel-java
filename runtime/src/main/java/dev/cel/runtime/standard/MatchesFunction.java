@@ -14,16 +14,22 @@
 
 package dev.cel.runtime.standard;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.errorprone.annotations.Immutable;
+import com.google.re2j.Pattern;
 import dev.cel.common.CelOptions;
-import dev.cel.common.exceptions.CelInvalidArgumentException;
+import dev.cel.common.annotations.Internal;
 import dev.cel.runtime.CelFunctionBinding;
+import dev.cel.runtime.CelFunctionOverload;
+import dev.cel.runtime.CelResolvedOverload;
 import dev.cel.runtime.RuntimeEquality;
 import dev.cel.runtime.RuntimeHelpers;
 import java.util.Arrays;
 
 /** Standard function for {@code matches}. */
 public final class MatchesFunction extends CelStandardFunction {
+  private static final String MATCHES_FUNCTION = "matches";
   private static final MatchesFunction ALL_OVERLOADS = create(MatchesOverload.values());
 
   public static MatchesFunction create() {
@@ -38,51 +44,68 @@ public final class MatchesFunction extends CelStandardFunction {
     return new MatchesFunction(ImmutableSet.copyOf(overloads));
   }
 
+  @Internal
+  public static boolean isMatchesOverload(CelResolvedOverload resolvedOverload) {
+    return resolvedOverload.getDefinition() instanceof StandardMatchesOverload;
+  }
+
+  @Internal
+  public static CelResolvedOverload newPrecompiledOverload(
+      CelResolvedOverload resolvedOverload, String regexPattern) {
+    CelOptions celOptions = ((StandardMatchesOverload) resolvedOverload.getDefinition()).celOptions;
+    Pattern compiledPattern = RuntimeHelpers.compileRegexPattern(regexPattern, celOptions);
+    String overloadId = resolvedOverload.getOverloadId();
+    CelFunctionBinding binding =
+        CelFunctionBinding.from(
+            overloadId,
+            String.class,
+            target -> RuntimeHelpers.matches(target, compiledPattern, celOptions));
+    return CelResolvedOverload.of(
+        MATCHES_FUNCTION,
+        overloadId,
+        binding.getDefinition(),
+        binding.isStrict(),
+        binding.getArgTypes());
+  }
+
   /** Overloads for the standard function. */
   public enum MatchesOverload implements CelStandardOverload {
-    MATCHES(
-        (celOptions, runtimeEquality) ->
-            CelFunctionBinding.from(
-                "matches",
-                String.class,
-                String.class,
-                (String string, String regexp) -> {
-                  try {
-                    return RuntimeHelpers.matches(string, regexp, celOptions);
-                  } catch (RuntimeException e) {
-                    throw new CelInvalidArgumentException(e);
-                  }
-                })),
+    MATCHES(MATCHES_FUNCTION),
     // Duplicate receiver-style matches overload.
-    MATCHES_STRING(
-        (celOptions, runtimeEquality) ->
-            CelFunctionBinding.from(
-                "matches_string",
-                String.class,
-                String.class,
-                (String string, String regexp) -> {
-                  try {
-                    return RuntimeHelpers.matches(string, regexp, celOptions);
-                  } catch (RuntimeException e) {
-                    throw new CelInvalidArgumentException(e);
-                  }
-                })),
+    MATCHES_STRING("matches_string"),
     ;
 
-    private final CelStandardOverload standardOverload;
+    private final String overloadId;
 
     @Override
     public CelFunctionBinding newFunctionBinding(
         CelOptions celOptions, RuntimeEquality runtimeEquality) {
-      return standardOverload.newFunctionBinding(celOptions, runtimeEquality);
+      return CelFunctionBinding.from(
+          overloadId,
+          ImmutableList.of(String.class, String.class),
+          new StandardMatchesOverload(celOptions));
     }
 
-    MatchesOverload(CelStandardOverload standardOverload) {
-      this.standardOverload = standardOverload;
+    MatchesOverload(String overloadId) {
+      this.overloadId = overloadId;
+    }
+  }
+
+  @Immutable
+  private static final class StandardMatchesOverload implements CelFunctionOverload {
+    private final CelOptions celOptions;
+
+    @Override
+    public Object apply(Object[] args) {
+      return RuntimeHelpers.matches((String) args[0], (String) args[1], celOptions);
+    }
+
+    private StandardMatchesOverload(CelOptions celOptions) {
+      this.celOptions = celOptions;
     }
   }
 
   private MatchesFunction(ImmutableSet<CelStandardOverload> overloads) {
-    super("matches", overloads);
+    super(MATCHES_FUNCTION, overloads);
   }
 }

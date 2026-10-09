@@ -23,10 +23,12 @@ import com.google.errorprone.annotations.Immutable;
 import com.google.protobuf.Duration;
 import com.google.protobuf.MessageLiteOrBuilder;
 import com.google.re2j.Pattern;
+import com.google.re2j.PatternSyntaxException;
 import dev.cel.common.CelOptions;
 import dev.cel.common.annotations.Internal;
 import dev.cel.common.exceptions.CelDivideByZeroException;
 import dev.cel.common.exceptions.CelIndexOutOfBoundsException;
+import dev.cel.common.exceptions.CelInvalidArgumentException;
 import dev.cel.common.exceptions.CelNumericOverflowException;
 import dev.cel.common.internal.Converter;
 import dev.cel.common.values.NullValue;
@@ -76,16 +78,24 @@ public class RuntimeHelpers {
     }
   }
 
-  public static boolean matches(String string, String regexp, CelOptions celOptions) {
-    Pattern pattern = Pattern.compile(regexp);
+  public static Pattern compileRegexPattern(String regexp, CelOptions celOptions) {
+    Pattern pattern;
+    try {
+      pattern = Pattern.compile(regexp);
+    } catch (PatternSyntaxException e) {
+      throw new CelInvalidArgumentException(e);
+    }
     int maxProgramSize = celOptions.maxRegexProgramSize();
     if (maxProgramSize >= 0 && pattern.programSize() > maxProgramSize) {
-      throw new IllegalArgumentException(
+      throw new CelInvalidArgumentException(
           String.format(
               "Regex pattern exceeds allowed program size. Allowed: %d, Provided: %d",
               maxProgramSize, pattern.programSize()));
     }
+    return pattern;
+  }
 
+  public static boolean matches(String string, Pattern pattern, CelOptions celOptions) {
     if (!celOptions.enableRegexPartialMatch()) {
       // Uses re2 for consistency across languages.
       return pattern.matcher(string).matches();
@@ -93,6 +103,10 @@ public class RuntimeHelpers {
 
     // Return an unanchored match for the presence of the regexp anywhere in the string.
     return pattern.matcher(string).find();
+  }
+
+  public static boolean matches(String string, String regexp, CelOptions celOptions) {
+    return matches(string, compileRegexPattern(regexp, celOptions), celOptions);
   }
 
   /** Concatenates two lists into a new list. */

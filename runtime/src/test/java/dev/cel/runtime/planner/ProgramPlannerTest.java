@@ -216,6 +216,10 @@ public final class ProgramPlannerTest {
    * driven by the top-level runtime APIs in the future
    */
   private static DefaultDispatcher newDispatcher() {
+    return newDispatcher(CEL_OPTIONS);
+  }
+
+  private static DefaultDispatcher newDispatcher(CelOptions celOptions) {
     DefaultDispatcher.Builder builder = DefaultDispatcher.newBuilder();
 
     // Subsetted StdLib
@@ -232,16 +236,17 @@ public final class ProgramPlannerTest {
                 StandardFunction.EQUALS,
                 StandardFunction.NOT_STRICTLY_FALSE,
                 StandardFunction.SIZE,
+                StandardFunction.MATCHES,
                 StandardFunction.DYN)
             .build();
     addBindingsToDispatcher(
-        builder, stdFunctions.newFunctionBindings(RUNTIME_EQUALITY, CEL_OPTIONS));
+        builder, stdFunctions.newFunctionBindings(RUNTIME_EQUALITY, celOptions));
 
     TypeFunction typeFunction =
         TypeFunction.create(
             DescriptorTypeResolver.create(TYPE_PROVIDER, CelValueConverter.getDefaultInstance()));
     addBindingsToDispatcher(
-        builder, typeFunction.newFunctionBindings(CEL_OPTIONS, RUNTIME_EQUALITY));
+        builder, typeFunction.newFunctionBindings(celOptions, RUNTIME_EQUALITY));
     addBindingsToDispatcher(
         builder,
         CelFunctionBinding.fromOverloads(
@@ -2246,11 +2251,164 @@ public final class ProgramPlannerTest {
     assertThat(result).isEqualTo(true);
   }
 
+  @Test
+  @TestParameters("{expression: \"matches('hubba', 'ubb')\", expectedResult: true}")
+  @TestParameters("{expression: \"'hubba'.matches('ubb')\", expectedResult: true}")
+  @TestParameters("{expression: \"'hubba'.matches('nomatch')\", expectedResult: false}")
+  @TestParameters("{expression: \"msg.single_string.matches('^f.*o$')\", expectedResult: true}")
+  @TestParameters("{expression: \"matches('foobar', msg.single_string)\", expectedResult: true}")
+  @TestParameters("{expression: \"matches('hubba', msg.single_string)\", expectedResult: false}")
+  public void plan_call_matches(String expression, boolean expectedResult) throws Exception {
+    CelAbstractSyntaxTree ast = compile(expression);
+    Program program = PLANNER.plan(ast);
+
+    boolean result =
+        (boolean)
+            program.eval(
+                ImmutableMap.of("msg", TestAllTypes.newBuilder().setSingleString("foo").build()));
+
+    assertThat(result).isEqualTo(expectedResult);
+  }
+
+  @Test
+  @TestParameters("{expression: \"'hubba'.matches('ubb')\", expectedResult: false}")
+  @TestParameters("{expression: \"'hubba'.matches('hubba')\", expectedResult: true}")
+  public void plan_call_matches_partialMatchDisabled(String expression, boolean expectedResult)
+      throws Exception {
+    CelAbstractSyntaxTree ast = compile(expression);
+    ProgramPlanner planner =
+        newPlannerWithOptions(CelOptions.current().enableRegexPartialMatch(false).build());
+    Program program = planner.plan(ast);
+
+    boolean result = (boolean) program.eval();
+
+    assertThat(result).isEqualTo(expectedResult);
+  }
+
+  @Test
+  public void plan_call_matches_nonStringTarget_throws() throws Exception {
+    CelAbstractSyntaxTree ast = compile("dyn_var.matches('a')");
+    Program program = PLANNER.plan(ast);
+    String expectedOverloadId = isParseOnly ? "matches" : "matches_string";
+
+    CelEvaluationException e =
+        assertThrows(
+            CelEvaluationException.class, () -> program.eval(ImmutableMap.of("dyn_var", 123L)));
+
+    assertThat(e)
+        .hasMessageThat()
+        .contains(
+            "No matching overload for function 'matches'. Overload candidates: "
+                + expectedOverloadId);
+  }
+
+  @Test
+  public void plan_call_matches_nonStringConstantRegex_throws() throws Exception {
+    CelAbstractSyntaxTree ast = CEL_COMPILER.parse("'foo'.matches(123)").getAst();
+    Program program = PLANNER.plan(ast);
+
+    CelEvaluationException e = assertThrows(CelEvaluationException.class, program::eval);
+
+    assertThat(e).hasMessageThat().contains("No matching overload for function 'matches'");
+  }
+
+  @Test
+  public void plan_call_matches_withUnknownTarget_propagatesUnknown() throws Exception {
+    CelAbstractSyntaxTree ast = compile("msg.single_string.matches('a')");
+    Program program = PLANNER.plan(ast);
+
+    CelUnknownSet result =
+        (CelUnknownSet) program.eval(PartialVars.of(CelAttributePattern.create("msg")));
+
+    assertThat(result)
+        .isEqualTo(
+            CelUnknownSet.create(ImmutableSet.of(CelAttribute.create("msg")), ImmutableSet.of(2L)));
+  }
+
+  @Test
+  public void plan_call_matches_customOverload(
+      @TestParameter({"matches('[', '[')", "'['.matches('[')"}) String expression)
+      throws Exception {
+    DefaultDispatcher.Builder dispatcherBuilder = DefaultDispatcher.newBuilder();
+    addBindingsToDispatcher(
+        dispatcherBuilder,
+        CelFunctionBinding.fromOverloads(
+            "matches",
+            CelFunctionBinding.from("matches", String.class, String.class, String::equals),
+            CelFunctionBinding.from("matches_string", String.class, String.class, String::equals)));
+    ProgramPlanner planner =
+        ProgramPlanner.newPlanner(
+            TYPE_PROVIDER,
+            VALUE_PROVIDER,
+            dispatcherBuilder.build(),
+            CEL_VALUE_CONVERTER,
+            CEL_CONTAINER,
+            CEL_OPTIONS,
+            ImmutableSet.of(),
+            RUNTIME_EQUALITY,
+            CelAsyncEvaluationOptions.defaultOptions(),
+            /* asyncExecutor= */ null);
+    CelAbstractSyntaxTree ast = compile(expression);
+    Program program = planner.plan(ast);
+
+    boolean result = (boolean) program.eval();
+
+    assertThat(result).isTrue();
+  }
+
+  @Test
+  @TestParameters("{expression: \"matches('alpha', '**')\", expectedLocation: '<input>:7'}")
+  @TestParameters("{expression: \"'alpha'.matches('**')\", expectedLocation: '<input>:15'}")
+  public void plan_call_matches_invalidConstantRegex_throws(
+      String expression, String expectedLocation) throws Exception {
+    CelAbstractSyntaxTree ast = compile(expression);
+
+    CelEvaluationException e = assertThrows(CelEvaluationException.class, () -> PLANNER.plan(ast));
+
+    assertThat(e.getErrorCode()).isEqualTo(CelErrorCode.INVALID_ARGUMENT);
+    assertThat(e)
+        .hasMessageThat()
+        .contains(
+            "evaluation error at "
+                + expectedLocation
+                + ": error parsing regexp: missing argument to repetition operator: `*`");
+  }
+
+  @Test
+  public void plan_call_matches_regexProgramSizeWithinLimit() throws Exception {
+    CelAbstractSyntaxTree ast = compile("'foo'.matches('(a+b)')");
+    ProgramPlanner planner =
+        newPlannerWithOptions(CelOptions.current().maxRegexProgramSize(7).build());
+    Program program = planner.plan(ast);
+
+    boolean result = (boolean) program.eval();
+
+    assertThat(result).isFalse();
+  }
+
+  @Test
+  public void plan_call_matches_regexProgramSizeExceedsLimit_throws(
+      @TestParameter({"0", "6"}) int maxProgramSize) throws Exception {
+    CelAbstractSyntaxTree ast = compile("'foo'.matches('(a+b)')");
+    ProgramPlanner planner =
+        newPlannerWithOptions(CelOptions.current().maxRegexProgramSize(maxProgramSize).build());
+
+    CelEvaluationException e = assertThrows(CelEvaluationException.class, () -> planner.plan(ast));
+
+    assertThat(e.getErrorCode()).isEqualTo(CelErrorCode.INVALID_ARGUMENT);
+    assertThat(e)
+        .hasMessageThat()
+        .contains(
+            "evaluation error at <input>:13: Regex pattern exceeds allowed program size. Allowed: "
+                + maxProgramSize
+                + ", Provided: 7");
+  }
+
   private static ProgramPlanner newPlannerWithOptions(CelOptions options) {
     return ProgramPlanner.newPlanner(
         TYPE_PROVIDER,
         VALUE_PROVIDER,
-        newDispatcher(),
+        newDispatcher(options),
         CEL_VALUE_CONVERTER,
         CEL_CONTAINER,
         options,
