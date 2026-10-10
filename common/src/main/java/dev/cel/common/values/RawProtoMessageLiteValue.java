@@ -23,7 +23,6 @@ import com.google.protobuf.CodedInputStream;
 import dev.cel.common.exceptions.CelAttributeNotFoundException;
 import dev.cel.common.types.CelType;
 import dev.cel.common.types.StructTypeReference;
-import java.io.IOException;
 import java.util.Locale;
 import java.util.Optional;
 
@@ -114,32 +113,18 @@ abstract class RawProtoMessageLiteValue extends StructValue<String, WireMessageL
 
   @Override
   public Object selectByFieldNumber(SelectField field) {
-    try {
-      return protoLiteCelValueConverter().selectByFieldNumber(toByteString(), field);
-    } catch (IOException e) {
-      throw new IllegalArgumentException(
-          "Failed to decode proto message of type: " + celType().name(), e);
-    }
+    return protoLiteCelValueConverter()
+        .selectByFieldNumber(toByteString(), celType().name(), field);
   }
 
   @Override
   public boolean hasFieldByNumber(SelectField field) {
-    try {
-      return protoLiteCelValueConverter().hasFieldByNumber(toByteString(), field);
-    } catch (IOException e) {
-      throw new IllegalArgumentException(
-          "Failed to decode proto message of type: " + celType().name(), e);
-    }
+    return protoLiteCelValueConverter().hasFieldByNumber(toByteString(), celType().name(), field);
   }
 
   @Override
   public Optional<Object> findByFieldNumber(SelectField field) {
-    try {
-      return protoLiteCelValueConverter().findByFieldNumber(toByteString(), field);
-    } catch (IOException e) {
-      throw new IllegalArgumentException(
-          "Failed to decode proto message of type: " + celType().name(), e);
-    }
+    return protoLiteCelValueConverter().findByFieldNumber(toByteString(), celType().name(), field);
   }
 
   static RawProtoMessageLiteValue create(

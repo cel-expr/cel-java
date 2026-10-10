@@ -29,7 +29,6 @@ import com.google.protobuf.InvalidProtocolBufferException;
 import com.google.protobuf.MessageLite;
 import com.google.protobuf.WireFormat;
 import dev.cel.common.annotations.Internal;
-import dev.cel.common.exceptions.CelAttributeNotFoundException;
 import dev.cel.common.internal.CelLiteDescriptorPool;
 import dev.cel.common.internal.WellKnownProto;
 import dev.cel.protobuf.CelLiteDescriptor.FieldLiteDescriptor;
@@ -164,7 +163,7 @@ public final class ProtoLiteCelValueConverter extends BaseProtoCelValueConverter
     return toRuntimeValue(getDefaultValue(fieldDescriptor));
   }
 
-  Optional<FieldLiteDescriptor> findFieldDescriptor(String protoTypeName, int fieldNumber) {
+  private Optional<FieldLiteDescriptor> findFieldDescriptor(String protoTypeName, int fieldNumber) {
     return descriptorPool
         .findDescriptor(protoTypeName)
         .flatMap(desc -> desc.findByFieldNumber(fieldNumber));
@@ -193,8 +192,7 @@ public final class ProtoLiteCelValueConverter extends BaseProtoCelValueConverter
     try {
       return builder.mergeFrom(bytes, ExtensionRegistryLite.getEmptyRegistry()).build();
     } catch (IOException e) {
-      throw new IllegalArgumentException(
-          "Failed to decode proto message of type: " + protoTypeName, e);
+      throw newDecodeException(protoTypeName, e);
     }
   }
 
@@ -313,126 +311,28 @@ public final class ProtoLiteCelValueConverter extends BaseProtoCelValueConverter
    * skipping every other field. Returns null if the field is absent (or a repeated field has only
    * empty packed records on the wire).
    */
-  @Nullable Object readSingleField(ByteString bytes, FieldLiteDescriptor fieldDescriptor)
-      throws IOException {
-    return scanField(bytes, fieldDescriptor, null, null);
+  @Nullable Object readField(
+      ByteString bytes, String protoTypeName, FieldLiteDescriptor fieldDescriptor) {
+    return scanField(bytes, protoTypeName, fieldDescriptor, null, null);
   }
 
-  /** Scans for {@code fieldDescriptor}; null map entry descriptors are looked up in the pool. */
-  private @Nullable Object scanField(
+  /** Reads {@code field}, by its own type information if {@code fieldDescriptor} is null. */
+  private @Nullable Object readField(
       ByteString bytes,
-      FieldLiteDescriptor fieldDescriptor,
-      @Nullable FieldLiteDescriptor keyDescriptor,
-      @Nullable FieldLiteDescriptor valueDescriptor)
-      throws IOException {
-    CodedInputStream inputStream = bytes.newCodedInput();
-    int targetFieldNumber = fieldDescriptor.getFieldNumber();
-    Object fieldValue = null;
-    for (int tag = inputStream.readTag(); tag != 0; tag = inputStream.readTag()) {
-      if (WireFormat.getTagFieldNumber(tag) != targetFieldNumber) {
-        skipWireField(tag, inputStream);
-        continue;
-      }
-      int tagWireType = WireFormat.getTagWireType(tag);
-      switch (fieldDescriptor.getEncodingType()) {
-        case SINGULAR:
-          fieldValue = readSingularField(tagWireType, inputStream, fieldDescriptor, fieldValue);
-          break;
-        case LIST:
-          fieldValue = readRepeatedField(tagWireType, inputStream, fieldDescriptor, fieldValue);
-          break;
-        case MAP:
-          if (keyDescriptor == null) {
-            // Looked up at the first entry since an absent map needs no entry descriptor.
-            MessageLiteDescriptor entryDescriptor =
-                descriptorPool.getDescriptorOrThrow(fieldDescriptor.getFieldProtoTypeName());
-            keyDescriptor = entryDescriptor.getByFieldNumberOrThrow(MAP_KEY_FIELD_NUMBER);
-            valueDescriptor = entryDescriptor.getByFieldNumberOrThrow(MAP_VALUE_FIELD_NUMBER);
-          }
-          fieldValue =
-              readMapField(
-                  tagWireType,
-                  inputStream,
-                  fieldDescriptor,
-                  keyDescriptor,
-                  valueDescriptor,
-                  fieldValue);
-          break;
-      }
+      String protoTypeName,
+      @Nullable FieldLiteDescriptor fieldDescriptor,
+      SelectField field) {
+    if (fieldDescriptor != null) {
+      return readField(bytes, protoTypeName, fieldDescriptor);
     }
-    return fieldValue == null ? null : finalizeFieldValue(fieldValue);
-  }
-
-  boolean hasSingleField(ByteString bytes, FieldLiteDescriptor fieldDescriptor) throws IOException {
-    int targetFieldNumber = fieldDescriptor.getFieldNumber();
-    boolean isPackableList =
-        fieldDescriptor.getEncodingType().equals(EncodingType.LIST) && isPackable(fieldDescriptor);
-    CodedInputStream inputStream = bytes.newCodedInput();
-    for (int tag = inputStream.readTag(); tag != 0; tag = inputStream.readTag()) {
-      int fieldNumber = WireFormat.getTagFieldNumber(tag);
-      if (fieldNumber != targetFieldNumber) {
-        skipWireField(tag, inputStream);
-        continue;
-      }
-      int tagWireType = WireFormat.getTagWireType(tag);
-      // In protobuf wire format, a zero-length entry for a singular field (e.g. empty string,
-      // bytes, or empty submessage) represents explicit presence on the wire. Only packed
-      // repeated fields with empty payload represent an empty/absent collection.
-      if (isPackableList && tagWireType == WireFormat.WIRETYPE_LENGTH_DELIMITED) {
-        int length = inputStream.readInt32();
-        inputStream.skipRawBytes(length);
-        if (length > 0) {
-          return true;
-        }
-        continue;
-      }
-      skipWireField(tag, inputStream);
-      return true;
-    }
-    return false;
-  }
-
-  /**
-   * Selects {@code field} from {@code bytes}, decoding it by the type information in {@code field}
-   * for fields missing from the descriptor pool. Returns the field's default value if it's absent.
-   * Throws {@link CelAttributeNotFoundException} if {@code field} has no type code.
-   */
-  Object selectByFieldNumber(ByteString bytes, SelectField field) throws IOException {
-    if (field.typeCode() == SelectField.NO_TYPE_CODE) {
-      throw CelAttributeNotFoundException.forFieldResolution(field.fieldName());
-    }
-    Object fieldValue = readFieldByNumber(bytes, field);
-    if (fieldValue != null) {
-      return fieldValue;
-    }
-    if (field.defaultValue() != null) {
-      return field.defaultValue();
-    }
-    return getDefaultCelValue(newFieldDescriptor(field));
-  }
-
-  /**
-   * Finds {@code field} in {@code bytes}, decoding it by the type information in {@code field} for
-   * fields missing from the descriptor pool. A field without a type code is decoded as a message.
-   */
-  Optional<Object> findByFieldNumber(ByteString bytes, SelectField field) throws IOException {
-    return Optional.ofNullable(readFieldByNumber(bytes, field));
-  }
-
-  /** Returns whether {@code field} is present in {@code bytes}. */
-  boolean hasFieldByNumber(ByteString bytes, SelectField field) throws IOException {
-    return hasSingleField(bytes, newFieldDescriptor(field));
-  }
-
-  private @Nullable Object readFieldByNumber(ByteString bytes, SelectField field)
-      throws IOException {
     SelectField.MapEntrySpec mapEntrySpec = field.mapEntrySpec();
     if (mapEntrySpec == null) {
-      return readSingleField(bytes, newFieldDescriptor(field));
+      return readField(bytes, protoTypeName, newFieldDescriptor(field));
     }
     // The map entry type has no descriptor either, so its key and value are described by the spec.
     return scanField(
         bytes,
+        protoTypeName,
         newFieldDescriptor(field),
         newFieldDescriptor(
             MAP_KEY_FIELD_NUMBER,
@@ -446,6 +346,120 @@ public final class ProtoLiteCelValueConverter extends BaseProtoCelValueConverter
             EncodingType.SINGULAR,
             mapEntrySpec.valueTypeCode(),
             field.protoTypeName()));
+  }
+
+  /** Scans for {@code fieldDescriptor}; null map entry descriptors are looked up in the pool. */
+  private @Nullable Object scanField(
+      ByteString bytes,
+      String protoTypeName,
+      FieldLiteDescriptor fieldDescriptor,
+      @Nullable FieldLiteDescriptor keyDescriptor,
+      @Nullable FieldLiteDescriptor valueDescriptor) {
+    CodedInputStream inputStream = bytes.newCodedInput();
+    int targetFieldNumber = fieldDescriptor.getFieldNumber();
+    Object fieldValue = null;
+    try {
+      for (int tag = inputStream.readTag(); tag != 0; tag = inputStream.readTag()) {
+        if (WireFormat.getTagFieldNumber(tag) != targetFieldNumber) {
+          skipWireField(tag, inputStream);
+          continue;
+        }
+        int tagWireType = WireFormat.getTagWireType(tag);
+        switch (fieldDescriptor.getEncodingType()) {
+          case SINGULAR:
+            fieldValue = readSingularField(tagWireType, inputStream, fieldDescriptor, fieldValue);
+            break;
+          case LIST:
+            fieldValue = readRepeatedField(tagWireType, inputStream, fieldDescriptor, fieldValue);
+            break;
+          case MAP:
+            if (keyDescriptor == null) {
+              // Looked up at the first entry since an absent map needs no entry descriptor.
+              MessageLiteDescriptor entryDescriptor =
+                  descriptorPool.getDescriptorOrThrow(fieldDescriptor.getFieldProtoTypeName());
+              keyDescriptor = entryDescriptor.getByFieldNumberOrThrow(MAP_KEY_FIELD_NUMBER);
+              valueDescriptor = entryDescriptor.getByFieldNumberOrThrow(MAP_VALUE_FIELD_NUMBER);
+            }
+            fieldValue =
+                readMapField(
+                    tagWireType,
+                    inputStream,
+                    fieldDescriptor,
+                    keyDescriptor,
+                    valueDescriptor,
+                    fieldValue);
+            break;
+        }
+      }
+    } catch (IOException e) {
+      throw newDecodeException(protoTypeName, e);
+    }
+    return fieldValue == null ? null : finalizeFieldValue(fieldValue);
+  }
+
+  /**
+   * Selects {@code field} from {@code bytes}, decoding it by the type information in {@code field}
+   * for fields missing from the descriptor pool. Returns the field's default value if it's absent.
+   */
+  Object selectByFieldNumber(ByteString bytes, String protoTypeName, SelectField field) {
+    FieldLiteDescriptor fieldDescriptor =
+        findFieldDescriptor(protoTypeName, field.fieldNumber()).orElse(null);
+    Object fieldValue = readField(bytes, protoTypeName, fieldDescriptor, field);
+    if (fieldValue != null) {
+      return fieldValue;
+    }
+    if (field.defaultValue() != null) {
+      return field.defaultValue();
+    }
+    return getDefaultCelValue(
+        fieldDescriptor != null ? fieldDescriptor : newFieldDescriptor(field));
+  }
+
+  /**
+   * Finds {@code field} in {@code bytes}, decoding it by the type information in {@code field} for
+   * fields missing from the descriptor pool. A field without a type code is decoded as a message.
+   */
+  Optional<Object> findByFieldNumber(ByteString bytes, String protoTypeName, SelectField field) {
+    FieldLiteDescriptor fieldDescriptor =
+        findFieldDescriptor(protoTypeName, field.fieldNumber()).orElse(null);
+    return Optional.ofNullable(readField(bytes, protoTypeName, fieldDescriptor, field));
+  }
+
+  /** Returns whether {@code field} is present in {@code bytes}. */
+  boolean hasFieldByNumber(ByteString bytes, String protoTypeName, SelectField field) {
+    FieldLiteDescriptor fieldDescriptor =
+        findFieldDescriptor(protoTypeName, field.fieldNumber()).orElse(null);
+    if (fieldDescriptor == null) {
+      fieldDescriptor = newFieldDescriptor(field);
+    }
+    boolean isPackableList =
+        fieldDescriptor.getEncodingType().equals(EncodingType.LIST) && isPackable(fieldDescriptor);
+    CodedInputStream inputStream = bytes.newCodedInput();
+    try {
+      for (int tag = inputStream.readTag(); tag != 0; tag = inputStream.readTag()) {
+        if (WireFormat.getTagFieldNumber(tag) != field.fieldNumber()) {
+          skipWireField(tag, inputStream);
+          continue;
+        }
+        int tagWireType = WireFormat.getTagWireType(tag);
+        // In protobuf wire format, a zero-length entry for a singular field (e.g. empty string,
+        // bytes, or empty submessage) represents explicit presence on the wire. Only packed
+        // repeated fields with empty payload represent an empty/absent collection.
+        if (isPackableList && tagWireType == WireFormat.WIRETYPE_LENGTH_DELIMITED) {
+          int length = inputStream.readInt32();
+          inputStream.skipRawBytes(length);
+          if (length > 0) {
+            return true;
+          }
+          continue;
+        }
+        skipWireField(tag, inputStream);
+        return true;
+      }
+    } catch (IOException e) {
+      throw newDecodeException(protoTypeName, e);
+    }
+    return false;
   }
 
   /** Describes {@code field} by the type information it carries. */
@@ -616,6 +630,11 @@ public final class ProtoLiteCelValueConverter extends BaseProtoCelValueConverter
       throw new UnsupportedOperationException("Groups are not supported");
     }
     inputStream.skipField(tag);
+  }
+
+  private static IllegalArgumentException newDecodeException(String protoTypeName, IOException e) {
+    return new IllegalArgumentException(
+        "Failed to decode proto message of type: " + protoTypeName, e);
   }
 
   private ProtoLiteCelValueConverter(CelLiteDescriptorPool celLiteDescriptorPool) {

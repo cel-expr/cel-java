@@ -645,6 +645,24 @@ public final class ProtoMessageLiteValueTest {
   }
 
   @Test
+  public void selectByFieldNumber_absentKnownMessageField_returnsDefaultMessage() {
+    ProtoMessageLiteValue val =
+        ProtoMessageLiteValue.create(
+            TestAllTypes.getDefaultInstance(),
+            "cel.expr.conformance.proto3.TestAllTypes",
+            PROTO_LITE_CEL_VALUE_CONVERTER);
+
+    Object result = val.selectByFieldNumber(SelectField.create(21L, "single_nested_message", 11));
+
+    assertThat(result)
+        .isEqualTo(
+            ProtoMessageLiteValue.create(
+                NestedMessage.getDefaultInstance(),
+                "cel.expr.conformance.proto3.TestAllTypes.NestedMessage",
+                PROTO_LITE_CEL_VALUE_CONVERTER));
+  }
+
+  @Test
   public void selectByFieldNumber_unknownWireField_decoded() throws Exception {
     ByteArrayOutputStream baos = new ByteArrayOutputStream();
     CodedOutputStream cos = CodedOutputStream.newInstance(baos);

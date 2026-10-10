@@ -25,7 +25,6 @@ import dev.cel.common.exceptions.CelAttributeNotFoundException;
 import dev.cel.common.types.CelType;
 import dev.cel.common.types.StructTypeReference;
 import dev.cel.protobuf.CelLiteDescriptor.FieldLiteDescriptor;
-import java.io.IOException;
 import java.util.Objects;
 import java.util.Optional;
 import org.jspecify.annotations.Nullable;
@@ -121,96 +120,40 @@ abstract class ProtoMessageLiteValue extends StructValue<String, MessageLite>
 
   @Override
   public Object select(String field) {
-    Optional<FieldLiteDescriptor> fd = findFieldDescriptor(field);
-    if (!fd.isPresent()) {
+    FieldLiteDescriptor fd = findFieldDescriptor(field).orElse(null);
+    if (fd == null) {
       throw CelAttributeNotFoundException.of(
           String.format("field '%s' is not declared in message '%s'", field, celType().name()));
     }
-    Object fieldValue = readField(fd.get());
-    return fieldValue != null
-        ? fieldValue
-        : protoLiteCelValueConverter().getDefaultCelValue(fd.get());
+    Object fieldValue = readField(fd);
+    return fieldValue != null ? fieldValue : protoLiteCelValueConverter().getDefaultCelValue(fd);
   }
 
   @Override
   public Optional<Object> find(String field) {
-    Optional<FieldLiteDescriptor> fd = findFieldDescriptor(field);
-    if (!fd.isPresent()) {
-      // Per SelectableValue#find, a field that doesn't exist is reported as absent.
-      return Optional.empty();
-    }
-    return Optional.ofNullable(readField(fd.get()));
+    FieldLiteDescriptor fd = findFieldDescriptor(field).orElse(null);
+    // Per SelectableValue#find, a field that doesn't exist is reported as absent.
+    return Optional.ofNullable(fd).map(value -> readField(value));
   }
 
   @Override
   public Object selectByFieldNumber(SelectField field) {
-    Optional<FieldLiteDescriptor> fd = findFieldDescriptor(field);
-    if (fd.isPresent()) {
-      Object known = readField(fd.get());
-      if (known != null) {
-        return known;
-      }
-      if (field.defaultValue() != null) {
-        return field.defaultValue();
-      }
-      return protoLiteCelValueConverter().getDefaultCelValue(fd.get());
-    }
-    try {
-      return protoLiteCelValueConverter().selectByFieldNumber(toByteString(), field);
-    } catch (IOException e) {
-      throw new IllegalArgumentException(
-          "Failed to decode proto message of type: " + celType().name(), e);
-    }
+    return protoLiteCelValueConverter()
+        .selectByFieldNumber(toByteString(), celType().name(), field);
   }
 
   @Override
   public boolean hasFieldByNumber(SelectField field) {
-    Optional<FieldLiteDescriptor> fd = findFieldDescriptor(field);
-    if (fd.isPresent()) {
-      return hasField(fd.get());
-    }
-    try {
-      return protoLiteCelValueConverter().hasFieldByNumber(toByteString(), field);
-    } catch (IOException e) {
-      throw new IllegalArgumentException(
-          "Failed to decode proto message of type: " + celType().name(), e);
-    }
+    return protoLiteCelValueConverter().hasFieldByNumber(toByteString(), celType().name(), field);
   }
 
   @Override
   public Optional<Object> findByFieldNumber(SelectField field) {
-    Optional<FieldLiteDescriptor> fd = findFieldDescriptor(field);
-    if (fd.isPresent()) {
-      return Optional.ofNullable(readField(fd.get()));
-    }
-    try {
-      return protoLiteCelValueConverter().findByFieldNumber(toByteString(), field);
-    } catch (IOException e) {
-      throw new IllegalArgumentException(
-          "Failed to decode proto message of type: " + celType().name(), e);
-    }
+    return protoLiteCelValueConverter().findByFieldNumber(toByteString(), celType().name(), field);
   }
 
   private @Nullable Object readField(FieldLiteDescriptor fd) {
-    try {
-      return protoLiteCelValueConverter().readSingleField(toByteString(), fd);
-    } catch (IOException e) {
-      throw new IllegalArgumentException(
-          "Failed to decode proto message of type: " + celType().name(), e);
-    }
-  }
-
-  private boolean hasField(FieldLiteDescriptor fd) {
-    try {
-      return protoLiteCelValueConverter().hasSingleField(toByteString(), fd);
-    } catch (IOException e) {
-      throw new IllegalArgumentException(
-          "Failed to decode proto message of type: " + celType().name(), e);
-    }
-  }
-
-  private Optional<FieldLiteDescriptor> findFieldDescriptor(SelectField field) {
-    return protoLiteCelValueConverter().findFieldDescriptor(celType().name(), field.fieldNumber());
+    return protoLiteCelValueConverter().readField(toByteString(), celType().name(), fd);
   }
 
   private Optional<FieldLiteDescriptor> findFieldDescriptor(String fieldName) {

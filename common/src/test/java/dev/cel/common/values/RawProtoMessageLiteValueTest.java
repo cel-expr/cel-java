@@ -273,23 +273,6 @@ public final class RawProtoMessageLiteValueTest {
   }
 
   @Test
-  public void selectByFieldNumber_unknownFieldWithoutTypeCode_throwsCelAttributeNotFoundException()
-      throws Exception {
-    ByteArrayOutputStream baos = new ByteArrayOutputStream();
-    CodedOutputStream cos = CodedOutputStream.newInstance(baos);
-    cos.writeString(999, "unknown");
-    cos.flush();
-    RawProtoMessageLiteValue raw =
-        RawProtoMessageLiteValue.create(
-            ByteString.copyFrom(baos.toByteArray()),
-            "cel.expr.conformance.proto3.TestAllTypes",
-            EMPTY_CONVERTER);
-    SelectField selectField = SelectField.create(999L, "unknown_field");
-
-    assertThrows(CelAttributeNotFoundException.class, () -> raw.selectByFieldNumber(selectField));
-  }
-
-  @Test
   public void hasFieldByNumber_wirePresent_returnsTrue() throws Exception {
     ByteArrayOutputStream baos = new ByteArrayOutputStream();
     CodedOutputStream cos = CodedOutputStream.newInstance(baos);
