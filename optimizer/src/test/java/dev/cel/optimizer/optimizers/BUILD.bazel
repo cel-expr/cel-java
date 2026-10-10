@@ -25,6 +25,7 @@ java_library(
         "//common/values",
         "//common/values:cel_byte_string",
         "//extensions",
+        "//extensions:bindings",
         "//extensions:optional_library",
         #         "//java/com/google/testing/testsize:annotations",
         "//optimizer",

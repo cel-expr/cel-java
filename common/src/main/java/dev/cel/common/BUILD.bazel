@@ -350,6 +350,7 @@ java_library(
         "//common/ast",
         "//common/ast:mutable_expr",
         "//common/types:type_providers",
+        "@maven//:com_google_guava_guava",
     ],
 )
 
