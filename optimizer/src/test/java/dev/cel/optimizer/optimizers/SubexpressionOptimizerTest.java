@@ -16,6 +16,7 @@ package dev.cel.optimizer.optimizers;
 
 import static com.google.common.truth.Truth.assertThat;
 import static dev.cel.common.CelOverloadDecl.newGlobalOverload;
+import static dev.cel.optimizer.optimizers.SubexpressionOptimizer.verifyOptimizedAstCorrectness;
 import static org.junit.Assert.assertThrows;
 
 import com.google.common.collect.ImmutableList;
@@ -642,6 +643,32 @@ public class SubexpressionOptimizerTest {
   }
 
   @Test
+  public void verifyOptimizedAstCorrectness_negativeIndex_throws() throws Exception {
+    CelMutableAst mutableAst =
+        CelMutableAst.fromCelAst(compileUsingInternalFunctions("cel.block([1, 2], index0)", true));
+    mutableAst.expr().call().args().get(1).ident().setName("@index-1");
+    CelAbstractSyntaxTree ast = mutableAst.toParsedAst();
+
+    IllegalArgumentException e =
+        assertThrows(IllegalArgumentException.class, () -> verifyOptimizedAstCorrectness(ast));
+    assertThat(e)
+        .hasMessageThat()
+        .contains("Illegal block index found. The index value must be less than");
+  }
+
+  @Test
+  public void verifyOptimizedAstCorrectness_celBlockHasTarget_throws() throws Exception {
+    CelMutableAst mutableAst =
+        CelMutableAst.fromCelAst(compileUsingInternalFunctions("cel.block([1, 2], index0)", true));
+    mutableAst.expr().call().setTarget(mutableAst.expr().call().args().get(1));
+    CelAbstractSyntaxTree ast = mutableAst.toParsedAst();
+
+    IllegalArgumentException e =
+        assertThrows(IllegalArgumentException.class, () -> verifyOptimizedAstCorrectness(ast));
+    assertThat(e).hasMessageThat().isEqualTo("Expected cel.@block to be a global call");
+  }
+
+  @Test
   @TestParameters("{source: 'cel.block([index0], index0)'}")
   @TestParameters("{source: 'cel.block([1, index1, 2], index2)'}")
   @TestParameters("{source: 'cel.block([1, 2, index2], index2)'}")
@@ -678,9 +705,9 @@ public class SubexpressionOptimizerTest {
     CelAbstractSyntaxTree ast =
         compileUsingInternalFunctions(
             "cel.block([1/0 > 0], (index0 && false) || (index0 && true))");
+    Program program = cel.createProgram(ast);
 
-    CelEvaluationException e =
-        assertThrows(CelEvaluationException.class, () -> cel.createProgram(ast).eval());
+    CelEvaluationException e = assertThrows(CelEvaluationException.class, program::eval);
 
     assertThat(e).hasMessageThat().contains("/ by zero");
     assertThat(e).hasMessageThat().doesNotContain("Cycle detected");
