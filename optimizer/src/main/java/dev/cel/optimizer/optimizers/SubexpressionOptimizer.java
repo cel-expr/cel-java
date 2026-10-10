@@ -24,7 +24,6 @@ import static java.util.stream.Collectors.toCollection;
 
 import com.google.auto.value.AutoValue;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.base.Verify;
 import com.google.common.collect.ImmutableList;
@@ -32,32 +31,24 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Streams;
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import dev.cel.bundle.Cel;
-import dev.cel.bundle.CelBuilder;
 import dev.cel.common.CelAbstractSyntaxTree;
-import dev.cel.common.CelFunctionDecl;
 import dev.cel.common.CelMutableAst;
 import dev.cel.common.CelMutableSource;
 import dev.cel.common.CelSource;
 import dev.cel.common.CelSource.Extension;
 import dev.cel.common.CelSource.Extension.Component;
 import dev.cel.common.CelSource.Extension.Version;
-import dev.cel.common.CelValidationException;
 import dev.cel.common.CelVarDecl;
 import dev.cel.common.ast.CelBlock;
 import dev.cel.common.ast.CelExpr;
-import dev.cel.common.ast.CelExpr.CelCall;
 import dev.cel.common.ast.CelExpr.CelComprehension;
-import dev.cel.common.ast.CelExpr.CelList;
 import dev.cel.common.ast.CelExpr.ExprKind.Kind;
 import dev.cel.common.ast.CelMutableExpr;
 import dev.cel.common.ast.CelMutableExpr.CelMutableComprehension;
-import dev.cel.common.ast.CelMutableExprConverter;
 import dev.cel.common.navigation.CelNavigableExpr;
 import dev.cel.common.navigation.CelNavigableMutableAst;
 import dev.cel.common.navigation.CelNavigableMutableExpr;
 import dev.cel.common.navigation.TraversalOrder;
-import dev.cel.common.types.CelType;
-import dev.cel.common.types.SimpleType;
 import dev.cel.extensions.CelBindingsExtensions;
 import dev.cel.optimizer.AstMutator;
 import dev.cel.optimizer.AstMutator.MangledComprehensionAst;
@@ -65,8 +56,10 @@ import dev.cel.optimizer.CelAstOptimizer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
-import java.util.List;
+import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Stream;
@@ -96,7 +89,6 @@ public final class SubexpressionOptimizer implements CelAstOptimizer {
 
   private static final SubexpressionOptimizer INSTANCE =
       new SubexpressionOptimizer(SubexpressionOptimizerOptions.newBuilder().build());
-  private static final String BIND_IDENTIFIER_PREFIX = "@r";
   private static final Extension CEL_BLOCK_AST_EXTENSION_TAG =
       Extension.create("cel_block", Version.of(1L, 1L), Component.COMPONENT_RUNTIME);
 
@@ -133,14 +125,14 @@ public final class SubexpressionOptimizer implements CelAstOptimizer {
    */
   @Override
   public OptimizationResult optimize(CelAbstractSyntaxTree ast, Cel cel) {
-    OptimizationResult result = optimizeUsingCelBlock(ast, cel);
+    OptimizationResult result = optimizeUsingCelBlock(ast);
 
     verifyOptimizedAstCorrectness(result.optimizedAst());
 
     return result;
   }
 
-  private OptimizationResult optimizeUsingCelBlock(CelAbstractSyntaxTree ast, Cel cel) {
+  private OptimizationResult optimizeUsingCelBlock(CelAbstractSyntaxTree ast) {
     boolean hasSelectOptimizedNodes =
         CelNavigableExpr.fromExpr(ast.getExpr())
             .allNodes()
@@ -166,21 +158,25 @@ public final class SubexpressionOptimizer implements CelAstOptimizer {
     astToModify = mangledComprehensionAst.mutableAst();
     CelMutableSource sourceToModify = astToModify.source();
 
-    int blockIdentifierIndex = 0;
     int iterCount;
     ArrayList<CelMutableExpr> subexpressions = new ArrayList<>();
+    ImmutableList.Builder<CelVarDecl> newVarDecls = ImmutableList.builder();
 
     for (iterCount = 0; iterCount < cseOptions.iterationLimit(); iterCount++) {
       CelNavigableMutableAst navAst = CelNavigableMutableAst.fromAst(astToModify);
-      List<CelMutableExpr> cseCandidates = getCseCandidates(navAst);
-      if (cseCandidates.isEmpty()) {
+      CelMutableExpr cseCandidate = findCseCandidate(navAst).orElse(null);
+      if (cseCandidate == null) {
         break;
       }
 
-      CelMutableExpr targetCseShape = normalizeForEquality(cseCandidates.get(0));
-      subexpressions.add(cseCandidates.get(0));
+      CelMutableExpr targetCseShape = normalizeForEquality(cseCandidate);
+      subexpressions.add(cseCandidate);
 
-      String blockIdentifier = CelBlock.INDEX_PREFIX + blockIdentifierIndex++;
+      String blockIdentifier = CelBlock.INDEX_PREFIX + iterCount;
+      newVarDecls.add(
+          CelVarDecl.newVarDeclaration(
+              blockIdentifier,
+              astToModify.getType(cseCandidate.id()).orElseThrow(NoSuchElementException::new)));
 
       // Replace all CSE candidates with new block index identifier
       astToModify =
@@ -193,7 +189,7 @@ public final class SubexpressionOptimizer implements CelAstOptimizer {
       // Retain the existing macro calls in case if the block identifiers are replacing a subtree
       // that contains a comprehension.
       sourceToModify.addAllMacroCalls(astToModify.source().getMacroCalls());
-      astToModify = CelMutableAst.of(astToModify.expr(), sourceToModify);
+      astToModify = CelMutableAst.of(astToModify.expr(), sourceToModify, astToModify.getTypeMap());
     }
 
     if (iterCount >= cseOptions.iterationLimit()) {
@@ -204,8 +200,6 @@ public final class SubexpressionOptimizer implements CelAstOptimizer {
       // No modification has been made.
       return OptimizationResult.create(ast);
     }
-
-    ImmutableList.Builder<CelVarDecl> newVarDecls = ImmutableList.builder();
 
     // Add all mangled comprehension identifiers to the environment, so that the subexpressions can
     // retain context to them.
@@ -226,9 +220,6 @@ public final class SubexpressionOptimizer implements CelAstOptimizer {
 
               newVarDecls.add(CelVarDecl.newVarDeclaration(name.resultName(), type.resultType()));
             });
-
-    // Type-check all sub-expressions then create new block index identifiers.
-    newVarDecls.addAll(newBlockIndexVariableDeclarations(cel, newVarDecls.build(), subexpressions));
 
     // Wrap the optimized expression in cel.block
     astToModify =
@@ -251,27 +242,18 @@ public final class SubexpressionOptimizer implements CelAstOptimizer {
    */
   @VisibleForTesting
   static void verifyOptimizedAstCorrectness(CelAbstractSyntaxTree ast) {
-    CelBlock celBlock = CelBlock.extract(ast).orElse(null);
-    if (celBlock == null) {
-      return;
-    }
-
-    verifyNoInvalidScopedMangledVariables(celBlock.expr());
+    CelBlock.extract(ast).ifPresent(SubexpressionOptimizer::verifyNoInvalidScopedMangledVariables);
   }
 
-  private static void verifyNoInvalidScopedMangledVariables(CelExpr celExpr) {
-    CelCall celBlockCall = celExpr.call();
-    CelExpr blockBody = celBlockCall.args().get(1);
-
+  private static void verifyNoInvalidScopedMangledVariables(CelBlock celBlock) {
     ImmutableSet<String> allMangledVariablesInBlockBody =
-        CelNavigableExpr.fromExpr(blockBody)
+        CelNavigableExpr.fromExpr(celBlock.result())
             .allNodes()
             .map(CelNavigableExpr::expr)
             .flatMap(SubexpressionOptimizer::extractMangledNames)
             .collect(toImmutableSet());
 
-    CelList blockIndices = celBlockCall.args().get(0).list();
-    for (CelExpr blockIndex : blockIndices.elements()) {
+    for (CelExpr blockIndex : celBlock.indices()) {
       ImmutableSet<String> indexDeclaredCompVariables =
           CelNavigableExpr.fromExpr(blockIndex)
               .allNodes()
@@ -297,7 +279,7 @@ public final class SubexpressionOptimizer implements CelAstOptimizer {
       Verify.verify(
           !containsIllegalDeclaration,
           "Illegal declared reference to a comprehension variable found in block indices. Expr: %s",
-          celExpr);
+          celBlock.expr());
     }
   }
 
@@ -328,60 +310,26 @@ public final class SubexpressionOptimizer implements CelAstOptimizer {
     return CelAbstractSyntaxTree.newParsedAst(ast.getExpr(), celSourceBuilder.build());
   }
 
-  /**
-   * Creates a list of numbered identifiers from the subexpressions that act as an indexer to
-   * cel.block (ex: @index0, @index1..). Each subexpressions are type-checked, then its result type
-   * is used as the new identifiers' types.
-   */
-  private static ImmutableList<CelVarDecl> newBlockIndexVariableDeclarations(
-      Cel cel, ImmutableList<CelVarDecl> mangledVarDecls, List<CelMutableExpr> subexpressions) {
-    // The resulting type of the subexpressions will likely be different from the
-    // entire expression's expected result type.
-    CelBuilder celBuilder = cel.toCelBuilder().setResultType(SimpleType.DYN);
-    // Add the mangled comprehension variables to the environment for type-checking subexpressions
-    // to succeed
-    celBuilder.addVarDeclarations(mangledVarDecls);
-
-    ImmutableList.Builder<CelVarDecl> varDeclBuilder = ImmutableList.builder();
-    for (int i = 0; i < subexpressions.size(); i++) {
-      CelMutableExpr subexpression = subexpressions.get(i);
-
-      CelAbstractSyntaxTree subAst =
-          CelAbstractSyntaxTree.newParsedAst(
-              CelMutableExprConverter.fromMutableExpr(subexpression),
-              CelSource.newBuilder().build());
-
-      try {
-        subAst = celBuilder.build().check(subAst).getAst();
-      } catch (CelValidationException e) {
-        throw new IllegalStateException("Failed to type-check subexpression", e);
-      }
-
-      CelVarDecl indexVar = CelVarDecl.newVarDeclaration("@index" + i, subAst.getResultType());
-      celBuilder.addVarDeclarations(indexVar);
-      varDeclBuilder.add(indexVar);
-    }
-
-    return varDeclBuilder.build();
-  }
-
-  private List<CelMutableExpr> getCseCandidates(CelNavigableMutableAst navAst) {
-    if (cseOptions.subexpressionMaxRecursionDepth() > 0) {
-      return getCseCandidatesWithRecursionDepth(
-          navAst, cseOptions.subexpressionMaxRecursionDepth());
-    } else {
-      return getCseCandidatesWithCommonSubexpr(navAst);
-    }
-  }
-
-  /**
-   * Retrieves all subexpr candidates based on the recursion limit even if there's no duplicate
-   * subexpr found.
-   */
-  private List<CelMutableExpr> getCseCandidatesWithRecursionDepth(
-      CelNavigableMutableAst navAst, int recursionLimit) {
-    Preconditions.checkArgument(recursionLimit > 0);
+  private Optional<CelMutableExpr> findCseCandidate(CelNavigableMutableAst navAst) {
     Set<CelMutableExpr> ineligibleExprs = getIneligibleExprsFromComprehensionBranches(navAst);
+    if (cseOptions.subexpressionMaxRecursionDepth() > 0) {
+      return findCseCandidateWithRecursionDepth(
+          navAst, ineligibleExprs, cseOptions.subexpressionMaxRecursionDepth());
+    }
+    return findCseCandidateWithCommonSubexpr(
+        navAst
+            .getRoot()
+            .allNodes(TraversalOrder.PRE_ORDER)
+            .filter(node -> canEliminate(node, ineligibleExprs))
+            .collect(toImmutableList()));
+  }
+
+  /**
+   * Retrieves a subexpr candidate based on the recursion limit even if there's no duplicate subexpr
+   * found.
+   */
+  private Optional<CelMutableExpr> findCseCandidateWithRecursionDepth(
+      CelNavigableMutableAst navAst, Set<CelMutableExpr> ineligibleExprs, int recursionLimit) {
     ImmutableList<CelNavigableMutableExpr> descendants =
         navAst
             .getRoot()
@@ -391,12 +339,12 @@ public final class SubexpressionOptimizer implements CelAstOptimizer {
             .sorted(Comparator.comparingInt(CelNavigableMutableExpr::height).reversed())
             .collect(toImmutableList());
     if (descendants.isEmpty()) {
-      return new ArrayList<>();
+      return Optional.empty();
     }
 
-    List<CelMutableExpr> cseCandidates = getCseCandidatesWithCommonSubexpr(descendants);
-    if (!cseCandidates.isEmpty()) {
-      return cseCandidates;
+    Optional<CelMutableExpr> cseCandidate = findCseCandidateWithCommonSubexpr(descendants);
+    if (cseCandidate.isPresent()) {
+      return cseCandidate;
     }
 
     // If there's no common subexpr, just return the one with the highest height that's still below
@@ -409,64 +357,32 @@ public final class SubexpressionOptimizer implements CelAstOptimizer {
             .filter(node -> node.height() > recursionLimit)
             .anyMatch(node -> canEliminate(node, ineligibleExprs));
     if (astHasMoreExtractableSubexprs) {
-      cseCandidates.add(descendants.get(0).expr());
-      return cseCandidates;
+      return Optional.of(descendants.get(0).expr());
     }
 
     // The height of the remaining subexpression is already below the recursion limit. No need to
     // extract.
-    return new ArrayList<>();
+    return Optional.empty();
   }
 
-  private List<CelMutableExpr> getCseCandidatesWithCommonSubexpr(CelNavigableMutableAst navAst) {
-    Set<CelMutableExpr> ineligibleExprs = getIneligibleExprsFromComprehensionBranches(navAst);
-    ImmutableList<CelNavigableMutableExpr> allNodes =
-        navAst
-            .getRoot()
-            .allNodes(TraversalOrder.PRE_ORDER)
-            .filter(node -> canEliminate(node, ineligibleExprs))
-            .collect(toImmutableList());
-
-    return getCseCandidatesWithCommonSubexpr(allNodes);
-  }
-
-  private List<CelMutableExpr> getCseCandidatesWithCommonSubexpr(
+  private Optional<CelMutableExpr> findCseCandidateWithCommonSubexpr(
       ImmutableList<CelNavigableMutableExpr> allNodes) {
-    CelMutableExpr normalizedCseCandidate = null;
-    HashSet<CelMutableExpr> semanticallyEqualNodes = new HashSet<>();
+    Map<CelMutableExpr, CelMutableExpr> seenNodes = new HashMap<>();
     for (CelNavigableMutableExpr node : allNodes) {
-      // Normalize the expr to test semantic equivalence.
-      CelMutableExpr normalizedExpr = normalizeForEquality(node.expr());
-      if (semanticallyEqualNodes.contains(normalizedExpr)) {
-        normalizedCseCandidate = normalizedExpr;
-        break;
-      }
-
-      semanticallyEqualNodes.add(normalizedExpr);
-    }
-
-    List<CelMutableExpr> cseCandidates = new ArrayList<>();
-    if (normalizedCseCandidate == null) {
-      return cseCandidates;
-    }
-
-    for (CelNavigableMutableExpr node : allNodes) {
-      // Normalize the expr to test semantic equivalence.
-      CelMutableExpr normalizedExpr = normalizeForEquality(node.expr());
-      if (normalizedExpr.equals(normalizedCseCandidate)) {
-        cseCandidates.add(node.expr());
+      CelMutableExpr expr = node.expr();
+      CelMutableExpr firstSeen = seenNodes.putIfAbsent(normalizeForEquality(expr), expr);
+      if (firstSeen != null) {
+        return Optional.of(firstSeen);
       }
     }
 
-    return cseCandidates;
+    return Optional.empty();
   }
 
   private boolean canEliminate(
       CelNavigableMutableExpr navigableExpr, Set<CelMutableExpr> ineligibleExprs) {
     return !navigableExpr.getKind().equals(Kind.CONSTANT)
         && !navigableExpr.getKind().equals(Kind.IDENT)
-        && !(navigableExpr.getKind().equals(Kind.IDENT)
-            && navigableExpr.expr().ident().name().startsWith(BIND_IDENTIFIER_PREFIX))
         // Exclude empty lists (cel.bind sets this for iterRange).
         && !(navigableExpr.getKind().equals(Kind.LIST)
             && navigableExpr.expr().list().elements().isEmpty())
@@ -607,11 +523,6 @@ public final class SubexpressionOptimizer implements CelAstOptimizer {
     CelMutableExpr copiedExpr = CelMutableExpr.newInstance(mutableExpr);
 
     return astMutator.clearExprIds(copiedExpr);
-  }
-
-  @VisibleForTesting
-  static CelFunctionDecl newCelBlockFunctionDecl(CelType unusedResultType) {
-    return CelBindingsExtensions.CEL_BLOCK_FUNCTION_DECL;
   }
 
   /** Options to configure how Common Subexpression Elimination behave. */

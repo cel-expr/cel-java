@@ -14,13 +14,14 @@
 
 package dev.cel.common.ast;
 
-import static com.google.common.collect.ImmutableList.toImmutableList;
+import static com.google.common.base.Preconditions.checkArgument;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import dev.cel.common.CelAbstractSyntaxTree;
 import dev.cel.common.annotations.Internal;
-import dev.cel.common.navigation.CelNavigableExpr;
+import dev.cel.common.ast.CelExpr.CelCall;
+import dev.cel.common.ast.CelExpr.CelIdent;
+import dev.cel.common.ast.CelExpr.ExprKind.Kind;
 import java.util.Optional;
 
 /**
@@ -35,10 +36,6 @@ public final class CelBlock {
   public static final String INDEX_PREFIX = "@index";
 
   private final CelExpr blockExpr;
-
-  private CelBlock(CelExpr blockExpr) {
-    this.blockExpr = blockExpr;
-  }
 
   public ImmutableList<CelExpr> indices() {
     return blockExpr.call().args().get(0).list().elements();
@@ -61,84 +58,79 @@ public final class CelBlock {
    * @throws IllegalArgumentException if the block is malformed or its indices are invalid.
    */
   public static Optional<CelBlock> extract(CelAbstractSyntaxTree ast) {
-    CelNavigableExpr celNavigableExpr = CelNavigableExpr.fromExpr(ast.getExpr());
-
-    ImmutableList<CelExpr> allCelBlocks =
-        celNavigableExpr
-            .allNodes()
-            .map(CelNavigableExpr::expr)
-            .filter(expr -> expr.callOrDefault().function().equals(FUNCTION_NAME))
-            .collect(toImmutableList());
-    if (allCelBlocks.isEmpty()) {
+    CelExpr root = ast.getExpr();
+    BlockValidator validator = new BlockValidator(root);
+    if (!isBlockCall(root)) {
+      validator.validate(root, 0);
       return Optional.empty();
     }
 
-    Preconditions.checkArgument(
-        allCelBlocks.size() == 1,
-        "Expected 1 cel.block function to be present but found %s",
-        allCelBlocks.size());
-    Preconditions.checkArgument(
-        celNavigableExpr.expr().equals(allCelBlocks.get(0)),
-        "Expected cel.block to be present at root");
-
-    return Optional.of(fromExpr(allCelBlocks.get(0)));
-  }
-
-  /**
-   * Constructs a {@link CelBlock} from a {@link CelExpr}.
-   *
-   * @throws IllegalArgumentException if the expression is not a valid block.
-   */
-  private static CelBlock fromExpr(CelExpr expr) {
-    Preconditions.checkArgument(
-        expr.exprKind().getKind() == CelExpr.ExprKind.Kind.CALL,
-        "Expected cel.@block to be a call expression");
-    Preconditions.checkArgument(
-        expr.call().function().equals(FUNCTION_NAME), "Expected function to be cel.@block");
-    Preconditions.checkArgument(
-        expr.call().args().size() == 2, "Expected exactly 2 arguments for cel.@block");
-    Preconditions.checkArgument(
-        expr.call().args().get(0).exprKind().getKind() == CelExpr.ExprKind.Kind.LIST,
-        "Expected first argument of cel.@block to be a list");
-
-    CelBlock block = new CelBlock(expr);
-
-    // Assert correctness on block indices used in subexpressions
+    CelBlock block = new CelBlock(root);
     ImmutableList<CelExpr> subexprs = block.indices();
     for (int i = 0; i < subexprs.size(); i++) {
-      verifyBlockIndex(subexprs.get(i), i, expr);
+      validator.validate(subexprs.get(i), i);
     }
 
-    // Assert correctness on block indices used in block result
-    CelExpr blockResult = block.result();
-    verifyBlockIndex(blockResult, subexprs.size(), expr);
-    boolean resultHasAtLeastOneBlockIndex =
-        CelNavigableExpr.fromExpr(blockResult)
-            .allNodes()
-            .map(CelNavigableExpr::expr)
-            .anyMatch(e -> e.identOrDefault().name().startsWith(INDEX_PREFIX));
-    Preconditions.checkArgument(
-        resultHasAtLeastOneBlockIndex,
+    checkArgument(
+        validator.validate(block.result(), subexprs.size()),
         "Expected at least one reference of index in cel.block result");
 
-    return block;
+    return Optional.of(block);
   }
 
-  private static void verifyBlockIndex(CelExpr celExpr, int maxIndexValue, CelExpr rootBlock) {
-    boolean areAllIndicesValid =
-        CelNavigableExpr.fromExpr(celExpr)
-            .allNodes()
-            .map(CelNavigableExpr::expr)
-            .filter(expr -> expr.identOrDefault().name().startsWith(INDEX_PREFIX))
-            .map(CelExpr::ident)
-            .allMatch(
-                blockIdent ->
-                    Integer.parseInt(blockIdent.name().substring(INDEX_PREFIX.length()))
-                        < maxIndexValue);
-    Preconditions.checkArgument(
-        areAllIndicesValid,
-        "Illegal block index found. The index value must be less than %s. Expr: %s",
-        maxIndexValue,
-        rootBlock);
+  private static boolean isBlockCall(CelExpr expr) {
+    return expr.getKind().equals(Kind.CALL) && expr.call().function().equals(FUNCTION_NAME);
+  }
+
+  private static final class BlockValidator extends CelExprVisitor {
+    private final CelExpr root;
+    private int maxIndexValue;
+    private boolean hasBlockIndex;
+
+    private boolean validate(CelExpr expr, int maxIndexValue) {
+      this.maxIndexValue = maxIndexValue;
+      this.hasBlockIndex = false;
+      visit(expr);
+      return hasBlockIndex;
+    }
+
+    @Override
+    public void visit(CelExpr expr) {
+      if (!expr.getKind().equals(Kind.NOT_SET)) {
+        super.visit(expr);
+      }
+    }
+
+    @Override
+    protected void visit(CelExpr expr, CelCall call) {
+      if (call.function().equals(FUNCTION_NAME)) {
+        throw new IllegalArgumentException(
+            isBlockCall(root)
+                ? "Expected 1 cel.block function to be present but found 2"
+                : "Expected cel.block to be present at root");
+      }
+      super.visit(expr, call);
+    }
+
+    @Override
+    protected void visit(CelExpr expr, CelIdent ident) {
+      if (ident.name().startsWith(INDEX_PREFIX)) {
+        hasBlockIndex = true;
+        int indexValue = Integer.parseInt(ident.name().substring(INDEX_PREFIX.length()));
+        checkArgument(
+            indexValue < maxIndexValue,
+            "Illegal block index found. The index value must be less than %s. Expr: %s",
+            maxIndexValue,
+            root);
+      }
+    }
+
+    private BlockValidator(CelExpr root) {
+      this.root = root;
+    }
+  }
+
+  private CelBlock(CelExpr blockExpr) {
+    this.blockExpr = blockExpr;
   }
 }

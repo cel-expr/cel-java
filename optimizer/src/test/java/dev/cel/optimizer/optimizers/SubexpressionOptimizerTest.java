@@ -42,6 +42,7 @@ import dev.cel.common.types.ListType;
 import dev.cel.common.types.SimpleType;
 import dev.cel.common.types.StructTypeReference;
 import dev.cel.expr.conformance.proto3.TestAllTypes;
+import dev.cel.extensions.CelBindingsExtensions;
 import dev.cel.extensions.CelExtensions;
 import dev.cel.optimizer.CelOptimizationException;
 import dev.cel.optimizer.CelOptimizer;
@@ -103,7 +104,7 @@ public class SubexpressionOptimizerTest {
                     SimpleType.DYN,
                     ListType.create(SimpleType.DYN),
                     SimpleType.DYN)),
-            SubexpressionOptimizer.newCelBlockFunctionDecl(SimpleType.DYN),
+            CelBindingsExtensions.CEL_BLOCK_FUNCTION_DECL,
             CelFunctionDecl.newFunctionDeclaration(
                 "get_true",
                 CelOverloadDecl.newGlobalOverload("get_true_overload", SimpleType.BOOL)))
@@ -678,9 +679,9 @@ public class SubexpressionOptimizerTest {
     CelAbstractSyntaxTree ast =
         compileUsingInternalFunctions(
             "cel.block([1/0 > 0], (index0 && false) || (index0 && true))");
+    Program program = cel.createProgram(ast);
 
-    CelEvaluationException e =
-        assertThrows(CelEvaluationException.class, () -> cel.createProgram(ast).eval());
+    CelEvaluationException e = assertThrows(CelEvaluationException.class, program::eval);
 
     assertThat(e).hasMessageThat().contains("/ by zero");
     assertThat(e).hasMessageThat().doesNotContain("Cycle detected");

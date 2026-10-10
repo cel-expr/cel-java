@@ -71,8 +71,6 @@ java_library(
         "//common/navigation",
         "//common/navigation:common",
         "//common/navigation:mutable_navigation",
-        "//common/types",
-        "//common/types:type_providers",
         "//extensions:bindings",
         "//optimizer:ast_optimizer",
         "//optimizer:mutable_ast",

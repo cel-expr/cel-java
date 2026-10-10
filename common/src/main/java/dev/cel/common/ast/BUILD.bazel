@@ -7,6 +7,7 @@ package(
     ],
     default_visibility = [
         "//common/ast:__pkg__",
+        "//publish:__pkg__",
     ],
 )
 
@@ -64,9 +65,9 @@ java_library(
     ],
     deps = [
         ":ast",
+        ":cel_expr_visitor",
         "//common:cel_ast",
         "//common/annotations",
-        "//common/navigation",
         "@maven//:com_google_guava_guava",
     ],
 )
@@ -78,9 +79,9 @@ cel_android_library(
     ],
     deps = [
         ":ast_android",
+        ":cel_expr_visitor_android",
         "//common:cel_ast_android",
         "//common/annotations",
-        "//common/navigation:navigation_android",
         "@maven_android//:com_google_guava_guava",
     ],
 )
@@ -140,6 +141,17 @@ java_library(
     deps = [
         ":ast",
         "//common:cel_ast",
+    ],
+)
+
+cel_android_library(
+    name = "cel_expr_visitor_android",
+    srcs = ["CelExprVisitor.java"],
+    tags = [
+    ],
+    deps = [
+        ":ast_android",
+        "//common:cel_ast_android",
     ],
 )
 

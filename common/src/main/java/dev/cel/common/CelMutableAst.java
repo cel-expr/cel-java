@@ -14,11 +14,11 @@
 
 package dev.cel.common;
 
+import com.google.common.collect.ImmutableMap;
 import dev.cel.common.ast.CelMutableExpr;
 import dev.cel.common.ast.CelMutableExprConverter;
 import dev.cel.common.ast.CelReference;
 import dev.cel.common.types.CelType;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 
@@ -32,8 +32,8 @@ import java.util.Optional;
 public final class CelMutableAst {
   private final CelMutableExpr mutatedExpr;
   private final CelMutableSource source;
-  private final Map<Long, CelReference> references;
-  private final Map<Long, CelType> types;
+  private final ImmutableMap<Long, CelReference> references;
+  private final ImmutableMap<Long, CelType> types;
 
   /** Returns the underlying {@link CelMutableExpr} representation of the abstract syntax tree. */
   public CelMutableExpr expr() {
@@ -66,6 +66,11 @@ public final class CelMutableAst {
    */
   public Optional<CelType> getType(long exprId) {
     return Optional.ofNullable(types.get(exprId));
+  }
+
+  /** Returns the type map of the abstract syntax tree. */
+  public ImmutableMap<Long, CelType> getTypeMap() {
+    return types;
   }
 
   /** Converts this mutable AST into a parsed {@link CelAbstractSyntaxTree}. */
@@ -102,11 +107,16 @@ public final class CelMutableAst {
    * builder.
    */
   public static CelMutableAst of(CelMutableExpr mutableExpr, CelMutableSource mutableSource) {
-    return new CelMutableAst(mutableExpr, mutableSource);
+    return new CelMutableAst(mutableExpr, mutableSource, ImmutableMap.of(), ImmutableMap.of());
   }
 
-  private CelMutableAst(CelMutableExpr mutatedExpr, CelMutableSource mutableSource) {
-    this(mutatedExpr, mutableSource, new HashMap<>(), new HashMap<>());
+  /**
+   * Constructs an instance of {@link CelMutableAst} with the mutable expression, its source
+   * builder, and node types.
+   */
+  public static CelMutableAst of(
+      CelMutableExpr mutableExpr, CelMutableSource mutableSource, Map<Long, CelType> types) {
+    return new CelMutableAst(mutableExpr, mutableSource, ImmutableMap.of(), types);
   }
 
   private CelMutableAst(
@@ -116,7 +126,7 @@ public final class CelMutableAst {
       Map<Long, CelType> types) {
     this.mutatedExpr = mutatedExpr;
     this.source = mutableSource;
-    this.references = new HashMap<>(references);
-    this.types = new HashMap<>(types);
+    this.references = ImmutableMap.copyOf(references);
+    this.types = ImmutableMap.copyOf(types);
   }
 }

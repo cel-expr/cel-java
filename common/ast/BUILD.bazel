@@ -48,6 +48,11 @@ java_library(
     exports = ["//common/src/main/java/dev/cel/common/ast:cel_expr_visitor"],
 )
 
+cel_android_library(
+    name = "cel_expr_visitor_android",
+    exports = ["//common/src/main/java/dev/cel/common/ast:cel_expr_visitor_android"],
+)
+
 java_library(
     name = "expr_factory",
     exports = ["//common/src/main/java/dev/cel/common/ast:expr_factory"],

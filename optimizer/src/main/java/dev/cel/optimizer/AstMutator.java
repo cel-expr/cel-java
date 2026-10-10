@@ -16,6 +16,7 @@ package dev.cel.optimizer;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
+import static com.google.common.collect.Streams.stream;
 import static java.lang.Math.max;
 import static java.util.stream.Collectors.toCollection;
 
@@ -26,7 +27,6 @@ import com.google.common.base.Strings;
 import com.google.common.collect.HashBasedTable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Streams;
 import com.google.common.collect.Table;
 import com.google.errorprone.annotations.Immutable;
 import dev.cel.common.CelAbstractSyntaxTree;
@@ -283,7 +283,7 @@ public final class AstMutator {
     }
 
     return MangledComprehensionAst.of(
-        CelMutableAst.of(mutatedComprehensionExpr, newSource),
+        CelMutableAst.of(mutatedComprehensionExpr, newSource, ast.getTypeMap()),
         ImmutableMap.copyOf(mangledIdentNamesToType));
   }
 
@@ -506,6 +506,11 @@ public final class AstMutator {
 
     CelMutableExpr mutatedRoot =
         mutateExpr(stableIdGenerator::renumberId, ast.expr(), newAst.expr(), exprIdToReplace);
+    ImmutableMap<Long, CelType> remappedTypes =
+        ast.getTypeMap().entrySet().stream()
+            .filter(e -> stableIdGenerator.hasId(e.getKey()))
+            .collect(
+                toImmutableMap(e -> stableIdGenerator.renumberId(e.getKey()), Entry::getValue));
     CelMutableSource newAstSource =
         CelMutableSource.newInstance().setDescription(ast.source().getDescription());
     if (!ast.source().getMacroCalls().isEmpty()) {
@@ -521,7 +526,7 @@ public final class AstMutator {
     newAstSource =
         normalizeMacroSource(
             newAstSource, exprIdToReplace, mutatedRoot, stableIdGenerator::renumberId);
-    return CelMutableAst.of(mutatedRoot, newAstSource);
+    return CelMutableAst.of(mutatedRoot, newAstSource, remappedTypes);
   }
 
   /**
@@ -625,7 +630,7 @@ public final class AstMutator {
             navAst
                 .getRoot()
                 .allNodes(traversalOrder)
-                .flatMap(node -> Streams.stream(nodeRewriter.apply(node)))
+                .flatMap(node -> stream(nodeRewriter.apply(node)))
                 .findFirst());
   }
 
