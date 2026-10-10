@@ -16,6 +16,7 @@ COMMON_TARGETS = [
     "//common/src/main/java/dev/cel/common:operator",
     "//common/src/main/java/dev/cel/common:options",
     "//common/src/main/java/dev/cel/common:source",
+    "//common/src/main/java/dev/cel/common/ast:cel_expr_visitor",
     "//common/src/main/java/dev/cel/common/internal",
     "//common/src/main/java/dev/cel/common/internal:cel_descriptor_pools",
     "//common/src/main/java/dev/cel/common/internal:file_descriptor_converter",
