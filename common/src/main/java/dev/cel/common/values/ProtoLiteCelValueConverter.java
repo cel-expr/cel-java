@@ -356,6 +356,8 @@ public final class ProtoLiteCelValueConverter extends BaseProtoCelValueConverter
       @Nullable FieldLiteDescriptor keyDescriptor,
       @Nullable FieldLiteDescriptor valueDescriptor) {
     CodedInputStream inputStream = bytes.newCodedInput();
+    // Lets submessages be zero-copy views of bytes; safe since ByteStrings are immutable.
+    inputStream.enableAliasing(true);
     int targetFieldNumber = fieldDescriptor.getFieldNumber();
     Object fieldValue = null;
     try {
