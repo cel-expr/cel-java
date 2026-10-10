@@ -29,6 +29,10 @@ final class EvalConstant extends PlannedInterpretable {
     return constant;
   }
 
+  Object constantValue() {
+    return constant;
+  }
+
   static EvalConstant create(CelExpr expr, Object value) {
     return new EvalConstant(expr, value);
   }

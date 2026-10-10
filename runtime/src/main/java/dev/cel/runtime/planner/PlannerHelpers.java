@@ -15,6 +15,11 @@
 package dev.cel.runtime.planner;
 
 import dev.cel.common.ast.CelConstant;
+import dev.cel.common.ast.CelExpr;
+import dev.cel.common.values.CelValueConverter;
+import dev.cel.runtime.CelResolvedOverload;
+import dev.cel.runtime.standard.MatchesFunction;
+import java.util.Optional;
 
 final class PlannerHelpers {
 
@@ -45,6 +50,31 @@ final class PlannerHelpers {
       default:
         throw new IllegalStateException("Unsupported kind: " + celConstant.getKind());
     }
+  }
+
+  static Optional<PlannedInterpretable> maybePlanRegexMatches(
+      CelExpr expr,
+      CelResolvedOverload resolvedOverload,
+      PlannedInterpretable[] evaluatedArgs,
+      CelValueConverter celValueConverter) {
+    PlannedInterpretable regexArg = evaluatedArgs[1];
+    if (!MatchesFunction.isMatchesOverload(resolvedOverload)
+        || !(regexArg instanceof EvalConstant)) {
+      return Optional.empty();
+    }
+    Object rawConstant = ((EvalConstant) regexArg).constantValue();
+    if (!(rawConstant instanceof String)) {
+      return Optional.empty();
+    }
+    CelResolvedOverload unaryOverload =
+        MatchesFunction.newPrecompiledOverload(resolvedOverload, (String) rawConstant);
+    return Optional.of(
+        EvalUnary.create(
+            expr,
+            unaryOverload.getFunctionName(),
+            unaryOverload,
+            evaluatedArgs[0],
+            celValueConverter));
   }
 
   private PlannerHelpers() {}

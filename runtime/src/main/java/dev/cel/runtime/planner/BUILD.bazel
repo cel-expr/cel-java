@@ -53,6 +53,7 @@ java_library(
         "//common/ast",
         "//common/ast:cel_block",
         "//common/exceptions:overload_not_found",
+        "//common/exceptions:runtime_exception",
         "//common/types",
         "//common/types:type_providers",
         "//common/values",
@@ -470,8 +471,13 @@ java_library(
     deps = [
         ":attribute",
         ":eval_attribute",
+        ":eval_const",
+        ":eval_unary",
         ":planned_interpretable",
         "//common/ast",
+        "//common/values",
+        "//runtime:resolved_overload",
+        "//runtime/standard:matches",
     ],
 )
 
@@ -718,6 +724,7 @@ cel_android_library(
         "//common/ast:ast_android",
         "//common/ast:cel_block_android",
         "//common/exceptions:overload_not_found",
+        "//common/exceptions:runtime_exception",
         "//common/types:type_providers_android",
         "//common/types:types_android",
         "//common/values:cel_value_provider_android",
@@ -1137,8 +1144,13 @@ cel_android_library(
     deps = [
         ":attribute_android",
         ":eval_attribute_android",
+        ":eval_const_android",
+        ":eval_unary_android",
         ":planned_interpretable_android",
         "//common/ast:ast_android",
+        "//common/values:values_android",
+        "//runtime:resolved_overload_android",
+        "//runtime/standard:matches_android",
     ],
 )
 

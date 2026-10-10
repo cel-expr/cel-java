@@ -43,6 +43,7 @@ import dev.cel.common.ast.CelExpr.CelStruct.Entry;
 import dev.cel.common.ast.CelExpr.ExprKind.Kind;
 import dev.cel.common.ast.CelReference;
 import dev.cel.common.exceptions.CelOverloadNotFoundException;
+import dev.cel.common.exceptions.CelRuntimeException;
 import dev.cel.common.types.CelKind;
 import dev.cel.common.types.CelType;
 import dev.cel.common.types.CelTypeProvider;
@@ -107,10 +108,15 @@ public final class ProgramPlanner {
               .map(celBlock -> planBlock(celBlock, ctx))
               .orElseGet(() -> plan(ast.getExpr(), ctx));
     } catch (RuntimeException e) {
-      throw CelEvaluationExceptionBuilder.newBuilder(e.getMessage())
-          .setMetadata(errorMetadata, ast.getExpr().id())
-          .setCause(e)
-          .build();
+      // Preserve specific CelErrorCode (e.g., INVALID_ARGUMENT, OVERLOAD_NOT_FOUND) from
+      // plan-time validation failures.
+      CelEvaluationExceptionBuilder builder;
+      if (e instanceof CelRuntimeException) {
+        builder = CelEvaluationExceptionBuilder.newBuilder((CelRuntimeException) e);
+      } else {
+        builder = CelEvaluationExceptionBuilder.newBuilder(e.getMessage()).setCause(e);
+      }
+      throw builder.setMetadata(errorMetadata, ast.getExpr().id()).build();
     }
 
     return PlannedProgram.create(
@@ -354,6 +360,13 @@ public final class ProgramPlanner {
               evaluatedArgs[0],
               evaluatedArgs[1],
               celValueConverter);
+        }
+        PlannedInterpretable regexMatches =
+            PlannerHelpers.maybePlanRegexMatches(
+                    expr, resolvedOverload, evaluatedArgs, celValueConverter)
+                .orElse(null);
+        if (regexMatches != null) {
+          return regexMatches;
         }
         return EvalBinary.create(
             expr,
