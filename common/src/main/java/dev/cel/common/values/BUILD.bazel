@@ -329,6 +329,7 @@ java_library(
     deps = [
         ":base_proto_cel_value_converter",
         ":optimized_selectable",
+        ":preadapted_list",
         ":select_field",
         ":values",
         "//:auto_value",
@@ -360,6 +361,7 @@ cel_android_library(
     deps = [
         ":base_proto_cel_value_converter_android",
         ":optimized_selectable_android",
+        ":preadapted_list_android",
         ":select_field_android",
         ":values_android",
         "//:auto_value",

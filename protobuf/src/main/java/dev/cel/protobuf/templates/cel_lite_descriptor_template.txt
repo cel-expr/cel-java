@@ -70,6 +70,42 @@ public final class ${descriptor_class_name} extends CelLiteDescriptor {
     return Collections.unmodifiableList(descriptors);
   }
 
+  @java.lang.Override
+  protected java.lang.Object getFieldValue(
+      int messageIndex, java.lang.Object message, int fieldNumber) {
+    switch (messageIndex) {
+    <#list descriptor_metadata_list as descriptor_metadata>
+    <#if descriptor_metadata.javaClassName??>
+      case ${descriptor_metadata?index}:
+        return getFieldValue${descriptor_metadata?index}(
+            (${descriptor_metadata.javaClassName}) message, fieldNumber);
+    </#if>
+    </#list>
+      default:
+        return NO_GETTER;
+    }
+  }
+<#-- A method per message bounds each by one message's fields: HotSpot won't JIT over 8000 B. -->
+<#-- java.lang names are qualified: the proto's package may declare its own Object or Override. -->
+<#list descriptor_metadata_list as descriptor_metadata>
+<#if descriptor_metadata.javaClassName??>
+
+  private static java.lang.Object getFieldValue${descriptor_metadata?index}(
+      ${descriptor_metadata.javaClassName} m, int fieldNumber) {
+    switch (fieldNumber) {
+    <#list descriptor_metadata.fieldDescriptors as field_descriptor>
+    <#if field_descriptor.getterExpression?has_content>
+      case ${field_descriptor.fieldNumber}:
+        return ${field_descriptor.getterExpression};
+    </#if>
+    </#list>
+      default:
+        return NO_GETTER;
+    }
+  }
+</#if>
+</#list>
+
   private ${descriptor_class_name}() {
     super("${version}", newDescriptors());
   }

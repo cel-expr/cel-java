@@ -18,8 +18,8 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import com.google.protobuf.Descriptors;
 import com.google.protobuf.Descriptors.Descriptor;
+import com.google.protobuf.Descriptors.FieldDescriptor;
 import com.google.protobuf.Descriptors.FieldDescriptor.JavaType;
 import com.google.protobuf.Descriptors.FileDescriptor;
 import com.google.protobuf.GeneratorNames;
@@ -35,6 +35,18 @@ import dev.cel.protobuf.LiteDescriptorCodegenMetadata.FieldLiteDescriptorMetadat
  */
 final class ProtoDescriptorCollector {
 
+  private static final ImmutableSet<String> FORBIDDEN_ACCESSOR_NAMES =
+      ImmutableSet.of(
+          "Class",
+          "DefaultInstanceForType",
+          "ParserForType",
+          "SerializedSize",
+          "AllFields",
+          "DescriptorForType",
+          "InitializationErrorString",
+          "UnknownFields",
+          "CachedSize");
+
   private final DebugPrinter debugPrinter;
 
   ImmutableList<LiteDescriptorCodegenMetadata> collectCodegenMetadata(Descriptor descriptor) {
@@ -49,14 +61,15 @@ final class ProtoDescriptorCollector {
     for (Descriptor messageDescriptor : descriptorList) {
       LiteDescriptorCodegenMetadata.Builder descriptorCodegenBuilder =
           LiteDescriptorCodegenMetadata.newBuilder();
-      for (Descriptors.FieldDescriptor fieldDescriptor : messageDescriptor.getFields()) {
+      for (FieldDescriptor fieldDescriptor : messageDescriptor.getFields()) {
         FieldLiteDescriptorMetadata.Builder fieldDescriptorCodegenBuilder =
             FieldLiteDescriptorMetadata.newBuilder()
                 .setFieldNumber(fieldDescriptor.getNumber())
                 .setFieldName(fieldDescriptor.getName())
                 .setIsPacked(fieldDescriptor.isPacked())
                 .setJavaType(adaptJavaType(fieldDescriptor.getJavaType()))
-                .setProtoFieldType(adaptFieldProtoType(fieldDescriptor.getType()));
+                .setProtoFieldType(adaptFieldProtoType(fieldDescriptor.getType()))
+                .setGetterExpression(getterExpression(fieldDescriptor));
 
         switch (fieldDescriptor.getJavaType()) {
           case ENUM:
@@ -107,8 +120,82 @@ final class ProtoDescriptorCollector {
     return new ProtoDescriptorCollector(debugPrinter);
   }
 
-  private static FieldLiteDescriptor.Type adaptFieldProtoType(
-      Descriptors.FieldDescriptor.Type type) {
+  /**
+   * Returns a Java expression reading {@code field} from a message named {@code m} with its
+   * generated getter: null if the field is unset, and open enums as their numbers. Empty for
+   * groups, which CEL doesn't support.
+   */
+  private static String getterExpression(FieldDescriptor field) {
+    if (field.getType() == FieldDescriptor.Type.GROUP) {
+      return "";
+    }
+    String name = accessorName(field);
+    if (field.isMapField()) {
+      FieldDescriptor value = field.getMessageType().findFieldByNumber(2);
+      return "m.get" + name + (isOpenEnum(value) ? "Value" : "") + "Map()";
+    }
+    String suffix = isOpenEnum(field) ? "Value" : "";
+    if (field.isRepeated()) {
+      return "m.get" + name + suffix + "List()";
+    }
+    String getter = "m.get" + name + suffix + "()";
+    return field.hasPresence()
+        ? "m.has" + name + "() ? " + getter + " : null"
+        : "nonDefault(" + getter + ")";
+  }
+
+  private static boolean isOpenEnum(FieldDescriptor field) {
+    return field.getJavaType() == JavaType.ENUM && !field.legacyEnumFieldTreatedAsClosed();
+  }
+
+  // Mirrors protobuf's Java generator (compiler/java/context.cc): fields whose accessors would
+  // clash with another field's get their numbers appended.
+  private static String accessorName(FieldDescriptor field) {
+    String name = capitalizedName(field);
+    for (FieldDescriptor other : field.getContainingType().getFields()) {
+      if (other != field) {
+        String otherName = capitalizedName(other);
+        if (clashesOneWay(field, name, other, otherName)
+            || clashesOneWay(other, otherName, field, name)) {
+          return name + field.getNumber();
+        }
+      }
+    }
+    return name;
+  }
+
+  // Whether other's getter is named like field's; or, if only field is repeated, like field's
+  // getXCount() or getXList(); or, if field is an open enum, like its getXValue().
+  private static boolean clashesOneWay(
+      FieldDescriptor field, String name, FieldDescriptor other, String otherName) {
+    return otherName.equals(name)
+        || (field.isRepeated()
+            && !other.isRepeated()
+            && (otherName.equals(name + "Count") || otherName.equals(name + "List")))
+        || (isOpenEnum(field) && otherName.equals(name + "Value"));
+  }
+
+  // Mirrors protobuf's Java generator (compiler/java/names.cc): underscores and digits capitalize
+  // the next letter, and names clashing with inherited methods get a trailing underscore.
+  private static String capitalizedName(FieldDescriptor field) {
+    String fieldName = field.getName();
+    StringBuilder name = new StringBuilder(fieldName.length() + 1);
+    boolean capitalizeNext = true;
+    for (char c : fieldName.toCharArray()) {
+      if (c == '_') {
+        capitalizeNext = true;
+      } else {
+        name.append(capitalizeNext ? Character.toUpperCase(c) : c);
+        capitalizeNext = Character.isDigit(c);
+      }
+    }
+    if (FORBIDDEN_ACCESSOR_NAMES.contains(name.toString())) {
+      name.append('_');
+    }
+    return name.toString();
+  }
+
+  private static FieldLiteDescriptor.Type adaptFieldProtoType(FieldDescriptor.Type type) {
     switch (type) {
       case DOUBLE:
         return FieldLiteDescriptor.Type.DOUBLE;

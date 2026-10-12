@@ -17,14 +17,19 @@ package dev.cel.protobuf;
 import static com.google.common.truth.Truth.assertThat;
 import static org.junit.Assert.assertThrows;
 
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.protobuf.WireFormat;
 import com.google.testing.junit.testparameterinjector.TestParameter;
 import com.google.testing.junit.testparameterinjector.TestParameterInjector;
+import dev.cel.expr.conformance.proto3.TestAllTypes;
 import dev.cel.expr.conformance.proto3.TestAllTypesCelLiteDescriptor;
 import dev.cel.protobuf.CelLiteDescriptor.FieldLiteDescriptor;
 import dev.cel.protobuf.CelLiteDescriptor.FieldLiteDescriptor.EncodingType;
 import dev.cel.protobuf.CelLiteDescriptor.FieldLiteDescriptor.JavaType;
 import dev.cel.protobuf.CelLiteDescriptor.MessageLiteDescriptor;
+import dev.cel.testing.testdata.AccessorNames;
+import dev.cel.testing.testdata.AccessorNamesCelLiteDescriptor;
 import java.util.Map;
 import java.util.Optional;
 import org.junit.Test;
@@ -55,6 +60,9 @@ public class CelLiteDescriptorTest {
 
     assertThat(testAllTypesDescriptor.getProtoTypeName())
         .isEqualTo("cel.expr.conformance.proto3.TestAllTypes");
+    assertThat(testAllTypesDescriptor.toString())
+        .isEqualTo("cel.expr.conformance.proto3.TestAllTypes");
+    assertThat(testAllTypesDescriptor.hasGetters()).isTrue();
   }
 
   @Test
@@ -213,6 +221,84 @@ public class CelLiteDescriptorTest {
   public void protoFieldType_numbersAndWireTypes(@TestParameter ProtoFieldTypeTestCase testCase) {
     assertThat(testCase.type.getNumber()).isEqualTo(testCase.expectedNumber);
     assertThat(testCase.type.toWireFormatFieldType()).isEqualTo(testCase.expectedWireType);
+  }
+
+  @SuppressWarnings("ImmutableEnumChecker") // Test only
+  private enum AccessorNameTestCase {
+    REPEATED_CLASHING_WITH_COUNT(AccessorNames.FOO_FIELD_NUMBER, ImmutableList.of(1)),
+    CLASHING_WITH_REPEATED_COUNT(AccessorNames.FOO_COUNT_FIELD_NUMBER, 2L),
+    REPEATED_CLASHING_WITH_LIST(AccessorNames.BAR_FIELD_NUMBER, ImmutableList.of("b")),
+    CLASHING_WITH_REPEATED_LIST(AccessorNames.BAR_LIST_FIELD_NUMBER, "c"),
+    OPEN_ENUM_CLASHING_WITH_VALUE(AccessorNames.KIND_FIELD_NUMBER, 1),
+    CLASHING_WITH_OPEN_ENUM_VALUE(AccessorNames.KIND_VALUE_FIELD_NUMBER, 3),
+    MAP_CLASHING_WITH_COUNT(AccessorNames.BAZ_FIELD_NUMBER, ImmutableMap.of("k", 5)),
+    CLASHING_WITH_MAP_COUNT(AccessorNames.BAZ_COUNT_FIELD_NUMBER, 6),
+    FORBIDDEN_NAME(AccessorNames.CLASS_FIELD_NUMBER, 4),
+    SAME_CAPITALIZED_NAME(AccessorNames.FIELD1NAME_FIELD_NUMBER, "d"),
+    OTHER_SAME_CAPITALIZED_NAME(AccessorNames.FIELD1_NAME_FIELD_NUMBER, "e");
+
+    private final int fieldNumber;
+    private final Object expectedValue;
+
+    AccessorNameTestCase(int fieldNumber, Object expectedValue) {
+      this.fieldNumber = fieldNumber;
+      this.expectedValue = expectedValue;
+    }
+  }
+
+  @Test
+  public void getFieldValue_protobufAccessorName_readsField(
+      @TestParameter AccessorNameTestCase testCase) {
+    AccessorNames message =
+        AccessorNames.newBuilder()
+            .addFoo1(1)
+            .setFooCount2(2L)
+            .addBar3("b")
+            .setBarList4("c")
+            .setKind5(AccessorNames.Kind.KIND_ON)
+            .setKindValue6(3)
+            .putBaz7("k", 5)
+            .setBazCount8(6)
+            .setClass_(4)
+            .setField1Name10("d")
+            .setField1Name11("e")
+            .build();
+
+    Object value =
+        accessorNamesDescriptor("AccessorNames").getFieldValue(message, testCase.fieldNumber);
+
+    assertThat(value).isEqualTo(testCase.expectedValue);
+  }
+
+  @Test
+  public void getFieldValue_messageAfterRoot_readsField() {
+    AccessorNames.Nested message = AccessorNames.Nested.newBuilder().setX(7).build();
+
+    Object value =
+        accessorNamesDescriptor("AccessorNames.Nested")
+            .getFieldValue(message, AccessorNames.Nested.X_FIELD_NUMBER);
+
+    assertThat(value).isEqualTo(7);
+  }
+
+  @Test
+  public void getFieldValue_unownedDescriptor_returnsNoGetter() {
+    MessageLiteDescriptor descriptor =
+        new MessageLiteDescriptor("unowned.Message", ImmutableList.of(), TestAllTypes::newBuilder);
+
+    Object value =
+        descriptor.getFieldValue(
+            TestAllTypes.newBuilder().setSingleInt64(1L).build(),
+            TestAllTypes.SINGLE_INT64_FIELD_NUMBER);
+
+    assertThat(descriptor.hasGetters()).isFalse();
+    assertThat(value).isSameInstanceAs(CelLiteDescriptor.NO_GETTER);
+  }
+
+  private static MessageLiteDescriptor accessorNamesDescriptor(String name) {
+    return AccessorNamesCelLiteDescriptor.getDescriptor()
+        .getProtoTypeNamesToDescriptors()
+        .get("dev.cel.testing.testdata." + name);
   }
 
   @Test
