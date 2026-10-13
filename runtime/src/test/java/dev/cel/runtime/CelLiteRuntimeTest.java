@@ -117,9 +117,9 @@ public class CelLiteRuntimeTest {
   @Test
   public void messageCreation_fieldsPopulated() throws Exception {
     CelAbstractSyntaxTree ast = CEL_COMPILER.compile("TestAllTypes{single_int32: 4}").getAst();
+    Program program = CEL_RUNTIME.createProgram(ast);
 
-    CelEvaluationException e =
-        assertThrows(CelEvaluationException.class, () -> CEL_RUNTIME.createProgram(ast).eval());
+    CelEvaluationException e = assertThrows(CelEvaluationException.class, program::eval);
 
     assertThat(e)
         .hasMessageThat()
@@ -193,7 +193,7 @@ public class CelLiteRuntimeTest {
   @Test
   @TestParameters("{expression: 'msg.repeated_int32'}")
   @TestParameters("{expression: 'msg.repeated_int64'}")
-  @SuppressWarnings("unchecked")
+  @SuppressWarnings("unchecked") // Safe cast in test
   public void fieldSelection_packedRepeatedInts(String expression) throws Exception {
     // Note: non-LEN delimited primitives such as ints are packed by default in proto3
     CelAbstractSyntaxTree ast = CEL_COMPILER.compile(expression).getAst();
@@ -212,7 +212,7 @@ public class CelLiteRuntimeTest {
   }
 
   @Test
-  @SuppressWarnings("unchecked")
+  @SuppressWarnings("unchecked") // Safe cast in test
   public void fieldSelection_repeatedStrings() throws Exception {
     // Note: len-delimited fields, such as string and messages are not packed.
     CelAbstractSyntaxTree ast = CEL_COMPILER.compile("msg.repeated_string").getAst();
@@ -226,7 +226,7 @@ public class CelLiteRuntimeTest {
   }
 
   @Test
-  @SuppressWarnings("unchecked")
+  @SuppressWarnings("unchecked") // Safe cast in test
   public void fieldSelection_repeatedBoolWrappers() throws Exception {
     CelAbstractSyntaxTree ast = CEL_COMPILER.compile("msg.repeated_bool_wrapper").getAst();
     TestAllTypes msg =
@@ -245,7 +245,7 @@ public class CelLiteRuntimeTest {
   @Test
   @TestParameters("{expression: 'msg.map_string_int32'}")
   @TestParameters("{expression: 'msg.map_string_int64'}")
-  @SuppressWarnings("unchecked")
+  @SuppressWarnings("unchecked") // Safe cast in test
   public void fieldSelection_map(String expression) throws Exception {
     CelAbstractSyntaxTree ast = CEL_COMPILER.compile(expression).getAst();
     TestAllTypes msg =
@@ -340,7 +340,7 @@ public class CelLiteRuntimeTest {
   }
 
   @Test
-  @SuppressWarnings("unchecked")
+  @SuppressWarnings("unchecked") // Safe cast in test
   public void fieldSelection_jsonStruct() throws Exception {
     String expression = "msg.single_struct";
     CelAbstractSyntaxTree ast = CEL_COMPILER.compile(expression).getAst();
@@ -370,7 +370,7 @@ public class CelLiteRuntimeTest {
   }
 
   @Test
-  @SuppressWarnings("unchecked")
+  @SuppressWarnings("unchecked") // Safe cast in test
   public void fieldSelection_jsonListValue() throws Exception {
     String expression = "msg.list_value";
     CelAbstractSyntaxTree ast = CEL_COMPILER.compile(expression).getAst();

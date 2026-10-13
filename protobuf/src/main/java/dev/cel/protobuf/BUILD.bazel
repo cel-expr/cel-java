@@ -36,6 +36,7 @@ java_library(
     deps = [
         "//common/annotations",
         "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:org_jspecify_jspecify",
         "@maven_android//:com_google_protobuf_protobuf_javalite",
     ],
 )

@@ -24,7 +24,9 @@ import com.google.protobuf.MessageLite;
 import dev.cel.common.exceptions.CelAttributeNotFoundException;
 import dev.cel.common.types.CelType;
 import dev.cel.common.types.StructTypeReference;
+import dev.cel.protobuf.CelLiteDescriptor;
 import dev.cel.protobuf.CelLiteDescriptor.FieldLiteDescriptor;
+import dev.cel.protobuf.CelLiteDescriptor.MessageLiteDescriptor;
 import java.util.Objects;
 import java.util.Optional;
 import org.jspecify.annotations.Nullable;
@@ -66,10 +68,31 @@ abstract class ProtoMessageLiteValue extends StructValue<String, MessageLite>
   // re-serializing intermediate hops; lazily parsed into a MessageLite only if value() is called.
   abstract @Nullable ByteString wireBytes();
 
-  @Override
-  public abstract CelType celType();
+  abstract MessageLiteDescriptor descriptor();
 
   abstract ProtoLiteCelValueConverter protoLiteCelValueConverter();
+
+  // The last submessage read through a getter, so that select chains sharing this message don't
+  // convert (or, without a descriptor, serialize) it again: a ProtoMessageLiteValue wrapping it, or
+  // a SerializedSubmessage. Like this wrapper, it lasts one evaluation, as values leave it through
+  // value(). Entries are reached through final fields and checked by identity, so a race at most
+  // repeats a conversion.
+  @SuppressWarnings("Immutable")
+  private @Nullable Object lastSubmessage;
+
+  @Nullable Object lastSubmessage() {
+    return lastSubmessage;
+  }
+
+  void setLastSubmessage(Object lastSubmessage) {
+    this.lastSubmessage = lastSubmessage;
+  }
+
+  @Override
+  public CelType celType() {
+    // Built on demand, since one of these values is created on every hop but rarely asked its type.
+    return StructTypeReference.create(descriptor().getProtoTypeName());
+  }
 
   @Memoized
   @Override
@@ -78,8 +101,7 @@ abstract class ProtoMessageLiteValue extends StructValue<String, MessageLite>
     if (msg != null) {
       return msg;
     }
-    return protoLiteCelValueConverter()
-        .parseMessageLite(checkNotNull(wireBytes()), celType().name());
+    return ProtoLiteCelValueConverter.parseMessageLite(checkNotNull(wireBytes()), descriptor());
   }
 
   @Memoized
@@ -110,20 +132,23 @@ abstract class ProtoMessageLiteValue extends StructValue<String, MessageLite>
       return false;
     }
     ProtoMessageLiteValue that = (ProtoMessageLiteValue) other;
-    return this.celType().equals(that.celType()) && this.value().equals(that.value());
+    return this.descriptor().getProtoTypeName().equals(that.descriptor().getProtoTypeName())
+        && this.value().equals(that.value());
   }
 
   @Override
   public final int hashCode() {
-    return Objects.hash(value(), celType());
+    return Objects.hash(value(), descriptor().getProtoTypeName());
   }
 
   @Override
   public Object select(String field) {
-    FieldLiteDescriptor fd = findFieldDescriptor(field).orElse(null);
+    FieldLiteDescriptor fd = descriptor().findByFieldName(field).orElse(null);
     if (fd == null) {
       throw CelAttributeNotFoundException.of(
-          String.format("field '%s' is not declared in message '%s'", field, celType().name()));
+          String.format(
+              "field '%s' is not declared in message '%s'",
+              field, descriptor().getProtoTypeName()));
     }
     Object fieldValue = readField(fd);
     return fieldValue != null ? fieldValue : protoLiteCelValueConverter().getDefaultCelValue(fd);
@@ -131,59 +156,78 @@ abstract class ProtoMessageLiteValue extends StructValue<String, MessageLite>
 
   @Override
   public Optional<Object> find(String field) {
-    FieldLiteDescriptor fd = findFieldDescriptor(field).orElse(null);
     // Per SelectableValue#find, a field that doesn't exist is reported as absent.
-    return Optional.ofNullable(fd).map(value -> readField(value));
+    return descriptor().findByFieldName(field).map(this::readField);
   }
+
+  // An in-memory message is read through its descriptor's generated getters, falling back to its
+  // wire bytes (which serializes it) only for fields without one, such as those unknown to its
+  // descriptor. Other messages are read from their wire bytes.
 
   @Override
   public Object selectByFieldNumber(SelectField field) {
-    return protoLiteCelValueConverter()
-        .selectByFieldNumber(toByteString(), celType().name(), field);
+    FieldLiteDescriptor fd = descriptor().findByFieldNumber(field.fieldNumber()).orElse(null);
+    if (fd == null) {
+      return protoLiteCelValueConverter()
+          .selectByFieldNumber(toByteString(), descriptor().getProtoTypeName(), field);
+    }
+    Object fieldValue = readField(fd);
+    if (fieldValue != null) {
+      return fieldValue;
+    }
+    return field.defaultValue() != null
+        ? field.defaultValue()
+        : protoLiteCelValueConverter().getDefaultCelValue(fd);
   }
 
   @Override
+  @SuppressWarnings("ReferenceEquality") // NO_GETTER is a sentinel instance.
   public boolean hasFieldByNumber(SelectField field) {
-    return protoLiteCelValueConverter().hasFieldByNumber(toByteString(), celType().name(), field);
+    Object present = protoLiteCelValueConverter().hasByGetter(this, field);
+    return present != CelLiteDescriptor.NO_GETTER
+        ? (Boolean) present
+        : protoLiteCelValueConverter()
+            .hasFieldByNumber(toByteString(), descriptor().getProtoTypeName(), field);
   }
 
   @Override
   public Optional<Object> findByFieldNumber(SelectField field) {
-    return protoLiteCelValueConverter().findByFieldNumber(toByteString(), celType().name(), field);
+    FieldLiteDescriptor fd = descriptor().findByFieldNumber(field.fieldNumber()).orElse(null);
+    return fd != null
+        ? Optional.ofNullable(readField(fd))
+        : protoLiteCelValueConverter()
+            .findByFieldNumber(toByteString(), descriptor().getProtoTypeName(), field);
   }
 
+  @SuppressWarnings("ReferenceEquality") // NO_GETTER is a sentinel instance.
   private @Nullable Object readField(FieldLiteDescriptor fd) {
-    return protoLiteCelValueConverter().readField(toByteString(), celType().name(), fd);
-  }
-
-  private Optional<FieldLiteDescriptor> findFieldDescriptor(String fieldName) {
-    return protoLiteCelValueConverter().findFieldDescriptor(celType().name(), fieldName);
+    Object value = protoLiteCelValueConverter().readFieldByGetter(this, fd);
+    return value != CelLiteDescriptor.NO_GETTER
+        ? value
+        : protoLiteCelValueConverter()
+            .readField(toByteString(), descriptor().getProtoTypeName(), fd);
   }
 
   static ProtoMessageLiteValue create(
-      MessageLite value, String typeName, ProtoLiteCelValueConverter protoLiteCelValueConverter) {
+      MessageLite value,
+      MessageLiteDescriptor descriptor,
+      ProtoLiteCelValueConverter protoLiteCelValueConverter) {
     checkNotNull(value);
-    checkNotNull(typeName);
+    checkNotNull(descriptor);
     checkNotNull(protoLiteCelValueConverter);
     return new AutoValue_ProtoMessageLiteValue(
-        value,
-        /* wireBytes= */ null,
-        StructTypeReference.create(typeName),
-        protoLiteCelValueConverter);
+        value, /* wireBytes= */ null, descriptor, protoLiteCelValueConverter);
   }
 
   static ProtoMessageLiteValue create(
       ByteString wireBytes,
-      String typeName,
+      MessageLiteDescriptor descriptor,
       ProtoLiteCelValueConverter protoLiteCelValueConverter) {
     checkNotNull(wireBytes);
-    checkNotNull(typeName);
+    checkNotNull(descriptor);
     checkNotNull(protoLiteCelValueConverter);
     return new AutoValue_ProtoMessageLiteValue(
-        /* rawValue= */ null,
-        wireBytes,
-        StructTypeReference.create(typeName),
-        protoLiteCelValueConverter);
+        /* rawValue= */ null, wireBytes, descriptor, protoLiteCelValueConverter);
   }
 
   ProtoMessageLiteValue() {}

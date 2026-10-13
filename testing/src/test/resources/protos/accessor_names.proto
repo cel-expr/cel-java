@@ -1,0 +1,71 @@
+// Copyright 2026 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto3";
+
+package dev.cel.testing.testdata;
+
+option java_multiple_files = true;
+option java_outer_classname = "AccessorNamesProto";
+option java_package = "dev.cel.testing.testdata";
+
+// Fields whose Java accessor names protobuf doesn't derive by plain
+// camel-casing, and near misses that it doesn't rename, for testing generated
+// getters, which fail to compile if misnamed.
+message AccessorNames {
+  enum Kind {
+    KIND_UNSPECIFIED = 0;
+    KIND_ON = 1;
+  }
+
+  message Nested {
+    int32 x = 1;
+  }
+
+  // Clashes with the getFooCount() of the repeated foo.
+  repeated int32 foo = 1;
+  int64 foo_count = 2;
+
+  // Clashes with the getBarList() of the repeated bar.
+  repeated string bar = 3;
+  string bar_list = 4;
+
+  // Clashes with the getKindValue() of the open enum kind.
+  Kind kind = 5;
+  int32 kind_value = 6;
+
+  // Clashes with the getBazCount() of the map baz.
+  map<string, int32> baz = 7;
+  int32 baz_count = 8;
+
+  // Clashes with Object.getClass(), so it gets a trailing underscore.
+  int32 class = 9;
+
+  // A digit capitalizes the next letter, so both are Field1Name and get their
+  // numbers.
+  string field1name = 10;
+  string field1_name = 11;
+
+  // Near misses: qux is neither repeated nor an enum, quux_count is repeated
+  // too, and only exact names of inherited methods get a trailing underscore.
+  int32 qux = 12;
+  int32 qux_count = 13;
+  int32 qux_value = 14;
+  repeated int32 quux = 15;
+  repeated int32 quux_count = 16;
+  int32 serializedsize = 17;
+
+  // A message type after the root one, read through its own generated method.
+  Nested nested = 18;
+}

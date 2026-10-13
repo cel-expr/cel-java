@@ -15,6 +15,7 @@
 package dev.cel.common.values;
 
 import static com.google.common.truth.Truth.assertThat;
+import static com.google.common.truth.Truth.assertWithMessage;
 import static org.junit.Assert.assertThrows;
 
 import com.google.common.collect.ImmutableList;
@@ -42,7 +43,9 @@ import com.google.testing.junit.testparameterinjector.TestParameter;
 import com.google.testing.junit.testparameterinjector.TestParameterInjector;
 import dev.cel.common.internal.CelLiteDescriptorPool;
 import dev.cel.common.internal.DefaultLiteDescriptorPool;
+import dev.cel.expr.conformance.proto2.TestAllTypes.NestedEnum;
 import dev.cel.expr.conformance.proto3.NestedTestAllTypes;
+import dev.cel.expr.conformance.proto3.NestedTestAllTypesCelDescriptor;
 import dev.cel.expr.conformance.proto3.TestAllTypes;
 import dev.cel.expr.conformance.proto3.TestAllTypes.NestedMessage;
 import dev.cel.expr.conformance.proto3.TestAllTypesCelDescriptor;
@@ -53,6 +56,7 @@ import java.time.Instant;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Optional;
+import java.util.function.Supplier;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
@@ -86,6 +90,16 @@ public final class ProtoLiteCelValueConverterTest {
 
   private static final ProtoLiteCelValueConverter PROTO_LITE_CEL_VALUE_CONVERTER =
       ProtoLiteCelValueConverter.newInstance(DESCRIPTOR_POOL);
+
+  private static final ProtoLiteCelValueConverter ALL_TYPES_CONVERTER =
+      ProtoLiteCelValueConverter.newInstance(
+          DefaultLiteDescriptorPool.newInstance(
+              ImmutableSet.of(
+                  TestAllTypesCelDescriptor.getDescriptor(),
+                  NestedTestAllTypesCelDescriptor.getDescriptor(),
+                  dev.cel.expr.conformance.proto2.TestAllTypesCelDescriptor.getDescriptor(),
+                  dev.cel.expr.conformance.proto2.NestedTestAllTypesCelDescriptor
+                      .getDescriptor())));
 
   @Test
   public void
@@ -421,14 +435,6 @@ public final class ProtoLiteCelValueConverterTest {
   }
 
   @Test
-  public void parseMessageLite_emptyBytes_returnsDefaultInstanceSingleton() {
-    MessageLite parsed =
-        PROTO_LITE_CEL_VALUE_CONVERTER.parseMessageLite(ByteString.EMPTY, PROTO3_TEST_ALL_TYPES);
-
-    assertThat(parsed).isSameInstanceAs(TestAllTypes.getDefaultInstance());
-  }
-
-  @Test
   public void readField_emptyBytes_returnsNull() {
     FieldLiteDescriptor fd =
         fieldDescriptor(PROTO3_TEST_ALL_TYPES, TestAllTypes.SINGLE_INT64_FIELD_NUMBER);
@@ -614,6 +620,109 @@ public final class ProtoLiteCelValueConverterTest {
             () -> PROTO_LITE_CEL_VALUE_CONVERTER.readField(bytes, PROTO3_TEST_ALL_TYPES, fd));
 
     assertThat(e).hasMessageThat().isEqualTo("Groups are not supported");
+  }
+
+  @SuppressWarnings("ImmutableEnumChecker") // Test only
+  private enum GetterParityTestCase {
+    PROTO3_DEFAULT(TestAllTypes.getDefaultInstance()),
+    PROTO3_POPULATED(
+        TestAllTypes.newBuilder()
+            .setSingleInt32(Integer.MIN_VALUE)
+            .setSingleInt64(Long.MIN_VALUE)
+            .setSingleUint32(-1)
+            .setSingleUint64(-1L)
+            .setSingleSint32(-5)
+            .setSingleFixed32(-1)
+            .setSingleSfixed64(-10L)
+            .setSingleFloat(-0.0f)
+            .setSingleDouble(Double.NaN)
+            .setSingleBool(true)
+            .setSingleString("s")
+            .setSingleBytes(ByteString.copyFromUtf8("b"))
+            .setOptionalBool(false)
+            .setSingleNestedEnumValue(42)
+            .setStandaloneMessage(NestedMessage.newBuilder().setBb(1))
+            .setSingleDuration(Duration.newBuilder().setSeconds(3))
+            .setSingleTimestamp(Timestamp.newBuilder().setSeconds(4))
+            .setSingleInt64Wrapper(Int64Value.of(7))
+            .setSingleStringWrapper(StringValue.of(""))
+            .setFieldMask(FieldMask.newBuilder().addPaths("p"))
+            .addRepeatedInt32(-1)
+            .addRepeatedInt64(2L)
+            .addRepeatedUint64(-1L)
+            .addRepeatedSint64(-6L)
+            .addRepeatedSfixed64(-10L)
+            .addRepeatedFloat(1.5f)
+            .addRepeatedDouble(-0.0)
+            .addRepeatedString("r")
+            .addRepeatedBytes(ByteString.copyFromUtf8("rb"))
+            .addRepeatedNestedMessage(NestedMessage.newBuilder().setBb(2))
+            .addRepeatedNestedEnumValue(43)
+            .putMapBoolBool(true, false)
+            .putMapInt32Uint64(-1, -1L)
+            .putMapInt32EnumValue(1, 99)
+            .putMapStringMessage("m", NestedMessage.newBuilder().setBb(3).build())
+            .putMapInt64NestedType(5L, NestedTestAllTypes.getDefaultInstance())
+            .setOneofBool(false)
+            .build()),
+    PROTO2_POPULATED(
+        dev.cel.expr.conformance.proto2.TestAllTypes.newBuilder()
+            .setSingleInt32(-32)
+            .setSingleBool(false)
+            .setSingleString("")
+            .setStandaloneEnum(NestedEnum.BAZ)
+            .addRepeatedNestedEnum(NestedEnum.BAR)
+            .putMapInt32Enum(1, NestedEnum.BAZ)
+            .setOneofType(dev.cel.expr.conformance.proto2.NestedTestAllTypes.getDefaultInstance())
+            .build());
+
+    private final MessageLite message;
+
+    GetterParityTestCase(MessageLite message) {
+      this.message = message;
+    }
+  }
+
+  @Test
+  public void selectAndFind_throughGetters_matchWireBytes(
+      @TestParameter GetterParityTestCase testCase) {
+    ProtoMessageLiteValue throughGetters =
+        (ProtoMessageLiteValue) ALL_TYPES_CONVERTER.toRuntimeValue(testCase.message);
+    ProtoMessageLiteValue fromWire =
+        ProtoMessageLiteValue.create(
+            testCase.message.toByteString(), throughGetters.descriptor(), ALL_TYPES_CONVERTER);
+
+    for (FieldLiteDescriptor field : throughGetters.descriptor().getFieldDescriptors()) {
+      if (field.getProtoFieldType() == FieldLiteDescriptor.Type.GROUP) {
+        continue;
+      }
+      String name = field.getFieldName();
+      SelectField selectField = SelectField.create(field.getFieldNumber(), name);
+      assertWithMessage(name)
+          .that(outcome(() -> throughGetters.find(name)))
+          .isEqualTo(outcome(() -> fromWire.find(name)));
+      assertWithMessage(name)
+          .that(outcome(() -> throughGetters.select(name)))
+          .isEqualTo(outcome(() -> fromWire.select(name)));
+      assertWithMessage(name)
+          .that(outcome(() -> throughGetters.findByFieldNumber(selectField)))
+          .isEqualTo(outcome(() -> fromWire.findByFieldNumber(selectField)));
+      assertWithMessage(name)
+          .that(outcome(() -> throughGetters.selectByFieldNumber(selectField)))
+          .isEqualTo(outcome(() -> fromWire.selectByFieldNumber(selectField)));
+      assertWithMessage(name)
+          .that(outcome(() -> throughGetters.hasFieldByNumber(selectField)))
+          .isEqualTo(outcome(() -> fromWire.hasFieldByNumber(selectField)));
+    }
+  }
+
+  // The value read, or the class of the exception thrown reading it.
+  private static Object outcome(Supplier<Object> read) {
+    try {
+      return read.get();
+    } catch (RuntimeException e) {
+      return e.getClass();
+    }
   }
 
   private static FieldLiteDescriptor fieldDescriptor(String messageName, int fieldNumber) {

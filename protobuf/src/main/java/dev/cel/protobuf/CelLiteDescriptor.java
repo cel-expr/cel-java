@@ -17,6 +17,7 @@ package dev.cel.protobuf;
 import static java.lang.Math.ceil;
 
 import com.google.errorprone.annotations.Immutable;
+import com.google.protobuf.ByteString;
 import com.google.protobuf.MessageLite;
 import com.google.protobuf.WireFormat;
 import dev.cel.common.annotations.Internal;
@@ -28,6 +29,7 @@ import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Supplier;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Base class for code generated CEL lite descriptors to extend from.
@@ -37,6 +39,9 @@ import java.util.function.Supplier;
 @Internal
 @Immutable
 public abstract class CelLiteDescriptor {
+  /** Returned by {@link MessageLiteDescriptor#getFieldValue} for a field without a getter. */
+  public static final Object NO_GETTER = new Object();
+
   @SuppressWarnings("Immutable") // Copied to unmodifiable map
   private final Map<String, MessageLiteDescriptor> protoFqnToDescriptors;
 
@@ -73,7 +78,19 @@ public abstract class CelLiteDescriptor {
     @SuppressWarnings("Immutable") // Does not alter the descriptor content
     private final Supplier<MessageLite.Builder> messageBuilderSupplier;
 
+    // The generated descriptor declaring this message, and this message's position in it.
+    @SuppressWarnings("Immutable") // Set once, before the descriptor is published
+    private @Nullable CelLiteDescriptor owner;
+
+    @SuppressWarnings("Immutable") // Set once, before the descriptor is published
+    private int index;
+
     public String getProtoTypeName() {
+      return fullyQualifiedProtoTypeName;
+    }
+
+    @Override
+    public String toString() {
       return fullyQualifiedProtoTypeName;
     }
 
@@ -102,6 +119,21 @@ public abstract class CelLiteDescriptor {
     /** Gets the builder for the message. Returns null for maps. */
     public MessageLite.Builder newMessageBuilder() {
       return messageBuilderSupplier.get();
+    }
+
+    /** Whether {@link #getFieldValue} reads this message's fields with their generated getters. */
+    public boolean hasGetters() {
+      return owner != null;
+    }
+
+    /**
+     * Reads field {@code fieldNumber} of {@code message}, an instance of this message type, with
+     * its generated getter: the Java value (an open enum's number; a repeated or map field's list
+     * or map, possibly empty), null if a singular field is unset, or {@link #NO_GETTER} if this
+     * descriptor has no getter for it.
+     */
+    public @Nullable Object getFieldValue(MessageLite message, int fieldNumber) {
+      return owner == null ? NO_GETTER : owner.getFieldValue(index, message, fieldNumber);
     }
 
     /**
@@ -353,10 +385,54 @@ public abstract class CelLiteDescriptor {
     }
   }
 
+  /**
+   * Overridden by generated descriptors to read field {@code fieldNumber} of {@code message}, an
+   * instance of their {@code messageIndex}th message type, with its generated getter. See {@link
+   * MessageLiteDescriptor#getFieldValue}.
+   */
+  protected @Nullable Object getFieldValue(int messageIndex, Object message, int fieldNumber) {
+    return NO_GETTER;
+  }
+
+  // Used by generated getters: a field without presence is unset when it holds its default value.
+
+  protected static @Nullable Object nonDefault(int value) {
+    return value != 0 ? value : null;
+  }
+
+  protected static @Nullable Object nonDefault(long value) {
+    return value != 0 ? value : null;
+  }
+
+  protected static @Nullable Object nonDefault(float value) {
+    return Float.floatToRawIntBits(value) != 0 ? value : null;
+  }
+
+  protected static @Nullable Object nonDefault(double value) {
+    return Double.doubleToRawLongBits(value) != 0 ? value : null;
+  }
+
+  protected static @Nullable Object nonDefault(boolean value) {
+    return value ? Boolean.TRUE : null;
+  }
+
+  protected static @Nullable Object nonDefault(String value) {
+    return value.isEmpty() ? null : value;
+  }
+
+  protected static @Nullable Object nonDefault(ByteString value) {
+    return value.isEmpty() ? null : value;
+  }
+
   protected CelLiteDescriptor(String version, List<MessageLiteDescriptor> messageInfoList) {
     Map<String, MessageLiteDescriptor> protoFqnMap =
         new HashMap<>(getMapInitialCapacity(messageInfoList.size()));
-    for (MessageLiteDescriptor msgInfo : messageInfoList) {
+    for (int i = 0; i < messageInfoList.size(); i++) {
+      MessageLiteDescriptor msgInfo = messageInfoList.get(i);
+      if (msgInfo.owner == null) {
+        msgInfo.owner = this;
+        msgInfo.index = i;
+      }
       protoFqnMap.put(msgInfo.getProtoTypeName(), msgInfo);
     }
 

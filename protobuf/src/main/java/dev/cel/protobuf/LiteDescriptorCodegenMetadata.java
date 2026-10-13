@@ -103,6 +103,10 @@ public abstract class LiteDescriptorCodegenMetadata {
 
     public abstract String getFieldProtoTypeName();
 
+    // Java expression reading this field from a message named m with its generated getter, or
+    // empty if the field has no getter.
+    public abstract String getGetterExpression();
+
     abstract FieldLiteDescriptor.JavaType getJavaType();
 
     abstract FieldLiteDescriptor.Type getProtoFieldType();
@@ -130,6 +134,8 @@ public abstract class LiteDescriptorCodegenMetadata {
       abstract Builder setIsPacked(boolean isPacked);
 
       abstract Builder setFieldProtoTypeName(String fieldProtoTypeName);
+
+      abstract Builder setGetterExpression(String getterExpression);
 
       abstract FieldLiteDescriptorMetadata build();
     }

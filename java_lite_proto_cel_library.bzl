@@ -27,7 +27,6 @@ def java_lite_proto_cel_library(
     Args:
        name: name of this target.
        deps: The list of proto_library rules to generate Java code for.
-       proto_src: Name of the proto_library target.
        java_descriptor_class_suffix (optional): Suffix for the Java class name of the generated CEL lite descriptor.
                                                 Default is "CelLiteDescriptor".
        debug: (optional) If true, prints additional information during codegen for debugging purposes.

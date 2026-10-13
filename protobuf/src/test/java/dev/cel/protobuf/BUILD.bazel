@@ -12,10 +12,13 @@ java_test(
     deps = [
         "//:java_truth",
         "//protobuf:cel_lite_descriptor",
+        "//testing/protos:accessor_names_cel_java_proto_lite",
+        "//testing/protos:accessor_names_java_proto_lite",
         "//testing/protos:test_all_types_cel_java_proto3_lite",
         "@cel_spec//proto/cel/expr/conformance/proto3:test_all_types_java_proto_lite",
         "@maven//:com_google_testparameterinjector_test_parameter_injector",
         "@maven//:junit_junit",
+        "@maven_android//:com_google_guava_guava",
         "@maven_android//:com_google_protobuf_protobuf_javalite",
     ],
 )
@@ -24,15 +27,21 @@ java_test(
     name = "proto_descriptor_collector_test",
     srcs = ["ProtoDescriptorCollectorTest.java"],
     test_class = "dev.cel.protobuf.ProtoDescriptorCollectorTest",
-    runtime_deps = ["@maven//:com_google_protobuf_protobuf_java"],
+    runtime_deps = [
+        # Prevent Classloader from picking protolite. We need full version to access descriptors to codegen CelLiteDescriptor.
+        "@maven//:com_google_protobuf_protobuf_java",
+    ],
     deps = [
         "//:java_truth",
         "//protobuf:debug_printer",
         "//protobuf:lite_descriptor_codegen_metadata",
         "//protobuf:proto_descriptor_collector",
+        "//testing/protos:accessor_names_java_proto",
         "//testing/protos:multi_file_java_proto",
+        "@cel_spec//proto/cel/expr/conformance/proto2:test_all_types_java_proto",
         "@cel_spec//proto/cel/expr/conformance/proto3:test_all_types_java_proto",
         "@maven//:com_google_guava_guava",
+        "@maven//:com_google_protobuf_protobuf_java",
         "@maven//:com_google_testparameterinjector_test_parameter_injector",
         "@maven//:junit_junit",
     ],

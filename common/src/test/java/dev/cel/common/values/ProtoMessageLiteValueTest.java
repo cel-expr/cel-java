@@ -43,10 +43,13 @@ import com.google.testing.junit.testparameterinjector.TestParameterInjector;
 import dev.cel.common.exceptions.CelAttributeNotFoundException;
 import dev.cel.common.internal.CelLiteDescriptorPool;
 import dev.cel.common.internal.DefaultLiteDescriptorPool;
+import dev.cel.expr.conformance.proto3.NestedTestAllTypes;
+import dev.cel.expr.conformance.proto3.NestedTestAllTypesCelDescriptor;
 import dev.cel.expr.conformance.proto3.TestAllTypes;
 import dev.cel.expr.conformance.proto3.TestAllTypes.NestedEnum;
 import dev.cel.expr.conformance.proto3.TestAllTypes.NestedMessage;
 import dev.cel.expr.conformance.proto3.TestAllTypesCelDescriptor;
+import dev.cel.protobuf.CelLiteDescriptor.MessageLiteDescriptor;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.time.Duration;
@@ -59,17 +62,33 @@ import org.junit.runner.RunWith;
 public final class ProtoMessageLiteValueTest {
   private static final CelLiteDescriptorPool DESCRIPTOR_POOL =
       DefaultLiteDescriptorPool.newInstance(
-          ImmutableSet.of(TestAllTypesCelDescriptor.getDescriptor()));
+          ImmutableSet.of(
+              TestAllTypesCelDescriptor.getDescriptor(),
+              NestedTestAllTypesCelDescriptor.getDescriptor()));
 
   private static final ProtoLiteCelValueConverter PROTO_LITE_CEL_VALUE_CONVERTER =
       ProtoLiteCelValueConverter.newInstance(DESCRIPTOR_POOL);
+
+  private static final MessageLiteDescriptor TEST_ALL_TYPES_DESCRIPTOR =
+      DESCRIPTOR_POOL.getDescriptorOrThrow("cel.expr.conformance.proto3.TestAllTypes");
+
+  private static final MessageLiteDescriptor NESTED_MESSAGE_DESCRIPTOR =
+      DESCRIPTOR_POOL.getDescriptorOrThrow(
+          "cel.expr.conformance.proto3.TestAllTypes.NestedMessage");
+
+  // Like PROTO_LITE_CEL_VALUE_CONVERTER, but NestedTestAllTypes's TestAllTypes payload has no
+  // descriptor.
+  private static final ProtoLiteCelValueConverter PARTIAL_CONVERTER =
+      ProtoLiteCelValueConverter.newInstance(
+          DefaultLiteDescriptorPool.newInstance(
+              ImmutableSet.of(NestedTestAllTypesCelDescriptor.getDescriptor())));
 
   @Test
   public void create_withEmptyMessage() {
     ProtoMessageLiteValue messageLiteValue =
         ProtoMessageLiteValue.create(
             TestAllTypes.getDefaultInstance(),
-            "cel.expr.conformance.proto3.TestAllTypes",
+            TEST_ALL_TYPES_DESCRIPTOR,
             PROTO_LITE_CEL_VALUE_CONVERTER);
 
     assertThat(messageLiteValue.value()).isEqualTo(TestAllTypes.getDefaultInstance());
@@ -81,7 +100,7 @@ public final class ProtoMessageLiteValueTest {
     ProtoMessageLiteValue messageLiteValue =
         ProtoMessageLiteValue.create(
             TestAllTypes.newBuilder().setSingleInt64(1L).build(),
-            "cel.expr.conformance.proto3.TestAllTypes",
+            TEST_ALL_TYPES_DESCRIPTOR,
             PROTO_LITE_CEL_VALUE_CONVERTER);
 
     assertThat(messageLiteValue.value())
@@ -93,9 +112,7 @@ public final class ProtoMessageLiteValueTest {
   public void create_withEmptyByteString() {
     ProtoMessageLiteValue messageLiteValue =
         ProtoMessageLiteValue.create(
-            ByteString.EMPTY,
-            "cel.expr.conformance.proto3.TestAllTypes",
-            PROTO_LITE_CEL_VALUE_CONVERTER);
+            ByteString.EMPTY, TEST_ALL_TYPES_DESCRIPTOR, PROTO_LITE_CEL_VALUE_CONVERTER);
 
     assertThat(messageLiteValue.isZeroValue()).isTrue();
     assertThat(messageLiteValue.toByteString()).isEqualTo(ByteString.EMPTY);
@@ -103,10 +120,13 @@ public final class ProtoMessageLiteValueTest {
   }
 
   @Test
-  public void isZeroValue_emptyWireBytesWithoutDescriptor_returnsTrueWithoutParsing() {
+  public void isZeroValue_emptyWireBytes_returnsTrueWithoutParsing() {
+    // The descriptor's null builder makes any parse throw.
     ProtoMessageLiteValue messageLiteValue =
         ProtoMessageLiteValue.create(
-            ByteString.EMPTY, "unregistered.Message", PROTO_LITE_CEL_VALUE_CONVERTER);
+            ByteString.EMPTY,
+            new MessageLiteDescriptor("unregistered.Message", ImmutableList.of(), () -> null),
+            PROTO_LITE_CEL_VALUE_CONVERTER);
 
     assertThat(messageLiteValue.isZeroValue()).isTrue();
   }
@@ -117,9 +137,7 @@ public final class ProtoMessageLiteValueTest {
     ByteString explicitZeroFieldBytes = ByteString.copyFrom(new byte[] {0x08, 0x00});
     ProtoMessageLiteValue messageLiteValue =
         ProtoMessageLiteValue.create(
-            explicitZeroFieldBytes,
-            "cel.expr.conformance.proto3.TestAllTypes",
-            PROTO_LITE_CEL_VALUE_CONVERTER);
+            explicitZeroFieldBytes, TEST_ALL_TYPES_DESCRIPTOR, PROTO_LITE_CEL_VALUE_CONVERTER);
 
     assertThat(messageLiteValue.isZeroValue()).isTrue();
   }
@@ -131,9 +149,7 @@ public final class ProtoMessageLiteValueTest {
 
     ProtoMessageLiteValue messageLiteValue =
         ProtoMessageLiteValue.create(
-            expected.toByteString(),
-            "cel.expr.conformance.proto3.TestAllTypes",
-            PROTO_LITE_CEL_VALUE_CONVERTER);
+            expected.toByteString(), TEST_ALL_TYPES_DESCRIPTOR, PROTO_LITE_CEL_VALUE_CONVERTER);
 
     assertThat(messageLiteValue.select("single_int64")).isEqualTo(42L);
     assertThat(messageLiteValue.select("single_string")).isEqualTo("hello");
@@ -153,37 +169,30 @@ public final class ProtoMessageLiteValueTest {
         .addEqualityGroup(
             ProtoMessageLiteValue.create(
                 TestAllTypes.getDefaultInstance(),
-                "cel.expr.conformance.proto3.TestAllTypes",
+                TEST_ALL_TYPES_DESCRIPTOR,
                 PROTO_LITE_CEL_VALUE_CONVERTER),
             ProtoMessageLiteValue.create(
-                ByteString.EMPTY,
-                "cel.expr.conformance.proto3.TestAllTypes",
-                PROTO_LITE_CEL_VALUE_CONVERTER))
+                ByteString.EMPTY, TEST_ALL_TYPES_DESCRIPTOR, PROTO_LITE_CEL_VALUE_CONVERTER))
         .addEqualityGroup(
             ProtoMessageLiteValue.create(
-                populated,
-                "cel.expr.conformance.proto3.TestAllTypes",
-                PROTO_LITE_CEL_VALUE_CONVERTER),
+                populated, TEST_ALL_TYPES_DESCRIPTOR, PROTO_LITE_CEL_VALUE_CONVERTER),
             ProtoMessageLiteValue.create(
                 populated.toByteString(),
-                "cel.expr.conformance.proto3.TestAllTypes",
+                TEST_ALL_TYPES_DESCRIPTOR,
                 PROTO_LITE_CEL_VALUE_CONVERTER),
-            ProtoMessageLiteValue.create(
-                populated, "cel.expr.conformance.proto3.TestAllTypes", distinctConverter))
+            ProtoMessageLiteValue.create(populated, TEST_ALL_TYPES_DESCRIPTOR, distinctConverter))
         .addEqualityGroup(
             ProtoMessageLiteValue.create(
-                different,
-                "cel.expr.conformance.proto3.TestAllTypes",
-                PROTO_LITE_CEL_VALUE_CONVERTER))
+                different, TEST_ALL_TYPES_DESCRIPTOR, PROTO_LITE_CEL_VALUE_CONVERTER))
         .addEqualityGroup(
             ProtoMessageLiteValue.create(
                 TestAllTypes.getDefaultInstance(),
-                "different.TypeName",
+                new MessageLiteDescriptor("different.TypeName", ImmutableList.of(), () -> null),
                 PROTO_LITE_CEL_VALUE_CONVERTER))
         .addEqualityGroup(
             ProtoMessageLiteValue.create(
                 NestedMessage.getDefaultInstance(),
-                "cel.expr.conformance.proto3.TestAllTypes.NestedMessage",
+                NESTED_MESSAGE_DESCRIPTOR,
                 PROTO_LITE_CEL_VALUE_CONVERTER))
         .testEquals();
   }
@@ -193,9 +202,7 @@ public final class ProtoMessageLiteValueTest {
     ByteString corruptBytes = ByteString.copyFrom(new byte[] {(byte) 0xFF, (byte) 0xFF});
     ProtoMessageLiteValue messageLiteValue =
         ProtoMessageLiteValue.create(
-            corruptBytes,
-            "cel.expr.conformance.proto3.TestAllTypes",
-            PROTO_LITE_CEL_VALUE_CONVERTER);
+            corruptBytes, TEST_ALL_TYPES_DESCRIPTOR, PROTO_LITE_CEL_VALUE_CONVERTER);
 
     IllegalArgumentException thrown =
         assertThrows(IllegalArgumentException.class, messageLiteValue::value);
@@ -212,9 +219,7 @@ public final class ProtoMessageLiteValueTest {
     ByteString corruptBytes = ByteString.copyFrom(new byte[] {(byte) 0xFF, (byte) 0xFF});
     ProtoMessageLiteValue messageLiteValue =
         ProtoMessageLiteValue.create(
-            corruptBytes,
-            "cel.expr.conformance.proto3.TestAllTypes",
-            PROTO_LITE_CEL_VALUE_CONVERTER);
+            corruptBytes, TEST_ALL_TYPES_DESCRIPTOR, PROTO_LITE_CEL_VALUE_CONVERTER);
 
     IllegalArgumentException thrown =
         assertThrows(IllegalArgumentException.class, () -> messageLiteValue.select("single_int64"));
@@ -231,9 +236,7 @@ public final class ProtoMessageLiteValueTest {
     ByteString corruptBytes = ByteString.copyFrom(new byte[] {0x10, (byte) 0x80});
     ProtoMessageLiteValue messageLiteValue =
         ProtoMessageLiteValue.create(
-            corruptBytes,
-            "cel.expr.conformance.proto3.TestAllTypes",
-            PROTO_LITE_CEL_VALUE_CONVERTER);
+            corruptBytes, TEST_ALL_TYPES_DESCRIPTOR, PROTO_LITE_CEL_VALUE_CONVERTER);
     SelectField selectField = SelectField.create(2L, "single_int64", 3, 0L);
 
     IllegalArgumentException thrown =
@@ -253,9 +256,7 @@ public final class ProtoMessageLiteValueTest {
     ByteString corruptBytes = ByteString.copyFrom(new byte[] {0x10, (byte) 0x80});
     ProtoMessageLiteValue messageLiteValue =
         ProtoMessageLiteValue.create(
-            corruptBytes,
-            "cel.expr.conformance.proto3.TestAllTypes",
-            PROTO_LITE_CEL_VALUE_CONVERTER);
+            corruptBytes, TEST_ALL_TYPES_DESCRIPTOR, PROTO_LITE_CEL_VALUE_CONVERTER);
     SelectField selectField = SelectField.create(2L, "single_int64");
 
     IllegalArgumentException thrown =
@@ -303,7 +304,7 @@ public final class ProtoMessageLiteValueTest {
     ProtoMessageLiteValue messageLiteValue =
         ProtoMessageLiteValue.create(
             ByteString.copyFrom(testCase.bytes),
-            "cel.expr.conformance.proto3.TestAllTypes",
+            TEST_ALL_TYPES_DESCRIPTOR,
             PROTO_LITE_CEL_VALUE_CONVERTER);
 
     IllegalArgumentException thrown =
@@ -327,7 +328,7 @@ public final class ProtoMessageLiteValueTest {
             .concat(TestAllTypes.newBuilder().setSingleInt64(42L).build().toByteString());
     ProtoMessageLiteValue messageLiteValue =
         ProtoMessageLiteValue.create(
-            bytes, "cel.expr.conformance.proto3.TestAllTypes", PROTO_LITE_CEL_VALUE_CONVERTER);
+            bytes, TEST_ALL_TYPES_DESCRIPTOR, PROTO_LITE_CEL_VALUE_CONVERTER);
 
     Object result = messageLiteValue.select("single_int64");
 
@@ -339,7 +340,7 @@ public final class ProtoMessageLiteValueTest {
     ProtoMessageLiteValue messageLiteValue =
         ProtoMessageLiteValue.create(
             TestAllTypes.getDefaultInstance(),
-            "cel.expr.conformance.proto3.TestAllTypes",
+            TEST_ALL_TYPES_DESCRIPTOR,
             PROTO_LITE_CEL_VALUE_CONVERTER);
 
     CelAttributeNotFoundException thrown =
@@ -373,7 +374,7 @@ public final class ProtoMessageLiteValueTest {
     ProtoMessageLiteValue messageLiteValue =
         ProtoMessageLiteValue.create(
             TestAllTypes.newBuilder().setSingleString("foo").build(),
-            "cel.expr.conformance.proto3.TestAllTypes",
+            TEST_ALL_TYPES_DESCRIPTOR,
             PROTO_LITE_CEL_VALUE_CONVERTER);
 
     Optional<Object> result = messageLiteValue.find(testCase.fieldName);
@@ -425,7 +426,7 @@ public final class ProtoMessageLiteValueTest {
         ImmutableList.of(
             ProtoMessageLiteValue.create(
                 NestedMessage.newBuilder().setBb(10).build(),
-                "cel.expr.conformance.proto3.TestAllTypes.NestedMessage",
+                NESTED_MESSAGE_DESCRIPTOR,
                 PROTO_LITE_CEL_VALUE_CONVERTER))),
     REPEATED_INT64_WRAPPER("repeated_int64_wrapper", ImmutableList.of(11L, 12L)),
 
@@ -516,9 +517,7 @@ public final class ProtoMessageLiteValueTest {
             .build();
     ProtoMessageLiteValue protoMessageValue =
         ProtoMessageLiteValue.create(
-            testAllTypes,
-            "cel.expr.conformance.proto3.TestAllTypes",
-            PROTO_LITE_CEL_VALUE_CONVERTER);
+            testAllTypes, TEST_ALL_TYPES_DESCRIPTOR, PROTO_LITE_CEL_VALUE_CONVERTER);
 
     Object selectedValue = protoMessageValue.select(testCase.fieldName);
 
@@ -550,8 +549,12 @@ public final class ProtoMessageLiteValueTest {
       @TestParameter ContainerFieldTestCase testCase) {
     ProtoMessageLiteValue protoMessageValue =
         ProtoMessageLiteValue.create(
-            TestAllTypes.newBuilder().addRepeatedInt64(1L).putMapInt64Int64(1L, 2L).build(),
-            "cel.expr.conformance.proto3.TestAllTypes",
+            TestAllTypes.newBuilder()
+                .addRepeatedInt64(1L)
+                .putMapInt64Int64(1L, 2L)
+                .build()
+                .toByteString(),
+            TEST_ALL_TYPES_DESCRIPTOR,
             PROTO_LITE_CEL_VALUE_CONVERTER);
 
     Object selectedValue = protoMessageValue.select(testCase.selectField.fieldName());
@@ -564,8 +567,12 @@ public final class ProtoMessageLiteValueTest {
       @TestParameter ContainerFieldTestCase testCase) {
     ProtoMessageLiteValue protoMessageValue =
         ProtoMessageLiteValue.create(
-            TestAllTypes.newBuilder().addRepeatedInt64(1L).putMapInt64Int64(1L, 2L).build(),
-            "cel.expr.conformance.proto3.TestAllTypes",
+            TestAllTypes.newBuilder()
+                .addRepeatedInt64(1L)
+                .putMapInt64Int64(1L, 2L)
+                .build()
+                .toByteString(),
+            TEST_ALL_TYPES_DESCRIPTOR,
             PROTO_LITE_CEL_VALUE_CONVERTER);
 
     Object selectedValue = protoMessageValue.selectByFieldNumber(testCase.selectField);
@@ -607,7 +614,7 @@ public final class ProtoMessageLiteValueTest {
         "single_nested_message",
         ProtoMessageLiteValue.create(
             NestedMessage.getDefaultInstance(),
-            "cel.expr.conformance.proto3.TestAllTypes.NestedMessage",
+            NESTED_MESSAGE_DESCRIPTOR,
             PROTO_LITE_CEL_VALUE_CONVERTER));
 
     private final String fieldName;
@@ -624,7 +631,7 @@ public final class ProtoMessageLiteValueTest {
     ProtoMessageLiteValue protoMessageValue =
         ProtoMessageLiteValue.create(
             TestAllTypes.getDefaultInstance(),
-            "cel.expr.conformance.proto3.TestAllTypes",
+            TEST_ALL_TYPES_DESCRIPTOR,
             PROTO_LITE_CEL_VALUE_CONVERTER);
 
     Object selectedValue = protoMessageValue.select(testCase.fieldName);
@@ -637,7 +644,7 @@ public final class ProtoMessageLiteValueTest {
     TestAllTypes proto = TestAllTypes.newBuilder().setSingleString("foo").build();
     ProtoMessageLiteValue val =
         ProtoMessageLiteValue.create(
-            proto, "cel.expr.conformance.proto3.TestAllTypes", PROTO_LITE_CEL_VALUE_CONVERTER);
+            proto, TEST_ALL_TYPES_DESCRIPTOR, PROTO_LITE_CEL_VALUE_CONVERTER);
 
     Object result = val.selectByFieldNumber(SelectField.create(14L, "single_string", 9, "default"));
 
@@ -649,7 +656,7 @@ public final class ProtoMessageLiteValueTest {
     ProtoMessageLiteValue val =
         ProtoMessageLiteValue.create(
             TestAllTypes.getDefaultInstance(),
-            "cel.expr.conformance.proto3.TestAllTypes",
+            TEST_ALL_TYPES_DESCRIPTOR,
             PROTO_LITE_CEL_VALUE_CONVERTER);
 
     Object result = val.selectByFieldNumber(SelectField.create(21L, "single_nested_message", 11));
@@ -658,7 +665,7 @@ public final class ProtoMessageLiteValueTest {
         .isEqualTo(
             ProtoMessageLiteValue.create(
                 NestedMessage.getDefaultInstance(),
-                "cel.expr.conformance.proto3.TestAllTypes.NestedMessage",
+                NESTED_MESSAGE_DESCRIPTOR,
                 PROTO_LITE_CEL_VALUE_CONVERTER));
   }
 
@@ -672,7 +679,7 @@ public final class ProtoMessageLiteValueTest {
         TestAllTypes.parseFrom(baos.toByteArray(), ExtensionRegistryLite.getEmptyRegistry());
     ProtoMessageLiteValue val =
         ProtoMessageLiteValue.create(
-            proto, "cel.expr.conformance.proto3.TestAllTypes", PROTO_LITE_CEL_VALUE_CONVERTER);
+            proto, TEST_ALL_TYPES_DESCRIPTOR, PROTO_LITE_CEL_VALUE_CONVERTER);
 
     Object result = val.selectByFieldNumber(SelectField.create(999L, "unknown_field", 3, 0L));
 
@@ -690,7 +697,7 @@ public final class ProtoMessageLiteValueTest {
         TestAllTypes.parseFrom(baos.toByteArray(), ExtensionRegistryLite.getEmptyRegistry());
     ProtoMessageLiteValue val =
         ProtoMessageLiteValue.create(
-            proto, "cel.expr.conformance.proto3.TestAllTypes", PROTO_LITE_CEL_VALUE_CONVERTER);
+            proto, TEST_ALL_TYPES_DESCRIPTOR, PROTO_LITE_CEL_VALUE_CONVERTER);
 
     Object result =
         val.selectByFieldNumber(
@@ -704,7 +711,7 @@ public final class ProtoMessageLiteValueTest {
     TestAllTypes proto = TestAllTypes.newBuilder().setSingleString("foo").build();
     ProtoMessageLiteValue val =
         ProtoMessageLiteValue.create(
-            proto, "cel.expr.conformance.proto3.TestAllTypes", PROTO_LITE_CEL_VALUE_CONVERTER);
+            proto, TEST_ALL_TYPES_DESCRIPTOR, PROTO_LITE_CEL_VALUE_CONVERTER);
 
     Object result =
         val.selectByFieldNumber(SelectField.create(14L, "renamed_string", 9, "default"));
@@ -726,7 +733,7 @@ public final class ProtoMessageLiteValueTest {
             .build();
     ProtoMessageLiteValue val =
         ProtoMessageLiteValue.create(
-            proto, "cel.expr.conformance.proto3.TestAllTypes", PROTO_LITE_CEL_VALUE_CONVERTER);
+            proto, TEST_ALL_TYPES_DESCRIPTOR, PROTO_LITE_CEL_VALUE_CONVERTER);
 
     Object result = val.selectByFieldNumber(SelectField.create(999L, "single_string", 3, 0L));
 
@@ -738,7 +745,7 @@ public final class ProtoMessageLiteValueTest {
     TestAllTypes proto = TestAllTypes.newBuilder().putMapStringString("k", "v").build();
     ProtoMessageLiteValue val =
         ProtoMessageLiteValue.create(
-            proto, "cel.expr.conformance.proto3.TestAllTypes", PROTO_LITE_CEL_VALUE_CONVERTER);
+            proto, TEST_ALL_TYPES_DESCRIPTOR, PROTO_LITE_CEL_VALUE_CONVERTER);
 
     Object result =
         val.selectByFieldNumber(
@@ -753,7 +760,7 @@ public final class ProtoMessageLiteValueTest {
         TestAllTypes.newBuilder().addRepeatedInt64(10L).addRepeatedInt64(20L).build();
     ProtoMessageLiteValue val =
         ProtoMessageLiteValue.create(
-            proto, "cel.expr.conformance.proto3.TestAllTypes", PROTO_LITE_CEL_VALUE_CONVERTER);
+            proto, TEST_ALL_TYPES_DESCRIPTOR, PROTO_LITE_CEL_VALUE_CONVERTER);
 
     Object result =
         val.selectByFieldNumber(SelectField.create(32L, "renamed_repeated", 3, ImmutableList.of()));
@@ -776,7 +783,7 @@ public final class ProtoMessageLiteValueTest {
         TestAllTypes.parseFrom(baos.toByteArray(), ExtensionRegistryLite.getEmptyRegistry());
     ProtoMessageLiteValue val =
         ProtoMessageLiteValue.create(
-            proto, "cel.expr.conformance.proto3.TestAllTypes", PROTO_LITE_CEL_VALUE_CONVERTER);
+            proto, TEST_ALL_TYPES_DESCRIPTOR, PROTO_LITE_CEL_VALUE_CONVERTER);
 
     Optional<Object> nav = val.findByFieldNumber(SelectField.create(998L, "unknown_submessage"));
 
@@ -788,7 +795,7 @@ public final class ProtoMessageLiteValueTest {
     TestAllTypes proto = TestAllTypes.newBuilder().setSingleString("present").build();
     ProtoMessageLiteValue val =
         ProtoMessageLiteValue.create(
-            proto, "cel.expr.conformance.proto3.TestAllTypes", PROTO_LITE_CEL_VALUE_CONVERTER);
+            proto, TEST_ALL_TYPES_DESCRIPTOR, PROTO_LITE_CEL_VALUE_CONVERTER);
 
     assertThat(val.hasFieldByNumber(SelectField.create(14L, "single_string"))).isTrue();
   }
@@ -803,7 +810,7 @@ public final class ProtoMessageLiteValueTest {
         TestAllTypes.parseFrom(baos.toByteArray(), ExtensionRegistryLite.getEmptyRegistry());
     ProtoMessageLiteValue val =
         ProtoMessageLiteValue.create(
-            proto, "cel.expr.conformance.proto3.TestAllTypes", PROTO_LITE_CEL_VALUE_CONVERTER);
+            proto, TEST_ALL_TYPES_DESCRIPTOR, PROTO_LITE_CEL_VALUE_CONVERTER);
 
     assertThat(val.hasFieldByNumber(SelectField.create(999L, "unknown_present"))).isTrue();
   }
@@ -813,7 +820,7 @@ public final class ProtoMessageLiteValueTest {
     ProtoMessageLiteValue val =
         ProtoMessageLiteValue.create(
             TestAllTypes.getDefaultInstance(),
-            "cel.expr.conformance.proto3.TestAllTypes",
+            TEST_ALL_TYPES_DESCRIPTOR,
             PROTO_LITE_CEL_VALUE_CONVERTER);
 
     assertThat(val.hasFieldByNumber(SelectField.create(888L, "unknown_absent"))).isFalse();
@@ -824,7 +831,7 @@ public final class ProtoMessageLiteValueTest {
     TestAllTypes proto = TestAllTypes.newBuilder().setSingleString("present").build();
     ProtoMessageLiteValue val =
         ProtoMessageLiteValue.create(
-            proto, "cel.expr.conformance.proto3.TestAllTypes", PROTO_LITE_CEL_VALUE_CONVERTER);
+            proto, TEST_ALL_TYPES_DESCRIPTOR, PROTO_LITE_CEL_VALUE_CONVERTER);
 
     assertThat(val.hasFieldByNumber(SelectField.create(14L, "renamed_string"))).isTrue();
   }
@@ -834,7 +841,7 @@ public final class ProtoMessageLiteValueTest {
     TestAllTypes proto = TestAllTypes.newBuilder().putMapStringString("k", "v").build();
     ProtoMessageLiteValue val =
         ProtoMessageLiteValue.create(
-            proto, "cel.expr.conformance.proto3.TestAllTypes", PROTO_LITE_CEL_VALUE_CONVERTER);
+            proto, TEST_ALL_TYPES_DESCRIPTOR, PROTO_LITE_CEL_VALUE_CONVERTER);
 
     assertThat(val.hasFieldByNumber(SelectField.create(61L, "renamed_map"))).isTrue();
   }
@@ -844,7 +851,7 @@ public final class ProtoMessageLiteValueTest {
     TestAllTypes proto = TestAllTypes.newBuilder().addRepeatedInt64(10L).build();
     ProtoMessageLiteValue val =
         ProtoMessageLiteValue.create(
-            proto, "cel.expr.conformance.proto3.TestAllTypes", PROTO_LITE_CEL_VALUE_CONVERTER);
+            proto, TEST_ALL_TYPES_DESCRIPTOR, PROTO_LITE_CEL_VALUE_CONVERTER);
 
     assertThat(val.hasFieldByNumber(SelectField.create(32L, "renamed_repeated"))).isTrue();
   }
@@ -854,7 +861,7 @@ public final class ProtoMessageLiteValueTest {
     ProtoMessageLiteValue val =
         ProtoMessageLiteValue.create(
             TestAllTypes.getDefaultInstance(),
-            "cel.expr.conformance.proto3.TestAllTypes",
+            TEST_ALL_TYPES_DESCRIPTOR,
             PROTO_LITE_CEL_VALUE_CONVERTER);
 
     assertThat(OptimizedSelectTraversal.qualify(val, ImmutableList.of())).isSameInstanceAs(val);
@@ -865,7 +872,7 @@ public final class ProtoMessageLiteValueTest {
     ProtoMessageLiteValue val =
         ProtoMessageLiteValue.create(
             TestAllTypes.getDefaultInstance(),
-            "cel.expr.conformance.proto3.TestAllTypes",
+            TEST_ALL_TYPES_DESCRIPTOR,
             PROTO_LITE_CEL_VALUE_CONVERTER);
 
     assertThat(OptimizedSelectTraversal.hasField(val, ImmutableList.of())).isFalse();
@@ -876,7 +883,7 @@ public final class ProtoMessageLiteValueTest {
     TestAllTypes proto = TestAllTypes.newBuilder().putMapStringString("k", "v").build();
     ProtoMessageLiteValue val =
         ProtoMessageLiteValue.create(
-            proto, "cel.expr.conformance.proto3.TestAllTypes", PROTO_LITE_CEL_VALUE_CONVERTER);
+            proto, TEST_ALL_TYPES_DESCRIPTOR, PROTO_LITE_CEL_VALUE_CONVERTER);
     ImmutableList<SelectField> fields =
         ImmutableList.of(
             SelectField.createMap(61L, "map_string_string", SelectField.MapEntrySpec.create(9, 9)));
@@ -894,7 +901,7 @@ public final class ProtoMessageLiteValueTest {
             .build();
     ProtoMessageLiteValue val =
         ProtoMessageLiteValue.create(
-            proto, "cel.expr.conformance.proto3.TestAllTypes", PROTO_LITE_CEL_VALUE_CONVERTER);
+            proto, TEST_ALL_TYPES_DESCRIPTOR, PROTO_LITE_CEL_VALUE_CONVERTER);
     ImmutableList<SelectField> fields =
         ImmutableList.of(
             SelectField.create(21L, "single_nested_message", 11),
@@ -913,7 +920,7 @@ public final class ProtoMessageLiteValueTest {
             .build();
     ProtoMessageLiteValue val =
         ProtoMessageLiteValue.create(
-            proto, "cel.expr.conformance.proto3.TestAllTypes", PROTO_LITE_CEL_VALUE_CONVERTER);
+            proto, TEST_ALL_TYPES_DESCRIPTOR, PROTO_LITE_CEL_VALUE_CONVERTER);
 
     assertThat(
             OptimizedSelectTraversal.hasField(
@@ -936,7 +943,7 @@ public final class ProtoMessageLiteValueTest {
     TestAllTypes proto = TestAllTypes.newBuilder().setSingleInt64(42L).build();
     ProtoMessageLiteValue val =
         ProtoMessageLiteValue.create(
-            proto, "cel.expr.conformance.proto3.TestAllTypes", PROTO_LITE_CEL_VALUE_CONVERTER);
+            proto, TEST_ALL_TYPES_DESCRIPTOR, PROTO_LITE_CEL_VALUE_CONVERTER);
     ImmutableList<SelectField> fields =
         ImmutableList.of(
             SelectField.create(2L, "single_int64", 3, 0L),
@@ -955,7 +962,7 @@ public final class ProtoMessageLiteValueTest {
     TestAllTypes proto = TestAllTypes.newBuilder().setSingleInt64(42L).build();
     ProtoMessageLiteValue val =
         ProtoMessageLiteValue.create(
-            proto, "cel.expr.conformance.proto3.TestAllTypes", PROTO_LITE_CEL_VALUE_CONVERTER);
+            proto, TEST_ALL_TYPES_DESCRIPTOR, PROTO_LITE_CEL_VALUE_CONVERTER);
     ImmutableList<SelectField> fields =
         ImmutableList.of(
             SelectField.create(2L, "single_int64"), SelectField.create(3L, "leaf_field"));
@@ -966,5 +973,64 @@ public final class ProtoMessageLiteValueTest {
             () -> OptimizedSelectTraversal.hasField(val, fields));
 
     assertThat(thrown).hasMessageThat().contains("leaf_field");
+  }
+
+  private enum SubmessageMemoTestCase {
+    DESCRIBED(PROTO_LITE_CEL_VALUE_CONVERTER),
+    DESCRIPTORLESS(PARTIAL_CONVERTER);
+
+    private final ProtoLiteCelValueConverter converter;
+
+    SubmessageMemoTestCase(ProtoLiteCelValueConverter converter) {
+      this.converter = converter;
+    }
+  }
+
+  @Test
+  public void selectByFieldNumber_sameSubmessageTwice_reusesValue(
+      @TestParameter SubmessageMemoTestCase testCase) {
+    ProtoMessageLiteValue root =
+        (ProtoMessageLiteValue)
+            testCase.converter.toRuntimeValue(
+                NestedTestAllTypes.newBuilder()
+                    .setPayload(TestAllTypes.newBuilder().setSingleInt64(2L))
+                    .build());
+    SelectField payload = SelectField.create(2L, "payload", 11);
+    Object first = root.selectByFieldNumber(payload);
+
+    Object second = root.selectByFieldNumber(payload);
+
+    assertThat(second).isSameInstanceAs(first);
+  }
+
+  @Test
+  public void qualify_otherSubmessageInBetween_readsEachOne(
+      @TestParameter SubmessageMemoTestCase testCase) {
+    ProtoMessageLiteValue root =
+        (ProtoMessageLiteValue)
+            testCase.converter.toRuntimeValue(
+                NestedTestAllTypes.newBuilder()
+                    .setChild(
+                        NestedTestAllTypes.newBuilder()
+                            .setPayload(TestAllTypes.newBuilder().setSingleInt64(1L)))
+                    .setPayload(TestAllTypes.newBuilder().setSingleInt64(2L))
+                    .build());
+    SelectField child = SelectField.create(1L, "child", 11);
+    SelectField payload = SelectField.create(2L, "payload", 11);
+    SelectField singleInt64 = SelectField.create(2L, "single_int64", 3, 0L);
+
+    ImmutableList<Object> values =
+        ImmutableList.of(
+            OptimizedSelectTraversal.qualify(root, ImmutableList.of(payload, singleInt64)),
+            OptimizedSelectTraversal.qualify(root, ImmutableList.of(child, payload, singleInt64)),
+            OptimizedSelectTraversal.qualify(root, ImmutableList.of(payload, singleInt64)));
+    Object firstPayload = root.selectByFieldNumber(payload);
+    Object middleChild = root.selectByFieldNumber(child);
+    Object secondPayload = root.selectByFieldNumber(payload);
+
+    assertThat(values).containsExactly(2L, 1L, 2L).inOrder();
+    assertThat(middleChild).isNotSameInstanceAs(firstPayload);
+    assertThat(secondPayload).isNotSameInstanceAs(firstPayload);
+    assertThat(secondPayload).isNotSameInstanceAs(middleChild);
   }
 }

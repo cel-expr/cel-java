@@ -30,6 +30,21 @@ alias(
 )
 
 alias(
+    name = "accessor_names_java_proto",
+    actual = "//testing/src/test/resources/protos:accessor_names_java_proto",
+)
+
+alias(
+    name = "accessor_names_java_proto_lite",
+    actual = "//testing/src/test/resources/protos:accessor_names_java_proto_lite",
+)
+
+alias(
+    name = "accessor_names_cel_java_proto_lite",
+    actual = "//testing/src/test/resources/protos:accessor_names_cel_java_proto_lite",
+)
+
+alias(
     name = "multi_file_cel_java_proto_lite",
     actual = "//testing/src/test/resources/protos:multi_file_cel_java_proto_lite",
 )
