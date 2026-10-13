@@ -122,11 +122,6 @@ _TESTS_TO_SKIP_LEGACY = [
     # Skip until fixed.
     "fields/qualified_identifier_resolution/map_value_repeat_key_heterogeneous",
 
-    # Future features for CEL 1.0
-    # TODO: Strong typing support for enums, specified but not implemented.
-    "enums/strong_proto2",
-    "enums/strong_proto3",
-
     # com.google.protobuf.TextFormat does not conform to the spec. Unknown enum values are supposed
     # to be allowed in proto3. Currently they are rejected.
     # "enums/legacy_proto3/select_big",
@@ -146,10 +141,6 @@ _TESTS_TO_SKIP_LEGACY = [
 ]
 
 _TESTS_TO_SKIP_PLANNER = [
-    # TODO: This is actually a user experience degradation.
-    # Not worth fixing until we see a concrete need.
-    "basic/functions/unbound_is_runtime_error",
-
     # Type inference edgecases around null(able) assignability.
     # These type check, but resolve to a different type.
     # list(int), want list(wrapper(int))
@@ -159,11 +150,6 @@ _TESTS_TO_SKIP_PLANNER = [
     "type_deductions/legacy_nullable_types/null_assignable_to_abstract_parameter_candidate",
     "type_deductions/legacy_nullable_types/null_assignable_to_duration_parameter_candidate",
     "type_deductions/legacy_nullable_types/null_assignable_to_timestamp_parameter_candidate",
-
-    # Future features for CEL 1.0
-    # TODO: Strong typing support for enums, specified but not implemented.
-    "enums/strong_proto2",
-    "enums/strong_proto3",
 ]
 
 conformance_test(
