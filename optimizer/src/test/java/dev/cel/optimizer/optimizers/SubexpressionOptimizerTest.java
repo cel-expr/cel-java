@@ -43,6 +43,7 @@ import dev.cel.common.types.ListType;
 import dev.cel.common.types.SimpleType;
 import dev.cel.common.types.StructTypeReference;
 import dev.cel.expr.conformance.proto3.TestAllTypes;
+import dev.cel.extensions.CelBindingsExtensions;
 import dev.cel.extensions.CelExtensions;
 import dev.cel.optimizer.CelOptimizationException;
 import dev.cel.optimizer.CelOptimizer;
@@ -104,7 +105,7 @@ public class SubexpressionOptimizerTest {
                     SimpleType.DYN,
                     ListType.create(SimpleType.DYN),
                     SimpleType.DYN)),
-            SubexpressionOptimizer.newCelBlockFunctionDecl(SimpleType.DYN),
+            CelBindingsExtensions.CEL_BLOCK_FUNCTION_DECL,
             CelFunctionDecl.newFunctionDeclaration(
                 "get_true",
                 CelOverloadDecl.newGlobalOverload("get_true_overload", SimpleType.BOOL)))
@@ -322,12 +323,13 @@ public class SubexpressionOptimizerTest {
 
   @Test
   public void iterationLimitReached_throws() throws Exception {
+    // Construct "[0] + [0] + [1] + [1] + ... + [99] + [99]" (100 distinct duplicate subexpressions)
     StringBuilder largeExprBuilder = new StringBuilder();
     int iterationLimit = 100;
     for (int i = 0; i < iterationLimit; i++) {
-      largeExprBuilder.append("[1,2]");
+      largeExprBuilder.append("[").append(i).append("] + [").append(i).append("]");
       if (i < iterationLimit - 1) {
-        largeExprBuilder.append("+");
+        largeExprBuilder.append(" + ");
       }
     }
     CelAbstractSyntaxTree ast = cel.compile(largeExprBuilder.toString()).getAst();
@@ -342,6 +344,27 @@ public class SubexpressionOptimizerTest {
                             .build())
                     .optimize(ast));
     assertThat(e).hasMessageThat().isEqualTo("Optimization failure: Max iteration count reached.");
+  }
+
+  @Test
+  public void cse_comprehensionReferencingOuterBindVar_notExtractedOutOfBindScope()
+      throws Exception {
+    CelAbstractSyntaxTree ast =
+        cel.compile(
+                "cel.bind(t, 1, [1, 2].exists(y, y == t)) && cel.bind(t, 99, [1, 2].exists(y, y =="
+                    + " t))")
+            .getAst();
+    CelOptimizer celOptimizer =
+        newCseOptimizer(
+            SubexpressionOptimizerOptions.newBuilder().populateMacroCalls(true).build());
+
+    CelAbstractSyntaxTree optimizedAst = celOptimizer.optimize(ast);
+
+    assertThat(cel.createProgram(optimizedAst).eval()).isEqualTo(false);
+    assertThat(CEL_UNPARSER.unparse(optimizedAst))
+        .isEqualTo(
+            "cel.@block([[1, 2]], cel.bind(t, 1, @index0.exists(@it:0:0, @it:0:0 == @ac:1:0)) &&"
+                + " cel.bind(t, 99, @index0.exists(@it:0:0, @it:0:0 == @ac:1:0)))");
   }
 
   @Test
