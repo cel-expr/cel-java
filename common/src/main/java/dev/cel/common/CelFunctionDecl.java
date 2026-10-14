@@ -70,9 +70,36 @@ public abstract class CelFunctionDecl {
       return this;
     }
 
+    @CheckReturnValue
+    abstract CelFunctionDecl autoBuild();
+
     /** Builds a new instance of {@link CelFunctionDecl} */
     @CheckReturnValue
-    public abstract CelFunctionDecl build();
+    public CelFunctionDecl build() {
+      CelFunctionDecl functionDecl = autoBuild();
+      boolean needsOverloadId = false;
+      for (CelOverloadDecl overload : functionDecl.overloads()) {
+        if (overload.overloadId().isEmpty()) {
+          needsOverloadId = true;
+          break;
+        }
+      }
+      if (!needsOverloadId) {
+        return functionDecl;
+      }
+      ImmutableSet.Builder<CelOverloadDecl> updatedOverloads = ImmutableSet.builder();
+      for (CelOverloadDecl overload : functionDecl.overloads()) {
+        if (overload.overloadId().isEmpty()) {
+          String generatedId =
+              CelSignatureUtils.makeOverloadSignature(
+                  functionDecl.name(), overload.parameterTypes(), overload.isInstanceFunction());
+          updatedOverloads.add(overload.toBuilder().setOverloadId(generatedId).build());
+        } else {
+          updatedOverloads.add(overload);
+        }
+      }
+      return functionDecl.toBuilder().setOverloads(updatedOverloads.build()).autoBuild();
+    }
   }
 
   public abstract Builder toBuilder();

@@ -110,6 +110,7 @@ java_library(
         "//checker:standard_decl",
         "//common:cel_function_decl",
         "//common:cel_overload_decl",
+        "//common:cel_signature_utils",
         "//common:cel_var_decl",
         "//common:container",
         "//common:options",

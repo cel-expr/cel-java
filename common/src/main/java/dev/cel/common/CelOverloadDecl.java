@@ -41,7 +41,10 @@ import java.util.List;
 @AutoValue
 @Immutable
 public abstract class CelOverloadDecl {
-  /** Required. Globally unique overload name. */
+  /**
+   * Globally unique overload name. If empty when building {@link CelFunctionDecl}, an overload ID
+   * is automatically generated from the function name and parameter types.
+   */
   public abstract String overloadId();
 
   /**
@@ -79,7 +82,7 @@ public abstract class CelOverloadDecl {
 
   /** Create a new builder to construct a {@link CelOverloadDecl} instance */
   public static Builder newBuilder() {
-    return new AutoValue_CelOverloadDecl.Builder().setDoc("");
+    return new AutoValue_CelOverloadDecl.Builder().setOverloadId("").setDoc("");
   }
 
   /** Builder for configuring the {@link CelOverloadDecl}. */
@@ -153,6 +156,24 @@ public abstract class CelOverloadDecl {
     }
   }
 
+  /**
+   * Helper method for declaring a member function overload with an automatically generated overload
+   * ID.
+   */
+  @CheckReturnValue
+  public static CelOverloadDecl newMemberOverload(CelType resultType, CelType... paramTypes) {
+    return newMemberOverload("", resultType, Arrays.asList(paramTypes));
+  }
+
+  /**
+   * Helper method for declaring a member function overload with an automatically generated overload
+   * ID.
+   */
+  @CheckReturnValue
+  public static CelOverloadDecl newMemberOverload(CelType resultType, List<CelType> paramTypes) {
+    return newMemberOverload("", /* doc= */ "", resultType, paramTypes);
+  }
+
   /** Helper method for declaring a member function overload */
   @CheckReturnValue
   public static CelOverloadDecl newMemberOverload(
@@ -179,6 +200,24 @@ public abstract class CelOverloadDecl {
   public static CelOverloadDecl newMemberOverload(
       String overloadId, String doc, CelType resultType, List<CelType> paramTypes) {
     return newOverload(overloadId, doc, resultType, paramTypes, /* isInstanceFunction= */ true);
+  }
+
+  /**
+   * Helper method for declaring a global function overload with an automatically generated overload
+   * ID.
+   */
+  @CheckReturnValue
+  public static CelOverloadDecl newGlobalOverload(CelType resultType, CelType... paramTypes) {
+    return newGlobalOverload("", resultType, Arrays.asList(paramTypes));
+  }
+
+  /**
+   * Helper method for declaring a global function overload with an automatically generated overload
+   * ID.
+   */
+  @CheckReturnValue
+  public static CelOverloadDecl newGlobalOverload(CelType resultType, List<CelType> paramTypes) {
+    return newGlobalOverload("", /* doc= */ "", resultType, paramTypes);
   }
 
   /** Helper method for declaring a global function overload */

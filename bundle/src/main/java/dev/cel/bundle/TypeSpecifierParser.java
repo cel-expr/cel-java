@@ -15,6 +15,10 @@
 package dev.cel.bundle;
 
 import static com.google.common.base.Preconditions.checkNotNull;
+import static dev.cel.common.CelSignatureUtils.MAX_RECURSION_DEPTH;
+import static dev.cel.common.CelSignatureUtils.isAlpha;
+import static dev.cel.common.CelSignatureUtils.isAlphaNumeric;
+import static dev.cel.common.CelSignatureUtils.isWhitespace;
 
 import com.google.common.collect.ImmutableList;
 import dev.cel.bundle.CelEnvironment.TypeDecl;
@@ -25,7 +29,6 @@ import dev.cel.common.formats.ParserContext;
  * {@code "int"}) into a {@link TypeDecl}.
  */
 final class TypeSpecifierParser {
-  private static final int MAX_RECURSION_DEPTH = 64;
   static final TypeDecl ERROR_TYPE_DECL = TypeDecl.create("*error*");
 
   private final String text;
@@ -178,20 +181,12 @@ final class TypeSpecifierParser {
   private void skipWhitespace() {
     while (pos < length) {
       char c = text.charAt(pos);
-      if (c == ' ' || c == '\t' || c == '\n' || c == '\r') {
+      if (isWhitespace(c)) {
         pos++;
       } else {
         break;
       }
     }
-  }
-
-  private static boolean isAlpha(char c) {
-    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
-  }
-
-  private static boolean isAlphaNumeric(char c) {
-    return isAlpha(c) || (c >= '0' && c <= '9');
   }
 
   private static String formatQuoted(String s) {
