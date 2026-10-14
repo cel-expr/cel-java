@@ -31,7 +31,6 @@ import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -63,18 +62,6 @@ abstract class CelParserBase implements CelParser {
 
   final ImmutableMap<String, CelMacro> getMacros() {
     return macros;
-  }
-
-  final ImmutableList<CelStandardMacro> getStandardMacros() {
-    return standardMacros;
-  }
-
-  final ImmutableSet<CelParserLibrary> getParserLibraries() {
-    return parserLibraries;
-  }
-
-  final Optional<CelMacro> findMacro(String key) {
-    return Optional.ofNullable(macros.get(key));
   }
 
   @CanIgnoreReturnValue

@@ -29,6 +29,7 @@ import dev.cel.common.types.OptionalType;
 import dev.cel.common.types.SimpleType;
 import dev.cel.common.types.TypeType;
 import dev.cel.common.values.CelValueConverter;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -90,7 +91,9 @@ public class TypeResolverTest {
     UNSIGNED_LONG(UnsignedLong.valueOf(1L), TypeType.create(SimpleType.UINT)),
     STRING("test", TypeType.create(SimpleType.STRING)),
     NULL(NullValue.NULL_VALUE, TypeType.create(SimpleType.NULL_TYPE)),
-    DURATION(ProtoTimeUtils.fromSecondsToDuration(1), TypeType.create(SimpleType.DURATION)),
+    DURATION(
+        ProtoTimeUtils.toProtoDuration(Duration.ofSeconds(1)),
+        TypeType.create(SimpleType.DURATION)),
     TIMESTAMP(ProtoTimeUtils.fromSecondsToTimestamp(1), TypeType.create(SimpleType.TIMESTAMP)),
     ARRAY_LIST(new ArrayList<>(), TypeType.create(ListType.create(SimpleType.DYN))),
     IMMUTABLE_LIST(ImmutableList.of(), TypeType.create(ListType.create(SimpleType.DYN))),

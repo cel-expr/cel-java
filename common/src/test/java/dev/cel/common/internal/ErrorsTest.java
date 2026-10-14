@@ -40,15 +40,6 @@ public final class ErrorsTest {
   }
 
   @Test
-  public void getLocationPosition() {
-    Errors errors = new Errors("test", "hello\nworld");
-    assertThat(errors.getLocationPosition(1, 1)).isEqualTo(0);
-    assertThat(errors.getLocationPosition(2, 1)).isEqualTo(6);
-    assertThat(errors.getLocationPosition(2, 6)).isEqualTo(11);
-    assertThat(errors.getLocationPosition(3, 1)).isEqualTo(-1);
-  }
-
-  @Test
   public void getPositionLocation() {
     Errors errors = new Errors("test", "hello\nworld");
     assertThat(errors.getPositionLocation(0)).isEqualTo(Errors.SourceLocation.of(1, 1));

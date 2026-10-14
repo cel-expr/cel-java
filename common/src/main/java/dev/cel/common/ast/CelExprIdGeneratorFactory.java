@@ -59,11 +59,6 @@ public final class CelExprIdGeneratorFactory {
     private final HashMap<Long, Long> idSet;
     private long exprId;
 
-    /** Checks if the given ID has been encountered before. */
-    public boolean hasId(long id) {
-      return idSet.containsKey(id);
-    }
-
     /** Generates the next available ID. */
     public long nextExprId() {
       return ++exprId;

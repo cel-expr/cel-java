@@ -50,37 +50,20 @@ public final class CelParserImplTest {
   }
 
   @Test
-  public void build_withMacros_containsAllMacros() {
-    CelParserImpl parser =
-        (CelParserImpl)
-            newParserBuilder().setStandardMacros(CelStandardMacro.STANDARD_MACROS).build();
-
-    assertThat(parser.findMacro("has:1:false")).hasValue(CelStandardMacro.HAS.getDefinition());
-    assertThat(parser.findMacro("all:2:true")).hasValue(CelStandardMacro.ALL.getDefinition());
-    assertThat(parser.findMacro("exists:2:true")).hasValue(CelStandardMacro.EXISTS.getDefinition());
-    assertThat(parser.findMacro("exists_one:2:true"))
-        .hasValue(CelStandardMacro.EXISTS_ONE.getDefinition());
-    assertThat(parser.findMacro("map:2:true")).hasValue(CelStandardMacro.MAP.getDefinition());
-    assertThat(parser.findMacro("map:3:true"))
-        .hasValue(CelStandardMacro.MAP_FILTER.getDefinition());
-    assertThat(parser.findMacro("filter:2:true")).hasValue(CelStandardMacro.FILTER.getDefinition());
-  }
-
-  @Test
   public void build_withStandardMacros_containsAllMacros() {
     CelParserImpl parser =
         (CelParserImpl)
             newParserBuilder().setStandardMacros(CelStandardMacro.STANDARD_MACROS).build();
 
-    assertThat(parser.findMacro("has:1:false")).hasValue(CelStandardMacro.HAS.getDefinition());
-    assertThat(parser.findMacro("all:2:true")).hasValue(CelStandardMacro.ALL.getDefinition());
-    assertThat(parser.findMacro("exists:2:true")).hasValue(CelStandardMacro.EXISTS.getDefinition());
-    assertThat(parser.findMacro("exists_one:2:true"))
-        .hasValue(CelStandardMacro.EXISTS_ONE.getDefinition());
-    assertThat(parser.findMacro("map:2:true")).hasValue(CelStandardMacro.MAP.getDefinition());
-    assertThat(parser.findMacro("map:3:true"))
-        .hasValue(CelStandardMacro.MAP_FILTER.getDefinition());
-    assertThat(parser.findMacro("filter:2:true")).hasValue(CelStandardMacro.FILTER.getDefinition());
+    assertThat(parser.getMacros())
+        .containsExactly(
+            "has:1:false", CelStandardMacro.HAS.getDefinition(),
+            "all:2:true", CelStandardMacro.ALL.getDefinition(),
+            "exists:2:true", CelStandardMacro.EXISTS.getDefinition(),
+            "exists_one:2:true", CelStandardMacro.EXISTS_ONE.getDefinition(),
+            "map:2:true", CelStandardMacro.MAP.getDefinition(),
+            "map:3:true", CelStandardMacro.MAP_FILTER.getDefinition(),
+            "filter:2:true", CelStandardMacro.FILTER.getDefinition());
   }
 
   @Test
@@ -95,24 +78,16 @@ public final class CelParserImplTest {
                 .addMacros(customMacro)
                 .build();
 
-    assertThat(parser.findMacro("has:1:false")).hasValue(CelStandardMacro.HAS.getDefinition());
-    assertThat(parser.findMacro("all:2:true")).hasValue(CelStandardMacro.ALL.getDefinition());
-    assertThat(parser.findMacro("exists:2:true")).hasValue(CelStandardMacro.EXISTS.getDefinition());
-    assertThat(parser.findMacro("exists_one:2:true"))
-        .hasValue(CelStandardMacro.EXISTS_ONE.getDefinition());
-    assertThat(parser.findMacro("map:2:true")).hasValue(CelStandardMacro.MAP.getDefinition());
-    assertThat(parser.findMacro("map:3:true"))
-        .hasValue(CelStandardMacro.MAP_FILTER.getDefinition());
-    assertThat(parser.findMacro("filter:2:true")).hasValue(CelStandardMacro.FILTER.getDefinition());
-    assertThat(parser.findMacro("customMacro:1:true")).hasValue(customMacro);
-  }
-
-  @Test
-  public void build_withMacro_containsMacro() {
-    CelParserImpl parser =
-        (CelParserImpl) newParserBuilder().setStandardMacros(CelStandardMacro.HAS).build();
-
-    assertThat(parser.findMacro("has:1:false")).hasValue(CelStandardMacro.HAS.getDefinition());
+    assertThat(parser.getMacros())
+        .containsExactly(
+            "has:1:false", CelStandardMacro.HAS.getDefinition(),
+            "all:2:true", CelStandardMacro.ALL.getDefinition(),
+            "exists:2:true", CelStandardMacro.EXISTS.getDefinition(),
+            "exists_one:2:true", CelStandardMacro.EXISTS_ONE.getDefinition(),
+            "map:2:true", CelStandardMacro.MAP.getDefinition(),
+            "map:3:true", CelStandardMacro.MAP_FILTER.getDefinition(),
+            "filter:2:true", CelStandardMacro.FILTER.getDefinition(),
+            "customMacro:1:true", customMacro);
   }
 
   @Test
@@ -120,7 +95,8 @@ public final class CelParserImplTest {
     CelParserImpl parser =
         (CelParserImpl) newParserBuilder().setStandardMacros(CelStandardMacro.HAS).build();
 
-    assertThat(parser.findMacro("has:1:false")).hasValue(CelStandardMacro.HAS.getDefinition());
+    assertThat(parser.getMacros())
+        .containsExactly("has:1:false", CelStandardMacro.HAS.getDefinition());
   }
 
   @Test
@@ -132,8 +108,8 @@ public final class CelParserImplTest {
                 .setStandardMacros(CelStandardMacro.HAS)
                 .build();
 
-    assertThat(parser.findMacro("has:1:false")).hasValue(CelStandardMacro.HAS.getDefinition());
-    assertThat(parser.findMacro("all:2:true")).isEmpty();
+    assertThat(parser.getMacros())
+        .containsExactly("has:1:false", CelStandardMacro.HAS.getDefinition());
   }
 
   @Test
@@ -154,7 +130,7 @@ public final class CelParserImplTest {
   public void build_containsNoMacros() {
     CelParserImpl parser = (CelParserImpl) newParserBuilder().build();
 
-    assertThat(parser.findMacro("has:1:false")).isEmpty();
+    assertThat(parser.getMacros()).isEmpty();
   }
 
   @Test
@@ -174,7 +150,7 @@ public final class CelParserImplTest {
                     })
                 .build();
 
-    assertThat(parser.findMacro("dummyMacro:*:true")).isPresent();
+    assertThat(parser.getMacros()).containsKey("dummyMacro:*:true");
   }
 
   @Test

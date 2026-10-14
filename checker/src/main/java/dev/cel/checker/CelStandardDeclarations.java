@@ -15,11 +15,9 @@
 package dev.cel.checker;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static java.util.Arrays.stream;
 
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import com.google.errorprone.annotations.Immutable;
@@ -34,7 +32,6 @@ import dev.cel.common.types.MapType;
 import dev.cel.common.types.SimpleType;
 import dev.cel.common.types.TypeParamType;
 import dev.cel.common.types.TypeType;
-import java.util.Optional;
 
 /**
  * Standard declarations for CEL.
@@ -605,13 +602,6 @@ public final class CelStandardDeclarations {
         MAP_SIZE(
             CelOverloadDecl.newMemberOverload("map_size", "map size", SimpleType.INT, MAP_OF_AB)),
         ;
-
-        private static final ImmutableMap<String, Size> ID_TO_ENUM =
-            stream(values()).collect(toImmutableMap(e -> e.celOverloadDecl().overloadId(), e -> e));
-
-        public static Optional<Size> fromOverloadId(String overloadId) {
-          return Optional.ofNullable(ID_TO_ENUM.get(overloadId));
-        }
 
         private final CelOverloadDecl celOverloadDecl;
 
@@ -1489,16 +1479,6 @@ public final class CelStandardDeclarations {
         public CelOverloadDecl celOverloadDecl() {
           return this.celOverloadDecl;
         }
-
-        /** Finds a Comparison by its overload ID. */
-        public static Optional<Comparison> fromOverloadId(String overloadId) {
-          for (Comparison c : values()) {
-            if (c.celOverloadDecl().overloadId().equals(overloadId)) {
-              return Optional.of(c);
-            }
-          }
-          return Optional.empty();
-        }
       }
 
       private Overload() {}
@@ -1516,10 +1496,6 @@ public final class CelStandardDeclarations {
 
     public String functionName() {
       return functionName;
-    }
-
-    boolean isDeprecated() {
-      return isDeprecated;
     }
 
     StandardFunction(Operator operator, StandardOverload... overloads) {

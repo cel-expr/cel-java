@@ -317,7 +317,7 @@ public class CelLiteRuntimeTest {
     CelAbstractSyntaxTree ast = CEL_COMPILER.compile(expression).getAst();
     TestAllTypes msg =
         TestAllTypes.newBuilder()
-            .setSingleDuration(ProtoTimeUtils.fromSecondsToDuration(600))
+            .setSingleDuration(ProtoTimeUtils.toProtoDuration(Duration.ofMinutes(10)))
             .build();
 
     Duration result = (Duration) CEL_RUNTIME.createProgram(ast).eval(ImmutableMap.of("msg", msg));

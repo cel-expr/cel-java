@@ -48,6 +48,7 @@ import dev.cel.common.internal.BidiConverter;
 import dev.cel.common.internal.DefaultDescriptorPool;
 import dev.cel.common.internal.DefaultMessageFactory;
 import dev.cel.common.internal.DynamicProto;
+import dev.cel.common.internal.ProtoAdapter;
 import dev.cel.common.internal.ProtoTimeUtils;
 import dev.cel.common.values.CelByteString;
 import java.util.Arrays;
@@ -390,10 +391,7 @@ public final class ProtoMessageRuntimeEqualityTest {
           {Arrays.asList(1.0, 3.0), Arrays.asList(1.0, 2.0), Result.alwaysFalse()},
           {
             AdaptingTypes.adaptingList(
-                ImmutableList.of(1, 2, 3),
-                BidiConverter.of(
-                    ProtoMessageRuntimeHelpers.INT32_TO_INT64,
-                    ProtoMessageRuntimeHelpers.INT64_TO_INT32)),
+                ImmutableList.<Number>of(1, 2, 3), ProtoAdapter.INT_CONVERTER),
             Arrays.asList(1L, 2L, 3L),
             Result.alwaysTrue()
           },
@@ -433,10 +431,7 @@ public final class ProtoMessageRuntimeEqualityTest {
                         .addValues(Value.newBuilder().setNumberValue(42.25)))
                 .build(),
             AdaptingTypes.adaptingList(
-                ImmutableList.of(-1.5f, 42.25f),
-                BidiConverter.of(
-                    ProtoMessageRuntimeHelpers.FLOAT_TO_DOUBLE,
-                    ProtoMessageRuntimeHelpers.DOUBLE_TO_FLOAT)),
+                ImmutableList.<Number>of(-1.5f, 42.25f), ProtoAdapter.DOUBLE_CONVERTER),
             Result.alwaysTrue()
           },
 
@@ -461,43 +456,33 @@ public final class ProtoMessageRuntimeEqualityTest {
           {ImmutableMap.of("key", 42.0), ImmutableMap.of("key", 42L), Result.alwaysTrue()},
           {
             AdaptingTypes.adaptingMap(
-                ImmutableMap.of("key1", 42, "key2", 31, "key3", 20),
-                BidiConverter.identity(),
-                BidiConverter.of(
-                    ProtoMessageRuntimeHelpers.INT32_TO_INT64,
-                    ProtoMessageRuntimeHelpers.INT64_TO_INT32)),
+                ImmutableMap.<Object, Number>of("key1", 42, "key2", 31, "key3", 20),
+                BidiConverter.IDENTITY,
+                ProtoAdapter.INT_CONVERTER),
             ImmutableMap.of("key1", 42L, "key2", 31L, "key3", 20L),
             Result.alwaysTrue()
           },
           {
             AdaptingTypes.adaptingMap(
-                ImmutableMap.of(1, 42.5f, 2, 31f, 3, 20.25f),
-                BidiConverter.of(
-                    ProtoMessageRuntimeHelpers.INT32_TO_INT64,
-                    ProtoMessageRuntimeHelpers.INT64_TO_INT32),
-                BidiConverter.of(
-                    ProtoMessageRuntimeHelpers.FLOAT_TO_DOUBLE,
-                    ProtoMessageRuntimeHelpers.DOUBLE_TO_FLOAT)),
+                ImmutableMap.<Number, Number>of(1, 42.5f, 2, 31f, 3, 20.25f),
+                ProtoAdapter.INT_CONVERTER,
+                ProtoAdapter.DOUBLE_CONVERTER),
             ImmutableMap.of(1L, 42.5D, 2L, 31D, 3L, 20.25D),
             Result.alwaysTrue()
           },
           {
             AdaptingTypes.adaptingMap(
-                ImmutableMap.of("1", 42.5f, "2", 31f, "3", 20.25f),
-                BidiConverter.identity(),
-                BidiConverter.of(
-                    ProtoMessageRuntimeHelpers.FLOAT_TO_DOUBLE,
-                    ProtoMessageRuntimeHelpers.DOUBLE_TO_FLOAT)),
+                ImmutableMap.<Object, Number>of("1", 42.5f, "2", 31f, "3", 20.25f),
+                BidiConverter.IDENTITY,
+                ProtoAdapter.DOUBLE_CONVERTER),
             Struct.getDefaultInstance(),
             Result.alwaysFalse()
           },
           {
             AdaptingTypes.adaptingMap(
-                ImmutableMap.of("1", 42.5f, "2", 31f, "3", 20.25f),
-                BidiConverter.identity(),
-                BidiConverter.of(
-                    ProtoMessageRuntimeHelpers.FLOAT_TO_DOUBLE,
-                    ProtoMessageRuntimeHelpers.DOUBLE_TO_FLOAT)),
+                ImmutableMap.<Object, Number>of("1", 42.5f, "2", 31f, "3", 20.25f),
+                BidiConverter.IDENTITY,
+                ProtoAdapter.DOUBLE_CONVERTER),
             Struct.newBuilder()
                 .putFields("1", Value.newBuilder().setNumberValue(42.5D).build())
                 .putFields("2", Value.newBuilder().setNumberValue(31D).build())
@@ -507,11 +492,9 @@ public final class ProtoMessageRuntimeEqualityTest {
           },
           {
             AdaptingTypes.adaptingMap(
-                ImmutableMap.of("1", 42.5f, "2", 31f, "3", 20.25f),
-                BidiConverter.identity(),
-                BidiConverter.of(
-                    ProtoMessageRuntimeHelpers.FLOAT_TO_DOUBLE,
-                    ProtoMessageRuntimeHelpers.DOUBLE_TO_FLOAT)),
+                ImmutableMap.<Object, Number>of("1", 42.5f, "2", 31f, "3", 20.25f),
+                BidiConverter.IDENTITY,
+                ProtoAdapter.DOUBLE_CONVERTER),
             Struct.newBuilder()
                 .putFields("1", Value.newBuilder().setNumberValue(42.5D).build())
                 .putFields("2", Value.newBuilder().setNumberValue(31D).build())

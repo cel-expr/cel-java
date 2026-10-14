@@ -118,11 +118,6 @@ public enum WellKnownProto {
       stream(WellKnownProto.values())
           .collect(toImmutableMap(WellKnownProto::typeName, Function.identity()));
 
-  private static final ImmutableMap<Class<?>, WellKnownProto>
-      CLASS_TO_NAME_TO_WELL_KNOWN_PROTO_MAP =
-          stream(WellKnownProto.values())
-              .collect(toImmutableMap(WellKnownProto::messageClass, Function.identity()));
-
   private static final ImmutableMultimap<String, WellKnownProto> PATH_NAME_TO_WELL_KNOWN_PROTO_MAP =
       initPathNameMap();
 
@@ -164,10 +159,6 @@ public enum WellKnownProto {
 
   public static Optional<WellKnownProto> getByTypeName(String typeName) {
     return Optional.ofNullable(TYPE_NAME_TO_WELL_KNOWN_PROTO_MAP.get(typeName));
-  }
-
-  public static Optional<WellKnownProto> getByClass(Class<?> clazz) {
-    return Optional.ofNullable(CLASS_TO_NAME_TO_WELL_KNOWN_PROTO_MAP.get(clazz));
   }
 
   /**

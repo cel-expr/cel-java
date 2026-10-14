@@ -15,7 +15,6 @@
 package dev.cel.common;
 
 import com.google.common.collect.ImmutableMap;
-import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -185,14 +184,6 @@ public enum Operator {
 
   /** Lookup an operator by its mangled name (ex: _&&_), as used within the AST. */
   public static Optional<Operator> findReverse(String op) {
-    return Optional.ofNullable(REVERSE_OPERATORS.get(op));
-  }
-
-  /** Lookup a binary operator by its mangled name, as used within the AST. */
-  static Optional<Operator> findReverseBinaryOperator(String op) {
-    if (Objects.equals(op, LOGICAL_NOT.getFunction()) || Objects.equals(op, NEGATE.getFunction())) {
-      return Optional.empty();
-    }
     return Optional.ofNullable(REVERSE_OPERATORS.get(op));
   }
 

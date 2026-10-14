@@ -15,11 +15,9 @@
 package dev.cel.common;
 
 import com.google.auto.value.AutoValue;
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.errorprone.annotations.Immutable;
 import dev.cel.common.annotations.Internal;
-import dev.cel.common.ast.CelConstant;
 import dev.cel.common.ast.CelExpr;
 import dev.cel.common.ast.CelReference;
 import dev.cel.common.types.CelType;
@@ -123,17 +121,5 @@ public abstract class CelAbstractSyntaxTree {
   public CelReference getReferenceOrThrow(long exprId) {
     return getReference(exprId)
         .orElseThrow(() -> new NoSuchElementException("Expr Id not found: " + exprId));
-  }
-
-  Optional<CelConstant> findEnumValue(long exprId) {
-    CelReference ref = references().get(exprId);
-    return ref != null ? ref.value() : Optional.empty();
-  }
-
-  Optional<ImmutableList<String>> findOverloadIDs(long exprId) {
-    CelReference ref = references().get(exprId);
-    return ref != null && !ref.value().isPresent()
-        ? Optional.of(ref.overloadIds())
-        : Optional.empty();
   }
 }

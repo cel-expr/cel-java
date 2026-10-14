@@ -58,8 +58,4 @@ public abstract class BidiConverter<A, B> {
       Converter<A, B> forwardConverter, Converter<B, A> backwardConverter) {
     return new AutoValue_BidiConverter<>(forwardConverter, backwardConverter);
   }
-
-  public static <A> BidiConverter<A, A> identity() {
-    return new AutoValue_BidiConverter<>(value -> value, value -> value);
-  }
 }

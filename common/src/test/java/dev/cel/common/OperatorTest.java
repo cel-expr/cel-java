@@ -53,24 +53,6 @@ public final class OperatorTest {
   }
 
   @Test
-  public void findReverseBinaryOperator_returnsEmptyWhenNotFound() {
-    assertThat(Operator.findReverseBinaryOperator("+")).isEmpty();
-  }
-
-  @Test
-  public void findReverseBinaryOperator_returnsEmptyForUnaryOperator() {
-    assertThat(Operator.findReverse("-_")).hasValue(Operator.NEGATE);
-    assertThat(Operator.findReverseBinaryOperator("-_")).isEmpty();
-    assertThat(Operator.findReverse("!_")).hasValue(Operator.LOGICAL_NOT);
-    assertThat(Operator.findReverseBinaryOperator("!_")).isEmpty();
-  }
-
-  @Test
-  public void findReverseBinaryOperator_returnsCorrectOperator() {
-    assertThat(Operator.findReverseBinaryOperator("_+_")).hasValue(Operator.ADD);
-  }
-
-  @Test
   @TestParameters({
     "{operator: '_?_:_', value: 8}",
     "{operator: '_||_', value: 7}",

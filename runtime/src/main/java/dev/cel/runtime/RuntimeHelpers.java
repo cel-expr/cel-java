@@ -330,17 +330,9 @@ public class RuntimeHelpers {
   // want to avoid to do this conversion eagerly, so we create views on the underlying data.
   // The below code is the extensive boilerplate to do so.
 
-  static <A> Converter<A, A> identity() {
-    return (A value) -> value;
-  }
-
   static final Converter<Integer, Long> INT32_TO_INT64 = Integer::longValue;
 
   static final Converter<Float, Double> FLOAT_TO_DOUBLE = Float::doubleValue;
-
-  static final Converter<Long, Integer> INT64_TO_INT32 = Ints::checkedCast;
-
-  static final Converter<Double, Float> DOUBLE_TO_FLOAT = Double::floatValue;
 
   /** Adapts a plain old Java object into a CEL value. */
   public Object adaptValue(Object value) {

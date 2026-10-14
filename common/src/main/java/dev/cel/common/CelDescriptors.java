@@ -50,14 +50,6 @@ public abstract class CelDescriptors {
   @AutoValue.Builder
   public abstract static class Builder {
 
-    abstract Builder setMessageTypeDescriptors(ImmutableSet<Descriptor> value);
-
-    abstract Builder setEnumDescriptors(ImmutableSet<EnumDescriptor> value);
-
-    abstract Builder setExtensionDescriptors(ImmutableMultimap<String, FieldDescriptor> value);
-
-    abstract Builder setFileDescriptors(ImmutableSet<FileDescriptor> value);
-
     protected abstract ImmutableSet.Builder<Descriptor> messageTypeDescriptorsBuilder();
 
     protected abstract ImmutableSet.Builder<EnumDescriptor> enumDescriptorsBuilder();

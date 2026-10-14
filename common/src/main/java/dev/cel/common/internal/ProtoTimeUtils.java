@@ -183,18 +183,6 @@ public final class ProtoTimeUtils {
     return normalizedTimestamp(seconds, 0);
   }
 
-  /** Create a Timestamp from the number of seconds elapsed from the epoch. */
-  public static Duration fromSecondsToDuration(long seconds) {
-    return normalizedDuration(seconds, 0);
-  }
-
-  /** Create a Timestamp from the number of seconds elapsed from the epoch. */
-  public static Duration fromMillisToDuration(long milliseconds) {
-    return normalizedDuration(
-        milliseconds / MILLIS_PER_SECOND,
-        (int) (milliseconds % MILLIS_PER_SECOND * NANOS_PER_MILLISECOND));
-  }
-
   /** Throws an {@link IllegalArgumentException} if the given {@link Duration} is not valid. */
   @CanIgnoreReturnValue
   private static Duration checkValid(Duration duration) {
@@ -393,11 +381,6 @@ public final class ProtoTimeUtils {
     Instant newInstant = javaInstant.minus(javaDuration);
 
     return ProtoTimeUtils.toProtoTimestamp(newInstant);
-  }
-
-  /** Calculate the difference between two timestamps. */
-  public static Duration between(Timestamp from, Timestamp to) {
-    return between(from, to, /* validateOverflow= */ true);
   }
 
   /** Calculate the difference between two timestamps. */

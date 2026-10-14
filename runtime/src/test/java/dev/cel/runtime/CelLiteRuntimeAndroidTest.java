@@ -668,9 +668,9 @@ public class CelLiteRuntimeAndroidTest {
             .putAllMapBoolDuration(
                 ImmutableMap.of(
                     true,
-                    ProtoTimeUtils.fromSecondsToDuration(15),
+                    ProtoTimeUtils.toProtoDuration(Duration.ofSeconds(15)),
                     false,
-                    ProtoTimeUtils.fromSecondsToDuration(16)))
+                    ProtoTimeUtils.toProtoDuration(Duration.ofSeconds(16))))
             .putAllMapBoolTimestamp(
                 ImmutableMap.of(
                     true,
@@ -697,9 +697,9 @@ public class CelLiteRuntimeAndroidTest {
             .putAllMapBoolDuration(
                 ImmutableMap.of(
                     true,
-                    ProtoTimeUtils.fromSecondsToDuration(15),
+                    ProtoTimeUtils.toProtoDuration(Duration.ofSeconds(15)),
                     false,
-                    ProtoTimeUtils.fromSecondsToDuration(16)))
+                    ProtoTimeUtils.toProtoDuration(Duration.ofSeconds(16))))
             .putAllMapBoolTimestamp(
                 ImmutableMap.of(
                     true,

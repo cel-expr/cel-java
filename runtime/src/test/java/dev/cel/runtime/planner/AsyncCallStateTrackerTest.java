@@ -123,7 +123,6 @@ public final class AsyncCallStateTrackerTest {
 
     assertThat(overloadExecuted.get()).isFalse();
     assertThat(gate.activeCount()).isEqualTo(0);
-    assertThat(tracker.hasInFlightCalls()).isFalse();
     if (withObserver) {
       assertThat(observer.startedCalls()).hasSize(1);
       assertThat(getOnlyElement(observer.finishedCalls()).error)
@@ -153,9 +152,9 @@ public final class AsyncCallStateTrackerTest {
       queuedTasks.get(0).run();
     }
 
+    assertThat(queuedTasks).hasSize(releaseAndRetry ? 1 : 0);
     assertThat(overloadCalled.get()).isEqualTo(releaseAndRetry);
     assertThat(gate.activeCount()).isEqualTo(releaseAndRetry ? 0 : 1);
-    assertThat(tracker.hasInFlightCalls()).isFalse();
   }
 
   @Test
@@ -366,7 +365,7 @@ public final class AsyncCallStateTrackerTest {
         });
 
     assertThat(results).hasSize(16);
-    assertThat(tracker.hasInFlightCalls()).isFalse();
+    assertThat(gate.activeCount()).isEqualTo(0);
   }
 
   private enum OverloadFailureMode {
@@ -404,7 +403,6 @@ public final class AsyncCallStateTrackerTest {
         failureMode == OverloadFailureMode.RETURNS_NULL_FUTURE
             || failureMode == OverloadFailureMode.FUTURE_COMPLETES_WITH_NULL;
     assertThat(gate.activeCount()).isEqualTo(0);
-    assertThat(tracker.hasInFlightCalls()).isFalse();
     if (withObserver) {
       assertThat(getOnlyElement(observer.startedArgs())).containsExactly("x");
       Throwable recordedError = getOnlyElement(observer.finishedCalls()).error;
@@ -438,7 +436,6 @@ public final class AsyncCallStateTrackerTest {
         unknowns.callIds(), rejectingExecutor, gate, coordinator, /* observer= */ null);
 
     assertThat(gate.activeCount()).isEqualTo(0);
-    assertThat(tracker.hasInFlightCalls()).isFalse();
   }
 
   @Test
@@ -460,7 +457,6 @@ public final class AsyncCallStateTrackerTest {
     assertThat(finished.result).isEqualTo(expectedResult);
     assertThat(finished.call.functionName()).isEqualTo("fn");
     assertThat(gate.activeCount()).isEqualTo(0);
-    assertThat(tracker.hasInFlightCalls()).isFalse();
   }
 
   @Test
@@ -477,7 +473,6 @@ public final class AsyncCallStateTrackerTest {
 
     assertThat(callsDispatched.get()).isEqualTo(1);
     assertThat(gate.activeCount()).isEqualTo(0);
-    assertThat(tracker.hasInFlightCalls()).isFalse();
   }
 
   @Test
@@ -500,7 +495,6 @@ public final class AsyncCallStateTrackerTest {
     assertThat(finished.error).isEqualTo(succeedsAfterCancel ? null : lateError);
     assertThat(finished.call.functionName()).isEqualTo("fn");
     assertThat(gate.activeCount()).isEqualTo(0);
-    assertThat(tracker.hasInFlightCalls()).isFalse();
   }
 
   @Test
@@ -512,7 +506,7 @@ public final class AsyncCallStateTrackerTest {
     AccumulatedUnknowns whileRunning = recordDefaultCall(args -> pendingFuture);
 
     assertThat(whileRunning.callIds()).containsExactlyElementsIn(initial.callIds());
-    assertThat(tracker.hasInFlightCalls()).isTrue();
+    assertThat(gate.activeCount()).isEqualTo(1);
   }
 
   @Test

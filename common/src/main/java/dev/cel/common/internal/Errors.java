@@ -249,18 +249,6 @@ public final class Errors {
     return String.format("%s:%d:%d", current.description, line, column);
   }
 
-  /** Returns the raw codepoint offset for the given line and column. */
-  public int getLocationPosition(int line, int column) {
-    ImmutableIntArray lineOffsets = getLineOffsets();
-    if (line == 1) {
-      return column - 1;
-    }
-    if (line > 1 && line - 1 < lineOffsets.length()) {
-      return lineOffsets.get(line - 2) + column - 1;
-    }
-    return -1;
-  }
-
   /** Returns the {@code SourceLocation} for the given codepoint offset {@code position}. */
   public SourceLocation getPositionLocation(int position) {
     Context current = context.peekFirst();

@@ -222,15 +222,6 @@ final class AsyncCallStateTracker {
     throw new AssertionError("Unexpected record state: " + record.state());
   }
 
-  boolean hasInFlightCalls() {
-    for (AsyncCallRecord record : recordsById.values()) {
-      if (record.state() == AsyncCallRecord.State.RUNNING) {
-        return true;
-      }
-    }
-    return false;
-  }
-
   void cancelInFlight() {
     for (AsyncCallRecord record : recordsById.values()) {
       record.cancelInFlight();

@@ -730,7 +730,7 @@ public abstract class BaseInterpreterTest extends CelBaselineTestCase {
     declareVariable(
         "message", StructTypeReference.create(TestAllTypes.getDescriptor().getFullName()));
     declareVariable("list", ListType.create(SimpleType.DYN));
-    com.google.protobuf.Duration duration = ProtoTimeUtils.fromSecondsToDuration(100);
+    com.google.protobuf.Duration duration = ProtoTimeUtils.toProtoDuration(Duration.ofSeconds(100));
     Any any = Any.pack(duration);
     TestAllTypes message = TestAllTypes.newBuilder().setSingleAny(any).build();
 
@@ -1963,7 +1963,7 @@ public abstract class BaseInterpreterTest extends CelBaselineTestCase {
             "ts",
             ProtoTimeUtils.fromSecondsToTimestamp(100),
             "du",
-            ProtoTimeUtils.fromMillisToDuration(200)));
+            ProtoTimeUtils.toProtoDuration(Duration.ofMillis(200))));
   }
 
   @Test
@@ -2419,7 +2419,7 @@ public abstract class BaseInterpreterTest extends CelBaselineTestCase {
 
     // Test any unpacking
     // With well-known type
-    Any anyDuration = Any.pack(ProtoTimeUtils.fromSecondsToDuration(100));
+    Any anyDuration = Any.pack(ProtoTimeUtils.toProtoDuration(Duration.ofSeconds(100)));
     declareVariable("dur", SimpleType.TIMESTAMP);
     source = "TestAllTypes { single_any: dur }.single_any";
     assertThat(runTest(ImmutableMap.of("dur", anyDuration))).isInstanceOf(Duration.class);

@@ -36,7 +36,6 @@ import com.google.protobuf.UInt64Value;
 import com.google.protobuf.Value;
 import com.google.testing.junit.testparameterinjector.TestParameterInjector;
 import com.google.testing.junit.testparameterinjector.TestParameters;
-import java.util.List;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
@@ -69,16 +68,6 @@ public class WellKnownProtoTest {
   @TestParameters("{typeName: 'google.protobuf.Timestamp'}")
   public void isWrapperType_withTypeName_false(String typeName) {
     assertThat(WellKnownProto.isWrapperType(typeName)).isFalse();
-  }
-
-  @Test
-  public void getByClass_success() {
-    assertThat(WellKnownProto.getByClass(FloatValue.class)).hasValue(WellKnownProto.FLOAT_VALUE);
-  }
-
-  @Test
-  public void getByClass_unknownClass_returnsEmpty() {
-    assertThat(WellKnownProto.getByClass(List.class)).isEmpty();
   }
 
   @Test
