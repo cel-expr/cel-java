@@ -11,6 +11,7 @@ package(
 CEL_SOURCES = [
     "Cel.java",
     "CelBuilder.java",
+    "CelFunction.java",
 ]
 
 java_library(
@@ -19,9 +20,12 @@ java_library(
     tags = [
     ],
     deps = [
+        "//:auto_value",
         "//checker:checker_legacy_environment",
         "//checker:proto_type_mask",
         "//checker:standard_decl",
+        "//common:cel_function_decl",
+        "//common:cel_overload_decl",
         "//common:compiler_common",
         "//common:container",
         "//common:options",
@@ -35,6 +39,7 @@ java_library(
         "@cel_spec//proto/cel/expr:checked_java_proto",
         "@maven//:com_google_code_findbugs_annotations",
         "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:com_google_guava_guava",
         "@maven//:com_google_protobuf_protobuf_java",
     ],
 )

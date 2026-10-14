@@ -117,6 +117,20 @@ public interface CelBuilder {
   @CanIgnoreReturnValue
   CelBuilder addFunctionDeclarations(Iterable<CelFunctionDecl> celFunctionDecls);
 
+  /**
+   * Add one or more {@link CelFunction} definitions (combining compile-time declarations and
+   * runtime bindings) to the CEL environment.
+   */
+  @CanIgnoreReturnValue
+  CelBuilder addFunctions(CelFunction... functions);
+
+  /**
+   * Add a collection of {@link CelFunction} definitions (combining compile-time declarations and
+   * runtime bindings) to the CEL environment.
+   */
+  @CanIgnoreReturnValue
+  CelBuilder addFunctions(Iterable<CelFunction> functions);
+
   /** Add variable declaration {@code CelVarDecl} to the CEL environment. */
   @CanIgnoreReturnValue
   CelBuilder addVarDeclarations(CelVarDecl... celVarDecls);
