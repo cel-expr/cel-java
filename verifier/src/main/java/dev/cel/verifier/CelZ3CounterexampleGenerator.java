@@ -35,6 +35,7 @@ import org.jspecify.annotations.Nullable;
 final class CelZ3CounterexampleGenerator {
 
   private static final int MAX_ELEMENTS_TO_PRINT = 15;
+  private static final int MAX_NESTING_DEPTH = 32;
 
   private CelZ3CounterexampleGenerator() {}
 
@@ -57,7 +58,7 @@ final class CelZ3CounterexampleGenerator {
       Expr<?> constInterp = model.getConstInterp(decl);
       if (constInterp != null) {
         bindings.add(
-            String.format("\n  %s = %s", name, formatExpr(ctx, typeSystem, model, constInterp)));
+            String.format("\n  %s = %s", name, formatExpr(ctx, typeSystem, model, constInterp, 0)));
       }
     }
 
@@ -77,22 +78,29 @@ final class CelZ3CounterexampleGenerator {
   }
 
   private static String formatExpr(
-      Context ctx, CelZ3TypeSystem typeSystem, Model model, @Nullable Expr<?> expr) {
+      Context ctx, CelZ3TypeSystem typeSystem, Model model, @Nullable Expr<?> expr, int depth) {
     Preconditions.checkState(expr != null, "Z3 failed to evaluate the expression natively.");
+    // Models may contain self-referential values (e.g. a map whose value refers back to the map
+    // itself), so bound the nesting depth to avoid unbounded recursion.
+    if (depth > MAX_NESTING_DEPTH) {
+      return "...";
+    }
 
     FuncDecl decl = expr.getFuncDecl();
 
     // Handle CelType constructors wrapper unwrapping
     if (decl.equals(typeSystem.intCons().ConstructorDecl())) {
-      return formatExpr(ctx, typeSystem, model, expr.getArgs()[0]);
+      return formatExpr(ctx, typeSystem, model, expr.getArgs()[0], depth + 1);
     } else if (decl.equals(typeSystem.timestampCons().ConstructorDecl())) {
-      return "timestamp(" + formatExpr(ctx, typeSystem, model, expr.getArgs()[0]) + ")";
+      return "timestamp(" + formatExpr(ctx, typeSystem, model, expr.getArgs()[0], depth + 1) + ")";
     } else if (decl.equals(typeSystem.durationCons().ConstructorDecl())) {
-      return "duration('" + formatExpr(ctx, typeSystem, model, expr.getArgs()[0]) + "s')";
+      return "duration('"
+          + formatExpr(ctx, typeSystem, model, expr.getArgs()[0], depth + 1)
+          + "s')";
     } else if (decl.equals(typeSystem.uintCons().ConstructorDecl())) {
-      return formatExpr(ctx, typeSystem, model, expr.getArgs()[0]) + "u";
+      return formatExpr(ctx, typeSystem, model, expr.getArgs()[0], depth + 1) + "u";
     } else if (decl.equals(typeSystem.boolCons().ConstructorDecl())) {
-      return formatExpr(ctx, typeSystem, model, expr.getArgs()[0]);
+      return formatExpr(ctx, typeSystem, model, expr.getArgs()[0], depth + 1);
     } else if (decl.equals(typeSystem.stringCons().ConstructorDecl())) {
       return expr.getArgs()[0].toString();
     } else if (decl.equals(typeSystem.bytesCons().ConstructorDecl())) {
@@ -121,11 +129,11 @@ final class CelZ3CounterexampleGenerator {
       }
       return doubleArg.toString();
     } else if (decl.equals(typeSystem.listCons().ConstructorDecl())) {
-      return reconstructList(ctx, typeSystem, model, expr.getArgs()[0]);
+      return reconstructList(ctx, typeSystem, model, expr.getArgs()[0], depth + 1);
     } else if (decl.equals(typeSystem.mapCons().ConstructorDecl())) {
-      return reconstructMap(ctx, typeSystem, model, expr.getArgs()[0]);
+      return reconstructMap(ctx, typeSystem, model, expr.getArgs()[0], depth + 1);
     } else if (decl.equals(typeSystem.messageCons().ConstructorDecl())) {
-      return reconstructMessage(ctx, typeSystem, model, expr.getArgs()[0]);
+      return reconstructMessage(ctx, typeSystem, model, expr.getArgs()[0], depth + 1);
     } else if (decl.equals(typeSystem.errorCons().ConstructorDecl())) {
       return "Error";
     } else if (decl.equals(typeSystem.unknownCons().ConstructorDecl())) {
@@ -145,7 +153,7 @@ final class CelZ3CounterexampleGenerator {
                 model,
                 typeSystem.getOptionalValue(optRef),
                 String.format("Z3 failed to evaluate optValue natively for %s", optRef));
-        return "optional(" + formatExpr(ctx, typeSystem, model, valueExpr) + ")";
+        return "optional(" + formatExpr(ctx, typeSystem, model, valueExpr, depth + 1) + ")";
       } else if (hasValueExpr.isFalse()) {
         return "optional.none()";
       }
@@ -155,7 +163,7 @@ final class CelZ3CounterexampleGenerator {
   }
 
   private static String reconstructList(
-      Context ctx, CelZ3TypeSystem typeSystem, Model model, Expr<?> listRef) {
+      Context ctx, CelZ3TypeSystem typeSystem, Model model, Expr<?> listRef, int depth) {
     Expr<?> lenExpr =
         evaluateStrict(
             model,
@@ -173,7 +181,7 @@ final class CelZ3CounterexampleGenerator {
               ctx.mkNth(typeSystem.getSeq(listRef), ctx.mkInt(i)),
               String.format(
                   "Z3 failed to evaluate list element at index %d for list %s", i, listRef));
-      elements.add(formatExpr(ctx, typeSystem, model, elem));
+      elements.add(formatExpr(ctx, typeSystem, model, elem, depth + 1));
     }
     if (length > printLimit) {
       elements.add("... (" + (length - printLimit) + " more elements)");
@@ -183,7 +191,7 @@ final class CelZ3CounterexampleGenerator {
   }
 
   private static String reconstructMap(
-      Context ctx, CelZ3TypeSystem typeSystem, Model model, Expr<?> mapRef) {
+      Context ctx, CelZ3TypeSystem typeSystem, Model model, Expr<?> mapRef, int depth) {
     Expr<?> lenExpr =
         evaluateStrict(
             model,
@@ -218,9 +226,9 @@ final class CelZ3CounterexampleGenerator {
                 ctx.mkSelect((ArrayExpr) typeSystem.getMapValues(mapRef), key),
                 String.format("Z3 failed to evaluate map value for key %s in map %s", key, mapRef));
         entries.add(
-            formatExpr(ctx, typeSystem, model, key)
+            formatExpr(ctx, typeSystem, model, key, depth + 1)
                 + ": "
-                + formatExpr(ctx, typeSystem, model, value));
+                + formatExpr(ctx, typeSystem, model, value, depth + 1));
       }
     }
     if (length > printLimit) {
@@ -231,7 +239,7 @@ final class CelZ3CounterexampleGenerator {
   }
 
   private static String reconstructMessage(
-      Context ctx, CelZ3TypeSystem typeSystem, Model model, Expr<?> msgRef) {
+      Context ctx, CelZ3TypeSystem typeSystem, Model model, Expr<?> msgRef, int depth) {
     Expr<?> presenceArray =
         evaluateStrict(
             model,
@@ -244,7 +252,7 @@ final class CelZ3CounterexampleGenerator {
             typeSystem.getMsgTypeName(msgRef),
             String.format("Z3 failed to evaluate type name natively for msg %s", msgRef));
 
-    String typeName = formatExpr(ctx, typeSystem, model, typeNameExpr).replace("\"", "");
+    String typeName = formatExpr(ctx, typeSystem, model, typeNameExpr, depth + 1).replace("\"", "");
 
     Set<Expr<?>> keys = new LinkedHashSet<>();
     extractKeys(presenceArray, keys);
@@ -265,8 +273,8 @@ final class CelZ3CounterexampleGenerator {
                 ctx.mkSelect((ArrayExpr) typeSystem.getMsgValues(msgRef), key),
                 String.format("Z3 failed to evaluate msg value for key %s in msg %s", key, msgRef));
 
-        String fieldName = formatExpr(ctx, typeSystem, model, key).replace("\"", "");
-        entries.add(fieldName + ": " + formatExpr(ctx, typeSystem, model, value));
+        String fieldName = formatExpr(ctx, typeSystem, model, key, depth + 1).replace("\"", "");
+        entries.add(fieldName + ": " + formatExpr(ctx, typeSystem, model, value, depth + 1));
       }
     }
 
