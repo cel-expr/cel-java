@@ -524,15 +524,26 @@ public final class CelPolicyVerifierImplTest {
     assertThat(results).containsKey("universal_no_unapproved_privileged_prod");
     assertThat(results.get("universal_no_unapproved_privileged_prod").status())
         .isEqualTo(VerificationStatus.VIOLATED);
+    // Both counterexamples are valid bypasses of the invariant; which one is reported depends on
+    // the Z3 version (4.x vs. 5.x) used to solve the constraints.
+    String adminBypassCounterexample =
+        "Invariant 'universal_no_unapproved_privileged_prod' violation detected."
+            + " Counterexample input:\n"
+            + "  is_owner = false\n"
+            + "  is_privileged = true\n"
+            + "  is_prod = true\n"
+            + "  has_approval = false\n"
+            + "  is_admin = true";
+    String ownerBypassCounterexample =
+        "Invariant 'universal_no_unapproved_privileged_prod' violation detected."
+            + " Counterexample input:\n"
+            + "  is_owner = true\n"
+            + "  is_prod = true\n"
+            + "  has_approval = false\n"
+            + "  is_privileged = true\n"
+            + "  is_admin = false";
     assertThat(results.get("universal_no_unapproved_privileged_prod").message())
-        .isEqualTo(
-            "Invariant 'universal_no_unapproved_privileged_prod' violation detected."
-                + " Counterexample input:\n"
-                + "  is_owner = false\n"
-                + "  is_privileged = true\n"
-                + "  is_prod = true\n"
-                + "  has_approval = false\n"
-                + "  is_admin = true");
+        .isAnyOf(adminBypassCounterexample, ownerBypassCounterexample);
   }
 
   @Test
