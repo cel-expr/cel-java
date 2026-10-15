@@ -1,0 +1,10 @@
+# proto-file: learning/gemini/_agents/cl_review_agent/agentic_review.proto
+# proto-message: AgenticReview
+
+conditional_capability_groups {
+  review_capability_skills: "third_party/cel/_agents/skills/cel_review/SKILL.md"
+  path_expression_exclusion: "legacy/..."
+  path_expression_exclusion: ".../copy.bara.sky"
+  path_expression_exclusion: ".../OWNERS"
+  path_expression_exclusion: ".../METADATA"
+}
