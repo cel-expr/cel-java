@@ -30,6 +30,7 @@ import com.google.protobuf.Message;
 import com.google.protobuf.NullValue;
 import com.google.protobuf.TypeRegistry;
 import dev.cel.common.CelDescriptors;
+import dev.cel.common.internal.DefaultInstanceMessageFactory;
 import dev.cel.common.internal.ProtoTimeUtils;
 import dev.cel.common.types.CelType;
 import dev.cel.common.types.ListType;
@@ -91,7 +92,10 @@ public final class ExprValueUtils {
             "Unknown type, descriptor was not found in registry: "
                 + value.getObjectValue().getTypeUrl());
       }
-      Message prototype = DynamicMessage.getDefaultInstance(descriptor);
+      Message prototype =
+          DefaultInstanceMessageFactory.getInstance()
+              .getPrototype(descriptor)
+              .orElseGet(() -> DynamicMessage.getDefaultInstance(descriptor));
       return prototype
           .getParserForType()
           .parseFrom(value.getObjectValue().getValue(), extensionRegistry);

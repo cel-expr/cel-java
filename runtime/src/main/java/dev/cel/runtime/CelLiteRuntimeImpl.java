@@ -21,6 +21,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Iterables;
 import javax.annotation.concurrent.ThreadSafe;
 import dev.cel.common.CelAbstractSyntaxTree;
 import dev.cel.common.CelContainer;
@@ -31,6 +32,7 @@ import dev.cel.common.values.CelValueConverter;
 import dev.cel.common.values.CelValueProvider;
 import dev.cel.runtime.planner.ProgramPlanner;
 import dev.cel.runtime.standard.CelStandardFunction;
+import dev.cel.runtime.standard.TypeFunction;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
@@ -189,15 +191,24 @@ final class CelLiteRuntimeImpl implements CelLiteRuntime {
         }
       }
 
+      CelTypeProvider celTypeProvider = DefaultTypeProvider.getInstance();
+      if (this.celTypeProvider != null) {
+        celTypeProvider =
+            new CelTypeProvider.CombinedCelTypeProvider(celTypeProvider, this.celTypeProvider);
+      }
+
       ImmutableMap.Builder<String, CelFunctionBinding> functionBindingsBuilder =
           ImmutableMap.builder();
 
       ImmutableSet<CelStandardFunction> standardFunctions = standardFunctionBuilder.build();
       if (!standardFunctions.isEmpty()) {
-        for (CelStandardFunction standardFunction : standardFunctions) {
-          ImmutableSet<CelFunctionBinding> standardFunctionBinding =
-              standardFunction.newFunctionBindings(celOptions, runtimeEquality);
-          for (CelFunctionBinding func : standardFunctionBinding) {
+        TypeFunction typeFunction =
+            TypeFunction.create(
+                TypeResolver.create(celTypeProvider, celValueProvider.celValueConverter()));
+        for (CelStandardFunction standardFunction :
+            Iterables.concat(standardFunctions, ImmutableList.of(typeFunction))) {
+          for (CelFunctionBinding func :
+              standardFunction.newFunctionBindings(celOptions, runtimeEquality)) {
             functionBindingsBuilder.put(func.getOverloadId(), func);
           }
         }
@@ -221,12 +232,6 @@ final class CelLiteRuntimeImpl implements CelLiteRuntime {
                     func.isStrict(),
                     func.getDefinition());
               });
-
-      CelTypeProvider celTypeProvider = DefaultTypeProvider.getInstance();
-      if (this.celTypeProvider != null) {
-        celTypeProvider =
-            new CelTypeProvider.CombinedCelTypeProvider(celTypeProvider, this.celTypeProvider);
-      }
 
       ProgramPlanner planner =
           ProgramPlanner.newPlanner(

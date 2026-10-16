@@ -1,5 +1,5 @@
 load("@rules_java//java:defs.bzl", "java_library")
-load("//conformance/src/test/java/dev/cel/conformance:conformance_test.bzl", "MODE", "conformance_test")
+load("//conformance/src/test/java/dev/cel/conformance:conformance_test.bzl", "MODE", "RUNTIME", "conformance_test")
 
 package(default_applicable_licenses = [
     "//:license",
@@ -26,17 +26,33 @@ java_library(
         "//common/ast:cel_block",
         "//common/types",
         "//common/types:cel_proto_types",
+        "//common/types:message_type_provider",
+        "//common/types:type_providers",
+        "//common/values:cel_value_provider",
+        "//common/values:proto_message_lite_value_provider",
         "//compiler",
         "//compiler:compiler_builder",
         "//extensions",
         "//extensions:bindings",
+        "//extensions:comprehensions_runtime_library",
+        "//extensions:encoders_runtime_library",
+        "//extensions:lists_runtime_library",
+        "//extensions:math_runtime_library",
         "//extensions:optional_library",
+        "//extensions:sets_runtime_library",
+        "//extensions:strings_runtime_library",
         "//parser:macro",
         "//parser:parser_builder",
         "//parser:parser_factory",
         "//runtime",
+        "//runtime:lite_runtime",
+        "//runtime:lite_runtime_factory",
+        "//runtime:program",
         "//runtime:runtime_planner_impl",
+        "//runtime:standard_functions",
         "//testing:expr_value_utils",
+        "//testing/protos:test_all_types_cel_java_proto2",
+        "//testing/protos:test_all_types_cel_java_proto3",
         "@cel_spec//proto/cel/expr:expr_java_proto",
         "@cel_spec//proto/cel/expr/conformance/proto2:test_all_types_java_proto",
         "@cel_spec//proto/cel/expr/conformance/proto3:test_all_types_java_proto",
@@ -63,10 +79,15 @@ java_library(
     tags = ["conformance_maven"],
     deps = MAVEN_JAR_DEPS + [
         "//:java_truth",
+        "//common/values:proto_message_lite_value_provider",
         "//compiler:compiler_builder",
         "//parser:parser_factory",
+        "//runtime:lite_runtime",
+        "//runtime:lite_runtime_factory",
         "//runtime:runtime_planner_impl",
         "//testing:expr_value_utils",
+        "//testing/protos:test_all_types_cel_java_proto2",
+        "//testing/protos:test_all_types_cel_java_proto3",
         "@cel_spec//proto/cel/expr:expr_java_proto",
         "@cel_spec//proto/cel/expr/conformance/proto2:test_all_types_java_proto",
         "@cel_spec//proto/cel/expr/conformance/proto3:test_all_types_java_proto",
@@ -168,6 +189,46 @@ _TESTS_TO_SKIP_PLANNER = [
     "enums/strong_proto3",
 ]
 
+_TESTS_TO_SKIP_LITE = _TESTS_TO_SKIP_PLANNER + [
+    # Optionals are not supported in CelLiteRuntime.
+    "optionals",
+    "block_ext/basic/optional_list,optional_map,optional_map_chained,optional_message",
+
+    # Proto2 extensions are not supported in CelLiteRuntime.
+    "proto2_ext",
+    "proto2/extensions_has",
+    "proto2/extensions_get",
+
+    # TODO: Message creation with prepopulated fields, Any unpacking, and Proto
+    # Differencer equality are not yet supported in CelLiteRuntime.
+    "comparisons/eq_literal/eq_dyn_json_null,not_eq_dyn_proto2_msg_null,not_eq_dyn_proto3_msg_null",
+    "comparisons/eq_wrapper",
+    "comparisons/ne_literal/ne_proto2,ne_proto3,ne_proto2_missing_fields_neq,ne_proto3_missing_fields_neq,ne_proto_different_types,ne_proto_nan_not_equal",
+    "comparisons/ne_literal/ne_proto2_any_unpack,ne_proto2_any_unpack_bytewise_fallback,ne_proto3_any_unpack,ne_proto3_any_unpack_bytewise_fallback",
+    "dynamic",
+    "enums/legacy_proto2/assign_standalone_name,assign_standalone_int,assign_standalone_int_too_big,assign_standalone_int_too_neg,assign_repeated_enum,list_enum_as_list_int,enum_as_int",
+    "enums/legacy_proto3/assign_standalone_name,assign_standalone_int,assign_standalone_int_big,assign_standalone_int_neg,assign_standalone_int_too_big,assign_standalone_int_too_neg,assign_repeated_enum,list_enum_as_list_int,enum_as_int",
+    "parse/nest/message_literal",
+    "parse/repeat/message_literal",
+    "parse/whitespace",
+    "parse/comments",
+    "parse/struct_field_names",
+    "proto2/empty_field/scalar_with_default",
+    "proto2/literal_singular",
+    "proto2/literal_wellknown",
+    "proto2/set_null",
+    "proto2/quoted_fields",
+    "proto2/has/repeated_none_explicit,repeated_one,repeated_many,map_none_explicit,map_one_default,map_one,map_many,required,optional_set_no_default,optional_set_with_default,optional_set_to_default,optional_message_set,optional_enum_set,optional_enum_set_zero,oneof_other_set,oneof_set,oneof_set_default",
+    "proto3/literal_singular",
+    "proto3/literal_wellknown",
+    "proto3/set_null",
+    "proto3/quoted_fields",
+    "proto3/has/repeated_none_explicit,repeated_one,repeated_many,map_none_explicit,map_one_default,map_one,map_many,single_set,single_set_to_default,single_message_set,single_message_set_to_default,single_enum_set,single_enum_set_zero,oneof_other_set,oneof_set,oneof_set_default",
+    "type_deductions/complex_initializers/struct",
+    "type_deductions/field_access/int_field",
+    "wrappers",
+]
+
 conformance_test(
     name = "conformance",
     data = _ALL_TESTS,
@@ -190,6 +251,13 @@ conformance_test(
 conformance_test(
     name = "conformance_planner",
     data = _ALL_TESTS,
+    runtime = RUNTIME.PLANNER,
     skip_tests = _TESTS_TO_SKIP_PLANNER,
-    use_planner = True,
+)
+
+conformance_test(
+    name = "conformance_lite",
+    data = _ALL_TESTS,
+    runtime = RUNTIME.LITE,
+    skip_tests = _TESTS_TO_SKIP_LITE,
 )

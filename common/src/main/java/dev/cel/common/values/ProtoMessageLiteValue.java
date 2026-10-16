@@ -133,19 +133,23 @@ abstract class ProtoMessageLiteValue extends StructValue<String, MessageLite>
 
   @Override
   public Object select(String field) {
-    FieldLiteDescriptor fd = descriptor().findByFieldName(field);
-    if (fd == null) {
-      throw CelAttributeNotFoundException.of(
-          String.format("field '%s' is not declared in message '%s'", field, protoTypeName()));
-    }
+    FieldLiteDescriptor fd = findFieldDescriptor(field);
     Object fieldValue = readField(fd);
     return fieldValue != null ? fieldValue : protoLiteCelValueConverter().getDefaultCelValue(fd);
   }
 
   @Override
   public Optional<Object> find(String field) {
-    // Per SelectableValue#find, a field that doesn't exist is reported as absent.
-    return Optional.ofNullable(descriptor().findByFieldName(field)).map(this::readField);
+    return Optional.ofNullable(readField(findFieldDescriptor(field)));
+  }
+
+  private FieldLiteDescriptor findFieldDescriptor(String field) {
+    FieldLiteDescriptor fd = descriptor().findByFieldName(field);
+    if (fd == null) {
+      throw CelAttributeNotFoundException.of(
+          String.format("field '%s' is not declared in message '%s'", field, protoTypeName()));
+    }
+    return fd;
   }
 
   @Override
