@@ -132,8 +132,7 @@ public final class CelVerifierZ3ImplTest {
                   TestAllTypes.getDescriptor(), TestAllTypes.NestedMessage.getDescriptor()))
           .build();
 
-  private static final CelVerifier VERIFIER =
-      CelVerifierFactory.newVerifier(CEL).setTypeProvider(TYPE_PROVIDER).build();
+  private static final CelVerifier VERIFIER = CelVerifierFactory.newVerifier(CEL).build();
 
   @Before
   public void setUp() {
@@ -1866,7 +1865,12 @@ public final class CelVerifierZ3ImplTest {
         "TestAllTypes{single_int64: int_list.all(i, v, i < 5) ? 0 : 1}",
         "TestAllTypes{single_sint64: int_list.all(i, v, i < 5) ? 0 : 1}"),
     DYN_RANGE_DIFFERENT_COMPREHENSIONS("dyn_var.all(e, e > 0)", "dyn_var.all(e, e < 0)"),
-    CHAINED_MAP_ALL_TRUE("int_list.map(x, 1).all(v, v == 1)", "true");
+    CHAINED_MAP_ALL_TRUE("int_list.map(x, 1).all(v, v == 1)", "true"),
+    TIMESTAMP_STRUCT_NONZERO_NANOS(
+        "google.protobuf.Timestamp{seconds: 100, nanos: 500}", "timestamp(100)"),
+    DURATION_STRUCT_NONZERO_NANOS(
+        "google.protobuf.Duration{seconds: 100, nanos: 500}",
+        "google.protobuf.Duration{seconds: 100}");
 
     private final String exprA;
     private final String exprB;
@@ -2159,6 +2163,59 @@ public final class CelVerifierZ3ImplTest {
     JSON_VALUE_OPTIONAL_NULL_VALUE_NONE(
         "google.protobuf.Value{?null_value: optional.none()}", "null"),
     JSON_VALUE_OPTIONAL_NULL_VALUE_OF("google.protobuf.Value{?null_value: optional.of(0)}", "null"),
+    WRAPPER_INT64_VALUE("google.protobuf.Int64Value{value: 42}", "42"),
+    WRAPPER_INT64_EMPTY("google.protobuf.Int64Value{}", "0"),
+    WRAPPER_INT32_VALUE("google.protobuf.Int32Value{value: 42}", "42"),
+    WRAPPER_INT32_EMPTY("google.protobuf.Int32Value{}", "0"),
+    WRAPPER_UINT64_VALUE("google.protobuf.UInt64Value{value: 42u}", "42u"),
+    WRAPPER_UINT64_EMPTY("google.protobuf.UInt64Value{}", "0u"),
+    WRAPPER_UINT32_VALUE("google.protobuf.UInt32Value{value: 42u}", "42u"),
+    WRAPPER_UINT32_EMPTY("google.protobuf.UInt32Value{}", "0u"),
+    WRAPPER_DOUBLE_VALUE("google.protobuf.DoubleValue{value: 1.5}", "1.5"),
+    WRAPPER_DOUBLE_EMPTY("google.protobuf.DoubleValue{}", "0.0"),
+    WRAPPER_FLOAT_VALUE("google.protobuf.FloatValue{value: 1.5}", "1.5"),
+    WRAPPER_FLOAT_EMPTY("google.protobuf.FloatValue{}", "0.0"),
+    WRAPPER_BOOL_VALUE("google.protobuf.BoolValue{value: true}", "true"),
+    WRAPPER_BOOL_EMPTY("google.protobuf.BoolValue{}", "false"),
+    WRAPPER_STRING_VALUE("google.protobuf.StringValue{value: 'hello'}", "'hello'"),
+    WRAPPER_STRING_EMPTY("google.protobuf.StringValue{}", "''"),
+    WRAPPER_BYTES_VALUE("google.protobuf.BytesValue{value: b'abc'}", "b'abc'"),
+    WRAPPER_BYTES_EMPTY("google.protobuf.BytesValue{}", "b''"),
+    WRAPPER_INT64_OPTIONAL_NONE("google.protobuf.Int64Value{?value: optional.none()}", "0"),
+    WRAPPER_INT64_OPTIONAL_OF("google.protobuf.Int64Value{?value: optional.of(7)}", "7"),
+    WRAPPER_INT64_VARIABLE("google.protobuf.Int64Value{value: x}", "x"),
+    WRAPPER_INT32_BOUNDED_VARIABLE(
+        "x >= -2147483648 && x <= 2147483647 ? google.protobuf.Int32Value{value: x} == x : true",
+        "true"),
+    WRAPPER_UINT32_BOUNDED_VARIABLE(
+        "u <= 4294967295u ? google.protobuf.UInt32Value{value: u} == u : true", "true"),
+    TIMESTAMP_STRUCT_EMPTY("google.protobuf.Timestamp{}", "timestamp(0)"),
+    TIMESTAMP_STRUCT_SECONDS("google.protobuf.Timestamp{seconds: 100}", "timestamp(100)"),
+    TIMESTAMP_STRUCT_SECONDS_AND_ZERO_NANOS(
+        "google.protobuf.Timestamp{seconds: 100, nanos: 0}", "timestamp(100)"),
+    TIMESTAMP_STRUCT_VARIABLE("google.protobuf.Timestamp{seconds: x}", "timestamp(x)"),
+    TIMESTAMP_STRUCT_OPTIONAL_NONE(
+        "google.protobuf.Timestamp{?seconds: optional.none()}", "timestamp(0)"),
+    TIMESTAMP_STRUCT_OPTIONAL_OF(
+        "google.protobuf.Timestamp{?seconds: optional.of(100)}", "timestamp(100)"),
+    TIMESTAMP_STRUCT_OPTIONAL_NANOS_NONE(
+        "google.protobuf.Timestamp{seconds: 100, ?nanos: optional.none()}", "timestamp(100)"),
+    DURATION_STRUCT_EMPTY("google.protobuf.Duration{}", "timestamp(0) - timestamp(0)"),
+    DURATION_STRUCT_SECONDS(
+        "google.protobuf.Duration{seconds: 100}", "timestamp(200) - timestamp(100)"),
+    DURATION_STRUCT_SECONDS_AND_ZERO_NANOS(
+        "google.protobuf.Duration{seconds: 100, nanos: 0}", "timestamp(200) - timestamp(100)"),
+    DURATION_STRUCT_OPTIONAL_NONE(
+        "google.protobuf.Duration{?seconds: optional.none()}", "google.protobuf.Duration{}"),
+    DURATION_STRUCT_OPTIONAL_OF(
+        "google.protobuf.Duration{?seconds: optional.of(50)}",
+        "google.protobuf.Duration{seconds: 50}"),
+    JSON_VALUE_OPTIONAL_DYN_NON_OPTIONAL_ERROR(
+        "google.protobuf.Value{?string_value: dyn('hello')} == null", "1 / 0 == 1"),
+    WRAPPER_OPTIONAL_DYN_NON_OPTIONAL_ERROR(
+        "google.protobuf.Int64Value{?value: dyn(42)} == 0", "1 / 0 == 1"),
+    TIMESTAMP_STRUCT_OPTIONAL_DYN_NON_OPTIONAL_ERROR(
+        "google.protobuf.Timestamp{?seconds: dyn(100)} == timestamp(0)", "1 / 0 == 1"),
     OPTIONAL_INDEX_LIST_UNWRAPPING("optional.of([1, 2, 3])[?0]", "optional.of(1)"),
     OPTIONAL_INDEX_MAP_UNWRAPPING("optional.of({'a': 1})[?'a']", "optional.of(1)"),
     OPTIONAL_INDEX_UNWRAPPING_NONE("optional.none()[?0]", "optional.none()"),
@@ -2259,7 +2316,30 @@ public final class CelVerifierZ3ImplTest {
         "TestAllTypes{single_int64_wrapper: 0}.?single_int64_wrapper", "optional.none()"),
     OPTIONAL_DYNAMIC_TARGET_TYPE_MISMATCH("dyn_var.?a == optional.none()", "false"),
     OPTIONAL_NESTED_NONE_VS_MISSING(
-        "{'a': optional.none()}.?a.orValue(optional.of(1))", "optional.of(1)");
+        "{'a': optional.none()}.?a.orValue(optional.of(1))", "optional.of(1)"),
+    WRAPPER_INT32_UNBOUNDED_OVERFLOW("google.protobuf.Int32Value{value: x}", "x"),
+    WRAPPER_UINT32_UNBOUNDED_OVERFLOW("google.protobuf.UInt32Value{value: u}", "u"),
+    WRAPPER_INT64_DYN_NULL_FAILS("google.protobuf.Int64Value{value: dyn(null)} == null", "true"),
+    TIMESTAMP_STRUCT_DYN_NON_INT_FAILS(
+        "google.protobuf.Timestamp{seconds: dyn('bad')} == timestamp(0)", "false"),
+    TIMESTAMP_STRUCT_NANOS_DYN_NON_INT_FAILS(
+        "google.protobuf.Timestamp{seconds: 0, nanos: dyn('bad')} == timestamp(0)", "false"),
+    TIMESTAMP_STRUCT_NANOS_NEGATIVE_FAILS(
+        "google.protobuf.Timestamp{seconds: 0, nanos: -1} == timestamp(0)", "false"),
+    TIMESTAMP_STRUCT_NANOS_TOO_LARGE_FAILS(
+        "google.protobuf.Timestamp{seconds: 0, nanos: 1000000000} == timestamp(0)", "false"),
+    DURATION_STRUCT_SECONDS_OVERFLOW_FAILS(
+        "google.protobuf.Duration{seconds: 315576000001} == google.protobuf.Duration{}", "false"),
+    DURATION_STRUCT_NANOS_TOO_SMALL_FAILS(
+        "google.protobuf.Duration{seconds: 0, nanos: -1000000000} == google.protobuf.Duration{}",
+        "false"),
+    DURATION_STRUCT_NANOS_TOO_LARGE_FAILS(
+        "google.protobuf.Duration{seconds: 0, nanos: 1000000000} == google.protobuf.Duration{}",
+        "false"),
+    DURATION_STRUCT_SIGN_MISMATCH_POS_NEG_FAILS(
+        "google.protobuf.Duration{seconds: 1, nanos: -1} == google.protobuf.Duration{}", "false"),
+    DURATION_STRUCT_SIGN_MISMATCH_NEG_POS_FAILS(
+        "google.protobuf.Duration{seconds: -1, nanos: 1} == google.protobuf.Duration{}", "false");
 
     final String exprA;
     final String exprB;
