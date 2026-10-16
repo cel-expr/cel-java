@@ -35,6 +35,7 @@ import com.microsoft.z3.SeqExpr;
 import com.microsoft.z3.SeqSort;
 import com.microsoft.z3.Sort;
 import dev.cel.common.internal.ProtoTimeUtils;
+import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -55,6 +56,22 @@ import java.util.Map;
  */
 @SuppressWarnings({"unchecked", "rawtypes", "AvoidObjectArrays"}) // Z3 Java API uses raw types.
 public final class CelZ3TypeSystem {
+
+  /** Number of nanoseconds per second. */
+  public static final long NANOS_PER_SECOND = 1_000_000_000L;
+
+  private static final long MAX_TIMESTAMP_NANOS_PART = 999_999_999L;
+
+  private static final String MIN_TIMESTAMP_NANOS =
+      BigInteger.valueOf(ProtoTimeUtils.TIMESTAMP_SECONDS_MIN)
+          .multiply(BigInteger.valueOf(NANOS_PER_SECOND))
+          .toString();
+
+  private static final String MAX_TIMESTAMP_NANOS =
+      BigInteger.valueOf(ProtoTimeUtils.TIMESTAMP_SECONDS_MAX)
+          .multiply(BigInteger.valueOf(NANOS_PER_SECOND))
+          .add(BigInteger.valueOf(MAX_TIMESTAMP_NANOS_PART))
+          .toString();
 
   private static final String TYPE_CEL_VALUE = "CelValue";
   private static final String CONS_BOOL = "Bool";
@@ -777,18 +794,22 @@ public final class CelZ3TypeSystem {
         ctx.mkLt(result, ctx.mkInt(CelNumericBounds.MIN_INT64)));
   }
 
-  /** Checks if the given arithmetic expression overflows CEL Timestamp bounds. */
+  /**
+   * Checks if the given nanosecond arithmetic expression overflows CEL Timestamp bounds
+   * ({@code [0001-01-01T00:00:00Z, 9999-12-31T23:59:59.999999999Z]}).
+   */
   public BoolExpr checkTimestampOverflow(ArithExpr result) {
     return ctx.mkOr(
-        ctx.mkGt(result, ctx.mkInt(ProtoTimeUtils.TIMESTAMP_SECONDS_MAX)),
-        ctx.mkLt(result, ctx.mkInt(ProtoTimeUtils.TIMESTAMP_SECONDS_MIN)));
+        ctx.mkGt(result, ctx.mkInt(MAX_TIMESTAMP_NANOS)),
+        ctx.mkLt(result, ctx.mkInt(MIN_TIMESTAMP_NANOS)));
   }
 
-  /** Checks if the given arithmetic expression overflows CEL Duration bounds. */
+  /**
+   * Checks if the given nanosecond arithmetic expression overflows CEL Duration bounds, which are
+   * confined to a signed 64-bit integer of nanoseconds (matching Go's {@code time.Duration}).
+   */
   public BoolExpr checkDurationOverflow(ArithExpr result) {
-    return ctx.mkOr(
-        ctx.mkGt(result, ctx.mkInt(ProtoTimeUtils.DURATION_SECONDS_MAX)),
-        ctx.mkLt(result, ctx.mkInt(ProtoTimeUtils.DURATION_SECONDS_MIN)));
+    return checkIntOverflow(result);
   }
 
   /** Checks if the given arithmetic expression overflows a 64-bit unsigned integer. */

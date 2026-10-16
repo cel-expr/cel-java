@@ -223,7 +223,7 @@ public final class CelVerifierToolTest {
         .hasMessageThat()
         .contains(
             "Supported types: int, uint, string, bool, double, bytes, dyn, timestamp,"
-                + " duration, list<T>, map<K, V>, optional<T>.");
+                + " duration, google.protobuf.*, list<T>, map<K, V>, optional<T>.");
   }
 
   @Test
@@ -326,6 +326,61 @@ public final class CelVerifierToolTest {
             options);
 
     assertThat(result.status()).isEqualTo(VerificationStatus.VERIFIED);
+  }
+
+  @Test
+  public void verifyEquivalence_wellKnownTypesSupportedByDefault() throws Exception {
+    VerificationOptions options =
+        VerificationOptions.builder().setTimeout(Duration.ofSeconds(5)).build();
+    ImmutableMap<String, CelType> vars =
+        VerificationOptions.parseVariables(
+            Arrays.asList("x:int", "w:google.protobuf.Int64Value", "s:google.protobuf.Struct"));
+
+    assertThat(
+            CelVerifierToolCore.verifyEquivalence(
+                    "google.protobuf.Struct{fields: {'a': google.protobuf.Value{number_value: 1.0},"
+                        + " ?'b': optional.none()}}",
+                    "{'a': 1.0}",
+                    vars,
+                    options)
+                .status())
+        .isEqualTo(VerificationStatus.VERIFIED);
+    assertThat(
+            CelVerifierToolCore.verifyEquivalence(
+                    "google.protobuf.ListValue{values: [google.protobuf.Value{string_value: 'x'}]}",
+                    "['x']",
+                    vars,
+                    options)
+                .status())
+        .isEqualTo(VerificationStatus.VERIFIED);
+    assertThat(
+            CelVerifierToolCore.verifyEquivalence(
+                    "google.protobuf.Int64Value{value: x} == x"
+                        + " && google.protobuf.Int64Value{} == 0"
+                        + " && google.protobuf.StringValue{value: 'hi'} == 'hi'",
+                    "true",
+                    vars,
+                    options)
+                .status())
+        .isEqualTo(VerificationStatus.VERIFIED);
+    assertThat(
+            CelVerifierToolCore.verifyEquivalence(
+                    "google.protobuf.Timestamp{seconds: 100} == timestamp(100)"
+                        + " && google.protobuf.Duration{seconds: 50}"
+                        + " == timestamp(150) - timestamp(100)",
+                    "true",
+                    vars,
+                    options)
+                .status())
+        .isEqualTo(VerificationStatus.VERIFIED);
+    assertThat(
+            CelVerifierToolCore.verifyEquivalence(
+                    "w == null || w == google.protobuf.Int64Value{value: w}",
+                    "true",
+                    vars,
+                    options)
+                .status())
+        .isEqualTo(VerificationStatus.VERIFIED);
   }
 
   @Test

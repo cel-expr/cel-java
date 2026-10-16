@@ -23,6 +23,7 @@ import com.microsoft.z3.FuncDecl;
 import com.microsoft.z3.IntNum;
 import com.microsoft.z3.Model;
 import com.microsoft.z3.RatNum;
+import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
@@ -86,9 +87,9 @@ final class CelZ3CounterexampleGenerator {
     if (decl.equals(typeSystem.intCons().ConstructorDecl())) {
       return formatExpr(ctx, typeSystem, model, expr.getArgs()[0]);
     } else if (decl.equals(typeSystem.timestampCons().ConstructorDecl())) {
-      return "timestamp(" + formatExpr(ctx, typeSystem, model, expr.getArgs()[0]) + ")";
+      return formatTimestamp(expr.getArgs()[0]);
     } else if (decl.equals(typeSystem.durationCons().ConstructorDecl())) {
-      return "duration('" + formatExpr(ctx, typeSystem, model, expr.getArgs()[0]) + "s')";
+      return formatDuration(expr.getArgs()[0]);
     } else if (decl.equals(typeSystem.uintCons().ConstructorDecl())) {
       return formatExpr(ctx, typeSystem, model, expr.getArgs()[0]) + "u";
     } else if (decl.equals(typeSystem.boolCons().ConstructorDecl())) {
@@ -152,6 +153,32 @@ final class CelZ3CounterexampleGenerator {
     }
 
     return expr.toString();
+  }
+
+  private static String formatTimestamp(Expr<?> nanosExpr) {
+    BigInteger totalNanos = ((IntNum) nanosExpr).getBigInteger();
+    BigInteger nanosPerSecond = BigInteger.valueOf(CelZ3TypeSystem.NANOS_PER_SECOND);
+    BigInteger[] divRem = totalNanos.divideAndRemainder(nanosPerSecond);
+    BigInteger seconds = divRem[0];
+    BigInteger nanos = divRem[1];
+    if (nanos.signum() < 0) {
+      seconds = seconds.subtract(BigInteger.ONE);
+      nanos = nanos.add(nanosPerSecond);
+    }
+    if (nanos.equals(BigInteger.ZERO)) {
+      return "timestamp(" + seconds + ")";
+    }
+    return "google.protobuf.Timestamp{seconds: " + seconds + ", nanos: " + nanos + "}";
+  }
+
+  private static String formatDuration(Expr<?> nanosExpr) {
+    BigInteger totalNanos = ((IntNum) nanosExpr).getBigInteger();
+    BigInteger nanosPerSecond = BigInteger.valueOf(CelZ3TypeSystem.NANOS_PER_SECOND);
+    BigInteger[] divRem = totalNanos.divideAndRemainder(nanosPerSecond);
+    if (divRem[1].equals(BigInteger.ZERO)) {
+      return "duration('" + divRem[0] + "s')";
+    }
+    return "duration('" + totalNanos + "ns')";
   }
 
   private static String reconstructList(
