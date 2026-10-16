@@ -21,6 +21,8 @@ import dev.cel.bundle.CelEnvironment.LibrarySubset;
 import dev.cel.bundle.CelEnvironment.LibrarySubset.FunctionSelector;
 import dev.cel.bundle.CelEnvironment.LibrarySubset.OverloadSelector;
 import dev.cel.common.CelContainer;
+import dev.cel.common.CelSignatureUtils;
+import dev.cel.common.types.CelType;
 import java.util.Comparator;
 import java.util.Map;
 import org.yaml.snakeyaml.DumperOptions;
@@ -42,10 +44,16 @@ public final class CelEnvironmentYamlSerializer extends Representer {
 
   private static final DumperOptions YAML_OPTIONS = initDumperOptions();
 
-  private static final CelEnvironmentYamlSerializer INSTANCE = new CelEnvironmentYamlSerializer();
+  private static final CelEnvironmentYamlSerializer DEFAULT_INSTANCE =
+      new CelEnvironmentYamlSerializer(/* useTypeSignatures= */ false);
+  private static final CelEnvironmentYamlSerializer SIGNATURE_INSTANCE =
+      new CelEnvironmentYamlSerializer(/* useTypeSignatures= */ true);
 
-  private CelEnvironmentYamlSerializer() {
+  private final boolean useTypeSignatures;
+
+  private CelEnvironmentYamlSerializer(boolean useTypeSignatures) {
     super(YAML_OPTIONS);
+    this.useTypeSignatures = useTypeSignatures;
     this.multiRepresenters.put(CelEnvironment.class, new RepresentCelEnvironment());
     this.multiRepresenters.put(CelEnvironment.VariableDecl.class, new RepresentVariableDecl());
     this.multiRepresenters.put(CelEnvironment.FunctionDecl.class, new RepresentFunctionDecl());
@@ -65,8 +73,14 @@ public final class CelEnvironmentYamlSerializer extends Representer {
   }
 
   public static String toYaml(CelEnvironment environment) {
+    return toYaml(environment, /* useTypeSignatures= */ false);
+  }
+
+  public static String toYaml(CelEnvironment environment, boolean useTypeSignatures) {
     // Yaml is not thread-safe, so we create a new instance for each serialization.
-    Yaml yaml = new Yaml(INSTANCE, YAML_OPTIONS);
+    CelEnvironmentYamlSerializer serializer =
+        useTypeSignatures ? SIGNATURE_INSTANCE : DEFAULT_INSTANCE;
+    Yaml yaml = new Yaml(serializer, YAML_OPTIONS);
     return yaml.dump(environment);
   }
 
@@ -159,9 +173,28 @@ public final class CelEnvironmentYamlSerializer extends Representer {
     public Node representData(Object data) {
       CelEnvironment.VariableDecl variable = (CelEnvironment.VariableDecl) data;
       ImmutableMap.Builder<String, Object> configMap = new ImmutableMap.Builder<>();
-      configMap.put("name", variable.name()).put("type_name", variable.type().name());
-      if (!variable.type().params().isEmpty()) {
-        configMap.put("params", variable.type().params());
+      configMap.put("name", variable.name());
+      if (variable.description().isPresent() && !variable.description().get().isEmpty()) {
+        configMap.put("description", variable.description().get());
+      }
+      boolean signatureGenerated = false;
+      if (useTypeSignatures) {
+        try {
+          String typeSignature = CelSignatureUtils.makeTypeSignature(variable.type().toCelType());
+          configMap.put("type", typeSignature);
+          signatureGenerated = true;
+        } catch (IllegalArgumentException | IllegalStateException e) {
+          // Fall back to verbose representation
+        }
+      }
+      if (!signatureGenerated) {
+        configMap.put("type_name", variable.type().name());
+        if (variable.type().isTypeParam()) {
+          configMap.put("is_type_param", variable.type().isTypeParam());
+        }
+        if (!variable.type().params().isEmpty()) {
+          configMap.put("params", variable.type().params());
+        }
       }
       return represent(configMap.buildOrThrow());
     }
@@ -172,7 +205,15 @@ public final class CelEnvironmentYamlSerializer extends Representer {
     public Node representData(Object data) {
       CelEnvironment.FunctionDecl function = (CelEnvironment.FunctionDecl) data;
       ImmutableMap.Builder<String, Object> configMap = new ImmutableMap.Builder<>();
-      configMap.put("name", function.name()).put("overloads", function.overloads().asList());
+      configMap.put("name", function.name());
+      if (function.description().isPresent() && !function.description().get().isEmpty()) {
+        configMap.put("description", function.description().get());
+      }
+      ImmutableList.Builder<Object> overloads = ImmutableList.builder();
+      for (CelEnvironment.OverloadDecl overload : function.overloads()) {
+        overloads.add(representOverloadDecl(function.name(), overload));
+      }
+      configMap.put("overloads", overloads.build());
       return represent(configMap.buildOrThrow());
     }
   }
@@ -181,14 +222,63 @@ public final class CelEnvironmentYamlSerializer extends Representer {
     @Override
     public Node representData(Object data) {
       CelEnvironment.OverloadDecl overload = (CelEnvironment.OverloadDecl) data;
-      ImmutableMap.Builder<String, Object> configMap = new ImmutableMap.Builder<>();
-      configMap.put("id", overload.id());
+      return represent(representOverloadDecl("", overload));
+    }
+  }
+
+  private ImmutableMap<String, Object> representOverloadDecl(
+      String functionName, CelEnvironment.OverloadDecl overload) {
+    ImmutableMap.Builder<String, Object> configMap = new ImmutableMap.Builder<>();
+    boolean signatureGenerated = false;
+    String signature = null;
+    if (useTypeSignatures && !functionName.isEmpty()) {
+      try {
+        ImmutableList.Builder<CelType> paramTypes = ImmutableList.builder();
+        if (overload.target().isPresent()) {
+          paramTypes.add(overload.target().get().toCelType());
+        }
+        for (CelEnvironment.TypeDecl arg : overload.arguments()) {
+          paramTypes.add(arg.toCelType());
+        }
+        signature =
+            CelSignatureUtils.makeOverloadSignature(
+                functionName, paramTypes.build(), overload.target().isPresent());
+        signatureGenerated = true;
+      } catch (IllegalArgumentException | IllegalStateException e) {
+        // Fall back to verbose representation
+      }
+    }
+    if (!overload.id().isEmpty()) {
+      if (!signatureGenerated || !overload.id().equals(signature)) {
+        configMap.put("id", overload.id());
+      }
+    }
+    if (signatureGenerated) {
+      configMap.put("signature", signature);
+    } else {
       if (overload.target().isPresent()) {
         configMap.put("target", overload.target().get());
       }
-      configMap.put("args", overload.arguments()).put("return", overload.returnType());
-      return represent(configMap.buildOrThrow());
+      configMap.put("args", overload.arguments());
     }
+    if (!overload.examples().isEmpty()) {
+      configMap.put("examples", overload.examples());
+    }
+    boolean returnTypeSignatureGenerated = false;
+    if (useTypeSignatures) {
+      try {
+        String returnSignature =
+            CelSignatureUtils.makeTypeSignature(overload.returnType().toCelType());
+        configMap.put("return", returnSignature);
+        returnTypeSignatureGenerated = true;
+      } catch (IllegalArgumentException | IllegalStateException e) {
+        // Fall back to verbose representation
+      }
+    }
+    if (!returnTypeSignatureGenerated) {
+      configMap.put("return", overload.returnType());
+    }
+    return configMap.buildOrThrow();
   }
 
   private final class RepresentTypeDecl implements Represent {

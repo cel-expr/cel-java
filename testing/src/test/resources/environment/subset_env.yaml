@@ -20,8 +20,8 @@ stdlib:
   exclude_functions:
   - name: "_+_"
     overloads:
-    - id: add_bytes
-    - id: add_list
+    - id: _+_(bytes,bytes)
+    - id: _+_(list<~A>,list<~A>)
     - id: add_string
   - name: "matches"
   - name: "timestamp"

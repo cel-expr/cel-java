@@ -11,6 +11,7 @@ package(
 CEL_SOURCES = [
     "Cel.java",
     "CelBuilder.java",
+    "CelFunction.java",
 ]
 
 java_library(
@@ -19,9 +20,12 @@ java_library(
     tags = [
     ],
     deps = [
+        "//:auto_value",
         "//checker:checker_legacy_environment",
         "//checker:proto_type_mask",
         "//checker:standard_decl",
+        "//common:cel_function_decl",
+        "//common:cel_overload_decl",
         "//common:compiler_common",
         "//common:container",
         "//common:options",
@@ -35,6 +39,7 @@ java_library(
         "@cel_spec//proto/cel/expr:checked_java_proto",
         "@maven//:com_google_code_findbugs_annotations",
         "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:com_google_guava_guava",
         "@maven//:com_google_protobuf_protobuf_java",
     ],
 )
@@ -110,12 +115,14 @@ java_library(
         "//checker:standard_decl",
         "//common:cel_function_decl",
         "//common:cel_overload_decl",
+        "//common:cel_signature_utils",
         "//common:cel_var_decl",
         "//common:container",
         "//common:options",
         "//common:source",
         "//common/formats:parser_context",
         "//common/types",
+        "//common/types:cel_types",
         "//common/types:type_providers",
         "//compiler:compiler_builder",
         "//extensions",
@@ -147,13 +154,16 @@ java_library(
     deps = [
         ":environment",
         ":environment_exception",
+        "//common:cel_signature_utils",
         "//common:compiler_common",
         "//common:container",
         "//common/formats:file_source",
         "//common/formats:parser_context",
+        "//common/formats:value_string",
         "//common/formats:yaml_helper",
         "//common/formats:yaml_parser_context_impl",
         "//common/internal",
+        "//common/types:type_providers",
         "@maven//:com_google_errorprone_error_prone_annotations",
         "@maven//:com_google_guava_guava",
         "@maven//:org_jspecify_jspecify",

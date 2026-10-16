@@ -559,6 +559,103 @@ public final class CelEnvironmentYamlParserTest {
   }
 
   @Test
+  public void environment_setFunctions_signature() throws Exception {
+    String yamlConfig =
+        "functions:\n" //
+            + "- name: 'isEmpty'\n" //
+            + "  description: |-\n" //
+            + "    determines whether a list is empty,\n" //
+            + "    or a string has no characters\n" //
+            + "  overloads:\n" //
+            + "  - signature: 'google.protobuf.StringValue.isEmpty()'\n" //
+            + "    examples:\n" //
+            + "    - \"''.isEmpty() // true\"\n" //
+            + "    return: 'bool'\n" //
+            + "  - signature: 'list<~T>.isEmpty()'\n" //
+            + "    examples:\n" //
+            + "    - '[].isEmpty() // true'\n" //
+            + "    - '[1].isEmpty() // false'\n" //
+            + "    return: 'bool'\n" //
+            + "- name: 'getOrDefault'\n" //
+            + "  overloads:\n" //
+            + "  - id: 'map_getOrDefault'\n" //
+            + "    signature: 'map<~K, ~V>.getOrDefault(~K, ~V)'\n" //
+            + "    return: '~V'\n" //
+            + "- name: 'contains'\n" //
+            + "  overloads:\n" //
+            + "  - signature: 'contains(list<~T>, ~T)'\n" //
+            + "    examples:\n" //
+            + "    - 'contains([1, 2, 3], 2) // true'\n" //
+            + "    return: 'bool'";
+
+    CelEnvironment environment = ENVIRONMENT_PARSER.parse(yamlConfig);
+
+    assertThat(environment)
+        .isEqualTo(
+            CelEnvironment.newBuilder()
+                .setSource(environment.source().get())
+                .setFunctions(
+                    ImmutableSet.of(
+                        FunctionDecl.newBuilder()
+                            .setName("isEmpty")
+                            .setDescription(
+                                "determines whether a list is empty,\n"
+                                    + "or a string has no characters")
+                            .setOverloads(
+                                ImmutableSet.of(
+                                    OverloadDecl.newBuilder()
+                                        .setId("google.protobuf.StringValue.isEmpty()")
+                                        .setTarget(TypeDecl.create("google.protobuf.StringValue"))
+                                        .addExamples("''.isEmpty() // true")
+                                        .setReturnType(TypeDecl.create("bool"))
+                                        .build(),
+                                    OverloadDecl.newBuilder()
+                                        .setId("list<~T>.isEmpty()")
+                                        .setTarget(
+                                            TypeDecl.newBuilder()
+                                                .setName("list")
+                                                .addParams(TypeDecl.ofTypeParam("T"))
+                                                .build())
+                                        .addExamples("[].isEmpty() // true")
+                                        .addExamples("[1].isEmpty() // false")
+                                        .setReturnType(TypeDecl.create("bool"))
+                                        .build()))
+                            .build(),
+                        FunctionDecl.create(
+                            "getOrDefault",
+                            ImmutableSet.of(
+                                OverloadDecl.newBuilder()
+                                    .setId("map_getOrDefault")
+                                    .setTarget(
+                                        TypeDecl.newBuilder()
+                                            .setName("map")
+                                            .addParams(
+                                                TypeDecl.ofTypeParam("K"),
+                                                TypeDecl.ofTypeParam("V"))
+                                            .build())
+                                    .addArguments(
+                                        TypeDecl.ofTypeParam("K"), TypeDecl.ofTypeParam("V"))
+                                    .setReturnType(TypeDecl.ofTypeParam("V"))
+                                    .build())),
+                        FunctionDecl.create(
+                            "contains",
+                            ImmutableSet.of(
+                                OverloadDecl.newBuilder()
+                                    .setId("contains(list<~T>, ~T)")
+                                    .addArguments(
+                                        TypeDecl.newBuilder()
+                                            .setName("list")
+                                            .addParams(TypeDecl.ofTypeParam("T"))
+                                            .build(),
+                                        TypeDecl.ofTypeParam("T"))
+                                    .addExamples("contains([1, 2, 3], 2) // true")
+                                    .setReturnType(TypeDecl.create("bool"))
+                                    .build()))))
+                .build());
+    assertThat(environment.extend(CEL_WITH_MESSAGE_TYPES, CEL_OPTIONS)).isNotNull();
+  }
+
+  @Test
   public void environment_withTypeSpecifier_invalidSyntaxError() {
     String yamlConfig =
         "variables:\n" //
@@ -985,6 +1082,69 @@ public final class CelEnvironmentYamlParserTest {
         "ERROR: <input>:2:5: Missing required attribute(s): name\n"
             + " |   - enabled: true\n"
             + " | ....^"),
+    ILLEGAL_YAML_TYPE_OVERLOAD_SIGNATURE(
+        "functions:\n"
+            + "  - name: 'foo'\n"
+            + "    overloads:\n"
+            + "      - signature: [ 'foo()' ]\n"
+            + "        return: 'bool'\n",
+        "ERROR: <input>:4:20: Got yaml node type tag:yaml.org,2002:seq, wanted type(s)"
+            + " [tag:yaml.org,2002:str !txt]\n"
+            + " |       - signature: [ 'foo()' ]\n"
+            + " | ...................^"),
+    OVERLOAD_SIGNATURE_NAME_MISMATCH(
+        "functions:\n"
+            + "  - name: 'foo'\n"
+            + "    overloads:\n"
+            + "      - id: 'foo_int64'\n"
+            + "        signature: 'bar()'\n"
+            + "        return: 'bool'\n",
+        "ERROR: <input>:5:21: Function overload name 'bar' does not match function name 'foo'\n"
+            + " |         signature: 'bar()'\n"
+            + " | ....................^"),
+    OVERLOAD_SIGNATURE_INVALID_SYNTAX(
+        "functions:\n"
+            + "  - name: 'foo'\n"
+            + "    overloads:\n"
+            + "      - signature: 'foo(int'\n"
+            + "        return: 'bool'\n",
+        "ERROR: <input>:4:21: Invalid function signature, missing closing ')': foo(int\n"
+            + " |       - signature: 'foo(int'\n"
+            + " | ....................^"),
+    OVERLOAD_SIGNATURE_WITH_TARGET(
+        "functions:\n"
+            + "  - name: 'foo'\n"
+            + "    overloads:\n"
+            + "      - signature: 'foo()'\n"
+            + "        target: 'int'\n"
+            + "        return: 'bool'\n",
+        "ERROR: <input>:5:9: 'signature' tag cannot be used together with 'target' or 'args':"
+            + " target\n"
+            + " |         target: 'int'\n"
+            + " | ........^"),
+    OVERLOAD_SIGNATURE_WITH_ARGS(
+        "functions:\n"
+            + "  - name: 'foo'\n"
+            + "    overloads:\n"
+            + "      - signature: 'foo()'\n"
+            + "        args:\n"
+            + "          - 'int'\n"
+            + "        return: 'bool'\n",
+        "ERROR: <input>:5:9: 'signature' tag cannot be used together with 'target' or 'args':"
+            + " args\n"
+            + " |         args:\n"
+            + " | ........^"),
+    OVERLOAD_TARGET_WITH_SIGNATURE(
+        "functions:\n"
+            + "  - name: 'foo'\n"
+            + "    overloads:\n"
+            + "      - target: 'int'\n"
+            + "        signature: 'int.foo()'\n"
+            + "        return: 'bool'\n",
+        "ERROR: <input>:5:9: 'signature' tag cannot be used together with 'target' or 'args':"
+            + " signature\n"
+            + " |         signature: 'int.foo()'\n"
+            + " | ........^"),
     ;
 
     private final String yamlConfig;
@@ -1157,6 +1317,22 @@ public final class CelEnvironmentYamlParserTest {
                                 .addArguments(TypeDecl.ofTypeParam("K"), TypeDecl.ofTypeParam("V"))
                                 .setReturnType(TypeDecl.ofTypeParam("V"))
                                 .build()))
+                    .build(),
+                FunctionDecl.newBuilder()
+                    .setName("contains")
+                    .setOverloads(
+                        ImmutableSet.of(
+                            OverloadDecl.newBuilder()
+                                .setId("contains(list<~T>, ~T)")
+                                .addArguments(
+                                    TypeDecl.newBuilder()
+                                        .setName("list")
+                                        .addParams(TypeDecl.ofTypeParam("T"))
+                                        .build(),
+                                    TypeDecl.ofTypeParam("T"))
+                                .addExamples("contains([1, 2, 3], 2) // true")
+                                .setReturnType(TypeDecl.create("bool"))
+                                .build()))
                     .build())
             .setFeatures(CelEnvironment.FeatureFlag.create("cel.feature.macro_call_tracking", true))
             .setLimits(
@@ -1176,7 +1352,9 @@ public final class CelEnvironmentYamlParserTest {
                     .setExcludedFunctions(
                         ImmutableSet.of(
                             FunctionSelector.create(
-                                "_+_", ImmutableSet.of("add_bytes", "add_list", "add_string")),
+                                "_+_",
+                                ImmutableSet.of(
+                                    "_+_(bytes,bytes)", "_+_(list<~A>,list<~A>)", "add_string")),
                             FunctionSelector.create("matches", ImmutableSet.of()),
                             FunctionSelector.create(
                                 "timestamp", ImmutableSet.of("string_to_timestamp")),
