@@ -315,7 +315,7 @@ final class CelVerifierRepl {
         out.println();
         out.println("Supported Types:");
         out.println("  - Primitive types:  int, uint, string, bool, double, bytes, dyn");
-        out.println("  - Well-known types: timestamp, duration");
+        out.println("  - Well-known types: timestamp, duration, google.protobuf.*");
         out.println("  - List types:       list<T> (e.g., list<int>, list<string>)");
         out.println("  - Map types:        map<K,V> (e.g., map<string,int>, map<string,string>)");
         out.println("  - Optional types:   optional<T> (e.g., optional<string>, optional<int>)");
