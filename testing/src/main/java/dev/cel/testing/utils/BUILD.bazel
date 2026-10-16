@@ -16,6 +16,7 @@ java_library(
     ],
     deps = [
         "//common:cel_descriptors",
+        "//common/internal:default_instance_message_factory",
         "//common/internal:proto_time_utils",
         "//common/types",
         "//common/types:type_providers",

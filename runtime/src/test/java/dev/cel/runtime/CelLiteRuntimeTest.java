@@ -20,7 +20,6 @@ import static org.junit.Assert.assertThrows;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.primitives.UnsignedLong;
 import com.google.protobuf.BoolValue;
 import com.google.protobuf.ByteString;
@@ -91,17 +90,16 @@ public class CelLiteRuntimeTest {
   private static final CelLiteRuntime CEL_RUNTIME =
       CelLiteRuntimeFactory.newLiteRuntimeBuilder()
           .setStandardFunctions(CelStandardFunctions.ALL_STANDARD_FUNCTIONS)
-          .setTypeProvider(
-              ProtoMessageTypeProvider.newBuilder()
-                  .addDescriptors(
-                      ImmutableSet.of(
-                          dev.cel.expr.conformance.proto2.TestAllTypes.getDescriptor(),
-                          TestAllTypes.getDescriptor()))
-                  .build())
           .setValueProvider(
               ProtoMessageLiteValueProvider.newInstance(
                   dev.cel.expr.conformance.proto2.TestAllTypesCelDescriptor.getDescriptor(),
                   TestAllTypesCelDescriptor.getDescriptor()))
+          .setTypeProvider(
+              ProtoMessageTypeProvider.newBuilder()
+                  .addFileDescriptors(
+                      dev.cel.expr.conformance.proto2.TestAllTypes.getDescriptor().getFile(),
+                      TestAllTypes.getDescriptor().getFile())
+                  .build())
           .setContainer(CEL_CONTAINER)
           .build();
 
@@ -117,9 +115,9 @@ public class CelLiteRuntimeTest {
   @Test
   public void messageCreation_fieldsPopulated() throws Exception {
     CelAbstractSyntaxTree ast = CEL_COMPILER.compile("TestAllTypes{single_int32: 4}").getAst();
+    Program program = CEL_RUNTIME.createProgram(ast);
 
-    CelEvaluationException e =
-        assertThrows(CelEvaluationException.class, () -> CEL_RUNTIME.createProgram(ast).eval());
+    CelEvaluationException e = assertThrows(CelEvaluationException.class, program::eval);
 
     assertThat(e)
         .hasMessageThat()
@@ -226,7 +224,7 @@ public class CelLiteRuntimeTest {
   }
 
   @Test
-  @SuppressWarnings("unchecked")
+  @SuppressWarnings("unchecked") // Program.eval returns untyped Object.
   public void fieldSelection_repeatedBoolWrappers() throws Exception {
     CelAbstractSyntaxTree ast = CEL_COMPILER.compile("msg.repeated_bool_wrapper").getAst();
     TestAllTypes msg =
@@ -245,7 +243,7 @@ public class CelLiteRuntimeTest {
   @Test
   @TestParameters("{expression: 'msg.map_string_int32'}")
   @TestParameters("{expression: 'msg.map_string_int64'}")
-  @SuppressWarnings("unchecked")
+  @SuppressWarnings("unchecked") // Program.eval returns untyped Object.
   public void fieldSelection_map(String expression) throws Exception {
     CelAbstractSyntaxTree ast = CEL_COMPILER.compile(expression).getAst();
     TestAllTypes msg =
@@ -340,7 +338,7 @@ public class CelLiteRuntimeTest {
   }
 
   @Test
-  @SuppressWarnings("unchecked")
+  @SuppressWarnings("unchecked") // Program.eval returns untyped Object.
   public void fieldSelection_jsonStruct() throws Exception {
     String expression = "msg.single_struct";
     CelAbstractSyntaxTree ast = CEL_COMPILER.compile(expression).getAst();
@@ -370,7 +368,7 @@ public class CelLiteRuntimeTest {
   }
 
   @Test
-  @SuppressWarnings("unchecked")
+  @SuppressWarnings("unchecked") // Program.eval returns untyped Object.
   public void fieldSelection_jsonListValue() throws Exception {
     String expression = "msg.list_value";
     CelAbstractSyntaxTree ast = CEL_COMPILER.compile(expression).getAst();
@@ -726,5 +724,21 @@ public class CelLiteRuntimeTest {
                         "msg", MessageWithEnum.newBuilder().setSimpleEnum(SimpleEnum.BAR).build()));
 
     assertThat(result).isEqualTo(SimpleEnum.BAR.getNumber());
+  }
+
+  @Test
+  @TestParameters("{expression: 'type(1) == int'}")
+  @TestParameters("{expression: 'type(TestAllTypes{}) == TestAllTypes'}")
+  @TestParameters("{expression: 'type(msg) == cel.expr.conformance.proto3.TestAllTypes'}")
+  public void eval_typeFunction(String expression) throws Exception {
+    CelAbstractSyntaxTree ast = CEL_COMPILER.compile(expression).getAst();
+
+    boolean result =
+        (boolean)
+            CEL_RUNTIME
+                .createProgram(ast)
+                .eval(ImmutableMap.of("msg", TestAllTypes.getDefaultInstance()));
+
+    assertThat(result).isTrue();
   }
 }

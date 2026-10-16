@@ -15,17 +15,18 @@
 package dev.cel.conformance;
 
 import static dev.cel.conformance.ConformanceTest.CONFORMANCE_EXTENSION_REGISTRY;
+import static java.nio.charset.StandardCharsets.UTF_8;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.protobuf.TextFormat;
+import dev.cel.conformance.ConformanceTest.RuntimeType;
 import dev.cel.expr.conformance.test.SimpleTest;
 import dev.cel.expr.conformance.test.SimpleTestFile;
 import dev.cel.expr.conformance.test.SimpleTestSection;
 import java.io.BufferedReader;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.ArrayList;
@@ -42,7 +43,7 @@ public final class ConformanceTestRunner extends ParentRunner<ConformanceTest> {
 
   private final ImmutableSortedMap<String, SimpleTestFile> testFiles;
   private final ImmutableList<String> testsToSkip;
-  private final boolean usePlanner;
+  private final RuntimeType runtimeType;
 
   private static ImmutableSortedMap<String, SimpleTestFile> loadTestFiles() {
     List<String> testPaths =
@@ -56,8 +57,7 @@ public final class ConformanceTestRunner extends ParentRunner<ConformanceTest> {
           ImmutableSortedMap.naturalOrder();
       for (String testPath : testPaths) {
         SimpleTestFile.Builder fileBuilder = SimpleTestFile.newBuilder();
-        try (BufferedReader input =
-            Files.newBufferedReader(Paths.get(testPath), StandardCharsets.UTF_8)) {
+        try (BufferedReader input = Files.newBufferedReader(Paths.get(testPath), UTF_8)) {
           parser.merge(input, CONFORMANCE_EXTENSION_REGISTRY, fileBuilder);
         }
         SimpleTestFile testFile = fileBuilder.build();
@@ -77,9 +77,9 @@ public final class ConformanceTestRunner extends ParentRunner<ConformanceTest> {
         ImmutableList.copyOf(
             SPLITTER.splitToList(
                 System.getProperty("dev.cel.conformance.ConformanceTests.skip_tests")));
-    usePlanner =
-        Boolean.parseBoolean(
-            System.getProperty("dev.cel.conformance.ConformanceTests.use_planner", "false"));
+    runtimeType =
+        RuntimeType.valueOf(
+            System.getProperty("dev.cel.conformance.ConformanceTests.runtime", "LEGACY"));
   }
 
   private boolean shouldSkipTest(String name) {
@@ -102,7 +102,7 @@ public final class ConformanceTestRunner extends ParentRunner<ConformanceTest> {
         for (SimpleTest test : testSection.getTestList()) {
           String name =
               String.format("%s/%s/%s", testFile.getName(), testSection.getName(), test.getName());
-          tests.add(new ConformanceTest(name, test, shouldSkipTest(name), usePlanner));
+          tests.add(new ConformanceTest(name, test, shouldSkipTest(name), runtimeType));
         }
       }
     }

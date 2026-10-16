@@ -38,11 +38,11 @@ def _expand_tests_to_skip(tests_to_skip):
             result.append(test_to_skip[0:slash] + part)
     return result
 
-def _conformance_test_args(data, skip_tests, use_planner):
+def _conformance_test_args(data, skip_tests, runtime):
     return [
         "-Ddev.cel.conformance.ConformanceTests.skip_tests={}".format(",".join(_expand_tests_to_skip(skip_tests))),
         "-Ddev.cel.conformance.ConformanceTests.tests={}".format(",".join(["$(location {})".format(t) for t in data])),
-        "-Ddev.cel.conformance.ConformanceTests.use_planner={}".format("true" if use_planner else "false"),
+        "-Ddev.cel.conformance.ConformanceTests.runtime={}".format(runtime),
     ]
 
 MODE = struct(
@@ -54,7 +54,13 @@ MODE = struct(
     DASHBOARD = "dashboard",
 )
 
-def conformance_test(name, data, mode = MODE.TEST, skip_tests = [], use_planner = False):
+RUNTIME = struct(
+    LEGACY = "LEGACY",
+    PLANNER = "PLANNER",
+    LITE = "LITE",
+)
+
+def conformance_test(name, data, mode = MODE.TEST, skip_tests = [], runtime = RUNTIME.LEGACY):
     """Executes conformance tests
 
     Args:
@@ -66,11 +72,13 @@ def conformance_test(name, data, mode = MODE.TEST, skip_tests = [], use_planner 
            - `MODE.MAVEN_TEST`: Runs the conformance tests against published JAR in maven central.
        skip_tests: A list of strings, where each string is the name of a test file to
                    exclude from the run.
+       runtime: The CEL runtime implementation to evaluate against (`RUNTIME.LEGACY`,
+                `RUNTIME.PLANNER`, or `RUNTIME.LITE`).
     """
     if mode == MODE.DASHBOARD:
         java_test(
             name = "_" + name,
-            jvm_flags = _conformance_test_args(data, skip_tests, use_planner),
+            jvm_flags = _conformance_test_args(data, skip_tests, runtime),
             data = data,
             size = "small",
             test_class = "dev.cel.conformance.ConformanceTests",
@@ -96,7 +104,7 @@ def conformance_test(name, data, mode = MODE.TEST, skip_tests = [], use_planner 
     elif mode == MODE.TEST:
         java_test(
             name = name,
-            jvm_flags = _conformance_test_args(data, skip_tests, use_planner),
+            jvm_flags = _conformance_test_args(data, skip_tests, runtime),
             data = data,
             size = "small",
             test_class = "dev.cel.conformance.ConformanceTests",
@@ -105,7 +113,7 @@ def conformance_test(name, data, mode = MODE.TEST, skip_tests = [], use_planner 
     elif mode == MODE.MAVEN_TEST:
         java_test(
             name = name,
-            jvm_flags = _conformance_test_args(data, skip_tests, use_planner),
+            jvm_flags = _conformance_test_args(data, skip_tests, runtime),
             data = data,
             size = "small",
             test_class = "dev.cel.conformance.ConformanceTests",

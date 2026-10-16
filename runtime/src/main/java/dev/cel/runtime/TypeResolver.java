@@ -28,6 +28,7 @@ import com.google.protobuf.NullValue;
 import com.google.protobuf.Timestamp;
 import dev.cel.common.annotations.Internal;
 import dev.cel.common.types.CelType;
+import dev.cel.common.types.CelTypeProvider;
 import dev.cel.common.types.ListType;
 import dev.cel.common.types.MapType;
 import dev.cel.common.types.OptionalType;
@@ -55,10 +56,15 @@ import java.util.Optional;
 @Internal
 public class TypeResolver {
 
+  private final CelTypeProvider celTypeProvider;
   private final CelValueConverter celValueConverter;
 
   static TypeResolver create(CelValueConverter celValueConverter) {
     return new TypeResolver(celValueConverter);
+  }
+
+  static TypeResolver create(CelTypeProvider celTypeProvider, CelValueConverter celValueConverter) {
+    return new TypeResolver(celTypeProvider, celValueConverter);
   }
 
   // Sentinel runtime value representing the special "type" ident. This ensures following to be
@@ -198,7 +204,8 @@ public class TypeResolver {
     if (celValueConverter != null) {
       Object celVal = celValueConverter.toRuntimeValue(obj);
       if (celVal instanceof CelValue) {
-        return TypeType.create(((CelValue) celVal).celType());
+        CelType celType = ((CelValue) celVal).celType();
+        return TypeType.create(celTypeProvider.findType(celType.name()).orElse(celType));
       }
     }
 
@@ -235,6 +242,11 @@ public class TypeResolver {
   }
 
   protected TypeResolver(CelValueConverter celValueConverter) {
+    this(new CelTypeProvider.CombinedCelTypeProvider(ImmutableList.of()), celValueConverter);
+  }
+
+  private TypeResolver(CelTypeProvider celTypeProvider, CelValueConverter celValueConverter) {
+    this.celTypeProvider = checkNotNull(celTypeProvider);
     this.celValueConverter = checkNotNull(celValueConverter);
   }
 }

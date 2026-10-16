@@ -14,6 +14,7 @@
 
 package dev.cel.conformance;
 
+import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.truth.Truth.assertThat;
 import static com.google.common.truth.extensions.proto.ProtoTruth.assertThat;
 import static dev.cel.testing.utils.ExprValueUtils.fromValue;
@@ -24,7 +25,6 @@ import dev.cel.expr.ExprValue;
 import dev.cel.expr.MapValue;
 import dev.cel.expr.Type;
 import dev.cel.expr.Value;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.protobuf.ExtensionRegistry;
@@ -44,13 +44,23 @@ import dev.cel.common.ast.CelBlock;
 import dev.cel.common.ast.CelConstant;
 import dev.cel.common.ast.CelExpr;
 import dev.cel.common.types.CelProtoTypes;
+import dev.cel.common.types.CelTypeProvider;
+import dev.cel.common.types.ProtoMessageTypeProvider;
 import dev.cel.common.types.SimpleType;
+import dev.cel.common.values.CelValueProvider;
+import dev.cel.common.values.ProtoMessageLiteValueProvider;
 import dev.cel.compiler.CelCompilerFactory;
 import dev.cel.compiler.CelCompilerLibrary;
 import dev.cel.expr.conformance.test.SimpleTest;
 import dev.cel.extensions.CelBindingsExtensions;
+import dev.cel.extensions.CelComprehensionsRuntimeLibrary;
+import dev.cel.extensions.CelEncoderRuntimeLibrary;
 import dev.cel.extensions.CelExtensions;
+import dev.cel.extensions.CelListsRuntimeLibrary;
+import dev.cel.extensions.CelMathRuntimeLibrary;
 import dev.cel.extensions.CelOptionalLibrary;
+import dev.cel.extensions.CelSetsRuntimeLibrary;
+import dev.cel.extensions.CelStringRuntimeLibrary;
 import dev.cel.parser.CelMacro;
 import dev.cel.parser.CelMacroExpander;
 import dev.cel.parser.CelMacroExprFactory;
@@ -59,12 +69,14 @@ import dev.cel.parser.CelParserBuilder;
 import dev.cel.parser.CelParserFactory;
 import dev.cel.parser.CelStandardMacro;
 import dev.cel.runtime.CelEvaluationException;
-import dev.cel.runtime.CelRuntime;
-import dev.cel.runtime.CelRuntime.Program;
+import dev.cel.runtime.CelLiteRuntimeFactory;
+import dev.cel.runtime.CelLiteRuntimeLibrary;
 import dev.cel.runtime.CelRuntimeBuilder;
 import dev.cel.runtime.CelRuntimeFactory;
 import dev.cel.runtime.CelRuntimeImpl;
 import dev.cel.runtime.CelRuntimeLibrary;
+import dev.cel.runtime.CelStandardFunctions;
+import dev.cel.runtime.Program;
 import java.util.Map;
 import java.util.Optional;
 import org.junit.runners.model.Statement;
@@ -103,6 +115,37 @@ public final class ConformanceTest extends Statement {
           CelExtensions.sets(OPTIONS),
           CelExtensions.strings(),
           CelOptionalLibrary.INSTANCE);
+
+  private static final ImmutableList<CelLiteRuntimeLibrary> CANONICAL_LITE_RUNTIME_EXTENSIONS =
+      ImmutableList.of(
+          CelComprehensionsRuntimeLibrary.comprehensions(),
+          CelEncoderRuntimeLibrary.encoders(),
+          CelListsRuntimeLibrary.lists(),
+          CelMathRuntimeLibrary.math(),
+          CelSetsRuntimeLibrary.sets(),
+          CelStringRuntimeLibrary.strings());
+
+  private static final CelValueProvider LITE_VALUE_PROVIDER =
+      ProtoMessageLiteValueProvider.newInstance(
+          dev.cel.expr.conformance.proto2.TestAllTypesCelDescriptor.getDescriptor(),
+          dev.cel.expr.conformance.proto2.NestedTestAllTypesCelDescriptor.getDescriptor(),
+          dev.cel.expr.conformance.proto2.TestRequiredCelDescriptor.getDescriptor(),
+          dev.cel.expr.conformance.proto3.TestAllTypesCelDescriptor.getDescriptor(),
+          dev.cel.expr.conformance.proto3.NestedTestAllTypesCelDescriptor.getDescriptor());
+
+  private static final CelTypeProvider LITE_TYPE_PROVIDER =
+      ProtoMessageTypeProvider.newBuilder()
+          .addFileDescriptors(
+              dev.cel.expr.conformance.proto2.TestAllTypes.getDescriptor().getFile(),
+              dev.cel.expr.conformance.proto3.TestAllTypes.getDescriptor().getFile(),
+              dev.cel.expr.conformance.proto2.TestAllTypesExtensions.getDescriptor())
+          .build();
+
+  enum RuntimeType {
+    LEGACY,
+    PLANNER,
+    LITE
+  }
 
   static final TypeRegistry CONFORMANCE_TYPE_REGISTRY =
       TypeRegistry.newBuilder()
@@ -154,26 +197,6 @@ public final class ConformanceTest extends Statement {
         .build();
   }
 
-  private static CelRuntime getRuntime(SimpleTest test, boolean usePlanner) {
-    CelRuntimeBuilder builder =
-        usePlanner ? CelRuntimeImpl.newBuilder() : CelRuntimeFactory.standardCelRuntimeBuilder();
-
-    builder
-        // CEL-Internal-2
-        .setOptions(OPTIONS)
-        .addLibraries(CANONICAL_RUNTIME_EXTENSIONS)
-        .setExtensionRegistry(CONFORMANCE_EXTENSION_REGISTRY)
-        .addMessageTypes(dev.cel.expr.conformance.proto2.TestAllTypes.getDescriptor())
-        .addMessageTypes(dev.cel.expr.conformance.proto3.TestAllTypes.getDescriptor())
-        .addFileTypes(dev.cel.expr.conformance.proto2.TestAllTypesExtensions.getDescriptor());
-
-    if (usePlanner) {
-      builder.setContainer(CelContainer.ofName(test.getContainer()));
-    }
-
-    return builder.build();
-  }
-
   private static ImmutableMap<String, Object> getBindings(SimpleTest test) throws Exception {
     ImmutableMap.Builder<String, Object> bindings =
         ImmutableMap.builderWithExpectedSize(test.getBindingsCount());
@@ -204,16 +227,7 @@ public final class ConformanceTest extends Statement {
   private final String name;
   private final SimpleTest test;
   private final boolean skip;
-  private final boolean usePlanner;
-
-  public ConformanceTest(String name, SimpleTest test, boolean skip, boolean usePlanner) {
-    this.name = Preconditions.checkNotNull(name);
-    this.test =
-        Preconditions.checkNotNull(
-            defaultTestMatcherToTrueIfUnset(Preconditions.checkNotNull(test)));
-    this.skip = skip;
-    this.usePlanner = usePlanner;
-  }
+  private final RuntimeType runtimeType;
 
   public String getName() {
     return name;
@@ -251,16 +265,15 @@ public final class ConformanceTest extends Statement {
       return;
     }
 
-    if (!usePlanner && test.getDisableCheck()) {
-      // Only planner supports parsed-only evaluation
+    if (runtimeType.equals(RuntimeType.LEGACY) && test.getDisableCheck()) {
+      // Only planner and lite runtime support parsed-only evaluation
       return;
     }
 
-    CelRuntime runtime = getRuntime(test, usePlanner);
     ExprValue result = null;
     CelEvaluationException error = null;
     try {
-      Program program = runtime.createProgram(ast);
+      Program program = createProgram(ast);
       result = toExprValue(program.eval(getBindings(test)), ast.getResultType());
     } catch (CelEvaluationException e) {
       error = e;
@@ -293,6 +306,48 @@ public final class ConformanceTest extends Statement {
         throw new IllegalStateException(
             String.format("Unexpected matcher kind: %s", test.getResultMatcherCase()));
     }
+  }
+
+  @SuppressWarnings("deprecation") // Intentionally testing the legacy interpreter runtime.
+  private Program createProgram(CelAbstractSyntaxTree ast) throws CelEvaluationException {
+    if (runtimeType.equals(RuntimeType.LITE)) {
+      return CelLiteRuntimeFactory.newLiteRuntimeBuilder()
+          .setOptions(OPTIONS)
+          .setStandardFunctions(CelStandardFunctions.ALL_STANDARD_FUNCTIONS)
+          .addLibraries(CANONICAL_LITE_RUNTIME_EXTENSIONS)
+          .setValueProvider(LITE_VALUE_PROVIDER)
+          .setTypeProvider(LITE_TYPE_PROVIDER)
+          .setContainer(CelContainer.ofName(test.getContainer()))
+          .build()
+          .createProgram(ast);
+    }
+
+    CelRuntimeBuilder builder =
+        runtimeType.equals(RuntimeType.PLANNER)
+            ? CelRuntimeImpl.newBuilder()
+            : CelRuntimeFactory.standardCelRuntimeBuilder();
+
+    builder
+        // CEL-Internal-2
+        .setOptions(OPTIONS)
+        .addLibraries(CANONICAL_RUNTIME_EXTENSIONS)
+        .setExtensionRegistry(CONFORMANCE_EXTENSION_REGISTRY)
+        .addMessageTypes(dev.cel.expr.conformance.proto2.TestAllTypes.getDescriptor())
+        .addMessageTypes(dev.cel.expr.conformance.proto3.TestAllTypes.getDescriptor())
+        .addFileTypes(dev.cel.expr.conformance.proto2.TestAllTypesExtensions.getDescriptor());
+
+    if (runtimeType.equals(RuntimeType.PLANNER)) {
+      builder.setContainer(CelContainer.ofName(test.getContainer()));
+    }
+
+    return builder.build().createProgram(ast);
+  }
+
+  ConformanceTest(String name, SimpleTest test, boolean skip, RuntimeType runtimeType) {
+    this.name = checkNotNull(name);
+    this.test = checkNotNull(defaultTestMatcherToTrueIfUnset(checkNotNull(test)));
+    this.skip = skip;
+    this.runtimeType = checkNotNull(runtimeType);
   }
 
   /**

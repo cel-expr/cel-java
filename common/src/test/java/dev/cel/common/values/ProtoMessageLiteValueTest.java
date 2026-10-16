@@ -368,11 +368,29 @@ public final class ProtoMessageLiteValueTest {
                 + " 'cel.expr.conformance.proto3.TestAllTypes'");
   }
 
+  @Test
+  public void find_undeclaredField_throwsCelAttributeNotFoundException() {
+    ProtoMessageLiteValue messageLiteValue =
+        ProtoMessageLiteValue.create(
+            TestAllTypes.getDefaultInstance(),
+            TEST_ALL_TYPES_DESCRIPTOR,
+            PROTO_LITE_CEL_VALUE_CONVERTER);
+
+    CelAttributeNotFoundException thrown =
+        assertThrows(
+            CelAttributeNotFoundException.class, () -> messageLiteValue.find("undeclared_field"));
+
+    assertThat(thrown)
+        .hasMessageThat()
+        .isEqualTo(
+            "field 'undeclared_field' is not declared in message"
+                + " 'cel.expr.conformance.proto3.TestAllTypes'");
+  }
+
   @SuppressWarnings("ImmutableEnumChecker") // Test only
   private enum FindFieldTestCase {
     PRESENT("single_string", Optional.of("foo")),
-    ABSENT("single_int64", Optional.empty()),
-    UNDECLARED("undeclared_field", Optional.empty());
+    ABSENT("single_int64", Optional.empty());
 
     private final String fieldName;
     private final Optional<Object> expected;
