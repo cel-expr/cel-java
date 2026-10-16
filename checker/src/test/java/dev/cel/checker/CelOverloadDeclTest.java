@@ -21,9 +21,11 @@ import static dev.cel.common.CelOverloadDecl.newMemberOverload;
 
 import dev.cel.expr.Decl.FunctionDecl.Overload;
 import com.google.common.collect.ImmutableList;
+import dev.cel.common.CelFunctionDecl;
 import dev.cel.common.CelOverloadDecl;
 import dev.cel.common.CelProtoDeclConverter;
 import dev.cel.common.types.CelProtoTypes;
+import dev.cel.common.types.ListType;
 import dev.cel.common.types.SimpleType;
 import dev.cel.common.types.TypeParamType;
 import org.junit.Test;
@@ -103,6 +105,44 @@ public final class CelOverloadDeclTest {
 
     assertThat(overloadDecl.parameterTypes())
         .containsExactly(SimpleType.STRING, SimpleType.STRING, SimpleType.STRING, SimpleType.INT)
+        .inOrder();
+  }
+
+  @Test
+  public void newFunctionDeclaration_populatesEmptyOverloadIds() {
+    CelOverloadDecl globalOverload =
+        newGlobalOverload(SimpleType.INT, SimpleType.INT, SimpleType.INT);
+    CelOverloadDecl globalListOverload =
+        newGlobalOverload(SimpleType.STRING, ImmutableList.of(SimpleType.INT));
+    CelOverloadDecl memberOverload =
+        newMemberOverload(
+            SimpleType.BOOL, ListType.create(TypeParamType.create("T")), TypeParamType.create("T"));
+    CelOverloadDecl memberListOverload =
+        newMemberOverload(SimpleType.INT, ImmutableList.of(SimpleType.STRING));
+    CelOverloadDecl explicitOverload =
+        newGlobalOverload("custom_id", SimpleType.STRING, SimpleType.STRING);
+
+    assertThat(globalOverload.overloadId()).isEmpty();
+    assertThat(globalListOverload.overloadId()).isEmpty();
+    assertThat(memberOverload.overloadId()).isEmpty();
+    assertThat(memberListOverload.overloadId()).isEmpty();
+
+    CelFunctionDecl functionDecl =
+        CelFunctionDecl.newFunctionDeclaration(
+            "myFunc",
+            globalOverload,
+            globalListOverload,
+            memberOverload,
+            memberListOverload,
+            explicitOverload);
+
+    assertThat(functionDecl.overloads().stream().map(CelOverloadDecl::overloadId))
+        .containsExactly(
+            "myFunc(int,int)",
+            "myFunc(int)",
+            "list<~T>.myFunc(~T)",
+            "string.myFunc()",
+            "custom_id")
         .inOrder();
   }
 }

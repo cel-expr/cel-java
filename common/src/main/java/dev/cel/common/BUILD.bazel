@@ -63,6 +63,7 @@ java_library(
     ],
     deps = [
         ":cel_overload_decl",
+        ":cel_signature_utils",
         "//:auto_value",
         "@maven//:com_google_errorprone_error_prone_annotations",
         "@maven//:com_google_guava_guava",
@@ -76,8 +77,35 @@ cel_android_library(
     ],
     deps = [
         ":cel_overload_decl_android",
+        ":cel_signature_utils_android",
         "//:auto_value",
         "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven_android//:com_google_guava_guava",
+    ],
+)
+
+java_library(
+    name = "cel_signature_utils",
+    srcs = ["CelSignatureUtils.java"],
+    tags = [
+    ],
+    deps = [
+        "//common/annotations",
+        "//common/types",
+        "//common/types:type_providers",
+        "@maven//:com_google_guava_guava",
+    ],
+)
+
+cel_android_library(
+    name = "cel_signature_utils_android",
+    srcs = ["CelSignatureUtils.java"],
+    tags = [
+    ],
+    deps = [
+        "//common/annotations",
+        "//common/types:type_providers_android",
+        "//common/types:types_android",
         "@maven_android//:com_google_guava_guava",
     ],
 )
