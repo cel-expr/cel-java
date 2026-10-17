@@ -163,8 +163,9 @@ public final class SelectFieldTest {
   }
 
   @Test
-  public void createMap_threeArguments_success() {
-    SelectField.MapEntrySpec mapEntrySpec = SelectField.MapEntrySpec.create(9, 9);
+  public void createMap_threeArguments_success(
+      @TestParameter({"9", "11"}) long valueTypeCode) { // STRING, MESSAGE of unspecified type
+    SelectField.MapEntrySpec mapEntrySpec = SelectField.MapEntrySpec.create(9, valueTypeCode);
 
     SelectField field = SelectField.createMap(3L, "map_field", mapEntrySpec);
 
@@ -282,30 +283,16 @@ public final class SelectFieldTest {
   }
 
   @Test
-  public void createMap_protoTypeNameInconsistentWithValueTypeCode_throws(
-      @TestParameter InconsistentMapValueTestCase testCase) {
-    SelectField.MapEntrySpec spec = SelectField.MapEntrySpec.create(9, testCase.valueTypeCode);
+  public void createMap_scalarValueWithProtoTypeName_throws() {
+    SelectField.MapEntrySpec spec = SelectField.MapEntrySpec.create(9, 9);
 
     IllegalArgumentException thrown =
         assertThrows(
             IllegalArgumentException.class,
-            () -> SelectField.createMap(1L, "map_field", spec, testCase.protoTypeName));
+            () -> SelectField.createMap(1L, "map_field", spec, "proto.Name"));
 
     assertThat(thrown)
         .hasMessageThat()
-        .contains("Map value proto type name '" + testCase.protoTypeName + "' is inconsistent");
-  }
-
-  private enum InconsistentMapValueTestCase {
-    MESSAGE_VALUE_WITHOUT_TYPE_NAME(SelectField.MESSAGE_TYPE_CODE, ""),
-    SCALAR_VALUE_WITH_TYPE_NAME(9, "cel.expr.conformance.proto3.TestAllTypes");
-
-    private final long valueTypeCode;
-    private final String protoTypeName;
-
-    InconsistentMapValueTestCase(long valueTypeCode, String protoTypeName) {
-      this.valueTypeCode = valueTypeCode;
-      this.protoTypeName = protoTypeName;
-    }
+        .contains("Map value proto type name 'proto.Name' is inconsistent with value type code 9");
   }
 }

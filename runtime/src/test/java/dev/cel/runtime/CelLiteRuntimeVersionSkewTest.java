@@ -46,6 +46,7 @@ import com.google.protobuf.UnknownFieldSet;
 import com.google.protobuf.Value;
 import com.google.testing.junit.testparameterinjector.TestParameter;
 import com.google.testing.junit.testparameterinjector.TestParameterInjector;
+import com.google.testing.junit.testparameterinjector.TestParameters;
 import dev.cel.bundle.Cel;
 import dev.cel.bundle.CelFactory;
 import dev.cel.common.CelAbstractSyntaxTree;
@@ -760,6 +761,19 @@ public final class CelLiteRuntimeVersionSkewTest {
     Object result = eval("msg.map_int64_message[1].bb", POPULATED_RENAMED_MESSAGE);
 
     assertThat(result).isEqualTo(100L);
+  }
+
+  @Test
+  @TestParameters({
+    "{expression: 'has(msg.repeated_nested_message[1].bb)', expected: true}",
+    "{expression: 'has(msg.map_int64_nested_type[1].child.payload)', expected: true}",
+    "{expression: 'has(msg.map_int64_nested_type[2].child.payload)', expected: false}"
+  })
+  public void has_throughUnknownRepeatedAndMapIndices_decodesFromWireBytes(
+      String expression, boolean expected) throws Exception {
+    Object result = eval(expression, POPULATED_SERVER_MESSAGE);
+
+    assertThat(result).isEqualTo(expected);
   }
 
   @Test

@@ -935,6 +935,6 @@ public final class ProgramPlanner {
     this.attributeFactory =
         AttributeFactory.newAttributeFactory(container, typeProvider, celValueConverter);
     this.optimizedSelectPlanner =
-        OptimizedSelectPlanner.create(this.attributeFactory, celValueConverter);
+        OptimizedSelectPlanner.create(this.attributeFactory, celValueConverter, runtimeEquality);
   }
 }

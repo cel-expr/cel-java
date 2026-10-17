@@ -133,11 +133,11 @@ public class RuntimeHelpers {
           .map(v -> indexList(list, v))
           .orElseThrow(() -> new CelIndexOutOfBoundsException(index.doubleValue()));
     }
-    int castIndex = Ints.checkedCast(index.longValue());
-    if (castIndex < 0 || castIndex >= list.size()) {
-      throw new CelIndexOutOfBoundsException(castIndex);
+    long longIndex = index.longValue();
+    if (longIndex < 0 || longIndex >= list.size()) {
+      throw new CelIndexOutOfBoundsException(index);
     }
-    return list.get(castIndex);
+    return list.get((int) longIndex);
   }
 
   // Integer Arithmetic
