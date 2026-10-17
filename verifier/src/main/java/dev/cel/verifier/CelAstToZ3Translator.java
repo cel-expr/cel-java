@@ -401,6 +401,12 @@ final class CelAstToZ3Translator {
     if (isJsonWkt(createStruct.messageName())) {
       return translateJsonWktStruct(celExpr, createStruct, ast);
     }
+    if (CelTypes.isWrapperType(createStruct.messageName())) {
+      return translateWrapperWktStruct(celExpr, createStruct, ast);
+    }
+    if (isTimeWkt(createStruct.messageName())) {
+      return translateTimeWktStruct(celExpr, createStruct, ast);
+    }
 
     // Bypass SMT when the struct is empty (return the cached SMT default pointer)
     if (createStruct.entries().isEmpty()) {
@@ -517,7 +523,12 @@ final class CelAstToZ3Translator {
             && entry.fieldKey().equals(NULL_VALUE_FIELD);
 
     if (entry.optionalEntry()) {
-      Expr<?> optRef = typeSystem.getOptionalRef(finalVal);
+      Expr<?> checkedVal =
+          typeSystem.withRuntimeError(finalVal, ctx.mkNot(typeSystem.isOptional(finalVal)));
+      entryTv =
+          TranslatedValue.create(
+              checkedVal, entry.value(), typeSystem, entryTv.isApproximate());
+      Expr<?> optRef = typeSystem.getOptionalRef(checkedVal);
       BoolExpr hasValue = typeSystem.optHasValue(optRef);
 
       Expr<?> unpackedVal = typeSystem.getOptionalValue(optRef);
@@ -531,6 +542,136 @@ final class CelAstToZ3Translator {
 
     return TranslatedValue.propagateStrict(
         ctx, typeSystem, finalVal, celExpr, ImmutableList.of(entryTv));
+  }
+
+  private TranslatedValue translateWrapperWktStruct(
+      CelExpr celExpr, CelExpr.CelStruct createStruct, CelAbstractSyntaxTree ast) {
+    String typeName = createStruct.messageName();
+    CelType wrapperType =
+        CelTypes.getWellKnownCelType(typeName)
+            .orElseThrow(
+                () -> new IllegalArgumentException("Unexpected wrapper type: " + typeName));
+    CelType targetType = ((NullableType) wrapperType).targetType();
+    Expr<?> currentVal = getDefaultValueForType(targetType);
+
+    List<TranslatedValue> entryTvs = new ArrayList<>();
+    for (CelExpr.CelStruct.Entry entry : createStruct.entries()) {
+      TranslatedValue entryTv = translateExpr(entry.value(), ast);
+      Expr<?> val = entryTv.z3Expr();
+      if (entry.optionalEntry()) {
+        Expr<?> checkedVal =
+            typeSystem.withRuntimeError(val, ctx.mkNot(typeSystem.isOptional(val)));
+        entryTv =
+            TranslatedValue.create(
+                checkedVal, entry.value(), typeSystem, entryTv.isApproximate());
+        Expr<?> optRef = typeSystem.getOptionalRef(checkedVal);
+        BoolExpr hasValue = typeSystem.optHasValue(optRef);
+        currentVal = ctx.mkITE(hasValue, typeSystem.getOptionalValue(optRef), currentVal);
+      } else {
+        currentVal = val;
+      }
+      entryTvs.add(entryTv);
+    }
+    BoolExpr validValue = createTypeConstraintForType(currentVal, targetType);
+    if (typeName.equals(CelTypes.INT32_WRAPPER_MESSAGE)) {
+      IntExpr intVal = typeSystem.getInt(currentVal);
+      validValue =
+          ctx.mkAnd(
+              validValue,
+              ctx.mkGe(intVal, ctx.mkInt(Integer.MIN_VALUE)),
+              ctx.mkLe(intVal, ctx.mkInt(Integer.MAX_VALUE)));
+    } else if (typeName.equals(CelTypes.UINT32_WRAPPER_MESSAGE)) {
+      IntExpr uintVal = typeSystem.getUint(currentVal);
+      validValue =
+          ctx.mkAnd(
+              validValue,
+              ctx.mkGe(uintVal, ctx.mkInt(0)),
+              ctx.mkLe(uintVal, ctx.mkInt(0xFFFFFFFFL)));
+    }
+    currentVal = typeSystem.withRuntimeError(currentVal, ctx.mkNot(validValue));
+    return TranslatedValue.propagateStrict(ctx, typeSystem, currentVal, celExpr, entryTvs);
+  }
+
+  private static boolean isTimeWkt(String messageName) {
+    return messageName.equals(CelTypes.TIMESTAMP_MESSAGE)
+        || messageName.equals(CelTypes.DURATION_MESSAGE);
+  }
+
+  private TranslatedValue translateTimeWktStruct(
+      CelExpr celExpr, CelExpr.CelStruct createStruct, CelAbstractSyntaxTree ast) {
+    boolean isTimestamp = createStruct.messageName().equals(CelTypes.TIMESTAMP_MESSAGE);
+    Expr<?> secondsVal = typeSystem.mkInt(0);
+    Expr<?> nanosVal = typeSystem.mkInt(0);
+    List<TranslatedValue> entryTvs = new ArrayList<>();
+
+    for (CelExpr.CelStruct.Entry entry : createStruct.entries()) {
+      TranslatedValue entryTv = translateExpr(entry.value(), ast);
+      Expr<?> val = entryTv.z3Expr();
+      Expr<?> unpackedVal = val;
+      BoolExpr hasValue = ctx.mkTrue();
+      if (entry.optionalEntry()) {
+        Expr<?> checkedVal =
+            typeSystem.withRuntimeError(val, ctx.mkNot(typeSystem.isOptional(val)));
+        entryTv =
+            TranslatedValue.create(
+                checkedVal, entry.value(), typeSystem, entryTv.isApproximate());
+        Expr<?> optRef = typeSystem.getOptionalRef(checkedVal);
+        hasValue = typeSystem.optHasValue(optRef);
+        unpackedVal = typeSystem.getOptionalValue(optRef);
+      }
+      if (entry.fieldKey().equals("seconds")) {
+        secondsVal = ctx.mkITE(hasValue, unpackedVal, secondsVal);
+      } else {
+        nanosVal = ctx.mkITE(hasValue, unpackedVal, nanosVal);
+      }
+      entryTvs.add(entryTv);
+    }
+
+    IntExpr seconds = typeSystem.getInt(secondsVal);
+    BoolExpr secondsError =
+        ctx.mkOr(
+            ctx.mkNot(typeSystem.isInt(secondsVal)),
+            isTimestamp
+                ? typeSystem.checkTimestampOverflow(seconds)
+                : typeSystem.checkDurationOverflow(seconds));
+
+    IntExpr nanos = typeSystem.getInt(nanosVal);
+    BoolExpr nanosError;
+    if (isTimestamp) {
+      nanosError =
+          ctx.mkOr(
+              ctx.mkNot(typeSystem.isInt(nanosVal)),
+              ctx.mkLt(nanos, ctx.mkInt(0)),
+              ctx.mkGe(nanos, ctx.mkInt(1_000_000_000)));
+    } else {
+      BoolExpr nanosOutOfRange =
+          ctx.mkOr(
+              ctx.mkLt(nanos, ctx.mkInt(-999_999_999)), ctx.mkGe(nanos, ctx.mkInt(1_000_000_000)));
+      BoolExpr signMismatch =
+          ctx.mkOr(
+              ctx.mkAnd(ctx.mkGt(seconds, ctx.mkInt(0)), ctx.mkLt(nanos, ctx.mkInt(0))),
+              ctx.mkAnd(ctx.mkLt(seconds, ctx.mkInt(0)), ctx.mkGt(nanos, ctx.mkInt(0))));
+      nanosError = ctx.mkOr(ctx.mkNot(typeSystem.isInt(nanosVal)), nanosOutOfRange, signMismatch);
+    }
+    BoolExpr nanosNonZero = ctx.mkNot(ctx.mkEq(nanos, ctx.mkInt(0)));
+    BoolExpr subSecondApprox = ctx.mkAnd(ctx.mkNot(nanosError), nanosNonZero);
+    FuncDecl<?> subSecondOffset =
+        typeSystem.internFuncDecl(
+            createStruct.messageName() + "_subsecond",
+            new Sort[] {ctx.getIntSort(), ctx.getIntSort()},
+            ctx.getIntSort());
+    IntExpr subSecondTime = (IntExpr) ctx.mkApp(subSecondOffset, seconds, nanos);
+    IntExpr encodedTime = (IntExpr) ctx.mkITE(subSecondApprox, subSecondTime, seconds);
+    Expr<?> wrapped =
+        isTimestamp ? typeSystem.wrapTimestamp(encodedTime) : typeSystem.wrapDuration(encodedTime);
+    Expr<?> result = typeSystem.withRuntimeError(wrapped, secondsError, nanosError);
+    TranslatedValue strictResult =
+        TranslatedValue.propagateStrict(ctx, typeSystem, result, celExpr, entryTvs);
+    return TranslatedValue.create(
+        strictResult.z3Expr(),
+        celExpr,
+        typeSystem,
+        CelZ3TypeSystem.mkOrFlattened(ctx, strictResult.isApproximate(), subSecondApprox));
   }
 
   private Expr<?> getDefaultValueForType(CelType type) {

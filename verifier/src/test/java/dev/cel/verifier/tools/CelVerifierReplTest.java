@@ -84,7 +84,7 @@ public final class CelVerifierReplTest {
     assertThat(output[0]).contains("Query: sat <expression>");
     assertThat(output[0]).contains("Query: valid <expression>");
     assertThat(output[0]).contains("Query: equiv <expression1> <=> <expression2>");
-    assertThat(output[0]).contains("Well-known types: timestamp, duration");
+    assertThat(output[0]).contains("Well-known types: timestamp, duration, google.protobuf.*");
     assertThat(output[0]).contains("Optional types:   optional<T>");
     assertThat(output[0]).contains("Protobuf types:   coming soon");
   }
