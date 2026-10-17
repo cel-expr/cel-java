@@ -18,6 +18,7 @@ import static com.google.common.truth.Truth.assertThat;
 import static org.junit.Assert.assertThrows;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.primitives.UnsignedLong;
 import dev.cel.runtime.CelAttribute.Qualifier;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -242,6 +243,36 @@ public final class CelAttributePatternTest {
                 .qualify(Qualifier.ofWildCard())
                 .isPartialMatch(CelAttribute.EMPTY))
         .isFalse();
+  }
+
+  @Test
+  public void isMatch_intAndUintQualifiersWithSameValue_match() {
+    CelAttributePattern intPattern =
+        CelAttributePattern.create("identifier").qualify(Qualifier.ofInt(1));
+    CelAttributePattern uintPattern =
+        CelAttributePattern.create("identifier").qualify(Qualifier.ofUint(1));
+    CelAttribute intAttribute = CelAttribute.create("identifier").qualify(Qualifier.ofInt(1));
+    CelAttribute uintAttribute = CelAttribute.create("identifier").qualify(Qualifier.ofUint(1));
+
+    assertThat(intPattern.isMatch(uintAttribute)).isTrue();
+    assertThat(uintPattern.isMatch(intAttribute)).isTrue();
+    assertThat(intPattern.isPartialMatch(uintAttribute)).isTrue();
+    assertThat(uintPattern.isPartialMatch(intAttribute)).isTrue();
+  }
+
+  @Test
+  public void isMatch_negativeIntAndUintWithSameBits_doNotMatch() {
+    CelAttributePattern intPattern =
+        CelAttributePattern.create("identifier").qualify(Qualifier.ofInt(-1));
+    CelAttributePattern uintPattern =
+        CelAttributePattern.create("identifier")
+            .qualify(Qualifier.ofUint(UnsignedLong.fromLongBits(-1)));
+    CelAttribute intAttribute = CelAttribute.create("identifier").qualify(Qualifier.ofInt(-1));
+    CelAttribute uintAttribute =
+        CelAttribute.create("identifier").qualify(Qualifier.ofUint(UnsignedLong.fromLongBits(-1)));
+
+    assertThat(intPattern.isMatch(uintAttribute)).isFalse();
+    assertThat(uintPattern.isMatch(intAttribute)).isFalse();
   }
 
   @Test
