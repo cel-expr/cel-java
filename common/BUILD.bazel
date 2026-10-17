@@ -41,6 +41,18 @@ cel_android_library(
 )
 
 java_library(
+    name = "cel_signature_utils",
+    visibility = ["//:internal"],
+    exports = ["//common/src/main/java/dev/cel/common:cel_signature_utils"],
+)
+
+cel_android_library(
+    name = "cel_signature_utils_android",
+    visibility = ["//:internal"],
+    exports = ["//common/src/main/java/dev/cel/common:cel_signature_utils_android"],
+)
+
+java_library(
     name = "cel_proto_decl_converter",
     exports = ["//common/src/main/java/dev/cel/common:cel_proto_decl_converter"],
 )

@@ -23,6 +23,7 @@ import dev.cel.bundle.CelEnvironment.CanonicalCelExtension;
 import dev.cel.bundle.CelEnvironment.ExtensionConfig;
 import dev.cel.bundle.CelEnvironment.LibrarySubset;
 import dev.cel.bundle.CelEnvironment.LibrarySubset.FunctionSelector;
+import dev.cel.bundle.CelEnvironment.TypeDecl;
 import dev.cel.common.CelAbstractSyntaxTree;
 import dev.cel.common.CelContainer;
 import dev.cel.common.CelOptions;
@@ -30,7 +31,13 @@ import dev.cel.common.CelValidationException;
 import dev.cel.common.CelValidationResult;
 import dev.cel.common.types.CelType;
 import dev.cel.common.types.CelTypeProvider;
+import dev.cel.common.types.ListType;
+import dev.cel.common.types.MapType;
+import dev.cel.common.types.NullableType;
+import dev.cel.common.types.OpaqueType;
+import dev.cel.common.types.OptionalType;
 import dev.cel.common.types.SimpleType;
+import dev.cel.common.types.TypeParamType;
 import dev.cel.common.types.TypeType;
 import dev.cel.compiler.CelCompiler;
 import dev.cel.compiler.CelCompilerFactory;
@@ -466,6 +473,55 @@ public class CelEnvironmentTest {
   }
 
   @Test
+  public void stdlibSubset_functionOverloadIncludedBySignature() throws Exception {
+    CelEnvironment environment =
+        CelEnvironment.newBuilder()
+            .setStandardLibrarySubset(
+                LibrarySubset.newBuilder()
+                    .setDisabled(false)
+                    .setIncludedFunctions(
+                        ImmutableSet.of(
+                            FunctionSelector.create("_+_", ImmutableSet.of("_+_(int,int)"))))
+                    .build())
+            .build();
+
+    CelCompiler compiler = CelCompilerFactory.standardCelCompilerBuilder().build();
+    CelCompiler extendedCompiler = environment.extend(compiler, CelOptions.DEFAULT);
+    CelValidationResult result = extendedCompiler.compile("1 + 2");
+    assertThat(result.hasError()).isFalse();
+
+    result = extendedCompiler.compile("1.0 + 2.0");
+    assertThat(result.getErrorString())
+        .contains("found no matching overload for '_+_' applied to '(double, double)'");
+  }
+
+  @Test
+  public void stdlibSubset_functionOverloadExcludedBySignature() throws Exception {
+    CelEnvironment environment =
+        CelEnvironment.newBuilder()
+            .setStandardLibrarySubset(
+                LibrarySubset.newBuilder()
+                    .setDisabled(false)
+                    .setExcludedFunctions(
+                        ImmutableSet.of(
+                            FunctionSelector.create(
+                                "_+_", ImmutableSet.of("_+_(int,int)", "_+_(list<~A>,list<~A>)"))))
+                    .build())
+            .build();
+
+    CelCompiler compiler = CelCompilerFactory.standardCelCompilerBuilder().build();
+    CelCompiler extendedCompiler = environment.extend(compiler, CelOptions.DEFAULT);
+    CelValidationResult result = extendedCompiler.compile("'a' + 'b' == 'ab'");
+    assertThat(result.hasError()).isFalse();
+
+    result = extendedCompiler.compile("1 + 1");
+    assertThat(result.getErrorString()).contains("found no matching overload for '_+_'");
+
+    result = extendedCompiler.compile("[1] + [2]");
+    assertThat(result.getErrorString()).contains("found no matching overload for '_+_'");
+  }
+
+  @Test
   public void typeDecl_toCelType_type() {
     CelTypeProvider typeProvider =
         CelCompilerFactory.standardCelCompilerBuilder().build().getTypeProvider();
@@ -489,5 +545,47 @@ public class CelEnvironmentTest {
     IllegalStateException e =
         assertThrows(IllegalStateException.class, () -> typeDecl.toCelType(typeProvider));
     assertThat(e).hasMessageThat().contains("Expected 1 parameter for type, got 0");
+  }
+
+  @Test
+  public void typeDecl_fromCelType_and_toCelType() {
+    CelTypeProvider typeProvider =
+        CelCompilerFactory.standardCelCompilerBuilder().build().getTypeProvider();
+
+    assertThat(TypeDecl.fromCelType(SimpleType.INT).toCelType(typeProvider))
+        .isEqualTo(SimpleType.INT);
+    assertThat(TypeDecl.fromCelType(NullableType.create(SimpleType.INT)).toCelType(typeProvider))
+        .isEqualTo(NullableType.create(SimpleType.INT));
+    assertThat(TypeDecl.create("int_wrapper").toCelType(typeProvider))
+        .isEqualTo(NullableType.create(SimpleType.INT));
+    assertThat(TypeDecl.create("bool_wrapper").toCelType(typeProvider))
+        .isEqualTo(NullableType.create(SimpleType.BOOL));
+    assertThat(TypeDecl.create("uint_wrapper").toCelType(typeProvider))
+        .isEqualTo(NullableType.create(SimpleType.UINT));
+    assertThat(TypeDecl.create("double_wrapper").toCelType(typeProvider))
+        .isEqualTo(NullableType.create(SimpleType.DOUBLE));
+    assertThat(TypeDecl.create("string_wrapper").toCelType(typeProvider))
+        .isEqualTo(NullableType.create(SimpleType.STRING));
+    assertThat(TypeDecl.create("bytes_wrapper").toCelType(typeProvider))
+        .isEqualTo(NullableType.create(SimpleType.BYTES));
+    assertThat(TypeDecl.create("null").toCelType(typeProvider)).isEqualTo(SimpleType.NULL_TYPE);
+    assertThat(TypeDecl.create("any").toCelType(typeProvider)).isEqualTo(SimpleType.ANY);
+    assertThat(TypeDecl.create("timestamp").toCelType(typeProvider))
+        .isEqualTo(SimpleType.TIMESTAMP);
+    assertThat(TypeDecl.create("duration").toCelType(typeProvider)).isEqualTo(SimpleType.DURATION);
+    assertThat(
+            TypeDecl.fromCelType(
+                    MapType.create(SimpleType.STRING, ListType.create(TypeParamType.create("T"))))
+                .toCelType())
+        .isEqualTo(MapType.create(SimpleType.STRING, ListType.create(TypeParamType.create("T"))));
+    assertThat(TypeDecl.fromCelType(OptionalType.create(SimpleType.INT)).toCelType())
+        .isEqualTo(OptionalType.create(SimpleType.INT));
+    assertThat(TypeDecl.fromCelType(OpaqueType.create("my_opaque", SimpleType.INT)).toCelType())
+        .isEqualTo(OpaqueType.create("my_opaque", SimpleType.INT));
+
+    assertThrows(IllegalArgumentException.class, () -> TypeDecl.fromCelType(SimpleType.ERROR));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> TypeDecl.fromCelType(OpaqueType.create("function", SimpleType.INT)));
   }
 }

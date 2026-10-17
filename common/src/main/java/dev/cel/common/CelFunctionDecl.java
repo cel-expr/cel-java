@@ -14,6 +14,7 @@
 
 package dev.cel.common;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.google.auto.value.AutoValue;
@@ -22,6 +23,8 @@ import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import com.google.errorprone.annotations.CheckReturnValue;
 import com.google.errorprone.annotations.Immutable;
 import java.util.Arrays;
+import java.util.HashSet;
+import java.util.Set;
 
 /** Abstract representation of a CEL Function declaration. */
 @AutoValue
@@ -70,9 +73,50 @@ public abstract class CelFunctionDecl {
       return this;
     }
 
-    /** Builds a new instance of {@link CelFunctionDecl} */
     @CheckReturnValue
-    public abstract CelFunctionDecl build();
+    abstract CelFunctionDecl autoBuild();
+
+    /**
+     * Builds a new instance of {@link CelFunctionDecl}.
+     *
+     * <p>Any {@link CelOverloadDecl} with an empty {@link CelOverloadDecl#overloadId()} will have
+     * its ID automatically populated with its canonical overload signature.
+     */
+    @CheckReturnValue
+    public CelFunctionDecl build() {
+      ImmutableSet<CelOverloadDecl> currentOverloads = overloads();
+      boolean needsOverloadId = false;
+      for (CelOverloadDecl overload : currentOverloads) {
+        if (overload.overloadId().isEmpty()) {
+          needsOverloadId = true;
+          break;
+        }
+      }
+      if (!needsOverloadId) {
+        return autoBuild();
+      }
+      String functionName = name();
+      ImmutableSet.Builder<CelOverloadDecl> updatedOverloads =
+          ImmutableSet.builderWithExpectedSize(currentOverloads.size());
+      Set<String> seenOverloadIds = new HashSet<>();
+      for (CelOverloadDecl overload : currentOverloads) {
+        String overloadId = overload.overloadId();
+        if (overloadId.isEmpty()) {
+          overloadId =
+              CelSignatureUtils.makeOverloadSignature(
+                  functionName, overload.parameterTypes(), overload.isInstanceFunction());
+          updatedOverloads.add(overload.toBuilder().setOverloadId(overloadId).build());
+        } else {
+          updatedOverloads.add(overload);
+        }
+        checkArgument(
+            seenOverloadIds.add(overloadId), "Duplicate overload signature: %s", overloadId);
+      }
+      return new AutoValue_CelFunctionDecl.Builder()
+          .setName(functionName)
+          .setOverloads(updatedOverloads.build())
+          .autoBuild();
+    }
   }
 
   public abstract Builder toBuilder();

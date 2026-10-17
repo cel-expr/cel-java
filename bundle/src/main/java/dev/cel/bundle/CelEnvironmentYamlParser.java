@@ -38,11 +38,15 @@ import dev.cel.bundle.CelEnvironment.TypeDecl;
 import dev.cel.bundle.CelEnvironment.VariableDecl;
 import dev.cel.common.CelContainer;
 import dev.cel.common.CelIssue;
+import dev.cel.common.CelSignatureUtils;
+import dev.cel.common.CelSignatureUtils.ParsedFunctionOverload;
 import dev.cel.common.formats.CelFileSource;
 import dev.cel.common.formats.ParserContext;
+import dev.cel.common.formats.ValueString;
 import dev.cel.common.formats.YamlHelper.YamlNodeType;
 import dev.cel.common.formats.YamlParserContextImpl;
 import dev.cel.common.internal.CelCodePointArray;
+import dev.cel.common.types.CelType;
 import java.util.Optional;
 import org.jspecify.annotations.Nullable;
 import org.yaml.snakeyaml.DumperOptions.FlowStyle;
@@ -450,6 +454,7 @@ public final class CelEnvironmentYamlParser {
 
     MappingNode functionMap = (MappingNode) node;
     FunctionDecl.Builder builder = FunctionDecl.newBuilder();
+    Node overloadsNode = null;
     for (NodeTuple nodeTuple : functionMap.getValue()) {
       Node keyNode = nodeTuple.getKeyNode();
       long keyId = ctx.collectMetadata(keyNode);
@@ -460,7 +465,7 @@ public final class CelEnvironmentYamlParser {
           builder.setName(newString(ctx, valueNode));
           break;
         case "overloads":
-          builder.setOverloads(parseOverloads(ctx, valueNode));
+          overloadsNode = valueNode;
           break;
         case "description":
           builder.setDescription(newString(ctx, valueNode).trim());
@@ -471,6 +476,10 @@ public final class CelEnvironmentYamlParser {
       }
     }
 
+    if (overloadsNode != null) {
+      builder.setOverloads(parseOverloads(ctx, overloadsNode, builder.name().orElse("")));
+    }
+
     if (!assertRequiredFields(ctx, functionId, builder.getMissingRequiredFieldNames())) {
       return ERROR_FUNCTION_DECL;
     }
@@ -478,7 +487,8 @@ public final class CelEnvironmentYamlParser {
     return builder.build();
   }
 
-  private ImmutableSet<OverloadDecl> parseOverloads(ParserContext<Node> ctx, Node node) {
+  private ImmutableSet<OverloadDecl> parseOverloads(
+      ParserContext<Node> ctx, Node node, String functionName) {
     long listId = ctx.collectMetadata(node);
     ImmutableSet.Builder<OverloadDecl> overloadSetBuilder = ImmutableSet.builder();
     if (!assertYamlType(ctx, listId, node, YamlNodeType.LIST)) {
@@ -494,6 +504,8 @@ public final class CelEnvironmentYamlParser {
 
       MappingNode mapNode = (MappingNode) overloadMapNode;
       OverloadDecl.Builder overloadDeclBuilder = OverloadDecl.newBuilder();
+      boolean hasSignature = false;
+      boolean hasTargetOrArgs = false;
       for (NodeTuple nodeTuple : mapNode.getValue()) {
         Node keyNode = nodeTuple.getKeyNode();
         long keyId = ctx.collectMetadata(keyNode);
@@ -507,13 +519,46 @@ public final class CelEnvironmentYamlParser {
           case "id":
             overloadDeclBuilder.setId(newString(ctx, valueNode));
             break;
+          case "signature":
+            if (hasTargetOrArgs) {
+              if (!overloadDeclBuilder.id().isPresent()) {
+                overloadDeclBuilder.setId(ERROR);
+              }
+              ctx.reportError(
+                  keyId,
+                  String.format(
+                      "'signature' tag cannot be used together with 'target' or 'args': %s",
+                      fieldName));
+              break;
+            }
+            hasSignature = true;
+            parseOverloadSignature(ctx, valueNode, functionName, overloadDeclBuilder);
+            break;
           case "args":
+            if (hasSignature) {
+              ctx.reportError(
+                  keyId,
+                  String.format(
+                      "'signature' tag cannot be used together with 'target' or 'args': %s",
+                      fieldName));
+              break;
+            }
+            hasTargetOrArgs = true;
             overloadDeclBuilder.addArguments(parseOverloadArguments(ctx, valueNode));
             break;
           case "return":
             overloadDeclBuilder.setReturnType(parseTypeDecl(ctx, valueNode));
             break;
           case "target":
+            if (hasSignature) {
+              ctx.reportError(
+                  keyId,
+                  String.format(
+                      "'signature' tag cannot be used together with 'target' or 'args': %s",
+                      fieldName));
+              break;
+            }
+            hasTargetOrArgs = true;
             overloadDeclBuilder.setTarget(parseTypeDecl(ctx, valueNode));
             break;
           case "examples":
@@ -532,6 +577,50 @@ public final class CelEnvironmentYamlParser {
     }
 
     return overloadSetBuilder.build();
+  }
+
+  private static void parseOverloadSignature(
+      ParserContext<Node> ctx,
+      Node valueNode,
+      String functionName,
+      OverloadDecl.Builder overloadDeclBuilder) {
+    ValueString signatureValue = ctx.newYamlString(valueNode);
+    String signature = signatureValue.value();
+    if (!overloadDeclBuilder.id().isPresent()) {
+      overloadDeclBuilder.setId(signature);
+    }
+    if (signature.equals(ERROR)) {
+      return;
+    }
+
+    ParsedFunctionOverload parsedSignature;
+    try {
+      parsedSignature = CelSignatureUtils.parseFunctionSignature(signature);
+    } catch (IllegalArgumentException e) {
+      ctx.reportError(signatureValue.id(), e.getMessage());
+      return;
+    }
+
+    if (!functionName.isEmpty() && !parsedSignature.functionName().equals(functionName)) {
+      ctx.reportError(
+          signatureValue.id(),
+          String.format(
+              "Function overload name '%s' does not match function name '%s'",
+              parsedSignature.functionName(), functionName));
+      return;
+    }
+
+    ImmutableList<CelType> argTypes = parsedSignature.argTypes();
+    if (parsedSignature.isMember()) {
+      overloadDeclBuilder.setTarget(TypeDecl.fromCelType(argTypes.get(0)));
+      for (int i = 1; i < argTypes.size(); i++) {
+        overloadDeclBuilder.addArguments(TypeDecl.fromCelType(argTypes.get(i)));
+      }
+    } else {
+      for (CelType argType : argTypes) {
+        overloadDeclBuilder.addArguments(TypeDecl.fromCelType(argType));
+      }
+    }
   }
 
   private static ImmutableList<String> parseOverloadExamples(ParserContext<Node> ctx, Node node) {

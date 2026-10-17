@@ -76,6 +76,12 @@ functions:
     args:
     - "~K"
     - "~V"
+- name: "contains"
+  overloads:
+  - signature: "contains(list<~T>, ~T)"
+    examples:
+    - "contains([1, 2, 3], 2) // true"
+    return: "bool"
 features:
 - name: cel.feature.macro_call_tracking
   enabled: true

@@ -41,7 +41,6 @@ import dev.cel.common.CelProtoDeclConverter;
 import dev.cel.common.CelVarDecl;
 import dev.cel.common.internal.EnvVisitable;
 import dev.cel.common.internal.EnvVisitor;
-import dev.cel.common.types.CelKind;
 import dev.cel.common.types.CelType;
 import dev.cel.compiler.CelCompiler;
 import dev.cel.extensions.CelExtensionLibrary;
@@ -492,12 +491,7 @@ public abstract class CelEnvironmentExporter {
   }
 
   private CelEnvironment.TypeDecl toCelEnvTypeDecl(CelType type) {
-    return CelEnvironment.TypeDecl.newBuilder()
-        .setName(type.name())
-        .setIsTypeParam(type.kind() == CelKind.TYPE_PARAM)
-        .addParams(
-            type.parameters().stream().map(this::toCelEnvTypeDecl).collect(toImmutableList()))
-        .build();
+    return CelEnvironment.TypeDecl.fromCelType(type);
   }
 
   /** Wrapper for CelOverloadDecl, associating it with the corresponding function name. */

@@ -246,6 +246,23 @@ final class CelImpl implements Cel, EnvVisitable {
     }
 
     @Override
+    public CelBuilder addFunctions(CelFunction... functions) {
+      checkNotNull(functions);
+      return addFunctions(Arrays.asList(functions));
+    }
+
+    @Override
+    public CelBuilder addFunctions(Iterable<CelFunction> functions) {
+      checkNotNull(functions);
+      for (CelFunction function : functions) {
+        checkNotNull(function);
+        compilerBuilder.addFunctionDeclarations(function.functionDecl());
+        runtimeBuilder.addFunctionBindings(function.functionBindings());
+      }
+      return this;
+    }
+
+    @Override
     public CelBuilder addVarDeclarations(CelVarDecl... celVarDecls) {
       compilerBuilder.addVarDeclarations(celVarDecls);
       return this;
