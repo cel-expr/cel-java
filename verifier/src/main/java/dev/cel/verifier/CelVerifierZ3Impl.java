@@ -16,6 +16,7 @@ package dev.cel.verifier;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.collect.ImmutableList.toImmutableList;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
@@ -23,6 +24,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import com.google.errorprone.annotations.Immutable;
+import com.google.protobuf.Descriptors.Descriptor;
 import com.microsoft.z3.BoolExpr;
 import com.microsoft.z3.Context;
 import com.microsoft.z3.Model;
@@ -32,6 +34,8 @@ import com.microsoft.z3.Status;
 import dev.cel.bundle.Cel;
 import dev.cel.bundle.CelFactory;
 import dev.cel.common.CelAbstractSyntaxTree;
+import dev.cel.common.internal.DefaultDescriptorPool;
+import dev.cel.common.internal.WellKnownProto;
 import dev.cel.common.types.CelType;
 import dev.cel.common.types.CelTypeProvider;
 import dev.cel.optimizer.CelOptimizationException;
@@ -64,6 +68,26 @@ final class CelVerifierZ3Impl implements CelVerifier {
         }
       };
 
+  private static final ImmutableList<Descriptor> WELL_KNOWN_DESCRIPTORS =
+      ImmutableList.of(
+              WellKnownProto.DURATION,
+              WellKnownProto.JSON_LIST_VALUE,
+              WellKnownProto.JSON_STRUCT_VALUE,
+              WellKnownProto.JSON_VALUE,
+              WellKnownProto.TIMESTAMP,
+              WellKnownProto.FLOAT_VALUE,
+              WellKnownProto.INT32_VALUE,
+              WellKnownProto.INT64_VALUE,
+              WellKnownProto.STRING_VALUE,
+              WellKnownProto.BOOL_VALUE,
+              WellKnownProto.BYTES_VALUE,
+              WellKnownProto.DOUBLE_VALUE,
+              WellKnownProto.UINT32_VALUE,
+              WellKnownProto.UINT64_VALUE)
+          .stream()
+          .map(DefaultDescriptorPool::getWellKnownProtoDescriptor)
+          .collect(toImmutableList());
+
   private final Duration timeout;
   private final int comprehensionUnrollLimit;
   private final ImmutableSet<String> unknownIdentifiers;
@@ -74,7 +98,8 @@ final class CelVerifierZ3Impl implements CelVerifier {
   private final Cel cel;
 
   static Builder newBuilder() {
-    return new Builder(CelFactory.plannerCelBuilder().build());
+    return new Builder(
+        CelFactory.plannerCelBuilder().addMessageTypes(WELL_KNOWN_DESCRIPTORS).build());
   }
 
   static Builder newBuilder(Cel cel) {
@@ -155,7 +180,7 @@ final class CelVerifierZ3Impl implements CelVerifier {
       this.comprehensionUnrollLimit = 5;
       this.unknownIdentifiers = ImmutableSet.builder();
       this.functionAxioms = ImmutableList.builder();
-      this.typeProvider = EMPTY_TYPE_PROVIDER;
+      this.typeProvider = cel.getTypeProvider();
       this.cel = cel;
     }
   }
