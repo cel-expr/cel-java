@@ -114,9 +114,9 @@ final class NamespacedAttribute implements Attribute {
     }
 
     // The name itself could be a fully qualified reference to an enum value
-    // (e.g: my.enum_type.BAR)
+    // (e.g: my.enum_type.BAR), which can't be qualified further.
     int lastDotIndex = name.lastIndexOf('.');
-    if (lastDotIndex > 0) {
+    if (lastDotIndex > 0 && qualifiers.isEmpty()) {
       String enumTypeName = name.substring(0, lastDotIndex);
       String enumValueQualifier = name.substring(lastDotIndex + 1);
 

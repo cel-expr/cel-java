@@ -19,6 +19,7 @@ import static java.lang.Math.min;
 import com.google.auto.value.AutoValue;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.primitives.UnsignedLong;
 import com.google.errorprone.annotations.Immutable;
 
 /**
@@ -124,9 +125,7 @@ public abstract class CelAttributePattern {
     int qualifierCount = min(qualifiers().size(), attribute.qualifiers().size());
     int i = 0;
     for (; i < qualifierCount; i++) {
-      CelAttribute.Qualifier pattern = qualifiers().get(i);
-      CelAttribute.Qualifier qualifier = attribute.qualifiers().get(i);
-      if (pattern.kind() != CelAttribute.Qualifier.Kind.WILD_CARD && !pattern.equals(qualifier)) {
+      if (!matches(qualifiers().get(i), attribute.qualifiers().get(i))) {
         return false;
       }
     }
@@ -154,15 +153,31 @@ public abstract class CelAttributePattern {
     }
     int qualifierCount = min(qualifiers().size(), attribute.qualifiers().size());
     for (int i = 0; i < qualifierCount; i++) {
-      CelAttribute.Qualifier pattern = qualifiers().get(i);
-      CelAttribute.Qualifier qualifier = attribute.qualifiers().get(i);
-      if (pattern.kind() != CelAttribute.Qualifier.Kind.WILD_CARD && !pattern.equals(qualifier)) {
+      if (!matches(qualifiers().get(i), attribute.qualifiers().get(i))) {
         return false;
       }
     }
     // If the end of the loop is reached, either the pattern was exhausted (full match) or
     // the attribute was exhausted (partial match / a sub field was matched).
     return true;
+  }
+
+  // Numeric qualifiers match by value across int and uint, as map keys and list indices do.
+  private static boolean matches(CelAttribute.Qualifier pattern, CelAttribute.Qualifier qualifier) {
+    if (pattern.kind() == CelAttribute.Qualifier.Kind.WILD_CARD || pattern.equals(qualifier)) {
+      return true;
+    }
+    if (pattern.kind() == CelAttribute.Qualifier.Kind.AS_INT
+        && qualifier.kind() == CelAttribute.Qualifier.Kind.AS_UINT) {
+      return intEqualsUint(pattern.asInt(), qualifier.asUint());
+    }
+    return pattern.kind() == CelAttribute.Qualifier.Kind.AS_UINT
+        && qualifier.kind() == CelAttribute.Qualifier.Kind.AS_INT
+        && intEqualsUint(qualifier.asInt(), pattern.asUint());
+  }
+
+  private static boolean intEqualsUint(long intValue, UnsignedLong uintValue) {
+    return intValue >= 0 && UnsignedLong.valueOf(intValue).equals(uintValue);
   }
 
   /**

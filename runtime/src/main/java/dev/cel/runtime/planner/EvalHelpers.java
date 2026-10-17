@@ -59,21 +59,24 @@ final class EvalHelpers {
     Object val;
     try {
       val = interpretable.eval(resolver, frame);
-    } catch (LocalizedEvaluationException e) {
-      // Already localized - propagate as-is to preserve inner expression ID
-      throw e;
-    } catch (CelRuntimeException e) {
-      // Wrap with current interpretable's location
-      throw new LocalizedEvaluationException(e, interpretable.expr().id());
     } catch (Exception e) {
-      // Wrap generic exceptions with location
-      throw new LocalizedEvaluationException(
-          e, CelErrorCode.INTERNAL_ERROR, interpretable.expr().id());
+      throw localize(e, interpretable.expr().id());
     }
     if (val instanceof ErrorValue) {
       throw ((ErrorValue) val).value();
     }
     return val;
+  }
+
+  /** Localizes {@code e} to {@code exprId} unless an inner expression already did. */
+  static LocalizedEvaluationException localize(Exception e, long exprId) {
+    if (e instanceof LocalizedEvaluationException) {
+      return (LocalizedEvaluationException) e;
+    }
+    if (e instanceof CelRuntimeException) {
+      return new LocalizedEvaluationException((CelRuntimeException) e, exprId);
+    }
+    return new LocalizedEvaluationException(e, CelErrorCode.INTERNAL_ERROR, exprId);
   }
 
   static Object dispatch(

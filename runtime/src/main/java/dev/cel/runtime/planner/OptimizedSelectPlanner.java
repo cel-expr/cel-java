@@ -31,9 +31,14 @@ import dev.cel.common.values.CelValueConverter;
 import dev.cel.common.values.OptimizedSelectTraversal;
 import dev.cel.common.values.OptionalValue;
 import dev.cel.common.values.SelectField;
+import dev.cel.runtime.RuntimeEquality;
+import dev.cel.runtime.RuntimeHelpers;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Plans optimizer-rewritten select chains ({@code cel.@attribute}) and presence tests ({@code
@@ -46,56 +51,87 @@ final class OptimizedSelectPlanner {
   static final String CEL_ATTRIBUTE_FUNCTION_NAME = "cel.@attribute";
   static final String CEL_HAS_FIELD_FUNCTION_NAME = "cel.@hasField";
 
+  // A list index is an int, as typed by an INT64 (3) map key.
+  private static final long LIST_INDEX_TYPE_CODE = 3;
+
   private final AttributeFactory attributeFactory;
   private final CelValueConverter celValueConverter;
+  private final RuntimeEquality runtimeEquality;
 
   static OptimizedSelectPlanner create(
-      AttributeFactory attributeFactory, CelValueConverter celValueConverter) {
-    return new OptimizedSelectPlanner(attributeFactory, celValueConverter);
+      AttributeFactory attributeFactory,
+      CelValueConverter celValueConverter,
+      RuntimeEquality runtimeEquality) {
+    return new OptimizedSelectPlanner(attributeFactory, celValueConverter, runtimeEquality);
   }
 
   PlannedInterpretable plan(CelExpr expr, String functionName, OperandPlanner operandPlanner) {
     ImmutableList<CelExpr> args = expr.call().args();
-    ImmutableList<SelectField> selectFields;
-    boolean isPresenceTest;
-    switch (functionName) {
-      case CEL_ATTRIBUTE_FUNCTION_NAME:
-        {
-          checkArgument(
-              args.size() == 3, "Expected 3 arguments for %s, found %s", functionName, args.size());
-          selectFields = unpackAttributeFields(args.get(1), args.get(2));
-          isPresenceTest = false;
-          break;
-        }
-      case CEL_HAS_FIELD_FUNCTION_NAME:
-        {
-          checkArgument(
-              args.size() == 2, "Expected 2 arguments for %s, found %s", functionName, args.size());
-          selectFields = unpackHasFieldFields(args.get(1));
-          isPresenceTest = true;
-          break;
-        }
-      default:
-        throw new IllegalArgumentException(
-            "Unsupported optimized select function: " + functionName);
+    boolean isPresenceTest = functionName.equals(CEL_HAS_FIELD_FUNCTION_NAME);
+    int expectedArgCount = isPresenceTest ? 2 : 3;
+    checkArgument(
+        args.size() == expectedArgCount,
+        "Expected %s arguments for %s, found %s",
+        expectedArgCount,
+        functionName,
+        args.size());
+
+    // Constant index hops split the qualifiers into field segments, each but the last ending at the
+    // repeated or map field that the following index selects from.
+    ImmutableList<CelExpr> hops = unpackQualifierHops(args.get(1));
+    ImmutableList.Builder<Qualifier> qualifiers = ImmutableList.builder();
+    int segmentStart = 0;
+    for (int i = 0; i < hops.size(); i++) {
+      CelExpr hop = hops.get(i);
+      if (hop.getKind() != Kind.CONSTANT) {
+        continue;
+      }
+      checkArgument(
+          i > segmentStart && i < hops.size() - 1,
+          "Index qualifier hop must be between field hops: %s",
+          hop);
+      ImmutableList<SelectField> fields =
+          unpackAttributeFields(hops.subList(segmentStart, i), /* dummyOrDefExpr= */ null);
+      addSegmentQualifiers(qualifiers, fields, /* isPresenceTest= */ false);
+      SelectField.MapEntrySpec mapEntrySpec = Iterables.getLast(fields).mapEntrySpec();
+      long keyTypeCode = mapEntrySpec != null ? mapEntrySpec.keyTypeCode() : LIST_INDEX_TYPE_CODE;
+      qualifiers.add(
+          new IndexQualifier(
+              resolveScalarDefaultValue(keyTypeCode, hop), runtimeEquality, celValueConverter));
+      segmentStart = i + 1;
     }
+    ImmutableList<CelExpr> leafSegment = hops.subList(segmentStart, hops.size());
+    addSegmentQualifiers(
+        qualifiers,
+        isPresenceTest
+            ? unpackHasFieldFields(leafSegment)
+            : unpackAttributeFields(leafSegment, args.get(2)),
+        isPresenceTest);
 
     PlannedInterpretable operand = operandPlanner.plan(args.get(0));
     Attribute qualified = PlannerHelpers.resolveBaseAttribute(operand, attributeFactory);
-
-    int lastIndex = selectFields.size() - 1;
-    for (int i = 0; i < lastIndex; i++) {
-      qualified = qualified.addQualifier(new PassthroughQualifier(selectFields.get(i).fieldName()));
+    for (Qualifier qualifier : qualifiers.build()) {
+      qualified = qualified.addQualifier(qualifier);
     }
-    qualified =
-        qualified.addQualifier(
-            new OptimizedSelectQualifier(selectFields, celValueConverter, isPresenceTest));
     return EvalAttribute.create(expr, qualified);
   }
 
+  private void addSegmentQualifiers(
+      ImmutableList.Builder<Qualifier> qualifiers,
+      ImmutableList<SelectField> fields,
+      boolean isPresenceTest) {
+    for (int i = 0; i < fields.size() - 1; i++) {
+      qualifiers.add(new PassthroughQualifier(fields.get(i).fieldName()));
+    }
+    qualifiers.add(new OptimizedSelectQualifier(fields, celValueConverter, isPresenceTest));
+  }
+
+  /**
+   * Unpacks the field hops of a {@code cel.@attribute} segment. The last hop is the leaf typed by
+   * {@code dummyOrDefExpr}, or, if null, the repeated or map field indexed by the next hop.
+   */
   private static ImmutableList<SelectField> unpackAttributeFields(
-      CelExpr qualifiersExpr, CelExpr dummyOrDefExpr) {
-    ImmutableList<CelExpr> elements = unpackQualifierHops(qualifiersExpr);
+      ImmutableList<CelExpr> elements, @Nullable CelExpr dummyOrDefExpr) {
     ImmutableList.Builder<SelectField> fieldsBuilder =
         ImmutableList.builderWithExpectedSize(elements.size());
     for (int i = 0; i < elements.size(); i++) {
@@ -124,6 +160,8 @@ final class OptimizedSelectPlanner {
             "Non-leaf qualifier hop must have MESSAGE type code (11), found: %s",
             rawTypeCode);
         fieldsBuilder.add(SelectField.create(fieldNumber, fieldName, rawTypeCode));
+      } else if (dummyOrDefExpr == null) {
+        fieldsBuilder.add(parseIndexedField(fieldNumber, fieldName, rawTypeCode, hopElements));
       } else if (rawTypeCode == SelectField.CEL_MAP_TYPE_CODE) {
         checkArgument(
             hopElements.size() == 4,
@@ -163,6 +201,25 @@ final class OptimizedSelectPlanner {
     return SelectField.createMap(fieldNumber, fieldName, mapEntrySpec);
   }
 
+  /** Parses a repeated message or a message-valued map field hop that an index hop follows. */
+  private static SelectField parseIndexedField(
+      long fieldNumber, String fieldName, long typeCode, ImmutableList<CelExpr> hopElements) {
+    if (typeCode == SelectField.CEL_MAP_TYPE_CODE && hopElements.size() == 4) {
+      SelectField.MapEntrySpec mapEntrySpec = parseMapEntrySpec(hopElements.get(3));
+      checkArgument(
+          mapEntrySpec.valueTypeCode() == SelectField.MESSAGE_TYPE_CODE,
+          "Indexed map qualifier hop must have MESSAGE values (11), found: %s",
+          mapEntrySpec.valueTypeCode());
+      return SelectField.createMap(fieldNumber, fieldName, mapEntrySpec);
+    }
+    checkArgument(
+        typeCode == SelectField.MESSAGE_TYPE_CODE && hopElements.size() == 3,
+        "Indexed qualifier hop must be a repeated message or a message-valued map field: %s",
+        hopElements);
+    return SelectField.create(
+        fieldNumber, fieldName, typeCode, /* defaultValue= */ ImmutableList.of());
+  }
+
   private static SelectField parseRepeatedLeaf(
       long fieldNumber, String fieldName, long typeCode, CelExpr dummyExpr) {
     checkArgument(
@@ -199,8 +256,7 @@ final class OptimizedSelectPlanner {
     return SelectField.create(fieldNumber, fieldName, typeCode, defaultValue, protoTypeName);
   }
 
-  private static ImmutableList<SelectField> unpackHasFieldFields(CelExpr qualifiersExpr) {
-    ImmutableList<CelExpr> elements = unpackQualifierHops(qualifiersExpr);
+  private static ImmutableList<SelectField> unpackHasFieldFields(ImmutableList<CelExpr> elements) {
     ImmutableList.Builder<SelectField> fieldsBuilder =
         ImmutableList.builderWithExpectedSize(elements.size());
     for (CelExpr hopExpr : elements) {
@@ -429,9 +485,46 @@ final class OptimizedSelectPlanner {
     }
   }
 
+  /** Indexes a repeated or map field's value by a constant list index or map key. */
+  @Immutable
+  private static final class IndexQualifier implements Qualifier {
+    @SuppressWarnings("Immutable") // Immutable CEL constant.
+    private final Object index;
+
+    private final RuntimeEquality runtimeEquality;
+    private final CelValueConverter celValueConverter;
+
+    @Override
+    public Object value() {
+      return index;
+    }
+
+    // The operand is the protobuf field's list or map traversal target, so its elements are indexed
+    // in place rather than unwrapped first as the generic index operator's arguments are.
+    @Override
+    @SuppressWarnings("unchecked") // Map keys are compared as CEL values.
+    public Object qualify(Object operand) {
+      Object element =
+          operand instanceof Map
+              ? runtimeEquality.indexMap((Map<Object, Object>) operand, index)
+              : RuntimeHelpers.indexList((List<?>) operand, (Long) index);
+      return celValueConverter.toTraversalTarget(element);
+    }
+
+    private IndexQualifier(
+        Object index, RuntimeEquality runtimeEquality, CelValueConverter celValueConverter) {
+      this.index = checkNotNull(index);
+      this.runtimeEquality = checkNotNull(runtimeEquality);
+      this.celValueConverter = checkNotNull(celValueConverter);
+    }
+  }
+
   private OptimizedSelectPlanner(
-      AttributeFactory attributeFactory, CelValueConverter celValueConverter) {
+      AttributeFactory attributeFactory,
+      CelValueConverter celValueConverter,
+      RuntimeEquality runtimeEquality) {
     this.attributeFactory = checkNotNull(attributeFactory);
     this.celValueConverter = checkNotNull(celValueConverter);
+    this.runtimeEquality = checkNotNull(runtimeEquality);
   }
 }

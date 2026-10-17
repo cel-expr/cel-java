@@ -66,8 +66,12 @@ import dev.cel.optimizer.optimizers.SelectOptimizer.SelectOptimizerOptions;
 import dev.cel.parser.CelStandardMacro;
 import dev.cel.parser.CelUnparser;
 import dev.cel.parser.CelUnparserFactory;
+import dev.cel.runtime.CelAttribute;
+import dev.cel.runtime.CelAttributePattern;
 import dev.cel.runtime.CelEvaluationException;
 import dev.cel.runtime.CelRuntime.Program;
+import dev.cel.runtime.CelUnknownSet;
+import dev.cel.runtime.PartialVars;
 import dev.cel.testing.CelRuntimeFlavor;
 import java.time.Duration;
 import java.time.Instant;
@@ -337,10 +341,49 @@ public final class SelectOptimizerTest {
             + " {\"\": google.protobuf.Duration{}})"),
     MAP_FIELD_INDEXING(
         "msg.map_int64_message[1].bb",
-        "cel.@attribute("
-            + "cel.@attribute(msg, [[95, \"map_int64_message\", -1, [3, 11]]],"
-            + " {0: cel.expr.conformance.proto3.TestAllTypes.NestedMessage{}})[1], "
+        "cel.@attribute(msg, [[95, \"map_int64_message\", -1, [3, 11]], 1, [1, \"bb\", 5]], 0)"),
+    REPEATED_FIELD_INDEXING(
+        "msg.repeated_nested_message[0].bb",
+        "cel.@attribute(msg, [[51, \"repeated_nested_message\", 11], 0, [1, \"bb\", 5]], 0)"),
+    MAP_AND_REPEATED_FIELD_INDEXING(
+        "msg.map_int64_nested_type[1].child.payload.repeated_nested_message[0].bb",
+        "cel.@attribute(msg, [[62, \"map_int64_nested_type\", -1, [3, 11]], 1, "
+            + "[1, \"child\", 11], [2, \"payload\", 11], "
+            + "[51, \"repeated_nested_message\", 11], 0, [1, \"bb\", 5]], 0)"),
+    MAP_FIELD_UINT_KEY_INDEXING(
+        "msg.map_uint64_message[1u].bb",
+        "cel.@attribute(msg, [[217, \"map_uint64_message\", -1, [4, 11]], 1u, "
+            + "[1, \"bb\", 5]], 0)"),
+    MAP_FIELD_BOOL_KEY_INDEXING(
+        "msg.map_bool_message[true].bb",
+        "cel.@attribute(msg, [[73, \"map_bool_message\", -1, [8, 11]], true, "
+            + "[1, \"bb\", 5]], 0)"),
+    REPEATED_FIELD_HAS_THROUGH_INDEX(
+        "has(msg.repeated_nested_message[0].bb)",
+        "cel.@hasField(msg, [[51, \"repeated_nested_message\", 11], 0, [1, \"bb\"]])"),
+    MAP_FIELD_HAS_THROUGH_INDEX(
+        "has(msg.map_int64_nested_type[1].child.payload.single_int64)",
+        "cel.@hasField(msg, [[62, \"map_int64_nested_type\", -1, [3, 11]], 1, "
+            + "[1, \"child\"], [2, \"payload\"], [2, \"single_int64\"]])"),
+    HAS_THROUGH_TWO_INDICES(
+        "has(msg.map_int64_nested_type[1].child.payload.repeated_nested_message[0].bb)",
+        "cel.@hasField(msg, [[62, \"map_int64_nested_type\", -1, [3, 11]], 1, "
+            + "[1, \"child\", 11], [2, \"payload\", 11], "
+            + "[51, \"repeated_nested_message\", 11], 0, [1, \"bb\"]])"),
+    REPEATED_FIELD_DYNAMIC_INDEX_STOPS_AT_INDEX(
+        "msg.repeated_nested_message[x].bb",
+        "cel.@attribute(cel.@attribute(msg, [[51, \"repeated_nested_message\", 11]],"
+            + " [cel.expr.conformance.proto3.TestAllTypes.NestedMessage{}])[x], "
             + "[[1, \"bb\", 5]], 0)"),
+    REPEATED_FIELD_TRAILING_INDEX_STOPS_AT_INDEX(
+        "msg.repeated_nested_message[0]",
+        "cel.@attribute(msg, [[51, \"repeated_nested_message\", 11]],"
+            + " [cel.expr.conformance.proto3.TestAllTypes.NestedMessage{}])[0]"),
+    REPEATED_FIELD_INDEX_HOLDING_SELECT(
+        "msg.repeated_nested_message[msg.single_int64].bb",
+        "cel.@attribute(cel.@attribute(msg, [[51, \"repeated_nested_message\", 11]],"
+            + " [cel.expr.conformance.proto3.TestAllTypes.NestedMessage{}])"
+            + "[cel.@attribute(msg, [[2, \"single_int64\", 3]], 0)], [[1, \"bb\", 5]], 0)"),
     MAP_FIELD_SELECT_CHAIN_STOPS_AT_MAP_BOUNDARY(
         "map_var_msg.key.single_nested_message.bb",
         "cel.@attribute(map_var_msg.key, "
@@ -907,6 +950,66 @@ public final class SelectOptimizerTest {
         ImmutableMap.of(
             "proto2_msg", dev.cel.expr.conformance.proto2.TestAllTypes.getDefaultInstance()),
         false),
+    REPEATED_FIELD_INDEX(
+        "msg.repeated_nested_message[1].bb",
+        ImmutableMap.of("msg", newTestAllTypesWithRepeatedNestedMessages(10, 20)),
+        20L),
+    MAP_FIELD_INDEX(
+        "msg.map_int64_message[2].bb",
+        ImmutableMap.of(
+            "msg",
+            TestAllTypes.newBuilder()
+                .putMapInt64Message(2, TestAllTypes.NestedMessage.newBuilder().setBb(42).build())
+                .build()),
+        42L),
+    MAP_FIELD_UINT_KEY_INDEX(
+        "msg.map_uint64_message[2u].bb",
+        ImmutableMap.of(
+            "msg",
+            TestAllTypes.newBuilder()
+                .putMapUint64Message(2, TestAllTypes.NestedMessage.newBuilder().setBb(42).build())
+                .build()),
+        42L),
+    MAP_AND_REPEATED_FIELD_INDEX(
+        "msg.map_int64_nested_type[1].child.payload.repeated_nested_message[1].bb",
+        ImmutableMap.of(
+            "msg",
+            TestAllTypes.newBuilder()
+                .putMapInt64NestedType(
+                    1,
+                    dev.cel.expr.conformance.proto3.NestedTestAllTypes.newBuilder()
+                        .setChild(
+                            dev.cel.expr.conformance.proto3.NestedTestAllTypes.newBuilder()
+                                .setPayload(newTestAllTypesWithRepeatedNestedMessages(10, 20)))
+                        .build())
+                .build()),
+        20L),
+    INDEXED_ELEMENT_UNSET_FIELD(
+        "msg.repeated_nested_message[0].bb",
+        ImmutableMap.of("msg", newTestAllTypesWithRepeatedNestedMessages(0)),
+        0L),
+    HAS_FIELD_THROUGH_INDEX_PRESENT(
+        "has(msg.repeated_nested_message[1].bb)",
+        ImmutableMap.of("msg", newTestAllTypesWithRepeatedNestedMessages(0, 20)),
+        true),
+    HAS_FIELD_THROUGH_INDEX_ABSENT(
+        "has(msg.repeated_nested_message[0].bb)",
+        ImmutableMap.of("msg", newTestAllTypesWithRepeatedNestedMessages(0, 20)),
+        false),
+    HAS_FIELD_THROUGH_TWO_INDICES(
+        "has(msg.map_int64_nested_type[1].child.payload.repeated_nested_message[1].bb)",
+        ImmutableMap.of(
+            "msg",
+            TestAllTypes.newBuilder()
+                .putMapInt64NestedType(
+                    1,
+                    dev.cel.expr.conformance.proto3.NestedTestAllTypes.newBuilder()
+                        .setChild(
+                            dev.cel.expr.conformance.proto3.NestedTestAllTypes.newBuilder()
+                                .setPayload(newTestAllTypesWithRepeatedNestedMessages(10, 20)))
+                        .build())
+                .build()),
+        true),
     SELECT_ON_MAP_VALUE_POPULATED(
         "map_var_msg.key.single_nested_message.bb",
         ImmutableMap.of(
@@ -1064,6 +1167,104 @@ public final class SelectOptimizerTest {
     assertThat(unoptimizedResult).isEqualTo(testCase.expectedResult);
     assertThat(optimizedResult).isEqualTo(testCase.expectedResult);
     assertThat(optimizedResult).isEqualTo(unoptimizedResult);
+  }
+
+  @Test
+  public void optimize_constantIndexThroughCustomOverload_leavesIndexNested() throws Exception {
+    StructTypeReference nestedMessageType =
+        StructTypeReference.create(TestAllTypes.NestedMessage.getDescriptor().getFullName());
+    Cel celWithCustomIndex =
+        cel.toCelBuilder()
+            .addFunctionDeclarations(
+                CelFunctionDecl.newFunctionDeclaration(
+                    "_[_]",
+                    CelOverloadDecl.newGlobalOverload(
+                        "custom_index_list_string",
+                        nestedMessageType,
+                        ListType.create(nestedMessageType),
+                        SimpleType.STRING)))
+            .build();
+    CelAbstractSyntaxTree ast =
+        celWithCustomIndex.compile("msg.repeated_nested_message['0'].bb").getAst();
+
+    CelAbstractSyntaxTree optimizedAst = newSelectOptimizer(celWithCustomIndex).optimize(ast);
+
+    assertThat(CEL_UNPARSER.unparse(optimizedAst))
+        .isEqualTo(
+            "cel.@attribute(cel.@attribute(msg, [[51, \"repeated_nested_message\", 11]],"
+                + " [cel.expr.conformance.proto3.TestAllTypes.NestedMessage{}])[\"0\"],"
+                + " [[1, \"bb\", 5]], 0)");
+  }
+
+  @Test
+  public void optimizeAndEvaluate_missingIndexedElement_throwsSameErrorAsUnoptimized(
+      @TestParameter({
+            "msg.repeated_nested_message[1].bb",
+            "msg.repeated_nested_message[5000000000].bb",
+            "msg.map_int64_message[2].bb",
+            "has(msg.repeated_nested_message[1].bb)",
+            "has(msg.map_int64_message[2].bb)"
+          })
+          String expression)
+      throws Exception {
+    assumeTrue(runtimeFlavor == CelRuntimeFlavor.PLANNER);
+    CelAbstractSyntaxTree ast = cel.compile(expression).getAst();
+    Program unoptimizedProgram = cel.createProgram(ast);
+    Program optimizedProgram = cel.createProgram(celOptimizer.optimize(ast));
+    ImmutableMap<String, Object> input =
+        ImmutableMap.of("msg", newTestAllTypesWithRepeatedNestedMessages(10));
+
+    CelEvaluationException unoptimizedError =
+        assertThrows(CelEvaluationException.class, () -> unoptimizedProgram.eval(input));
+    CelEvaluationException optimizedError =
+        assertThrows(CelEvaluationException.class, () -> optimizedProgram.eval(input));
+
+    assertThat(optimizedError.getErrorCode()).isEqualTo(unoptimizedError.getErrorCode());
+    assertThat(optimizedError)
+        .hasCauseThat()
+        .hasMessageThat()
+        .isEqualTo(unoptimizedError.getCause().getMessage());
+  }
+
+  @Test
+  public void optimizeAndEvaluate_partialVarsOnIndexedElement_returnsSameUnknownAsUnoptimized()
+      throws Exception {
+    assumeTrue(runtimeFlavor == CelRuntimeFlavor.PLANNER);
+    CelAbstractSyntaxTree ast = cel.compile("msg.repeated_nested_message[0].bb").getAst();
+    CelAbstractSyntaxTree optimizedAst = celOptimizer.optimize(ast);
+    PartialVars partialVars = newRepeatedNestedMessagePartialVars(/* unknownIndex= */ 0);
+
+    CelUnknownSet unoptimizedResult = (CelUnknownSet) cel.createProgram(ast).eval(partialVars);
+    CelUnknownSet optimizedResult =
+        (CelUnknownSet) cel.createProgram(optimizedAst).eval(partialVars);
+
+    assertThat(optimizedResult.attributes()).isEqualTo(unoptimizedResult.attributes());
+    assertThat(optimizedResult.attributes())
+        .containsExactly(
+            CelAttribute.fromQualifiedIdentifier("msg.repeated_nested_message")
+                .qualify(CelAttribute.Qualifier.ofInt(0)));
+  }
+
+  @Test
+  public void optimizeAndEvaluate_partialVarsOnOtherElement_returnsSameValueAsUnoptimized()
+      throws Exception {
+    assumeTrue(runtimeFlavor == CelRuntimeFlavor.PLANNER);
+    CelAbstractSyntaxTree ast = cel.compile("msg.repeated_nested_message[0].bb").getAst();
+    CelAbstractSyntaxTree optimizedAst = celOptimizer.optimize(ast);
+    PartialVars partialVars = newRepeatedNestedMessagePartialVars(/* unknownIndex= */ 1);
+
+    Object unoptimizedResult = cel.createProgram(ast).eval(partialVars);
+    Object optimizedResult = cel.createProgram(optimizedAst).eval(partialVars);
+
+    assertThat(optimizedResult).isEqualTo(unoptimizedResult);
+    assertThat(optimizedResult).isEqualTo(10L);
+  }
+
+  private static PartialVars newRepeatedNestedMessagePartialVars(long unknownIndex) {
+    return PartialVars.of(
+        ImmutableMap.of("msg", newTestAllTypesWithRepeatedNestedMessages(10, 20)),
+        CelAttributePattern.fromQualifiedIdentifier("msg.repeated_nested_message")
+            .qualify(CelAttribute.Qualifier.ofInt(unknownIndex)));
   }
 
   @Test
@@ -1515,6 +1716,14 @@ public final class SelectOptimizerTest {
                 PROTO2_TEST_ALL_TYPES_DESCRIPTOR.getFile(),
                 NestedTestAllTypes.getDescriptor().getFile()))
         .build();
+  }
+
+  private static TestAllTypes newTestAllTypesWithRepeatedNestedMessages(int... bbs) {
+    TestAllTypes.Builder builder = TestAllTypes.newBuilder();
+    for (int bb : bbs) {
+      builder.addRepeatedNestedMessage(TestAllTypes.NestedMessage.newBuilder().setBb(bb));
+    }
+    return builder.build();
   }
 
   private static NestedTestAllTypes newNestedTestAllTypes(long singleInt64) {

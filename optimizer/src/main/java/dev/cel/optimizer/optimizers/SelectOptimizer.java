@@ -23,6 +23,7 @@ import static dev.cel.optimizer.optimizers.DefaultOptimizerConstants.CEL_HAS_FIE
 import com.google.auto.value.AutoValue;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.primitives.UnsignedLong;
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import com.google.protobuf.ByteString;
@@ -121,9 +122,13 @@ import java.util.Optional;
  *   // Presence tests (2-tuples)
  *   has(request.user.age) -&gt; cel.@hasField(request,
  *       [[user_num, "user"], [age_num, "age"]])
+ *
+ *   // Constant list indices and map keys between fields are inlined as bare constants
+ *   request.users[0].age -&gt; cel.@attribute(request,
+ *       [[users_num, "users", 11], 0, [age_num, "age", type_code]], 0)
  * </pre>
  *
- * <p>Map indexing and non-protobuf selects pass through untouched.
+ * <p>Dynamic or trailing indices and non-protobuf selects pass through untouched.
  *
  * <p><b>Limitations:</b>
  *
@@ -152,6 +157,9 @@ public final class SelectOptimizer implements CelAstOptimizer {
   private static final long CEL_MAP_TYPE_CODE = -1L;
 
   private static final TypeParamType TYPE_PARAM_T = TypeParamType.create("T");
+
+  private static final ImmutableSet<ImmutableList<String>> STANDARD_INDEX_OVERLOADS =
+      ImmutableSet.of(ImmutableList.of("index_list"), ImmutableList.of("index_map"));
 
   /**
    * Declaration for {@code cel.@attribute(operand, qualifiers, dummyOrDefVal) -> T}.
@@ -261,72 +269,37 @@ public final class SelectOptimizer implements CelAstOptimizer {
     boolean isHasField = topNode.expr().select().testOnly();
     astToModify.source().getMacroCalls().remove(topNode.expr().id());
 
-    List<FieldDescriptor> fields = new ArrayList<>();
     FieldDescriptor topField =
         getOptimizableField(navAst, topNode)
             .orElseThrow(
                 () -> new IllegalStateException("Expected optimizable field on select node"));
-    fields.add(topField);
+    // Walks from the leaf. Fields before an index are selected by value, so they carry their type
+    // codes even in presence tests.
+    boolean isSelectedByValue = !isHasField;
+    List<CelMutableExpr> qualifierLists = new ArrayList<>();
+    qualifierLists.add(newFieldQualifier(topField, isSelectedByValue, idGenerator));
 
     CelMutableExpr currentExpr = topNode.expr().select().operand();
-    while (currentExpr.getKind() == Kind.SELECT) {
-      CelMutableSelect select = currentExpr.select();
-      FieldDescriptor field = getOptimizableFieldForExpr(navAst, select).orElse(null);
-      if (field == null) {
-        break;
-      }
-      fields.add(field);
-      currentExpr = select.operand();
-    }
-
-    Collections.reverse(fields);
-
-    List<CelMutableExpr> qualifierLists = new ArrayList<>(fields.size());
-    for (FieldDescriptor field : fields) {
-      if (field.getType() == FieldDescriptor.Type.GROUP) {
-        throw new UnsupportedOperationException(
-            "Optimization of Group fields is unsupported: " + field.getFullName());
-      }
-      // TODO: Support Any.
-      if (field.getType() == FieldDescriptor.Type.MESSAGE
-          && field.getMessageType().getFullName().equals(CelTypes.ANY_MESSAGE)) {
-        throw new UnsupportedOperationException(
-            "Optimization of Any fields is currently unimplemented: " + field.getFullName());
-      }
-
-      CelMutableList qualifierElements =
-          CelMutableList.create(
-              CelMutableExpr.ofConstant(
-                  idGenerator.nextExprId(), CelConstant.ofValue((long) field.getNumber())),
-              CelMutableExpr.ofConstant(
-                  idGenerator.nextExprId(), CelConstant.ofValue(field.getName())));
-      if (!isHasField) {
-        qualifierElements
-            .elements()
-            .add(
-                CelMutableExpr.ofConstant(
-                    idGenerator.nextExprId(), CelConstant.ofValue(resolveTypeCode(field))));
-        if (field.isMapField()) {
-          Descriptor mapEntryDesc = field.getMessageType();
-          FieldDescriptor keyField = mapEntryDesc.findFieldByName("key");
-          FieldDescriptor valField = mapEntryDesc.findFieldByName("value");
-          qualifierElements
-              .elements()
-              .add(
-                  CelMutableExpr.ofList(
-                      idGenerator.nextExprId(),
-                      CelMutableList.create(
-                          CelMutableExpr.ofConstant(
-                              idGenerator.nextExprId(),
-                              CelConstant.ofValue(resolveTypeCode(keyField))),
-                          CelMutableExpr.ofConstant(
-                              idGenerator.nextExprId(),
-                              CelConstant.ofValue(resolveTypeCode(valField))))));
+    while (true) {
+      if (currentExpr.getKind() == Kind.SELECT) {
+        FieldDescriptor field =
+            getOptimizableFieldForExpr(navAst, currentExpr.select()).orElse(null);
+        if (field != null) {
+          qualifierLists.add(newFieldQualifier(field, isSelectedByValue, idGenerator));
+          currentExpr = currentExpr.select().operand();
+          continue;
         }
       }
-      qualifierLists.add(CelMutableExpr.ofList(idGenerator.nextExprId(), qualifierElements));
+      CelMutableExpr indexedField = getIndexedField(navAst, currentExpr).orElse(null);
+      if (indexedField == null) {
+        break;
+      }
+      qualifierLists.add(currentExpr.call().args().get(1));
+      isSelectedByValue = true;
+      currentExpr = indexedField;
     }
 
+    Collections.reverse(qualifierLists);
     CelMutableExpr qualifiersExpr =
         CelMutableExpr.ofList(idGenerator.nextExprId(), CelMutableList.create(qualifierLists));
     if (isHasField) {
@@ -343,6 +316,53 @@ public final class SelectOptimizer implements CelAstOptimizer {
     }
   }
 
+  /** Returns the qualifier hop for {@code field}, with its type codes if {@code withTypeCode}. */
+  private static CelMutableExpr newFieldQualifier(
+      FieldDescriptor field, boolean withTypeCode, MonotonicIdGenerator idGenerator) {
+    if (field.getType() == FieldDescriptor.Type.GROUP) {
+      throw new UnsupportedOperationException(
+          "Optimization of Group fields is unsupported: " + field.getFullName());
+    }
+    // TODO: Support Any.
+    if (field.getType() == FieldDescriptor.Type.MESSAGE
+        && field.getMessageType().getFullName().equals(CelTypes.ANY_MESSAGE)) {
+      throw new UnsupportedOperationException(
+          "Optimization of Any fields is currently unimplemented: " + field.getFullName());
+    }
+
+    CelMutableList qualifierElements =
+        CelMutableList.create(
+            CelMutableExpr.ofConstant(
+                idGenerator.nextExprId(), CelConstant.ofValue((long) field.getNumber())),
+            CelMutableExpr.ofConstant(
+                idGenerator.nextExprId(), CelConstant.ofValue(field.getName())));
+    if (withTypeCode) {
+      qualifierElements
+          .elements()
+          .add(
+              CelMutableExpr.ofConstant(
+                  idGenerator.nextExprId(), CelConstant.ofValue(resolveTypeCode(field))));
+      if (field.isMapField()) {
+        Descriptor mapEntryDesc = field.getMessageType();
+        FieldDescriptor keyField = mapEntryDesc.findFieldByName("key");
+        FieldDescriptor valField = mapEntryDesc.findFieldByName("value");
+        qualifierElements
+            .elements()
+            .add(
+                CelMutableExpr.ofList(
+                    idGenerator.nextExprId(),
+                    CelMutableList.create(
+                        CelMutableExpr.ofConstant(
+                            idGenerator.nextExprId(),
+                            CelConstant.ofValue(resolveTypeCode(keyField))),
+                        CelMutableExpr.ofConstant(
+                            idGenerator.nextExprId(),
+                            CelConstant.ofValue(resolveTypeCode(valField))))));
+      }
+    }
+    return CelMutableExpr.ofList(idGenerator.nextExprId(), qualifierElements);
+  }
+
   private static long resolveTypeCode(FieldDescriptor field) {
     if (field.isMapField()) {
       return CEL_MAP_TYPE_CODE;
@@ -351,8 +371,39 @@ public final class SelectOptimizer implements CelAstOptimizer {
   }
 
   private boolean isTopOfSelectChain(CelNavigableMutableAst navAst, CelNavigableMutableExpr node) {
-    return getOptimizableField(navAst, node).isPresent()
-        && !node.parent().flatMap(parent -> getOptimizableField(navAst, parent)).isPresent();
+    if (!getOptimizableField(navAst, node).isPresent()) {
+      return false;
+    }
+    Optional<CelNavigableMutableExpr> parent = node.parent();
+    // A constant index into this field continues the chain into a field of the element.
+    if (parent.isPresent() && getIndexedField(navAst, parent.get().expr()).isPresent()) {
+      parent = parent.get().parent();
+    }
+    return !parent.flatMap(p -> getOptimizableField(navAst, p)).isPresent();
+  }
+
+  /**
+   * Returns the protobuf field select that {@code expr} indexes by a constant through a standard
+   * {@code _[_]} overload, if the field is optimizable.
+   */
+  private Optional<CelMutableExpr> getIndexedField(
+      CelNavigableMutableAst navAst, CelMutableExpr expr) {
+    // `field.key` on a map isn't inlined: its missing-key error differs from `field['key']`'s.
+    boolean isStandardIndex =
+        navAst
+            .getAst()
+            .getReference(expr.id())
+            .map(reference -> STANDARD_INDEX_OVERLOADS.contains(reference.overloadIds()))
+            .orElse(false);
+    if (!isStandardIndex || expr.call().args().get(1).getKind() != Kind.CONSTANT) {
+      return Optional.empty();
+    }
+    CelMutableExpr fieldExpr = expr.call().args().get(0);
+    if (fieldExpr.getKind() != Kind.SELECT
+        || !getOptimizableFieldForExpr(navAst, fieldExpr.select()).isPresent()) {
+      return Optional.empty();
+    }
+    return Optional.of(fieldExpr);
   }
 
   private Optional<FieldDescriptor> getOptimizableField(

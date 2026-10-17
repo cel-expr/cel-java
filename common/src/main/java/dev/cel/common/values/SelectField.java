@@ -82,7 +82,7 @@ public abstract class SelectField {
    * Map entry decoding specification. Non-null if and only if this is a map field ({@link
    * #CEL_MAP_TYPE_CODE}).
    */
-  abstract @Nullable MapEntrySpec mapEntrySpec();
+  public abstract @Nullable MapEntrySpec mapEntrySpec();
 
   // The lite runtime's FieldLiteDescriptor for this field, built from this field alone on first
   // use so descriptorless hops don't rebuild it. Typed Object to keep this target free of protobuf
@@ -176,7 +176,8 @@ public abstract class SelectField {
   }
 
   /**
-   * Creates a field selection hop for a map field with scalar values.
+   * Creates a field selection hop for a map field with scalar values, or with message values of an
+   * unspecified type.
    *
    * @param fieldNumber Protobuf field number.
    * @param fieldName Protobuf field name.
@@ -193,15 +194,15 @@ public abstract class SelectField {
    * @param fieldNumber Protobuf field number.
    * @param fieldName Protobuf field name.
    * @param mapEntrySpec Specification for decoding map entries.
-   * @param protoTypeName Protobuf message type name of the map value. Must be non-empty if and only
-   *     if the map value is a message.
+   * @param protoTypeName Protobuf message type name of the map value, or empty string if
+   *     unspecified. Must be empty if the map value is not a message.
    */
   public static SelectField createMap(
       long fieldNumber, String fieldName, MapEntrySpec mapEntrySpec, String protoTypeName) {
     checkNotNull(mapEntrySpec);
     checkNotNull(protoTypeName);
     checkArgument(
-        (mapEntrySpec.valueTypeCode() == MESSAGE_TYPE_CODE) != protoTypeName.isEmpty(),
+        protoTypeName.isEmpty() || mapEntrySpec.valueTypeCode() == MESSAGE_TYPE_CODE,
         "Map value proto type name '%s' is inconsistent with value type code %s",
         protoTypeName,
         mapEntrySpec.valueTypeCode());

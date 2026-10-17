@@ -783,15 +783,6 @@ public final class OptimizedSelectPlannerTest {
     private final ImmutableList<CelExpr> hopElements;
     private final CelExpr dummy;
 
-    private static CelExpr mapEntrySpec(long keyTypeCode, long valueTypeCode) {
-      return CelExpr.ofList(
-          8L,
-          ImmutableList.of(
-              CelExpr.ofConstant(9L, CelConstant.ofValue(keyTypeCode)),
-              CelExpr.ofConstant(10L, CelConstant.ofValue(valueTypeCode))),
-          ImmutableList.of());
-    }
-
     ScalarDummyMismatchTestCase(ImmutableList<CelExpr> hopElements, CelExpr dummy) {
       this.hopElements = hopElements;
       this.dummy = dummy;
@@ -928,6 +919,105 @@ public final class OptimizedSelectPlannerTest {
 
     assertThat(e).hasCauseThat().isInstanceOf(IllegalArgumentException.class);
     assertThat(e).hasMessageThat().contains("Protobuf message type name must not be empty");
+  }
+
+  @SuppressWarnings("ImmutableEnumChecker") // Test only
+  private enum MalformedIndexHopTestCase {
+    LEADING_INDEX(
+        ImmutableList.of(constantHop(0L), fieldHop(1L, "bb", 5L)),
+        "Index qualifier hop must be between field hops"),
+    TRAILING_INDEX(
+        ImmutableList.of(fieldHop(51L, "repeated_nested_message", 11L), constantHop(0L)),
+        "Index qualifier hop must be between field hops"),
+    CONSECUTIVE_INDICES(
+        ImmutableList.of(
+            fieldHop(51L, "repeated_nested_message", 11L),
+            constantHop(0L),
+            constantHop(0L),
+            fieldHop(1L, "bb", 5L)),
+        "Index qualifier hop must be between field hops"),
+    SCALAR_FIELD_INDEXED(
+        ImmutableList.of(fieldHop(2L, "single_int64", 3L), constantHop(0L), fieldHop(1L, "bb", 5L)),
+        "Indexed qualifier hop must be a repeated message or a message-valued map field"),
+    SCALAR_VALUED_MAP_INDEXED(
+        ImmutableList.of(
+            mapHop(61L, "map_string_string", 9L, 9L), constantHop("k"), fieldHop(1L, "bb", 5L)),
+        "Indexed map qualifier hop must have MESSAGE values (11), found: 9"),
+    NON_INT_LIST_INDEX(
+        ImmutableList.of(
+            fieldHop(51L, "repeated_nested_message", 11L),
+            constantHop("0"),
+            fieldHop(1L, "bb", 5L)),
+        "is incompatible with type code 3"),
+    MAP_KEY_KIND_MISMATCH(
+        ImmutableList.of(
+            mapHop(95L, "map_int64_message", 3L, 11L),
+            constantHop(UnsignedLong.ONE),
+            fieldHop(1L, "bb", 5L)),
+        "is incompatible with type code 3");
+
+    private final ImmutableList<CelExpr> hops;
+    private final String expectedMessageSubstring;
+
+    MalformedIndexHopTestCase(ImmutableList<CelExpr> hops, String expectedMessageSubstring) {
+      this.hops = hops;
+      this.expectedMessageSubstring = expectedMessageSubstring;
+    }
+  }
+
+  @Test
+  public void plan_invalidAst_malformedIndexHop_throwsEvaluationException(
+      @TestParameter MalformedIndexHopTestCase testCase) {
+    CelAbstractSyntaxTree ast =
+        CelAbstractSyntaxTree.newParsedAst(
+            CelExpr.ofCall(
+                1L,
+                OptimizedSelectPlanner.CEL_ATTRIBUTE_FUNCTION_NAME,
+                ImmutableList.of(
+                    CelExpr.ofIdent(2L, "msg"),
+                    CelExpr.ofList(3L, testCase.hops, ImmutableList.of()),
+                    CelExpr.ofConstant(4L, CelConstant.ofValue(0L)))),
+            SELECT_OPTIMIZED_SOURCE);
+
+    CelEvaluationException e = assertThrows(CelEvaluationException.class, () -> PLANNER.plan(ast));
+
+    assertThat(e).hasCauseThat().isInstanceOf(IllegalArgumentException.class);
+    assertThat(e).hasMessageThat().contains(testCase.expectedMessageSubstring);
+  }
+
+  private static CelExpr fieldHop(long fieldNumber, String fieldName, long typeCode) {
+    return CelExpr.ofList(
+        0L,
+        ImmutableList.of(
+            CelExpr.ofConstant(0L, CelConstant.ofValue(fieldNumber)),
+            CelExpr.ofConstant(0L, CelConstant.ofValue(fieldName)),
+            CelExpr.ofConstant(0L, CelConstant.ofValue(typeCode))),
+        ImmutableList.of());
+  }
+
+  private static CelExpr mapHop(
+      long fieldNumber, String fieldName, long keyTypeCode, long valueTypeCode) {
+    return CelExpr.ofList(
+        0L,
+        ImmutableList.of(
+            CelExpr.ofConstant(0L, CelConstant.ofValue(fieldNumber)),
+            CelExpr.ofConstant(0L, CelConstant.ofValue(fieldName)),
+            CelExpr.ofConstant(0L, CelConstant.ofValue(-1L)),
+            mapEntrySpec(keyTypeCode, valueTypeCode)),
+        ImmutableList.of());
+  }
+
+  private static CelExpr mapEntrySpec(long keyTypeCode, long valueTypeCode) {
+    return CelExpr.ofList(
+        8L,
+        ImmutableList.of(
+            CelExpr.ofConstant(9L, CelConstant.ofValue(keyTypeCode)),
+            CelExpr.ofConstant(10L, CelConstant.ofValue(valueTypeCode))),
+        ImmutableList.of());
+  }
+
+  private static CelExpr constantHop(Object index) {
+    return CelExpr.ofConstant(0L, CelConstant.ofObjectValue(index));
   }
 
   private static CelAbstractSyntaxTree optimizeSelectAst(String expression) throws Exception {
