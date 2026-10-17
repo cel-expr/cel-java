@@ -47,6 +47,7 @@ import dev.cel.common.ast.CelExpr;
 import dev.cel.common.ast.CelExpr.CelComprehension;
 import dev.cel.common.exceptions.CelDivideByZeroException;
 import dev.cel.common.exceptions.CelInvalidArgumentException;
+import dev.cel.common.exceptions.CelRuntimeException;
 import dev.cel.common.internal.CelDescriptorPool;
 import dev.cel.common.internal.DefaultDescriptorPool;
 import dev.cel.common.internal.DefaultMessageFactory;
@@ -769,7 +770,7 @@ public final class ProgramPlannerTest {
     assertThat(result)
         .isEqualTo(
             CelUnknownSet.create(
-                ImmutableSet.of(CelAttribute.create("unk_list")), ImmutableSet.of(1L)));
+                ImmutableSet.of(CelAttribute.create("unk_list")), ImmutableSet.of(2L)));
   }
 
   @Test
@@ -809,6 +810,114 @@ public final class ProgramPlannerTest {
             CelUnknownSet.create(
                 ImmutableSet.of(CelAttribute.create("unk_map"), CelAttribute.create("unk_key")),
                 ImmutableSet.of(1L, 3L)));
+  }
+
+  @Test
+  public void plan_call_constantIndex_withPartialVarsOnOtherElement_returnsValue()
+      throws Exception {
+    CelAbstractSyntaxTree ast = compile("msg.repeated_nested_message[0].bb");
+    Program program = PLANNER.plan(ast);
+    TestAllTypes msg =
+        TestAllTypes.newBuilder()
+            .addRepeatedNestedMessage(NestedMessage.newBuilder().setBb(1))
+            .addRepeatedNestedMessage(NestedMessage.newBuilder().setBb(2))
+            .build();
+
+    Object result =
+        program.eval(
+            PartialVars.of(
+                ImmutableMap.of("msg", msg),
+                CelAttributePattern.fromQualifiedIdentifier("msg.repeated_nested_message")
+                    .qualify(CelAttribute.Qualifier.ofInt(1))));
+
+    assertThat(result).isEqualTo(1L);
+  }
+
+  @Test
+  public void plan_call_constantIndex_withPartialVarsOnIndexedElement_returnsUnknown()
+      throws Exception {
+    CelAbstractSyntaxTree ast = compile("msg.repeated_nested_message[0].bb");
+    Program program = PLANNER.plan(ast);
+    CelAttribute indexedElement =
+        CelAttribute.fromQualifiedIdentifier("msg.repeated_nested_message")
+            .qualify(CelAttribute.Qualifier.ofInt(0));
+
+    Object result =
+        program.eval(
+            PartialVars.of(
+                CelAttributePattern.fromQualifiedIdentifier("msg.repeated_nested_message")
+                    .qualify(CelAttribute.Qualifier.ofInt(0))));
+
+    assertThat(result)
+        .isEqualTo(CelUnknownSet.create(ImmutableSet.of(indexedElement), ImmutableSet.of(5L)));
+  }
+
+  @SuppressWarnings("ImmutableEnumChecker") // Test only
+  private enum ConstantIndexUnknownTestCase {
+    UINT_INDEX_MATCHES_INT_PATTERN(
+        "dyn_var[1u]",
+        CelAttribute.Qualifier.ofInt(1),
+        CelAttribute.create("dyn_var").qualify(CelAttribute.Qualifier.ofUint(1))),
+    INT_INDEX_MATCHES_UINT_PATTERN(
+        "dyn_var[1]",
+        CelAttribute.Qualifier.ofUint(1),
+        CelAttribute.create("dyn_var").qualify(CelAttribute.Qualifier.ofInt(1))),
+    BOOL_INDEX(
+        "dyn_var[true]",
+        CelAttribute.Qualifier.ofBool(true),
+        CelAttribute.create("dyn_var").qualify(CelAttribute.Qualifier.ofBool(true))),
+    // A double isn't an attribute qualifier, so the index isn't folded into the attribute.
+    DOUBLE_INDEX_STOPS_AT_INDEX(
+        "dyn_var[1.0]", CelAttribute.Qualifier.ofInt(1), CelAttribute.create("dyn_var"));
+
+    private final String expression;
+    private final CelAttribute.Qualifier patternIndex;
+    private final CelAttribute expectedAttribute;
+
+    ConstantIndexUnknownTestCase(
+        String expression, CelAttribute.Qualifier patternIndex, CelAttribute expectedAttribute) {
+      this.expression = expression;
+      this.patternIndex = patternIndex;
+      this.expectedAttribute = expectedAttribute;
+    }
+  }
+
+  @Test
+  public void plan_call_constantIndex_withPartialVars_returnsUnknown(
+      @TestParameter ConstantIndexUnknownTestCase testCase) throws Exception {
+    CelAbstractSyntaxTree ast = compile(testCase.expression);
+    Program program = PLANNER.plan(ast);
+
+    CelUnknownSet result =
+        (CelUnknownSet)
+            program.eval(
+                PartialVars.of(
+                    CelAttributePattern.create("dyn_var").qualify(testCase.patternIndex)));
+
+    assertThat(result.attributes()).containsExactly(testCase.expectedAttribute);
+  }
+
+  @Test
+  public void plan_call_constantIndexOnEnumConstant_throws() throws Exception {
+    CelAbstractSyntaxTree ast = CEL_COMPILER.parse("GlobalEnum.GAR[0]").getAst();
+    Program program = PLANNER.plan(ast);
+
+    assertThrows(CelEvaluationException.class, program::eval);
+  }
+
+  @Test
+  public void plan_call_constantIndex_outOfBounds_localizesErrorToIndex() throws Exception {
+    CelAbstractSyntaxTree ast = compile("msg.repeated_nested_message[1].bb");
+    Program program = PLANNER.plan(ast);
+
+    CelEvaluationException e =
+        assertThrows(
+            CelEvaluationException.class,
+            () -> program.eval(ImmutableMap.of("msg", TestAllTypes.getDefaultInstance())));
+
+    assertThat(e)
+        .hasMessageThat()
+        .isEqualTo("evaluation error at <input>:27: Index out of bounds: 1");
   }
 
   @Test
@@ -1286,10 +1395,10 @@ public final class ProgramPlannerTest {
         .isEqualTo(
             CelUnknownSet.create(
                 ImmutableSet.of(
-                    CelAttribute.create("unk"),
+                    CelAttribute.create("unk").qualify(CelAttribute.Qualifier.ofString("c")),
                     CelAttribute.create("unk").qualify(CelAttribute.Qualifier.ofString("a")),
                     CelAttribute.create("unk").qualify(CelAttribute.Qualifier.ofString("b"))),
-                ImmutableSet.of(2L, 5L, 7L)));
+                ImmutableSet.of(2L, 5L, 8L)));
   }
 
   @Test
@@ -2377,7 +2486,8 @@ public final class ProgramPlannerTest {
   }
 
   @Test
-  public void plan_nonStrictFunction_withErrorArg_adaptsToException() throws Exception {
+  public void plan_nonStrictFunction_withErrorArg_adaptsToExceptionWithErrorCode()
+      throws Exception {
     CelCompiler compiler =
         CelCompilerFactory.standardCelCompilerBuilder()
             .addFunctionDeclarations(
@@ -2396,7 +2506,9 @@ public final class ProgramPlannerTest {
         "is_error_int",
         ImmutableList.of(Long.class),
         /* isStrict= */ false,
-        args -> args[0] instanceof Exception);
+        args ->
+            args[0] instanceof CelRuntimeException
+                && ((CelRuntimeException) args[0]).getErrorCode() == CelErrorCode.DIVIDE_BY_ZERO);
     ProgramPlanner planner =
         ProgramPlanner.newPlanner(
             TYPE_PROVIDER,

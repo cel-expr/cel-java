@@ -36,7 +36,7 @@ declare x {
 }
 =====>
 bindings: {unknown_attributes=[x]}
-result:   CelUnknownSet{attributes=[x], unknownExprIds=[2]}
+result:   CelUnknownSet{attributes=[x], unknownExprIds=[3]}
 
 Source: x.map_int32_int64[22]
 declare x {
@@ -44,7 +44,7 @@ declare x {
 }
 =====>
 bindings: {unknown_attributes=[x.map_int32_int64]}
-result:   CelUnknownSet{attributes=[x.map_int32_int64], unknownExprIds=[2]}
+result:   CelUnknownSet{attributes=[x.map_int32_int64], unknownExprIds=[3]}
 
 Source: x.repeated_nested_message[1]
 declare x {
@@ -52,7 +52,7 @@ declare x {
 }
 =====>
 bindings: {unknown_attributes=[x]}
-result:   CelUnknownSet{attributes=[x], unknownExprIds=[2]}
+result:   CelUnknownSet{attributes=[x], unknownExprIds=[3]}
 
 Source: x.repeated_nested_message[1]
 declare x {
@@ -60,7 +60,7 @@ declare x {
 }
 =====>
 bindings: {unknown_attributes=[x.repeated_nested_message]}
-result:   CelUnknownSet{attributes=[x.repeated_nested_message], unknownExprIds=[2]}
+result:   CelUnknownSet{attributes=[x.repeated_nested_message], unknownExprIds=[3]}
 
 Source: x.single_nested_message.bb
 declare x {

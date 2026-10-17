@@ -320,6 +320,9 @@ java_library(
     name = "eval_index",
     srcs = ["EvalIndex.java"],
     deps = [
+        ":attribute",
+        ":eval_attribute",
+        ":eval_const",
         ":eval_helpers",
         ":planned_interpretable",
         "//common/ast",
@@ -329,6 +332,7 @@ java_library(
         "//runtime:interpretable",
         "//runtime:resolved_overload",
         "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:com_google_guava_guava",
     ],
 )
 
@@ -985,6 +989,9 @@ cel_android_library(
     name = "eval_index_android",
     srcs = ["EvalIndex.java"],
     deps = [
+        ":attribute_android",
+        ":eval_attribute_android",
+        ":eval_const_android",
         ":eval_helpers_android",
         ":planned_interpretable_android",
         "//common/ast:ast_android",
@@ -994,6 +1001,7 @@ cel_android_library(
         "//runtime:interpretable_android",
         "//runtime:resolved_overload_android",
         "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven_android//:com_google_guava_guava",
     ],
 )
 
