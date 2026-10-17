@@ -21,6 +21,7 @@ import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import dev.cel.common.types.CelType;
 import dev.cel.common.types.ListType;
 import dev.cel.common.types.MapType;
+import dev.cel.common.types.NullableType;
 import dev.cel.common.types.OptionalType;
 import dev.cel.common.types.SimpleType;
 import java.time.Duration;
@@ -211,13 +212,34 @@ final class VerificationOptions {
       case "duration":
       case "google.protobuf.duration":
         return SimpleType.DURATION;
+      case "google.protobuf.value":
+        return SimpleType.DYN;
+      case "google.protobuf.struct":
+        return MapType.create(SimpleType.STRING, SimpleType.DYN);
+      case "google.protobuf.listvalue":
+        return ListType.create(SimpleType.DYN);
+      case "google.protobuf.boolvalue":
+        return NullableType.create(SimpleType.BOOL);
+      case "google.protobuf.bytesvalue":
+        return NullableType.create(SimpleType.BYTES);
+      case "google.protobuf.doublevalue":
+      case "google.protobuf.floatvalue":
+        return NullableType.create(SimpleType.DOUBLE);
+      case "google.protobuf.int32value":
+      case "google.protobuf.int64value":
+        return NullableType.create(SimpleType.INT);
+      case "google.protobuf.uint32value":
+      case "google.protobuf.uint64value":
+        return NullableType.create(SimpleType.UINT);
+      case "google.protobuf.stringvalue":
+        return NullableType.create(SimpleType.STRING);
       default:
         // TODO: Support protobuf message types (coming soon).
         throw new IllegalArgumentException(
             "Unsupported type for CLI variable declaration: '"
                 + typeStr
                 + "'. Supported types: int, uint, string, bool, double, bytes, dyn, timestamp,"
-                + " duration, list<T>, map<K, V>, optional<T>.");
+                + " duration, google.protobuf.*, list<T>, map<K, V>, optional<T>.");
     }
   }
 
