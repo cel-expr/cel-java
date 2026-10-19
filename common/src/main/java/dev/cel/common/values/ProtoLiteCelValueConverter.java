@@ -22,6 +22,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Iterables;
 import com.google.common.primitives.UnsignedLong;
 import com.google.errorprone.annotations.Immutable;
+import com.google.protobuf.Any;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.CodedInputStream;
 import com.google.protobuf.ExtensionRegistryLite;
@@ -213,6 +214,11 @@ public final class ProtoLiteCelValueConverter extends BaseProtoCelValueConverter
         WellKnownProto.getByTypeName(descriptor.getProtoTypeName()).orElse(null);
     if (isStructLike(wellKnownProto)) {
       return ProtoMessageLiteValue.create(msg, descriptor, this);
+    }
+
+    if (wellKnownProto == WellKnownProto.ANY_VALUE) {
+      Any any = (Any) msg;
+      return RawProtoMessageLiteValue.create(any.getValue(), this);
     }
 
     return fromWellKnownProto(msg, checkNotNull(wellKnownProto));

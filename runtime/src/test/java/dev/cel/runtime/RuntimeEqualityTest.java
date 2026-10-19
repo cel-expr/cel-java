@@ -75,7 +75,7 @@ public final class RuntimeEqualityTest {
   }
 
   @Test
-  public void objectEquals_wireMessageLite_throws() {
+  public void objectEquals_wireMessageLite_returnsExpectedResult() {
     RuntimeEquality runtimeEquality =
         RuntimeEquality.create(RuntimeHelpers.create(), CelOptions.DEFAULT);
     Object wireMsg1 =
@@ -86,18 +86,15 @@ public final class RuntimeEqualityTest {
         ProtoMessageLiteValueProvider.newInstance()
             .protoCelValueConverter()
             .toRuntimeValue(TestAllTypes.newBuilder().setSingleInt32(1).build());
+    Object wireMsg3 =
+        ProtoMessageLiteValueProvider.newInstance()
+            .protoCelValueConverter()
+            .toRuntimeValue(TestAllTypes.newBuilder().setSingleInt32(1).build());
+    assertThat(wireMsg1).isNotEqualTo(wireMsg2);
+    assertThat(wireMsg2).isEqualTo(wireMsg3);
 
-    UnsupportedOperationException messagesThrown =
-        assertThrows(
-            UnsupportedOperationException.class,
-            () -> runtimeEquality.objectEquals(wireMsg1, wireMsg2));
-    UnsupportedOperationException stringThrown =
-        assertThrows(
-            UnsupportedOperationException.class,
-            () -> runtimeEquality.objectEquals("not_a_message", wireMsg1));
-
-    assertThat(messagesThrown).hasMessageThat().isEqualTo("Message equality is not supported");
-    assertThat(stringThrown).hasMessageThat().isEqualTo("Message equality is not supported");
+    assertThat(runtimeEquality.objectEquals(wireMsg2, wireMsg3)).isTrue();
+    assertThat(runtimeEquality.objectEquals(wireMsg1, wireMsg3)).isFalse();
   }
 
   @Test

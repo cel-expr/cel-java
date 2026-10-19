@@ -101,20 +101,20 @@ public final class RawProtoMessageLiteValueTest {
   }
 
   @Test
-  @SuppressWarnings("SelfEquals") // Testing that equals throws even on self-comparison
-  public void equals_throwsUnsupportedOperationException() {
+  public void equals_returnsExpectedResult() {
     RawProtoMessageLiteValue value1 =
         RawProtoMessageLiteValue.create(ByteString.EMPTY, "custom.Message", EMPTY_CONVERTER);
     RawProtoMessageLiteValue value2 =
         RawProtoMessageLiteValue.create(ByteString.EMPTY, "custom.Message", EMPTY_CONVERTER);
+    RawProtoMessageLiteValue value3 =
+        RawProtoMessageLiteValue.create(
+            ByteString.copyFromUtf8("test"), "custom.Message", EMPTY_CONVERTER);
+    RawProtoMessageLiteValue value4 =
+        RawProtoMessageLiteValue.create(ByteString.EMPTY, "custom.Message2", EMPTY_CONVERTER);
 
-    UnsupportedOperationException selfThrown =
-        assertThrows(UnsupportedOperationException.class, () -> value1.equals(value1));
-    UnsupportedOperationException otherThrown =
-        assertThrows(UnsupportedOperationException.class, () -> value1.equals(value2));
-
-    assertThat(selfThrown).hasMessageThat().isEqualTo("Message equality is not supported");
-    assertThat(otherThrown).hasMessageThat().isEqualTo("Message equality is not supported");
+    assertThat(value1).isEqualTo(value2);
+    assertThat(value1).isNotEqualTo(value3);
+    assertThat(value1).isNotEqualTo(value4);
   }
 
   @Test

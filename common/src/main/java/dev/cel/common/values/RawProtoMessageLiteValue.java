@@ -73,8 +73,12 @@ abstract class RawProtoMessageLiteValue extends StructValue<String, WireMessageL
 
   @Override
   public final boolean equals(Object other) {
-    // TODO: Support message equality
-    throw new UnsupportedOperationException("Message equality is not supported");
+    if (other instanceof RawProtoMessageLiteValue) {
+      RawProtoMessageLiteValue that = (RawProtoMessageLiteValue) other;
+      return protoTypeName().equals(that.protoTypeName())
+          && this.toByteString().equals(that.toByteString());
+    }
+    return false;
   }
 
   @Override

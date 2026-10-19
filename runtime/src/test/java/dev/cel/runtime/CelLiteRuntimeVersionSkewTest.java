@@ -1273,7 +1273,7 @@ public final class CelLiteRuntimeVersionSkewTest {
   }
 
   @Test
-  public void submessageEquality_withoutSubmessageDescriptor_throwsUnsupportedOperationException(
+  public void submessageEquality_withoutSubmessageDescriptor_evaluatesCorrectly(
       @TestParameter({
             "msg.single_nested_message == msg.single_nested_message",
             "msg.repeated_nested_message == msg.repeated_nested_message"
@@ -1285,16 +1285,9 @@ public final class CelLiteRuntimeVersionSkewTest {
         serverOptimizer.optimize(serverCompiler.compile(expr).getAst());
     Program program = runtimeWithoutNestedDesc.createProgram(optimizedAst);
 
-    CelEvaluationException thrown =
-        assertThrows(
-            CelEvaluationException.class,
-            () -> program.eval(ImmutableMap.of("msg", POPULATED_SERVER_MESSAGE)));
+    Object result = program.eval(ImmutableMap.of("msg", POPULATED_SERVER_MESSAGE));
 
-    assertThat(thrown).hasCauseThat().isInstanceOf(UnsupportedOperationException.class);
-    assertThat(thrown)
-        .hasCauseThat()
-        .hasMessageThat()
-        .contains("Message equality is not supported");
+    assertThat(result).isEqualTo(true);
   }
 
   @Test
