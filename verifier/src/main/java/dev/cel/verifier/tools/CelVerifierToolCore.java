@@ -14,16 +14,20 @@
 
 package dev.cel.verifier.tools;
 
+import static com.google.common.collect.ImmutableList.toImmutableList;
+
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.protobuf.Descriptors.Descriptor;
 import dev.cel.bundle.Cel;
 import dev.cel.bundle.CelBuilder;
 import dev.cel.bundle.CelFactory;
 import dev.cel.common.CelAbstractSyntaxTree;
 import dev.cel.common.CelOptions;
+import dev.cel.common.internal.DefaultDescriptorPool;
+import dev.cel.common.internal.WellKnownProto;
 import dev.cel.common.types.CelType;
 import dev.cel.compiler.CelCompiler;
-import dev.cel.compiler.CelCompilerBuilder;
-import dev.cel.compiler.CelCompilerFactory;
 import dev.cel.extensions.CelExtensions;
 import dev.cel.parser.CelStandardMacro;
 import dev.cel.policy.CelPolicy;
@@ -41,6 +45,26 @@ import java.util.Map;
 
 /** Core decoupled engine that executes formal verification operations. */
 final class CelVerifierToolCore {
+
+  private static final ImmutableList<Descriptor> WELL_KNOWN_DESCRIPTORS =
+      ImmutableList.of(
+              WellKnownProto.DURATION,
+              WellKnownProto.JSON_LIST_VALUE,
+              WellKnownProto.JSON_STRUCT_VALUE,
+              WellKnownProto.JSON_VALUE,
+              WellKnownProto.TIMESTAMP,
+              WellKnownProto.FLOAT_VALUE,
+              WellKnownProto.INT32_VALUE,
+              WellKnownProto.INT64_VALUE,
+              WellKnownProto.STRING_VALUE,
+              WellKnownProto.BOOL_VALUE,
+              WellKnownProto.BYTES_VALUE,
+              WellKnownProto.DOUBLE_VALUE,
+              WellKnownProto.UINT32_VALUE,
+              WellKnownProto.UINT64_VALUE)
+          .stream()
+          .map(DefaultDescriptorPool::getWellKnownProtoDescriptor)
+          .collect(toImmutableList());
 
   private CelVerifierToolCore() {}
 
@@ -105,10 +129,15 @@ final class CelVerifierToolCore {
   }
 
   static CelCompiler buildCompiler(Map<String, CelType> variables) {
-    CelCompilerBuilder builder =
-        CelCompilerFactory.standardCelCompilerBuilder()
+    return buildCel(variables);
+  }
+
+  static Cel buildCel(Map<String, CelType> variables) {
+    CelBuilder celBuilder =
+        CelFactory.plannerCelBuilder()
             .setStandardMacros(CelStandardMacro.STANDARD_MACROS)
-            .addLibraries(
+            .addMessageTypes(WELL_KNOWN_DESCRIPTORS)
+            .addCompilerLibraries(
                 CelExtensions.bindings(),
                 CelExtensions.comprehensions(),
                 CelExtensions.encoders(CelOptions.DEFAULT),
@@ -118,22 +147,6 @@ final class CelVerifierToolCore {
                 CelExtensions.protos(),
                 CelExtensions.regex(),
                 CelExtensions.sets(CelOptions.DEFAULT),
-                CelExtensions.strings());
-    for (Map.Entry<String, CelType> entry : variables.entrySet()) {
-      builder.addVar(entry.getKey(), entry.getValue());
-    }
-    return builder.build();
-  }
-
-  static Cel buildCel(Map<String, CelType> variables) {
-    CelBuilder celBuilder =
-        CelFactory.plannerCelBuilder()
-            .setStandardMacros(CelStandardMacro.STANDARD_MACROS)
-            .addCompilerLibraries(
-                CelExtensions.optional(),
-                CelExtensions.bindings(),
-                CelExtensions.encoders(CelOptions.DEFAULT),
-                CelExtensions.math(),
                 CelExtensions.strings());
     for (Map.Entry<String, CelType> entry : variables.entrySet()) {
       celBuilder.addVar(entry.getKey(), entry.getValue());

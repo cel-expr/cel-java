@@ -25,6 +25,7 @@ import com.microsoft.z3.Sort;
 import dev.cel.checker.CelStandardDeclarations.StandardFunction;
 import dev.cel.checker.CelStandardDeclarations.StandardFunction.Overload.Conversions;
 import dev.cel.common.types.SimpleType;
+import dev.cel.verifier.CelZ3TypeSystem;
 import java.util.Optional;
 
 /** Axiomatization for CEL's type conversion functions. */
@@ -52,7 +53,12 @@ final class TypeConversionAxioms {
           .addUnaryOverloadTranslator(
               Conversions.TIMESTAMP_TO_INT64.celOverloadDecl(),
               (ctx, typeSystem, sink, arg) ->
-                  Optional.of(typeSystem.wrapInt(typeSystem.getTimestamp(arg))))
+                  Optional.of(
+                      typeSystem.wrapInt(
+                          (IntExpr)
+                              ctx.mkDiv(
+                                  typeSystem.getTimestamp(arg),
+                                  ctx.mkInt(CelZ3TypeSystem.NANOS_PER_SECOND)))))
           .build();
 
   private static final CelZ3FunctionAxiom UINT_AXIOM =
@@ -159,9 +165,11 @@ final class TypeConversionAxioms {
               Conversions.INT64_TO_TIMESTAMP.celOverloadDecl(),
               (ctx, typeSystem, sink, arg) -> {
                 IntExpr intVal = typeSystem.getInt(arg);
-                BoolExpr overflow = typeSystem.checkTimestampOverflow(intVal);
+                IntExpr nanosVal =
+                    (IntExpr) ctx.mkMul(intVal, ctx.mkInt(CelZ3TypeSystem.NANOS_PER_SECOND));
+                BoolExpr overflow = typeSystem.checkTimestampOverflow(nanosVal);
                 return Optional.of(
-                    typeSystem.withRuntimeError(typeSystem.wrapTimestamp(intVal), overflow));
+                    typeSystem.withRuntimeError(typeSystem.wrapTimestamp(nanosVal), overflow));
               })
           .build();
 

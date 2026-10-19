@@ -153,6 +153,8 @@ final class OptionalAxioms {
         ctx.mkAnd(ts.isInt(val), ctx.mkEq(ts.getInt(val), ctx.mkInt(0))),
         ctx.mkAnd(ts.isUint(val), ctx.mkEq(ts.getUint(val), ctx.mkInt(0))),
         ctx.mkAnd(ts.isDouble(val), ctx.mkFPIsZero((FPExpr) ts.getDouble(val))),
+        ctx.mkAnd(ts.isTimestamp(val), ctx.mkEq(ts.getTimestamp(val), ctx.mkInt(0))),
+        ctx.mkAnd(ts.isDuration(val), ctx.mkEq(ts.getDuration(val), ctx.mkInt(0))),
         ctx.mkAnd(ts.isString(val), ctx.mkEq(ts.getString(val), ctx.mkString(""))),
         ctx.mkAnd(
             ts.isBytes(val), ctx.mkEq(ctx.mkLength((SeqExpr) ts.getBytes(val)), ctx.mkInt(0))),
