@@ -28,6 +28,7 @@ import com.google.common.base.Strings;
 import com.google.common.base.Verify;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableListMultimap;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Multimaps;
 import com.google.common.collect.Sets;
@@ -35,6 +36,10 @@ import com.google.common.collect.Streams;
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import dev.cel.bundle.Cel;
 import dev.cel.bundle.CelBuilder;
+import dev.cel.checker.CelStandardDeclarations.StandardFunction.Overload.Arithmetic;
+import dev.cel.checker.CelStandardDeclarations.StandardFunction.Overload.BooleanOperator;
+import dev.cel.checker.CelStandardDeclarations.StandardFunction.Overload.Comparison;
+import dev.cel.checker.CelStandardDeclarations.StandardFunction.Overload.Relation;
 import dev.cel.common.CelAbstractSyntaxTree;
 import dev.cel.common.CelMutableAst;
 import dev.cel.common.CelMutableSource;
@@ -44,6 +49,7 @@ import dev.cel.common.CelSource.Extension.Component;
 import dev.cel.common.CelSource.Extension.Version;
 import dev.cel.common.CelValidationException;
 import dev.cel.common.CelVarDecl;
+import dev.cel.common.Operator;
 import dev.cel.common.ast.CelBlock;
 import dev.cel.common.ast.CelExpr;
 import dev.cel.common.ast.CelExpr.CelCall;
@@ -51,8 +57,15 @@ import dev.cel.common.ast.CelExpr.CelComprehension;
 import dev.cel.common.ast.CelExpr.CelList;
 import dev.cel.common.ast.CelExpr.ExprKind.Kind;
 import dev.cel.common.ast.CelMutableExpr;
+import dev.cel.common.ast.CelMutableExpr.CelMutableCall;
+import dev.cel.common.ast.CelMutableExpr.CelMutableComprehension;
 import dev.cel.common.ast.CelMutableExpr.CelMutableIdent;
+import dev.cel.common.ast.CelMutableExpr.CelMutableList;
+import dev.cel.common.ast.CelMutableExpr.CelMutableMap;
+import dev.cel.common.ast.CelMutableExpr.CelMutableSelect;
+import dev.cel.common.ast.CelMutableExpr.CelMutableStruct;
 import dev.cel.common.ast.CelMutableExprConverter;
+import dev.cel.common.ast.CelReference;
 import dev.cel.common.navigation.CelNavigableExpr;
 import dev.cel.common.navigation.CelNavigableExprUtil;
 import dev.cel.common.navigation.CelNavigableMutableAst;
@@ -65,8 +78,10 @@ import dev.cel.optimizer.AstMutator.MangledComprehensionAst;
 import dev.cel.optimizer.CelAstOptimizer;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -173,7 +188,9 @@ public final class SubexpressionOptimizer implements CelAstOptimizer {
 
     for (iterCount = 0; iterCount < cseOptions.iterationLimit(); iterCount++) {
       CelNavigableMutableAst navAst = CelNavigableMutableAst.fromAst(astToModify);
-      ImmutableList<CelMutableExpr> cseCandidates = getCseCandidates(navAst);
+      ValueNumberer valueNumberer =
+          new ValueNumberer(navAst.getRoot().expr(), ast.getReferenceMap());
+      ImmutableList<CelMutableExpr> cseCandidates = getCseCandidates(navAst, valueNumberer);
       if (cseCandidates.isEmpty()) {
         break;
       }
@@ -390,25 +407,25 @@ public final class SubexpressionOptimizer implements CelAstOptimizer {
     expr.setIdent(CelMutableIdent.create(blockIdentifier));
   }
 
-  private ImmutableList<CelMutableExpr> getCseCandidates(CelNavigableMutableAst navAst) {
+  private ImmutableList<CelMutableExpr> getCseCandidates(
+      CelNavigableMutableAst navAst, ValueNumberer valueNumberer) {
     Set<CelMutableExpr> ineligibleExprs = getIneligibleExprsFromComprehensionBranches(navAst);
     ImmutableList<CelNavigableMutableExpr> allNodes =
         navAst.getRoot().allNodes(TraversalOrder.PRE_ORDER).collect(toImmutableList());
     ImmutableListMultimap<Integer, CelNavigableMutableExpr> nodesByHeight =
         Multimaps.index(allNodes, CelNavigableMutableExpr::height);
-    HashSet<CelMutableExpr> semanticallyEqualNodes = new HashSet<>();
+    Set<Integer> seenVns = new HashSet<>();
     for (CelNavigableMutableExpr node : allNodes) {
       ImmutableList<CelNavigableMutableExpr> sameHeightNodes = nodesByHeight.get(node.height());
       if (sameHeightNodes.size() < 2 || !canEliminate(node, ineligibleExprs)) {
         continue;
       }
-      // Normalize the expr to test semantic equivalence.
-      CelMutableExpr normalizedExpr = normalizeForEquality(node.expr());
-      if (!semanticallyEqualNodes.add(normalizedExpr)) {
+      int vn = valueNumberer.vnOf(node.expr());
+      if (!seenVns.add(vn)) {
         return sameHeightNodes.stream()
             .filter(candidate -> canEliminate(candidate, ineligibleExprs))
             .map(CelNavigableMutableExpr::expr)
-            .filter(expr -> normalizeForEquality(expr).equals(normalizedExpr))
+            .filter(expr -> valueNumberer.vnOf(expr) == vn)
             .collect(toImmutableList());
       }
     }
@@ -488,17 +505,147 @@ public final class SubexpressionOptimizer implements CelAstOptimizer {
             });
   }
 
-  /**
-   * Converts the {@link CelMutableExpr} to make it suitable for performing a semantically equals
-   * check.
-   *
-   * <p>Specifically, this will deep copy the mutable expr then set all expr IDs in the expression
-   * tree to 0.
-   */
-  private CelMutableExpr normalizeForEquality(CelMutableExpr mutableExpr) {
-    CelMutableExpr copiedExpr = CelMutableExpr.newInstance(mutableExpr);
+  // Gives equal value numbers to subexpressions that always compute the same value: identical
+  // subtrees, commuted calls (`a + b`, `b + a`) and converse comparisons (`a > b`, `b < a`). Calls
+  // are only reordered if the checker resolved them to standard overloads, as custom overloads may
+  // not be commutative. If both operands fail, the merged call may report the other operand's
+  // error; CEL leaves evaluation order, and thus which error is reported, unspecified.
+  private static final class ValueNumberer {
+    private static final ImmutableMap<String, String> SWAPPED_FUNCTIONS =
+        ImmutableMap.<String, String>builder()
+            .put(Operator.ADD.getFunction(), Operator.ADD.getFunction())
+            .put(Operator.MULTIPLY.getFunction(), Operator.MULTIPLY.getFunction())
+            .put(Operator.EQUALS.getFunction(), Operator.EQUALS.getFunction())
+            .put(Operator.NOT_EQUALS.getFunction(), Operator.NOT_EQUALS.getFunction())
+            .put(Operator.LOGICAL_AND.getFunction(), Operator.LOGICAL_AND.getFunction())
+            .put(Operator.LOGICAL_OR.getFunction(), Operator.LOGICAL_OR.getFunction())
+            .put(Operator.GREATER.getFunction(), Operator.LESS.getFunction())
+            .put(Operator.GREATER_EQUALS.getFunction(), Operator.LESS_EQUALS.getFunction())
+            .buildOrThrow();
+    private static final ImmutableSet<String> SWAPPABLE_OVERLOAD_IDS =
+        Stream.concat(
+                Stream.of(
+                    Arithmetic.ADD_INT64,
+                    Arithmetic.ADD_UINT64,
+                    Arithmetic.ADD_DOUBLE,
+                    Arithmetic.ADD_DURATION_DURATION,
+                    Arithmetic.ADD_TIMESTAMP_DURATION,
+                    Arithmetic.ADD_DURATION_TIMESTAMP,
+                    Arithmetic.MULTIPLY_INT64,
+                    Arithmetic.MULTIPLY_UINT64,
+                    Arithmetic.MULTIPLY_DOUBLE,
+                    Relation.EQUALS,
+                    Relation.NOT_EQUALS,
+                    BooleanOperator.LOGICAL_AND,
+                    BooleanOperator.LOGICAL_OR),
+                EnumSet.allOf(Comparison.class).stream())
+            .map(overload -> overload.celOverloadDecl().overloadId())
+            .collect(toImmutableSet());
 
-    return astMutator.clearExprIds(copiedExpr);
+    private final ImmutableMap<Long, CelReference> references;
+    private final Map<ImmutableList<?>, Integer> keyToVn;
+    private final IdentityHashMap<CelMutableExpr, Integer> exprToVn;
+
+    private int vnOf(CelMutableExpr expr) {
+      return Verify.verifyNotNull(exprToVn.get(expr));
+    }
+
+    private int computeVn(CelMutableExpr expr) {
+      ImmutableList<?> key = buildKey(expr);
+      int vn = keyToVn.computeIfAbsent(key, k -> keyToVn.size());
+      exprToVn.put(expr, vn);
+      return vn;
+    }
+
+    private ImmutableList<Integer> computeVns(List<CelMutableExpr> exprs) {
+      ImmutableList.Builder<Integer> vns = ImmutableList.builderWithExpectedSize(exprs.size());
+      for (CelMutableExpr expr : exprs) {
+        vns.add(computeVn(expr));
+      }
+      return vns.build();
+    }
+
+    private ImmutableList<?> buildKey(CelMutableExpr expr) {
+      switch (expr.getKind()) {
+        case CONSTANT:
+          return ImmutableList.of(Kind.CONSTANT, expr.constant());
+        case IDENT:
+          return ImmutableList.of(Kind.IDENT, expr.ident().name());
+        case SELECT:
+          CelMutableSelect select = expr.select();
+          return ImmutableList.of(
+              Kind.SELECT, computeVn(select.operand()), select.field(), select.testOnly());
+        case CALL:
+          CelMutableCall call = expr.call();
+          String function = call.function();
+          // VNs are non-negative, so -1 marks a global call.
+          int targetVn = call.target().map(this::computeVn).orElse(-1);
+          ImmutableList<Integer> argVns = computeVns(call.args());
+          // Keyed even when no swap applies (e.g. _<_), so a call that also resolves to custom
+          // overloads (x < 5 on dyn) never merges with a canonicalized standard-only one (5 > x).
+          boolean swappable = hasOnlySwappableOverloads(expr.id());
+          String swapped = SWAPPED_FUNCTIONS.get(function);
+          if (swappable
+              && swapped != null
+              && (!swapped.equals(function) || argVns.get(0) > argVns.get(1))) {
+            function = swapped;
+            argVns = argVns.reverse();
+          }
+          return ImmutableList.of(Kind.CALL, targetVn, function, argVns, swappable);
+        case LIST:
+          CelMutableList list = expr.list();
+          return ImmutableList.of(
+              Kind.LIST, computeVns(list.elements()), ImmutableList.copyOf(list.optionalIndices()));
+        case MAP:
+          CelMutableMap map = expr.map();
+          ImmutableList.Builder<Object> entryVns =
+              ImmutableList.builderWithExpectedSize(map.entries().size());
+          for (CelMutableMap.Entry entry : map.entries()) {
+            entryVns.add(
+                ImmutableList.of(
+                    computeVn(entry.key()), computeVn(entry.value()), entry.optionalEntry()));
+          }
+          return ImmutableList.of(Kind.MAP, entryVns.build());
+        case STRUCT:
+          CelMutableStruct struct = expr.struct();
+          ImmutableList.Builder<Object> fieldVns =
+              ImmutableList.builderWithExpectedSize(struct.entries().size());
+          for (CelMutableStruct.Entry entry : struct.entries()) {
+            fieldVns.add(
+                ImmutableList.of(
+                    entry.fieldKey(), computeVn(entry.value()), entry.optionalEntry()));
+          }
+          return ImmutableList.of(Kind.STRUCT, struct.messageName(), fieldVns.build());
+        case COMPREHENSION:
+          CelMutableComprehension comp = expr.comprehension();
+          return ImmutableList.of(
+              Kind.COMPREHENSION,
+              comp.iterVar(),
+              comp.iterVar2(),
+              comp.accuVar(),
+              computeVn(comp.iterRange()),
+              computeVn(comp.accuInit()),
+              computeVn(comp.loopCondition()),
+              computeVn(comp.loopStep()),
+              computeVn(comp.result()));
+        default:
+          throw new IllegalArgumentException("Unexpected ExprKind: " + expr.getKind());
+      }
+    }
+
+    private boolean hasOnlySwappableOverloads(long id) {
+      ImmutableList<String> overloadIds = references.get(id).overloadIds();
+      // Fail closed: containsAll is vacuously true for an empty list.
+      return !overloadIds.isEmpty() && SWAPPABLE_OVERLOAD_IDS.containsAll(overloadIds);
+    }
+
+    @SuppressWarnings("ValueClassIdentity") // Integer values are only unboxed, never compared.
+    private ValueNumberer(CelMutableExpr root, ImmutableMap<Long, CelReference> references) {
+      this.references = references;
+      this.keyToVn = new HashMap<>();
+      this.exprToVn = new IdentityHashMap<>();
+      computeVn(root);
+    }
   }
 
   /** Options to configure how Common Subexpression Elimination behave. */

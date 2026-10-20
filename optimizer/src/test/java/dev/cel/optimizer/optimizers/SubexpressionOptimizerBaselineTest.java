@@ -403,7 +403,17 @@ public class SubexpressionOptimizerBaselineTest extends BaselineTestCase {
         "pure_custom_func(msg.oneof_type.payload.single_int64) +"
             + " pure_custom_func(msg.oneof_type.payload.single_int32) +"
             + " pure_custom_func(msg.oneof_type.payload.single_int64) +"
-            + " pure_custom_func(msg.single_int64)");
+            + " pure_custom_func(msg.single_int64)"),
+    VALUE_NUMBERING_COMMUTATIVE_ADD_CONVERSE_RELATION_LOGICAL_AND(
+        "(msg.single_int64 + msg.single_int32 > 5 && msg.oneof_type.payload.single_int64 <"
+            + " msg.single_int64 + msg.single_int32) == (msg.single_int32 + msg.single_int64 >"
+            + " msg.oneof_type.payload.single_int64 && 5 < msg.single_int32 + msg.single_int64)"),
+    VALUE_NUMBERING_COMMUTATIVE_MULTIPLY_EQUALITY_LOGICAL_OR(
+        "(msg.oneof_type.payload.single_int32 * msg.single_int64 == 24 || msg.single_int32 !="
+            + " msg.oneof_type.payload.single_int64) && (msg.oneof_type.payload.single_int64 !="
+            + " msg.single_int32 || 24 == msg.single_int64 * msg.oneof_type.payload.single_int32)"),
+    ;
+
     private final String source;
 
     CseTestCase(String source) {

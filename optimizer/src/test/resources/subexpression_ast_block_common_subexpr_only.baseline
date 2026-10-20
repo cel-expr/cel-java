@@ -4756,3 +4756,143 @@ CALL [1] {
     }
   }
 }
+Test case: VALUE_NUMBERING_COMMUTATIVE_ADD_CONVERSE_RELATION_LOGICAL_AND
+Source: (msg.single_int64 + msg.single_int32 > 5 && msg.oneof_type.payload.single_int64 < msg.single_int64 + msg.single_int32) == (msg.single_int32 + msg.single_int64 > msg.oneof_type.payload.single_int64 && 5 < msg.single_int32 + msg.single_int64)
+=====>
+CALL [1] {
+  function: cel.@block
+  args: {
+    LIST [2] {
+      elements: {
+        CALL [3] {
+          function: _+_
+          args: {
+            SELECT [4] {
+              IDENT [5] {
+                name: msg
+              }.single_int64
+            }
+            SELECT [6] {
+              IDENT [7] {
+                name: msg
+              }.single_int32
+            }
+          }
+        }
+        CALL [8] {
+          function: _&&_
+          args: {
+            CALL [9] {
+              function: _>_
+              args: {
+                IDENT [10] {
+                  name: @index0
+                }
+                CONSTANT [11] { value: 5 }
+              }
+            }
+            CALL [12] {
+              function: _<_
+              args: {
+                SELECT [13] {
+                  SELECT [14] {
+                    SELECT [15] {
+                      IDENT [16] {
+                        name: msg
+                      }.oneof_type
+                    }.payload
+                  }.single_int64
+                }
+                IDENT [17] {
+                  name: @index0
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    CALL [18] {
+      function: _==_
+      args: {
+        IDENT [19] {
+          name: @index1
+        }
+        IDENT [20] {
+          name: @index1
+        }
+      }
+    }
+  }
+}
+Test case: VALUE_NUMBERING_COMMUTATIVE_MULTIPLY_EQUALITY_LOGICAL_OR
+Source: (msg.oneof_type.payload.single_int32 * msg.single_int64 == 24 || msg.single_int32 != msg.oneof_type.payload.single_int64) && (msg.oneof_type.payload.single_int64 != msg.single_int32 || 24 == msg.single_int64 * msg.oneof_type.payload.single_int32)
+=====>
+CALL [1] {
+  function: cel.@block
+  args: {
+    LIST [2] {
+      elements: {
+        SELECT [3] {
+          SELECT [4] {
+            IDENT [5] {
+              name: msg
+            }.oneof_type
+          }.payload
+        }
+        CALL [6] {
+          function: _||_
+          args: {
+            CALL [7] {
+              function: _==_
+              args: {
+                CALL [8] {
+                  function: _*_
+                  args: {
+                    SELECT [9] {
+                      IDENT [10] {
+                        name: @index0
+                      }.single_int32
+                    }
+                    SELECT [11] {
+                      IDENT [12] {
+                        name: msg
+                      }.single_int64
+                    }
+                  }
+                }
+                CONSTANT [13] { value: 24 }
+              }
+            }
+            CALL [14] {
+              function: _!=_
+              args: {
+                SELECT [15] {
+                  IDENT [16] {
+                    name: msg
+                  }.single_int32
+                }
+                SELECT [17] {
+                  IDENT [18] {
+                    name: @index0
+                  }.single_int64
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    CALL [19] {
+      function: _&&_
+      args: {
+        IDENT [20] {
+          name: @index1
+        }
+        IDENT [21] {
+          name: @index1
+        }
+      }
+    }
+  }
+}

@@ -79,8 +79,9 @@ public class SubexpressionOptimizerTest {
                 .populateMacroCalls(true)
                 .enableHeterogeneousNumericComparisons(true)
                 .build())
-        .addCompilerLibraries(CelExtensions.bindings(), CelExtensions.strings())
-        .addRuntimeLibraries(CelExtensions.strings())
+        .addCompilerLibraries(
+            CelExtensions.bindings(), CelExtensions.strings(), CelExtensions.optional())
+        .addRuntimeLibraries(CelExtensions.strings(), CelExtensions.optional())
         .addFunctionDeclarations(
             CelFunctionDecl.newFunctionDeclaration(
                 "non_pure_custom_func",
@@ -820,6 +821,175 @@ public class SubexpressionOptimizerTest {
     assertThat(e)
         .hasMessageThat()
         .contains("SubexpressionOptimizer must run before SelectOptimizer.");
+  }
+
+  private enum ValueNumberingTestCase {
+    COMMUTATIVE_INT_ADD(
+        "(msg.single_int64 + msg.single_int32) * (msg.single_int32 + msg.single_int64)",
+        "cel.@block([msg.single_int64 + msg.single_int32], @index0 * @index0)"),
+    COMMUTATIVE_UINT_MULTIPLY(
+        "(msg.single_uint64 * msg.single_uint32) + (msg.single_uint32 * msg.single_uint64)",
+        "cel.@block([msg.single_uint64 * msg.single_uint32], @index0 + @index0)"),
+    COMMUTATIVE_DOUBLE_ADD(
+        "(msg.single_double + 1.5) * (1.5 + msg.single_double)",
+        "cel.@block([msg.single_double + 1.5], @index0 * @index0)"),
+    COMMUTATIVE_DURATION_TIMESTAMP_ADD(
+        "(msg.single_duration + msg.single_timestamp) == (msg.single_timestamp +"
+            + " msg.single_duration)",
+        "cel.@block([msg.single_duration + msg.single_timestamp], @index0 == @index0)"),
+    NON_COMMUTATIVE_INT_SUBTRACT_PRESERVED(
+        "(msg.single_int64 - msg.single_int32) == (msg.single_int32 - msg.single_int64)",
+        "cel.@block([msg.single_int32, msg.single_int64], @index1 - @index0 == @index0 - @index1)"),
+    NON_COMMUTATIVE_STRING_CONCAT_PRESERVED(
+        "(msg.single_string + \"a\") == (\"a\" + msg.single_string)",
+        "cel.@block([msg.single_string], @index0 + \"a\" == \"a\" + @index0)"),
+    NON_COMMUTATIVE_DYN_ADD_PRESERVED(
+        "(dyn(msg.single_string) + dyn(\"a\")) == (dyn(\"a\") + dyn(msg.single_string))",
+        "cel.@block([dyn(\"a\"), dyn(msg.single_string)], @index1 + @index0 == @index0 +"
+            + " @index1)"),
+    COMMUTATIVE_EQUALS(
+        "(msg.single_int64 == 1) && (1 == msg.single_int64)",
+        "cel.@block([msg.single_int64 == 1], @index0 && @index0)"),
+    COMMUTATIVE_NOT_EQUALS(
+        "(msg.single_int64 != 1) || (1 != msg.single_int64)",
+        "cel.@block([msg.single_int64 != 1], @index0 || @index0)"),
+    COMMUTATIVE_LOGICAL_AND(
+        "((msg.single_int64 == 1) && (msg.single_int32 == 2)) || ((msg.single_int32 == 2) &&"
+            + " (msg.single_int64 == 1))",
+        "cel.@block([msg.single_int64 == 1 && msg.single_int32 == 2], @index0 || @index0)"),
+    COMMUTATIVE_LOGICAL_OR(
+        "((msg.single_int64 == 1) || (msg.single_int32 == 2)) && ((msg.single_int32 == 2) ||"
+            + " (msg.single_int64 == 1))",
+        "cel.@block([msg.single_int64 == 1 || msg.single_int32 == 2], @index0 && @index0)"),
+    RELATIONAL_CONVERSE_LESS_GREATER(
+        "(msg.single_int64 < msg.single_int32) && (msg.single_int32 > msg.single_int64)",
+        "cel.@block([msg.single_int64 < msg.single_int32], @index0 && @index0)"),
+    RELATIONAL_CONVERSE_LESS_EQUALS_GREATER_EQUALS(
+        "(msg.single_int64 <= msg.single_int32) && (msg.single_int32 >= msg.single_int64)",
+        "cel.@block([msg.single_int64 <= msg.single_int32], @index0 && @index0)"),
+    NOT_EQUALS_WITHOUT_SHARED_EQUALS_PRESERVED(
+        "[msg.single_int64 != 1, msg.single_int64 != 1, msg.single_int64 == 1]",
+        "cel.@block([msg.single_int64 != 1], [@index0, @index0, msg.single_int64 == 1])"),
+    OPTIONAL_LIST_AND_MAP_DISTINCT_VALUE_NUMBERS(
+        "([?optional.of(msg.single_int64)].size() == [optional.of(msg.single_int64)].size()) &&"
+            + " ({?\"k\": optional.of(msg.single_int64)}.size() == {\"k\":"
+            + " optional.of(msg.single_int64)}.size())",
+        "cel.@block([optional.of(msg.single_int64)], [?@index0].size() == [@index0].size() &&"
+            + " {?\"k\": @index0}.size() == {\"k\": @index0}.size())"),
+    ;
+
+    private final String source;
+    private final String expectedUnparsed;
+
+    ValueNumberingTestCase(String source, String expectedUnparsed) {
+      this.source = source;
+      this.expectedUnparsed = expectedUnparsed;
+    }
+  }
+
+  @Test
+  public void cse_valueNumbering(@TestParameter ValueNumberingTestCase testCase) throws Exception {
+    CelAbstractSyntaxTree ast = cel.compile(testCase.source).getAst();
+    CelOptimizer optimizer =
+        newCseOptimizer(
+            SubexpressionOptimizerOptions.newBuilder().populateMacroCalls(true).build());
+    ImmutableMap<String, Object> input =
+        ImmutableMap.of(
+            "msg",
+            TestAllTypes.newBuilder()
+                .setSingleInt64(1L)
+                .setSingleInt32(2)
+                .setSingleUint64(3L)
+                .setSingleUint32(4)
+                .setSingleDouble(2.5)
+                .setSingleString("hello")
+                .build());
+
+    CelAbstractSyntaxTree optimizedAst = optimizer.optimize(ast);
+
+    assertThat(CEL_UNPARSER.unparse(optimizedAst)).isEqualTo(testCase.expectedUnparsed);
+    assertThat(cel.createProgram(optimizedAst).eval(input))
+        .isEqualTo(cel.createProgram(ast).eval(input));
+  }
+
+  @Test
+  public void cse_customOperatorOverloads_preservesSemantics(
+      @TestParameter({
+            "(msg.single_string + msg.single_int64) == (msg.single_int64 + msg.single_string)",
+            "(msg.single_string > msg.single_int64) == (msg.single_int64 < msg.single_string)"
+          })
+          String source)
+      throws Exception {
+    Cel cel =
+        this.cel
+            .toCelBuilder()
+            .addFunctionDeclarations(
+                CelFunctionDecl.newFunctionDeclaration(
+                    "_+_",
+                    newGlobalOverload(
+                        "add_string_int", SimpleType.INT, SimpleType.STRING, SimpleType.INT),
+                    newGlobalOverload(
+                        "add_int_string", SimpleType.INT, SimpleType.INT, SimpleType.STRING)),
+                CelFunctionDecl.newFunctionDeclaration(
+                    "_>_",
+                    newGlobalOverload(
+                        "greater_string_int", SimpleType.BOOL, SimpleType.STRING, SimpleType.INT)),
+                CelFunctionDecl.newFunctionDeclaration(
+                    "_<_",
+                    newGlobalOverload(
+                        "less_int_string", SimpleType.BOOL, SimpleType.INT, SimpleType.STRING)))
+            .addFunctionBindings(
+                CelFunctionBinding.from(
+                    "add_string_int", String.class, Long.class, (s, i) -> s.length() + i),
+                CelFunctionBinding.from(
+                    "add_int_string", Long.class, String.class, (i, s) -> i * 100 + s.length()),
+                CelFunctionBinding.from(
+                    "greater_string_int", String.class, Long.class, (s, i) -> s.length() > i),
+                CelFunctionBinding.from(
+                    "less_int_string", Long.class, String.class, (i, s) -> i >= 0))
+            .build();
+    CelOptimizer optimizer =
+        CelOptimizerFactory.standardCelOptimizerBuilder(cel)
+            .addAstOptimizers(SubexpressionOptimizer.getInstance())
+            .build();
+    CelAbstractSyntaxTree ast = cel.compile(source).getAst();
+    ImmutableMap<String, Object> input =
+        ImmutableMap.of(
+            "msg", TestAllTypes.newBuilder().setSingleString("a").setSingleInt64(1L).build());
+
+    CelAbstractSyntaxTree optimizedAst = optimizer.optimize(ast);
+
+    assertThat(cel.createProgram(optimizedAst).eval(input))
+        .isEqualTo(cel.createProgram(ast).eval(input));
+  }
+
+  @Test
+  public void cse_oneSidedCustomOverloadOnDyn_notMerged(
+      @TestParameter({"(x < 5) == (5 > x)", "(x + 1) == (1 + x)"}) String source) throws Exception {
+    // With x: dyn, only the left operand also resolves to the custom overload, so the right one is
+    // standard-only and swappable. The two must not share a value number.
+    Cel cel =
+        this.cel
+            .toCelBuilder()
+            .addFunctionDeclarations(
+                CelFunctionDecl.newFunctionDeclaration(
+                    "_<_",
+                    newGlobalOverload(
+                        "less_string_int", SimpleType.BOOL, SimpleType.STRING, SimpleType.INT)),
+                CelFunctionDecl.newFunctionDeclaration(
+                    "_+_",
+                    newGlobalOverload(
+                        "add_string_int", SimpleType.INT, SimpleType.STRING, SimpleType.INT)))
+            .build();
+    CelOptimizer optimizer =
+        CelOptimizerFactory.standardCelOptimizerBuilder(cel)
+            .addAstOptimizers(SubexpressionOptimizer.getInstance())
+            .build();
+    CelAbstractSyntaxTree ast = cel.compile(source).getAst();
+
+    CelAbstractSyntaxTree optimizedAst = optimizer.optimize(ast);
+
+    assertThat(CEL_UNPARSER.unparse(optimizedAst)).isEqualTo(CEL_UNPARSER.unparse(ast));
   }
 
   /**

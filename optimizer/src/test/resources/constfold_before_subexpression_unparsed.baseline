@@ -315,3 +315,15 @@ Source: pure_custom_func(msg.oneof_type.payload.single_int64) + pure_custom_func
 =====>
 Result: 31
 Unparsed: cel.@block([msg.oneof_type.payload, pure_custom_func(@index0.single_int64)], @index1 + pure_custom_func(@index0.single_int32) + @index1 + pure_custom_func(msg.single_int64))
+
+Test case: VALUE_NUMBERING_COMMUTATIVE_ADD_CONVERSE_RELATION_LOGICAL_AND
+Source: (msg.single_int64 + msg.single_int32 > 5 && msg.oneof_type.payload.single_int64 < msg.single_int64 + msg.single_int32) == (msg.single_int32 + msg.single_int64 > msg.oneof_type.payload.single_int64 && 5 < msg.single_int32 + msg.single_int64)
+=====>
+Result: true
+Unparsed: cel.@block([msg.single_int64 + msg.single_int32, @index0 > 5 && msg.oneof_type.payload.single_int64 < @index0], @index1 == @index1)
+
+Test case: VALUE_NUMBERING_COMMUTATIVE_MULTIPLY_EQUALITY_LOGICAL_OR
+Source: (msg.oneof_type.payload.single_int32 * msg.single_int64 == 24 || msg.single_int32 != msg.oneof_type.payload.single_int64) && (msg.oneof_type.payload.single_int64 != msg.single_int32 || 24 == msg.single_int64 * msg.oneof_type.payload.single_int32)
+=====>
+Result: true
+Unparsed: cel.@block([msg.oneof_type.payload, @index0.single_int32 * msg.single_int64 == 24 || msg.single_int32 != @index0.single_int64], @index1 && @index1)
