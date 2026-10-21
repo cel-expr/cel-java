@@ -15,6 +15,7 @@ java_library(
         "CelVerificationResult.java",
         "CelVerifier.java",
         "CelVerifierBuilder.java",
+        "CelWitness.java",
     ],
     tags = [
     ],
@@ -23,6 +24,7 @@ java_library(
         "//common:cel_ast",
         "//common/types:type_providers",
         "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:com_google_guava_guava",
     ],
 )
 
@@ -186,10 +188,13 @@ java_library(
         "//common/ast",
         "//common/ast:cel_block",
         "//common/internal:cel_descriptor_pools",
+        "//common/internal:proto_time_utils",
         "//common/internal:well_known_proto",
         "//common/types",
         "//common/types:cel_types",
         "//common/types:type_providers",
+        "//common/values",
+        "//common/values:cel_byte_string",
         "//optimizer",
         "//optimizer:optimization_exception",
         "//optimizer:optimizer_builder",

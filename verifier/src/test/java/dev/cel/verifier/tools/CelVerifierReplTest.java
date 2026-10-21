@@ -231,7 +231,7 @@ public final class CelVerifierReplTest {
         runReplWithCommands(":var dur duration", "timestamp(100) - timestamp(50) == dur", ":quit");
 
     assertThat(output[0]).contains("[VERIFIED]");
-    assertThat(output[0]).contains("dur = duration('50s')");
+    assertThat(output[0]).contains("dur = duration(\"50s\")");
     assertThat(output[1]).isEmpty();
   }
 
