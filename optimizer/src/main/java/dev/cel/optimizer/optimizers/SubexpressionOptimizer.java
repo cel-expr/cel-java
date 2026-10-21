@@ -29,6 +29,7 @@ import com.google.common.base.Strings;
 import com.google.common.base.Verify;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableListMultimap;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Multimaps;
 import com.google.common.collect.Sets;
@@ -45,20 +46,29 @@ import dev.cel.common.CelSource.Extension.Component;
 import dev.cel.common.CelSource.Extension.Version;
 import dev.cel.common.CelValidationException;
 import dev.cel.common.CelVarDecl;
+import dev.cel.common.Operator;
 import dev.cel.common.ast.CelBlock;
+import dev.cel.common.ast.CelConstant;
 import dev.cel.common.ast.CelExpr;
 import dev.cel.common.ast.CelExpr.CelCall;
 import dev.cel.common.ast.CelExpr.CelComprehension;
 import dev.cel.common.ast.CelExpr.CelList;
 import dev.cel.common.ast.CelExpr.ExprKind.Kind;
 import dev.cel.common.ast.CelMutableExpr;
+import dev.cel.common.ast.CelMutableExpr.CelMutableCall;
+import dev.cel.common.ast.CelMutableExpr.CelMutableComprehension;
 import dev.cel.common.ast.CelMutableExpr.CelMutableIdent;
+import dev.cel.common.ast.CelMutableExpr.CelMutableList;
+import dev.cel.common.ast.CelMutableExpr.CelMutableMap;
+import dev.cel.common.ast.CelMutableExpr.CelMutableSelect;
+import dev.cel.common.ast.CelMutableExpr.CelMutableStruct;
 import dev.cel.common.ast.CelMutableExprConverter;
 import dev.cel.common.navigation.CelNavigableExpr;
 import dev.cel.common.navigation.CelNavigableExprUtil;
 import dev.cel.common.navigation.CelNavigableMutableAst;
 import dev.cel.common.navigation.CelNavigableMutableExpr;
 import dev.cel.common.navigation.TraversalOrder;
+import dev.cel.common.types.CelType;
 import dev.cel.common.types.SimpleType;
 import dev.cel.extensions.CelBindingsExtensions;
 import dev.cel.optimizer.AstMutator;
@@ -69,8 +79,10 @@ import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.Predicate;
 import java.util.stream.Stream;
@@ -159,6 +171,15 @@ public final class SubexpressionOptimizer implements CelAstOptimizer {
     if (!cseOptions.populateMacroCalls()) {
       astToModify.source().clearMacroCalls();
     }
+    ImmutableMap<Long, CelType> nodeTypes = ast.getTypeMap();
+
+    boolean simplified = simplifyDominatedSubexpressions(astToModify, nodeTypes);
+    CelAbstractSyntaxTree fallbackAst =
+        simplified
+            ? astMutator
+                .renumberIdsConsecutively(CelMutableAst.fromCelAst(astToModify.toParsedAst()))
+                .toParsedAst()
+            : ast;
 
     MangledComprehensionAst mangledComprehensionAst =
         astMutator.mangleComprehensionIdentifierNames(
@@ -170,20 +191,18 @@ public final class SubexpressionOptimizer implements CelAstOptimizer {
     CelMutableSource sourceToModify = astToModify.source();
 
     int iterCount;
-    long nextId = 0;
+    long nextId = computeMaxId(astToModify);
+    if (cseOptions.subexpressionMaxRecursionDepth() == 0) {
+      nextId = maybeRewriteComplementaryNotEquals(astToModify, nodeTypes, nextId);
+    }
     ArrayList<CelMutableExpr> subexpressions = new ArrayList<>();
 
     for (iterCount = 0; iterCount < cseOptions.iterationLimit(); iterCount++) {
       CelNavigableMutableAst navAst = CelNavigableMutableAst.fromAst(astToModify);
-      ImmutableList<CelMutableExpr> cseCandidates = getCseCandidates(navAst);
+      ValueNumberer valueNumberer = new ValueNumberer(navAst.getRoot().expr(), nodeTypes);
+      ImmutableList<CelMutableExpr> cseCandidates = getCseCandidates(navAst, valueNumberer);
       if (cseCandidates.isEmpty()) {
         break;
-      }
-      if (iterCount == 0) {
-        nextId = navAst.getRoot().maxId();
-        for (CelMutableExpr macroCall : sourceToModify.getMacroCalls().values()) {
-          nextId = max(nextId, CelNavigableMutableExpr.fromExpr(macroCall).maxId());
-        }
       }
 
       subexpressions.add(CelMutableExpr.newInstance(cseCandidates.get(0)));
@@ -206,8 +225,7 @@ public final class SubexpressionOptimizer implements CelAstOptimizer {
     }
 
     if (iterCount == 0) {
-      // No modification has been made.
-      return OptimizationResult.create(ast);
+      return OptimizationResult.create(fallbackAst);
     }
 
     ImmutableList.Builder<CelVarDecl> newVarDecls = ImmutableList.builder();
@@ -392,12 +410,21 @@ public final class SubexpressionOptimizer implements CelAstOptimizer {
     expr.setIdent(CelMutableIdent.create(blockIdentifier));
   }
 
-  private ImmutableList<CelMutableExpr> getCseCandidates(CelNavigableMutableAst navAst) {
+  private static long computeMaxId(CelMutableAst ast) {
+    long maxId = CelNavigableMutableAst.fromAst(ast).getRoot().maxId();
+    for (CelMutableExpr macroCall : ast.source().getMacroCalls().values()) {
+      maxId = max(maxId, CelNavigableMutableExpr.fromExpr(macroCall).maxId());
+    }
+    return maxId;
+  }
+
+  private ImmutableList<CelMutableExpr> getCseCandidates(
+      CelNavigableMutableAst navAst, ValueNumberer valueNumberer) {
     if (cseOptions.subexpressionMaxRecursionDepth() > 0) {
       return getCseCandidatesWithRecursionDepth(
-          navAst, cseOptions.subexpressionMaxRecursionDepth());
+          navAst, cseOptions.subexpressionMaxRecursionDepth(), valueNumberer);
     } else {
-      return getCseCandidatesWithCommonSubexpr(navAst);
+      return getCseCandidatesWithCommonSubexpr(navAst, valueNumberer);
     }
   }
 
@@ -406,7 +433,7 @@ public final class SubexpressionOptimizer implements CelAstOptimizer {
    * subexpr found.
    */
   private ImmutableList<CelMutableExpr> getCseCandidatesWithRecursionDepth(
-      CelNavigableMutableAst navAst, int recursionLimit) {
+      CelNavigableMutableAst navAst, int recursionLimit, ValueNumberer valueNumberer) {
     checkArgument(recursionLimit > 0);
     Set<CelMutableExpr> ineligibleExprs = getIneligibleExprsFromComprehensionBranches(navAst);
     ImmutableList<CelNavigableMutableExpr> descendants =
@@ -422,7 +449,7 @@ public final class SubexpressionOptimizer implements CelAstOptimizer {
     }
 
     ImmutableList<CelMutableExpr> cseCandidates =
-        getCseCandidatesWithCommonSubexpr(descendants, ineligibleExprs);
+        getCseCandidatesWithCommonSubexpr(descendants, ineligibleExprs, valueNumberer);
     if (!cseCandidates.isEmpty()) {
       return cseCandidates;
     }
@@ -446,36 +473,94 @@ public final class SubexpressionOptimizer implements CelAstOptimizer {
   }
 
   private ImmutableList<CelMutableExpr> getCseCandidatesWithCommonSubexpr(
-      CelNavigableMutableAst navAst) {
+      CelNavigableMutableAst navAst, ValueNumberer valueNumberer) {
     Set<CelMutableExpr> ineligibleExprs = getIneligibleExprsFromComprehensionBranches(navAst);
     ImmutableList<CelNavigableMutableExpr> allNodes =
         navAst.getRoot().allNodes(TraversalOrder.PRE_ORDER).collect(toImmutableList());
 
-    return getCseCandidatesWithCommonSubexpr(allNodes, ineligibleExprs);
+    return getCseCandidatesWithCommonSubexpr(allNodes, ineligibleExprs, valueNumberer);
   }
 
   private ImmutableList<CelMutableExpr> getCseCandidatesWithCommonSubexpr(
-      ImmutableList<CelNavigableMutableExpr> allNodes, Set<CelMutableExpr> ineligibleExprs) {
+      ImmutableList<CelNavigableMutableExpr> allNodes,
+      Set<CelMutableExpr> ineligibleExprs,
+      ValueNumberer valueNumberer) {
     ImmutableListMultimap<Integer, CelNavigableMutableExpr> nodesByHeight =
         Multimaps.index(allNodes, CelNavigableMutableExpr::height);
-    HashSet<CelMutableExpr> semanticallyEqualNodes = new HashSet<>();
+    Set<Integer> seenVns = new HashSet<>();
     for (CelNavigableMutableExpr node : allNodes) {
       ImmutableList<CelNavigableMutableExpr> sameHeightNodes = nodesByHeight.get(node.height());
       if (sameHeightNodes.size() < 2 || !canEliminate(node, ineligibleExprs)) {
         continue;
       }
-      // Normalize the expr to test semantic equivalence.
-      CelMutableExpr normalizedExpr = normalizeForEquality(node.expr());
-      if (!semanticallyEqualNodes.add(normalizedExpr)) {
+      int vn = valueNumberer.vnOf(node.expr());
+      if (!seenVns.add(vn)) {
         return sameHeightNodes.stream()
             .filter(candidate -> canEliminate(candidate, ineligibleExprs))
             .map(CelNavigableMutableExpr::expr)
-            .filter(expr -> normalizeForEquality(expr).equals(normalizedExpr))
+            .filter(expr -> valueNumberer.vnOf(expr) == vn)
             .collect(toImmutableList());
       }
     }
 
     return ImmutableList.of();
+  }
+
+  // Rewrites eligible _!=_(a, b) calls in-place to !(_==_(a, b)) when an eligible _==_(a, b) or
+  // _==_(b, a) is also present in the AST, enabling CSE to share a single _==_ block slot.
+  private long maybeRewriteComplementaryNotEquals(
+      CelMutableAst astToModify, ImmutableMap<Long, CelType> nodeTypes, long nextId) {
+    CelNavigableMutableAst navAst = CelNavigableMutableAst.fromAst(astToModify);
+    ValueNumberer valueNumberer = new ValueNumberer(navAst.getRoot().expr(), nodeTypes);
+    Set<CelMutableExpr> ineligibleExprs = getIneligibleExprsFromComprehensionBranches(navAst);
+    ImmutableList<CelNavigableMutableExpr> allNodes =
+        navAst.getRoot().allNodes(TraversalOrder.PRE_ORDER).collect(toImmutableList());
+    Set<Integer> equalsVns = new HashSet<>();
+    List<CelNavigableMutableExpr> notEqualsNodes = new ArrayList<>();
+    for (CelNavigableMutableExpr node : allNodes) {
+      if (node.getKind() != Kind.CALL || !canEliminate(node, ineligibleExprs)) {
+        continue;
+      }
+      String func = node.expr().call().function();
+      if (func.equals(Operator.EQUALS.getFunction())) {
+        equalsVns.add(valueNumberer.vnOf(node.expr()));
+      } else if (func.equals(Operator.NOT_EQUALS.getFunction())) {
+        notEqualsNodes.add(node);
+      }
+    }
+    for (CelNavigableMutableExpr node : notEqualsNodes) {
+      CelMutableCall call = node.expr().call();
+      int eqVn =
+          valueNumberer.binaryCallVn(
+              Operator.EQUALS.getFunction(),
+              valueNumberer.vnOf(call.args().get(0)),
+              valueNumberer.vnOf(call.args().get(1)));
+      if (!equalsVns.contains(eqVn)) {
+        continue;
+      }
+      CelMutableExpr innerEquals =
+          CelMutableExpr.ofCall(
+              ++nextId,
+              CelMutableCall.create(
+                  Operator.EQUALS.getFunction(), call.args().get(0), call.args().get(1)));
+      node.expr().setCall(CelMutableCall.create(Operator.LOGICAL_NOT.getFunction(), innerEquals));
+    }
+    return nextId;
+  }
+
+  private boolean simplifyDominatedSubexpressions(
+      CelMutableAst astToModify, ImmutableMap<Long, CelType> nodeTypes) {
+    ValueNumberer valueNumberer = new ValueNumberer(astToModify.expr(), nodeTypes);
+    DominatorSimplifier simplifier =
+        new DominatorSimplifier(valueNumberer, nodeTypes, astToModify.source());
+    simplifier.simplifySubtree(astToModify.expr());
+    return simplifier.modCount > 0;
+  }
+
+  private static boolean isPotentiallyFloat(
+      CelMutableExpr expr, ImmutableMap<Long, CelType> nodeTypes) {
+    CelType type = nodeTypes.getOrDefault(expr.id(), SimpleType.DYN);
+    return type.equals(SimpleType.DOUBLE) || type.equals(SimpleType.DYN);
   }
 
   private boolean canEliminate(
@@ -550,17 +635,365 @@ public final class SubexpressionOptimizer implements CelAstOptimizer {
             });
   }
 
-  /**
-   * Converts the {@link CelMutableExpr} to make it suitable for performing a semantically equals
-   * check.
-   *
-   * <p>Specifically, this will deep copy the mutable expr then set all expr IDs in the expression
-   * tree to 0.
-   */
-  private CelMutableExpr normalizeForEquality(CelMutableExpr mutableExpr) {
-    CelMutableExpr copiedExpr = CelMutableExpr.newInstance(mutableExpr);
+  // Simplifies subexpressions using path-sensitive boolean predicate facts established by
+  // dominating ternary conditions.
+  private final class DominatorSimplifier {
+    private final ValueNumberer valueNumberer;
+    private final ImmutableMap<Long, CelType> nodeTypes;
+    private final CelMutableSource source;
+    private final Map<Integer, Boolean> knownBoolByVn;
+    private int modCount;
 
-    return astMutator.clearExprIds(copiedExpr);
+    private CelMutableExpr simplifySubtree(CelMutableExpr expr) {
+      if (expr.getKind() != Kind.CONSTANT) {
+        Boolean knownBool = knownBoolByVn.get(valueNumberer.vnOf(expr));
+        if (knownBool != null) {
+          source.clearMacroCall(expr.id());
+          expr.setConstant(CelConstant.ofValue(knownBool));
+          modCount++;
+          return expr;
+        }
+      }
+
+      int prevModCount = modCount;
+      switch (expr.getKind()) {
+        case CALL:
+          simplifyCallChildren(expr);
+          break;
+        case SELECT:
+          expr.select().setOperand(simplifySubtree(expr.select().operand()));
+          break;
+        case LIST:
+          expr.list().elements().replaceAll(this::simplifySubtree);
+          break;
+        case MAP:
+          for (CelMutableMap.Entry entry : expr.map().entries()) {
+            entry.setKey(simplifySubtree(entry.key()));
+            entry.setValue(simplifySubtree(entry.value()));
+          }
+          break;
+        case STRUCT:
+          for (CelMutableStruct.Entry entry : expr.struct().entries()) {
+            entry.setValue(simplifySubtree(entry.value()));
+          }
+          break;
+        case COMPREHENSION:
+          CelMutableComprehension comp = expr.comprehension();
+          comp.setIterRange(simplifySubtree(comp.iterRange()));
+          if (comp.loopStep().getKind() == Kind.CALL) {
+            simplifyCallChildren(comp.loopStep());
+          }
+          break;
+        default:
+          break;
+      }
+
+      if (modCount != prevModCount && expr.getKind() == Kind.CALL) {
+        return foldModifiedCall(expr);
+      }
+      return expr;
+    }
+
+    private void simplifyCallChildren(CelMutableExpr expr) {
+      CelMutableCall call = expr.call();
+      List<CelMutableExpr> args = call.args();
+      if (call.function().equals(Operator.CONDITIONAL.getFunction())) {
+        CelMutableExpr cond = simplifySubtree(args.get(0));
+        args.set(0, cond);
+        Map<Integer, Boolean> savedBools = new HashMap<>(knownBoolByVn);
+
+        recordTruth(cond, true);
+        args.set(1, simplifySubtree(args.get(1)));
+
+        knownBoolByVn.clear();
+        knownBoolByVn.putAll(savedBools);
+
+        recordTruth(cond, false);
+        args.set(2, simplifySubtree(args.get(2)));
+
+        knownBoolByVn.clear();
+        knownBoolByVn.putAll(savedBools);
+        return;
+      }
+      call.target().ifPresent(target -> call.setTarget(simplifySubtree(target)));
+      args.replaceAll(this::simplifySubtree);
+    }
+
+    private CelMutableExpr foldModifiedCall(CelMutableExpr expr) {
+      CelMutableCall call = expr.call();
+      if (!call.function().equals(Operator.CONDITIONAL.getFunction())) {
+        return expr;
+      }
+      List<CelMutableExpr> args = call.args();
+      CelMutableExpr cond = args.get(0);
+      if (cond.getKind() != Kind.CONSTANT) {
+        return expr;
+      }
+      return cond.constant().booleanValue() ? args.get(1) : args.get(2);
+    }
+
+    private void recordTruth(CelMutableExpr expr, boolean isTrue) {
+      if (expr.getKind() == Kind.CALL) {
+        CelMutableCall call = expr.call();
+        String func = call.function();
+        List<CelMutableExpr> args = call.args();
+        if (func.equals(Operator.LOGICAL_NOT.getFunction())) {
+          recordTruth(args.get(0), !isTrue);
+          return;
+        }
+        if (func.equals((isTrue ? Operator.LOGICAL_AND : Operator.LOGICAL_OR).getFunction())) {
+          args.forEach(arg -> recordTruth(arg, isTrue));
+          return;
+        }
+      }
+
+      if (!containsEliminableFunctionOnly(CelNavigableMutableExpr.fromExpr(expr))) {
+        return;
+      }
+
+      int vn = valueNumberer.vnOf(expr);
+      knownBoolByVn.put(vn, isTrue);
+
+      if (expr.getKind() != Kind.CALL) {
+        return;
+      }
+      CelMutableCall call = expr.call();
+      String func = call.function();
+      List<CelMutableExpr> args = call.args();
+      if (func.equals(Operator.EQUALS.getFunction())
+          || func.equals(Operator.NOT_EQUALS.getFunction())) {
+        boolean isEqualsOp = func.equals(Operator.EQUALS.getFunction());
+        recordBinaryBool(
+            (isEqualsOp ? Operator.NOT_EQUALS : Operator.EQUALS).getFunction(),
+            valueNumberer.vnOf(args.get(0)),
+            valueNumberer.vnOf(args.get(1)),
+            !isTrue);
+        return;
+      }
+
+      boolean isStrict;
+      boolean swapOperands;
+      if (func.equals(Operator.LESS.getFunction())) {
+        isStrict = true;
+        swapOperands = false;
+      } else if (func.equals(Operator.GREATER.getFunction())) {
+        isStrict = true;
+        swapOperands = true;
+      } else if (func.equals(Operator.LESS_EQUALS.getFunction())) {
+        isStrict = false;
+        swapOperands = false;
+      } else if (func.equals(Operator.GREATER_EQUALS.getFunction())) {
+        isStrict = false;
+        swapOperands = true;
+      } else {
+        return;
+      }
+
+      CelMutableExpr lhs = args.get(0);
+      CelMutableExpr rhs = args.get(1);
+      int lhsVn = valueNumberer.vnOf(lhs);
+      int rhsVn = valueNumberer.vnOf(rhs);
+      int aVn = swapOperands ? rhsVn : lhsVn;
+      int bVn = swapOperands ? lhsVn : rhsVn;
+      if (isTrue) {
+        recordOrderFacts(aVn, bVn, isStrict);
+      } else if (!isPotentiallyFloat(lhs, nodeTypes) && !isPotentiallyFloat(rhs, nodeTypes)) {
+        // Under a total order (no NaN), !(a < b) <=> b <= a and !(a <= b) <=> b < a.
+        recordOrderFacts(bVn, aVn, !isStrict);
+      }
+    }
+
+    private void recordOrderFacts(int aVn, int bVn, boolean isStrict) {
+      // a < b (or a <= b) == true guarantees neither operand is NaN.
+      recordBinaryBool(Operator.LESS_EQUALS.getFunction(), aVn, bVn, true);
+      recordBinaryBool(Operator.LESS.getFunction(), bVn, aVn, false);
+      if (isStrict) {
+        recordBinaryBool(Operator.LESS.getFunction(), aVn, bVn, true);
+        recordBinaryBool(Operator.LESS_EQUALS.getFunction(), bVn, aVn, false);
+        recordBinaryBool(Operator.EQUALS.getFunction(), aVn, bVn, false);
+        recordBinaryBool(Operator.NOT_EQUALS.getFunction(), aVn, bVn, true);
+      }
+    }
+
+    private void recordBinaryBool(String func, int arg0Vn, int arg1Vn, boolean value) {
+      knownBoolByVn.put(valueNumberer.binaryCallVn(func, arg0Vn, arg1Vn), value);
+    }
+
+    private DominatorSimplifier(
+        ValueNumberer valueNumberer,
+        ImmutableMap<Long, CelType> nodeTypes,
+        CelMutableSource source) {
+      this.valueNumberer = valueNumberer;
+      this.nodeTypes = nodeTypes;
+      this.source = source;
+      this.knownBoolByVn = new HashMap<>();
+      this.modCount = 0;
+    }
+  }
+
+  // Bottom-up hash-consing value numberer with algebraic canonicalization for commutative and
+  // converse operators and De Bruijn level scoping for comprehension variables.
+  private static final class ValueNumberer {
+    private static final ImmutableSet<String> ALWAYS_COMMUTATIVE_FUNCTIONS =
+        ImmutableSet.of(
+            Operator.EQUALS.getFunction(),
+            Operator.NOT_EQUALS.getFunction(),
+            Operator.LOGICAL_AND.getFunction(),
+            Operator.LOGICAL_OR.getFunction());
+    private static final ImmutableSet<CelType> NUMERIC_TYPES =
+        ImmutableSet.of(SimpleType.INT, SimpleType.UINT, SimpleType.DOUBLE);
+    private static final ImmutableSet<CelType> COMMUTATIVE_ADD_TYPES =
+        ImmutableSet.of(
+            SimpleType.INT,
+            SimpleType.UINT,
+            SimpleType.DOUBLE,
+            SimpleType.DURATION,
+            SimpleType.TIMESTAMP);
+
+    private final ImmutableMap<Long, CelType> nodeTypes;
+    private final Map<Object, Integer> keyToVn;
+    private final IdentityHashMap<CelMutableExpr, Integer> exprToVn;
+    private ImmutableSet<String> scopedVars;
+
+    private int vnOf(CelMutableExpr expr) {
+      return checkNotNull(exprToVn.get(expr));
+    }
+
+    private int computeVn(CelMutableExpr expr) {
+      int vn = internKey(buildNodeKey(expr));
+      exprToVn.put(expr, vn);
+      return vn;
+    }
+
+    private int binaryCallVn(String function, int arg0Vn, int arg1Vn) {
+      return internKey(buildBinaryCallKey(function, arg0Vn, arg1Vn, SimpleType.BOOL));
+    }
+
+    private int internKey(Object key) {
+      return keyToVn.computeIfAbsent(key, k -> keyToVn.size());
+    }
+
+    private Object buildNodeKey(CelMutableExpr expr) {
+      switch (expr.getKind()) {
+        case CONSTANT:
+          return ImmutableList.of(Kind.CONSTANT, expr.constant());
+        case IDENT:
+          String name = expr.ident().name();
+          return ImmutableList.of(Kind.IDENT, name, scopedVars.contains(name));
+        case SELECT:
+          CelMutableSelect select = expr.select();
+          return ImmutableList.of(
+              Kind.SELECT, computeVn(select.operand()), select.field(), select.testOnly());
+        case CALL:
+          return buildCallKey(expr);
+        case LIST:
+          CelMutableList list = expr.list();
+          ImmutableList.Builder<Integer> elemVns =
+              ImmutableList.builderWithExpectedSize(list.elements().size());
+          for (CelMutableExpr elem : list.elements()) {
+            elemVns.add(computeVn(elem));
+          }
+          return ImmutableList.of(Kind.LIST, elemVns.build(), list.optionalIndices());
+        case MAP:
+          CelMutableMap map = expr.map();
+          ImmutableList.Builder<Object> entryVns =
+              ImmutableList.builderWithExpectedSize(map.entries().size());
+          for (CelMutableMap.Entry entry : map.entries()) {
+            entryVns.add(
+                ImmutableList.of(
+                    computeVn(entry.key()), computeVn(entry.value()), entry.optionalEntry()));
+          }
+          return ImmutableList.of(Kind.MAP, entryVns.build());
+        case STRUCT:
+          CelMutableStruct struct = expr.struct();
+          ImmutableList.Builder<Object> fieldVns =
+              ImmutableList.builderWithExpectedSize(struct.entries().size());
+          for (CelMutableStruct.Entry entry : struct.entries()) {
+            fieldVns.add(
+                ImmutableList.of(
+                    entry.fieldKey(), computeVn(entry.value()), entry.optionalEntry()));
+          }
+          return ImmutableList.of(Kind.STRUCT, struct.messageName(), fieldVns.build());
+        case COMPREHENSION:
+          CelMutableComprehension comp = expr.comprehension();
+          int iterRangeVn = computeVn(comp.iterRange());
+          int accuInitVn = computeVn(comp.accuInit());
+          ImmutableSet<String> savedScope = scopedVars;
+          scopedVars = ImmutableSet.of(comp.accuVar(), comp.iterVar(), comp.iterVar2());
+          int loopConditionVn = computeVn(comp.loopCondition());
+          int loopStepVn = computeVn(comp.loopStep());
+          int resultVn = computeVn(comp.result());
+          scopedVars = savedScope;
+          return ImmutableList.of(
+              Kind.COMPREHENSION,
+              comp.iterVar(),
+              comp.iterVar2(),
+              comp.accuVar(),
+              iterRangeVn,
+              accuInitVn,
+              loopConditionVn,
+              loopStepVn,
+              resultVn);
+        default:
+          throw new IllegalArgumentException("Unexpected ExprKind: " + expr.getKind());
+      }
+    }
+
+    private Object buildCallKey(CelMutableExpr expr) {
+      CelMutableCall call = expr.call();
+      String function = call.function();
+      List<CelMutableExpr> args = call.args();
+      if (!call.target().isPresent() && args.size() == 2) {
+        return buildBinaryCallKey(
+            function,
+            computeVn(args.get(0)),
+            computeVn(args.get(1)),
+            nodeTypes.getOrDefault(expr.id(), SimpleType.DYN));
+      }
+      Optional<Integer> targetVn = call.target().map(this::computeVn);
+      ImmutableList.Builder<Integer> argVns = ImmutableList.builderWithExpectedSize(args.size());
+      for (CelMutableExpr arg : args) {
+        argVns.add(computeVn(arg));
+      }
+      return ImmutableList.of(Kind.CALL, targetVn, function, argVns.build());
+    }
+
+    private static Object buildBinaryCallKey(
+        String function, int arg0Vn, int arg1Vn, CelType exprType) {
+      String canonicalFunc = function;
+      int firstVn = arg0Vn;
+      int secondVn = arg1Vn;
+      if (function.equals(Operator.GREATER.getFunction())) {
+        canonicalFunc = Operator.LESS.getFunction();
+        firstVn = arg1Vn;
+        secondVn = arg0Vn;
+      } else if (function.equals(Operator.GREATER_EQUALS.getFunction())) {
+        canonicalFunc = Operator.LESS_EQUALS.getFunction();
+        firstVn = arg1Vn;
+        secondVn = arg0Vn;
+      } else if (isCommutativeBinaryCall(function, exprType) && firstVn > secondVn) {
+        firstVn = arg1Vn;
+        secondVn = arg0Vn;
+      }
+      return ImmutableList.of(
+          Kind.CALL, Optional.empty(), canonicalFunc, ImmutableList.of(firstVn, secondVn));
+    }
+
+    private static boolean isCommutativeBinaryCall(String function, CelType exprType) {
+      return ALWAYS_COMMUTATIVE_FUNCTIONS.contains(function)
+          || (function.equals(Operator.MULTIPLY.getFunction()) && NUMERIC_TYPES.contains(exprType))
+          || (function.equals(Operator.ADD.getFunction())
+              && COMMUTATIVE_ADD_TYPES.contains(exprType));
+    }
+
+    @SuppressWarnings("ValueClassIdentity") // Only keys (CelMutableExpr) use reference identity
+    private ValueNumberer(CelMutableExpr root, ImmutableMap<Long, CelType> nodeTypes) {
+      this.nodeTypes = nodeTypes;
+      this.keyToVn = new HashMap<>();
+      this.exprToVn = new IdentityHashMap<>();
+      this.scopedVars = ImmutableSet.of();
+      computeVn(root);
+    }
   }
 
   /** Options to configure how Common Subexpression Elimination behave. */
