@@ -79,12 +79,17 @@ public class SubexpressionOptimizerTest {
                 .populateMacroCalls(true)
                 .enableHeterogeneousNumericComparisons(true)
                 .build())
-        .addCompilerLibraries(CelExtensions.bindings(), CelExtensions.strings())
-        .addRuntimeLibraries(CelExtensions.strings())
+        .addCompilerLibraries(
+            CelExtensions.bindings(), CelExtensions.strings(), CelExtensions.optional())
+        .addRuntimeLibraries(CelExtensions.strings(), CelExtensions.optional())
         .addFunctionDeclarations(
             CelFunctionDecl.newFunctionDeclaration(
                 "non_pure_custom_func",
                 newGlobalOverload("non_pure_custom_func_overload", SimpleType.INT, SimpleType.INT)))
+        .addFunctionBindings(
+            CelFunctionBinding.fromOverloads(
+                "non_pure_custom_func",
+                CelFunctionBinding.from("non_pure_custom_func_overload", Long.class, val -> val)))
         .addVar("x", SimpleType.DYN)
         .addVar("msg", StructTypeReference.create(TestAllTypes.getDescriptor().getFullName()))
         .build();
@@ -820,6 +825,200 @@ public class SubexpressionOptimizerTest {
     assertThat(e)
         .hasMessageThat()
         .contains("SubexpressionOptimizer must run before SelectOptimizer.");
+  }
+
+  private enum ValueNumberingTestCase {
+    COMMUTATIVE_INT_ADD(
+        "(msg.single_int64 + msg.single_int32) * (msg.single_int32 + msg.single_int64)",
+        "cel.@block([msg.single_int64 + msg.single_int32], @index0 * @index0)"),
+    COMMUTATIVE_UINT_MULTIPLY(
+        "(msg.single_uint64 * msg.single_uint32) + (msg.single_uint32 * msg.single_uint64)",
+        "cel.@block([msg.single_uint64 * msg.single_uint32], @index0 + @index0)"),
+    COMMUTATIVE_DOUBLE_ADD(
+        "(msg.single_double + 1.5) * (1.5 + msg.single_double)",
+        "cel.@block([msg.single_double + 1.5], @index0 * @index0)"),
+    COMMUTATIVE_DURATION_TIMESTAMP_ADD(
+        "(msg.single_duration + msg.single_timestamp) == (msg.single_timestamp +"
+            + " msg.single_duration)",
+        "cel.@block([msg.single_duration + msg.single_timestamp], @index0 == @index0)"),
+    NON_COMMUTATIVE_INT_SUBTRACT_PRESERVED(
+        "(msg.single_int64 - msg.single_int32) == (msg.single_int32 - msg.single_int64)",
+        "cel.@block([msg.single_int32, msg.single_int64], @index1 - @index0 == @index0 - @index1)"),
+    NON_COMMUTATIVE_STRING_CONCAT_PRESERVED(
+        "(msg.single_string + \"a\") == (\"a\" + msg.single_string)",
+        "cel.@block([msg.single_string], @index0 + \"a\" == \"a\" + @index0)"),
+    NON_COMMUTATIVE_BYTES_CONCAT_PRESERVED(
+        "(msg.single_bytes + b\"a\") == (b\"a\" + msg.single_bytes)",
+        "cel.@block([msg.single_bytes], @index0 + b\"\\141\" == b\"\\141\" + @index0)"),
+    NON_COMMUTATIVE_LIST_CONCAT_PRESERVED(
+        "([msg.single_int64] + [1]) == ([1] + [msg.single_int64])",
+        "cel.@block([[1], [msg.single_int64]], @index1 + @index0 == @index0 + @index1)"),
+    NON_COMMUTATIVE_DYN_ADD_PRESERVED(
+        "(dyn(msg.single_string) + dyn(\"a\")) == (dyn(\"a\") + dyn(msg.single_string))",
+        "cel.@block([dyn(\"a\"), dyn(msg.single_string)], @index1 + @index0 == @index0 +"
+            + " @index1)"),
+    COMMUTATIVE_EQUALS(
+        "(msg.single_int64 == 1) && (1 == msg.single_int64)",
+        "cel.@block([msg.single_int64 == 1], @index0 && @index0)"),
+    COMMUTATIVE_NOT_EQUALS(
+        "(msg.single_int64 != 1) || (1 != msg.single_int64)",
+        "cel.@block([msg.single_int64 != 1], @index0 || @index0)"),
+    COMMUTATIVE_LOGICAL_AND(
+        "((msg.single_int64 == 1) && (msg.single_int32 == 2)) || ((msg.single_int32 == 2) &&"
+            + " (msg.single_int64 == 1))",
+        "cel.@block([msg.single_int64 == 1 && msg.single_int32 == 2], @index0 || @index0)"),
+    RELATIONAL_CONVERSE_LESS_GREATER(
+        "(msg.single_int64 < msg.single_int32) && (msg.single_int32 > msg.single_int64)",
+        "cel.@block([msg.single_int64 < msg.single_int32], @index0 && @index0)"),
+    RELATIONAL_CONVERSE_LESS_EQUALS_GREATER_EQUALS(
+        "(msg.single_int64 <= msg.single_int32) && (msg.single_int32 >= msg.single_int64)",
+        "cel.@block([msg.single_int64 <= msg.single_int32], @index0 && @index0)"),
+    COMPLEMENTARY_EQUALS_NOT_EQUALS(
+        "(msg.single_int64 == 1 ? \"a\" : \"b\") + (msg.single_int64 != 1 ? \"c\" : \"d\")",
+        "cel.@block([msg.single_int64 == 1], (@index0 ? \"a\" : \"b\") + (!@index0 ? \"c\" :"
+            + " \"d\"))"),
+    COMPLEMENTARY_AND_COMMUTATIVE_EQUALS_NOT_EQUALS(
+        "(msg.single_int64 == 1 ? \"a\" : \"b\") + (1 != msg.single_int64 ? \"c\" : \"d\")",
+        "cel.@block([msg.single_int64 == 1], (@index0 ? \"a\" : \"b\") + (!@index0 ? \"c\" :"
+            + " \"d\"))"),
+    COMPLEMENTARY_NOT_EQUALS_CASCADING_PARENT_CSE(
+        "(!(msg.single_int64 == 1) && msg.single_int32 == 2) || (msg.single_int64 != 1 &&"
+            + " msg.single_int32 == 2)",
+        "cel.@block([!(msg.single_int64 == 1) && msg.single_int32 == 2], @index0 || @index0)"),
+    OPTIONAL_LIST_AND_MAP_DISTINCT_VALUE_NUMBERS(
+        "([?optional.of(msg.single_int64)].size() == [optional.of(msg.single_int64)].size()) &&"
+            + " ({?\"k\": optional.of(msg.single_int64)}.size() == {\"k\":"
+            + " optional.of(msg.single_int64)}.size())",
+        "cel.@block([optional.of(msg.single_int64)], [?@index0].size() == [@index0].size() &&"
+            + " {?\"k\": @index0}.size() == {\"k\": @index0}.size())"),
+    DOMINATED_TERNARY_POSITIVE_AND_NEGATIVE_BRANCHES(
+        "msg.single_int64 == 1 ? (msg.single_int64 == 1 ? \"a\" : \"b\") : (msg.single_int64 == 1"
+            + " ? \"c\" : \"d\")",
+        "(msg.single_int64 == 1) ? \"a\" : \"d\""),
+    DOMINATED_TERNARY_COMMUTATIVE_COMPLEMENTARY_BRANCHES(
+        "(msg.single_int64 == 1 ? (1 != msg.single_int64 ? \"a\" : \"b\") : (1 != msg.single_int64"
+            + " ? \"c\" : \"d\")) + (msg.single_int32 != 2 ? (2 == msg.single_int32 ? \"e\" :"
+            + " \"f\") : (2 == msg.single_int32 ? \"g\" : \"h\"))",
+        "((msg.single_int64 == 1) ? \"b\" : \"c\") + ((msg.single_int32 != 2) ? \"f\" : \"g\")"),
+    DOMINATED_TERNARY_CONJUNCTION_CONDITION(
+        "(msg.single_int64 == 1 && msg.single_int32 == 2) ? (msg.single_int64 == 1 ?"
+            + " (msg.single_int32 == 2 ? \"a\" : \"b\") : \"c\") : \"d\"",
+        "(msg.single_int64 == 1 && msg.single_int32 == 2) ? \"a\" : \"d\""),
+    DOMINATED_TERNARY_DISJUNCTION_FALSE_BRANCH(
+        "(msg.single_int64 == 1 || msg.single_int32 == 2) ? \"a\" : (msg.single_int64 == 1 ? \"b\""
+            + " : (msg.single_int32 == 2 ? \"c\" : \"d\"))",
+        "(msg.single_int64 == 1 || msg.single_int32 == 2) ? \"a\" : \"d\""),
+    DOMINATED_TERNARY_NEGATED_CONDITION(
+        "!(msg.single_int64 == 1) ? (msg.single_int64 == 1 ? \"a\" : \"b\") : (msg.single_int64 =="
+            + " 1 ? \"c\" : \"d\")",
+        "!(msg.single_int64 == 1) ? \"b\" : \"c\""),
+    DOMINATED_TERNARY_STRICT_GREATER_IMPLIES_GREATER_EQUALS(
+        "msg.single_int64 > 0 ? (msg.single_int64 >= 0 ? \"non_neg\" : \"neg\") : \"other\"",
+        "(msg.single_int64 > 0) ? \"non_neg\" : \"other\""),
+    DOMINATED_TERNARY_TOTAL_ORDER_NOT_LESS_IMPLIES_GREATER_EQUALS(
+        "msg.single_int64 < 0 ? \"neg\" : (msg.single_int64 >= 0 ? \"non_neg\" : \"unreachable\")",
+        "(msg.single_int64 < 0) ? \"neg\" : \"non_neg\""),
+    DOMINATED_TERNARY_LESS_EQUALS_AND_GREATER_EQUALS(
+        "(msg.single_int64 <= 0 ? (msg.single_int64 > 0 ? \"a\" : \"b\") : \"c\") +"
+            + " (msg.single_int64 >= 0 ? \"d\" : (msg.single_int64 < 0 ? \"e\" : \"f\"))",
+        "cel.@block([msg.single_int64], ((@index0 <= 0) ? \"b\" : \"c\") + ((@index0 >= 0) ? \"d\""
+            + " : \"e\"))"),
+    DOMINATED_TERNARY_STRICT_LESS_IMPLIES_NOT_EQUAL(
+        "msg.single_int64 < 0 ? (msg.single_int64 == 0 ? \"zero\" : (msg.single_int64 != 0 ?"
+            + " (msg.single_int64 >= 0 ? \"non_neg\" : \"neg\") : \"unreachable\")) : \"non_neg\"",
+        "(msg.single_int64 < 0) ? \"neg\" : \"non_neg\""),
+    DOMINATED_TERNARY_HAS_MACRO_AND_METHOD_TARGET(
+        "has(msg.single_int64) ? ((has(msg.single_int64) ? \"ab\" : \"\").startsWith(\"a\") &&"
+            + " (has(msg.single_int64) ? has(msg.single_int32) : false)) : false",
+        "has(msg.single_int64) ? (\"ab\".startsWith(\"a\") && has(msg.single_int32)) : false"),
+    DOMINATED_TERNARY_CONTAINERS_AND_SELECT(
+        "msg.single_int64 == 1 ? [{msg.single_int64 == 1:"
+            + " cel.expr.conformance.proto3.TestAllTypes{single_bool: (msg.single_int64 == 1 ? msg"
+            + " : msg).single_bool}}] : [{true:"
+            + " cel.expr.conformance.proto3.TestAllTypes{single_bool: false}}]",
+        "(msg.single_int64 == 1) ? [{true: cel.expr.conformance.proto3.TestAllTypes{single_bool:"
+            + " msg.single_bool}}] : [{true: cel.expr.conformance.proto3.TestAllTypes{single_bool:"
+            + " false}}]"),
+    DOMINATED_TERNARY_COMPREHENSION_PRESERVES_MACRO_CALLS(
+        "has(msg.single_int64) ? [has(msg.single_int64)].all(y, y && (has(msg.single_int64) ? y :"
+            + " false)) : false",
+        "has(msg.single_int64) ? [true].all(y, y && y) : false"),
+    DOMINATED_TERNARY_NON_PURE_FUNCTION_NOT_FOLDED(
+        "non_pure_custom_func(1) == 1 ? (non_pure_custom_func(1) == 1 ? \"a\" : \"b\") : \"c\"",
+        "(non_pure_custom_func(1) == 1) ? ((non_pure_custom_func(1) == 1) ? \"a\" : \"b\") :"
+            + " \"c\""),
+    DOMINATED_TERNARY_SHADOWED_COMPREHENSION_VAR_NOT_FOLDED(
+        "x == 5 ? ([1, 2].all(x, x == 5) && (x == 5 ? true : false)) : false",
+        "(x == 5) ? ([1, 2].all(x, x == 5) && true) : false"),
+    ;
+
+    private final String source;
+    private final String expectedUnparsed;
+
+    ValueNumberingTestCase(String source, String expectedUnparsed) {
+      this.source = source;
+      this.expectedUnparsed = expectedUnparsed;
+    }
+  }
+
+  @Test
+  public void cse_valueNumberingAndDominatorSimplification(
+      @TestParameter ValueNumberingTestCase testCase) throws Exception {
+    CelAbstractSyntaxTree ast = cel.compile(testCase.source).getAst();
+    CelOptimizer optimizer =
+        newCseOptimizer(
+            SubexpressionOptimizerOptions.newBuilder().populateMacroCalls(true).build());
+    ImmutableMap<String, Object> input =
+        ImmutableMap.of(
+            "x",
+            5L,
+            "msg",
+            TestAllTypes.newBuilder()
+                .setSingleInt64(1L)
+                .setSingleInt32(2)
+                .setSingleUint64(3L)
+                .setSingleUint32(4)
+                .setSingleDouble(2.5)
+                .setSingleString("hello")
+                .build());
+
+    CelAbstractSyntaxTree optimizedAst = optimizer.optimize(ast);
+
+    assertThat(CEL_UNPARSER.unparse(optimizedAst)).isEqualTo(testCase.expectedUnparsed);
+    assertThat(cel.createProgram(optimizedAst).eval(input))
+        .isEqualTo(cel.createProgram(ast).eval(input));
+  }
+
+  @Test
+  @TestParameters(
+      "{source: '(msg.single_double < 0.0) || (0.0 > msg.single_double)', expectedUnparsed:"
+          + " 'cel.@block([msg.single_double < 0.0], @index0 || @index0)'}")
+  @TestParameters(
+      "{source: '(msg.single_double == 0.0 ? \"a\" : \"b\") + (msg.single_double != 0.0 ? \"c\" :"
+          + " \"d\")', expectedUnparsed: 'cel.@block([msg.single_double == 0.0], (@index0 ? \"a\" :"
+          + " \"b\") + (!@index0 ? \"c\" : \"d\"))'}")
+  @TestParameters(
+      "{source: '0 > msg.single_double ? \"neg\" : (0 <= msg.single_double ? \"non_neg\" :"
+          + " \"nan\")', expectedUnparsed: 'cel.@block([msg.single_double], (0 > @index0) ?"
+          + " \"neg\" : ((0 <= @index0) ? \"non_neg\" : \"nan\"))'}")
+  @TestParameters(
+      "{source: 'dyn(msg.single_double) < 0 ? \"neg\" : (dyn(msg.single_double) >= 0 ? \"non_neg\""
+          + " : \"nan\")', expectedUnparsed: 'cel.@block([dyn(msg.single_double)], (@index0 < 0) ?"
+          + " \"neg\" : ((@index0 >= 0) ? \"non_neg\" : \"nan\"))'}")
+  public void cse_floatingPointNaN_preservesSemantics(String source, String expectedUnparsed)
+      throws Exception {
+    CelAbstractSyntaxTree ast = cel.compile(source).getAst();
+    CelOptimizer optimizer =
+        newCseOptimizer(
+            SubexpressionOptimizerOptions.newBuilder().populateMacroCalls(true).build());
+    ImmutableMap<String, Object> nanInput =
+        ImmutableMap.of("msg", TestAllTypes.newBuilder().setSingleDouble(Double.NaN).build());
+
+    CelAbstractSyntaxTree optimizedAst = optimizer.optimize(ast);
+
+    assertThat(CEL_UNPARSER.unparse(optimizedAst)).isEqualTo(expectedUnparsed);
+    assertThat(cel.createProgram(optimizedAst).eval(nanInput))
+        .isEqualTo(cel.createProgram(ast).eval(nanInput));
   }
 
   /**
