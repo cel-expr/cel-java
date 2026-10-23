@@ -847,6 +847,22 @@ public class AstMutatorTest {
   }
 
   @Test
+  public void mangleComprehensionVariable_bindInitReferencesOuterVariable() throws Exception {
+    // The `x` in the initializer refers to the outer variable, not to the one being bound.
+    CelAbstractSyntaxTree ast = CEL.compile("cel.bind(x, x, x + 1)").getAst();
+
+    CelAbstractSyntaxTree mangledAst =
+        AST_MUTATOR
+            .mangleComprehensionIdentifierNames(CelMutableAst.fromCelAst(ast), "@it", "@it2", "@ac")
+            .mutableAst()
+            .toParsedAst();
+
+    assertThat(mangledAst.getExpr().comprehension().loopStep().ident().name()).isEqualTo("@ac:0:0");
+    assertThat(CEL.createProgram(CEL.check(mangledAst).getAst()).eval(ImmutableMap.of("x", 5L)))
+        .isEqualTo(6L);
+  }
+
+  @Test
   public void mangleComprehensionVariable_macroSourceDisabled_macroCallMapIsEmpty()
       throws Exception {
     Cel cel =

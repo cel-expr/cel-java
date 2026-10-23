@@ -677,55 +677,43 @@ public final class AstMutator {
       String originalAccuVar,
       MangledComprehensionName mangledComprehensionName) {
     CelMutableComprehension comprehension = comprehensionExpr.comprehension();
-    replaceIdentName(
-        comprehension.loopStep(), originalIterVar, mangledComprehensionName.iterVarName());
-    replaceIdentName(comprehensionExpr, originalAccuVar, mangledComprehensionName.resultName());
-
+    // Iteration variables are in scope of the loop condition and step, the accumulator also of the
+    // result. Neither is in scope of the iteration range or the accumulator initializer.
+    renameInLoop(comprehension, originalIterVar, mangledComprehensionName.iterVarName());
     comprehension.setIterVar(mangledComprehensionName.iterVarName());
-
-    // Most standard macros set accu_var as @result, but not all (ex: cel.bind).
-    if (comprehension.accuVar().equals(originalAccuVar)) {
-      comprehension.setAccuVar(mangledComprehensionName.resultName());
-    }
-
     if (!originalIterVar2.isEmpty()) {
+      renameInLoop(comprehension, originalIterVar2, mangledComprehensionName.iterVar2Name());
       comprehension.setIterVar2(mangledComprehensionName.iterVar2Name());
-      replaceIdentName(
-          comprehension.loopStep(), originalIterVar2, mangledComprehensionName.iterVar2Name());
     }
+    String resultName = mangledComprehensionName.resultName();
+    renameInLoop(comprehension, originalAccuVar, resultName);
+    comprehension.setResult(replaceIdentName(comprehension.result(), originalAccuVar, resultName));
+    comprehension.setAccuVar(resultName);
 
     return mutateExpr(NO_OP_ID_GENERATOR, root, comprehensionExpr, comprehensionExpr.id());
   }
 
-  private void replaceIdentName(
-      CelMutableExpr comprehensionExpr, String originalIdentName, String newIdentName) {
-    int iterCount;
-    for (iterCount = 0; iterCount < iterationLimit; iterCount++) {
-      CelMutableExpr identToMangle =
-          CelNavigableMutableExpr.fromExpr(comprehensionExpr)
-              .descendants()
-              .map(CelNavigableMutableExpr::expr)
-              .filter(
-                  node ->
-                      node.getKind().equals(ExprKind.Kind.IDENT)
-                          && node.ident().name().equals(originalIdentName))
-              .findAny()
-              .orElse(null);
-      if (identToMangle == null) {
-        break;
-      }
+  private void renameInLoop(CelMutableComprehension comprehension, String from, String to) {
+    comprehension.setLoopCondition(replaceIdentName(comprehension.loopCondition(), from, to));
+    comprehension.setLoopStep(replaceIdentName(comprehension.loopStep(), from, to));
+  }
 
-      comprehensionExpr =
-          mutateExpr(
-              NO_OP_ID_GENERATOR,
-              comprehensionExpr,
-              CelMutableExpr.ofIdent(newIdentName),
-              identToMangle.id());
+  // Returns the renamed expression, which is a new node if `expr` itself is a matching identifier.
+  private CelMutableExpr replaceIdentName(
+      CelMutableExpr expr, String originalIdentName, String newIdentName) {
+    ImmutableList<Long> identIds =
+        CelNavigableMutableExpr.fromExpr(expr)
+            .allNodes()
+            .filter(
+                node ->
+                    node.getKind().equals(ExprKind.Kind.IDENT)
+                        && node.expr().ident().name().equals(originalIdentName))
+            .map(CelNavigableMutableExpr::id)
+            .collect(toImmutableList());
+    for (long id : identIds) {
+      expr = mutateExpr(NO_OP_ID_GENERATOR, expr, CelMutableExpr.ofIdent(newIdentName), id);
     }
-
-    if (iterCount >= iterationLimit) {
-      throw new IllegalStateException("Max iteration count reached.");
-    }
+    return expr;
   }
 
   private CelMutableSource mangleIdentsInMacroSource(
