@@ -25,10 +25,14 @@ import com.google.common.collect.ImmutableSet;
 import com.google.testing.junit.testparameterinjector.TestParameter;
 import com.google.testing.junit.testparameterinjector.TestParameterInjector;
 // import com.google.testing.testsize.MediumTest;
+import com.microsoft.z3.ArrayExpr;
 import com.microsoft.z3.BoolExpr;
 import com.microsoft.z3.Context;
 import com.microsoft.z3.Expr;
 import com.microsoft.z3.IntExpr;
+import com.microsoft.z3.SeqExpr;
+import com.microsoft.z3.Solver;
+import com.microsoft.z3.Status;
 import dev.cel.bundle.Cel;
 import dev.cel.bundle.CelFactory;
 import dev.cel.common.CelAbstractSyntaxTree;
@@ -65,6 +69,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.function.Consumer;
+import java.util.function.UnaryOperator;
 import java.util.stream.IntStream;
 import org.junit.Before;
 import org.junit.Test;
@@ -81,6 +86,7 @@ public final class CelVerifierZ3ImplTest {
           .setContainer(CelContainer.ofName("cel.expr.conformance.proto3"))
           .addCompilerLibraries(
               CelExtensions.bindings(), CelOptionalLibrary.INSTANCE, CelExtensions.comprehensions())
+          .addRuntimeLibraries(CelOptionalLibrary.INSTANCE, CelExtensions.comprehensions())
           .addMessageTypes(TestAllTypes.getDescriptor(), TestAllTypes.NestedMessage.getDescriptor())
           .addVar("x", SimpleType.INT)
           .addVar("u", SimpleType.UINT)
@@ -132,7 +138,13 @@ public final class CelVerifierZ3ImplTest {
                   TestAllTypes.getDescriptor(), TestAllTypes.NestedMessage.getDescriptor()))
           .build();
 
-  private static final CelVerifier VERIFIER = CelVerifierFactory.newVerifier(CEL).build();
+  private static final CelVerifier VERIFIER = newCheckedVerifier(CEL, b -> b);
+
+  // Builds a verifier whose exact witnesses are checked against the runtime of the same `cel`.
+  private static CelVerifier newCheckedVerifier(Cel cel, UnaryOperator<CelVerifierBuilder> config) {
+    return AgreementCheckingVerifier.wrap(
+        cel, config.apply(CelVerifierFactory.newVerifier(cel)).build());
+  }
 
   @Before
   public void setUp() {
@@ -196,13 +208,22 @@ public final class CelVerifierZ3ImplTest {
         "size(int_list) == 6 && dyn(b ? [1] : int_list) == [1]", "b = true"),
     TIMESTAMP_SUBSECOND_SATISFIABLE(
         "ts == google.protobuf.Timestamp{seconds: 10, nanos: 500}",
-        "ts = google\\.protobuf\\.Timestamp\\{seconds: 10, nanos: 500\\}"),
+        "ts = timestamp\\(\"1970-01-01T00:00:10\\.000000500Z\"\\)"),
     TIMESTAMP_NEGATIVE_SUBSECOND_SATISFIABLE(
         "ts == google.protobuf.Timestamp{seconds: -1, nanos: 500}",
-        "ts = google\\.protobuf\\.Timestamp\\{seconds: -1, nanos: 500\\}"),
+        "ts = timestamp\\(\"1969-12-31T23:59:59\\.000000500Z\"\\)"),
     DURATION_SUBSECOND_SATISFIABLE(
         "dur == google.protobuf.Duration{seconds: 1, nanos: 500}",
-        "dur = duration\\('1000000500ns'\\)"),
+        "dur = duration\\(\"1000000500ns\"\\)"),
+    // Timestamps nested in dyn aren't range constrained, and RFC 3339 can't express these.
+    TIMESTAMP_ABOVE_RANGE_SATISFIABLE(
+        "type(dyn_var) == google.protobuf.Timestamp"
+            + " && dyn_var > google.protobuf.Timestamp{seconds: 253402300799, nanos: 999999999}",
+        "dyn_var = timestamp\\(\\d+\\)"),
+    TIMESTAMP_BELOW_RANGE_SATISFIABLE(
+        "type(dyn_var) == google.protobuf.Timestamp"
+            + " && dyn_var < google.protobuf.Timestamp{seconds: -62135596800}",
+        "dyn_var = timestamp\\(-\\d+\\)"),
     ;
 
     private final String expr;
@@ -237,6 +258,195 @@ public final class CelVerifierZ3ImplTest {
     assertThat(result.message()).contains("Condition is satisfiable.");
     assertThat(result.message()).contains("Satisfying input:");
     assertThat(result.message()).containsMatch("x = (?:[6-9]|[1-9]\\d+)");
+  }
+
+  private enum WitnessTestCase {
+    INT_MIN("x == -9223372036854775808", "x", "-9223372036854775808"),
+    INT_MAX("x == 9223372036854775807", "x", "9223372036854775807"),
+    UINT_MAX("u == 18446744073709551615u", "u", "18446744073709551615u"),
+    SUBNORMAL_DOUBLE("d == 4.9e-324", "d", "4.9E-324"),
+    POSITIVE_INFINITY("d > 1.7976931348623157e308", "d", "double(\"Infinity\")"),
+    NEGATIVE_INFINITY("d < -1.7976931348623157e308", "d", "double(\"-Infinity\")"),
+    BOOL("a", "a", "true"),
+    UNICODE_STRING("string_var == 'é'", "string_var", "\"é\""),
+    ESCAPED_STRING("string_var == '\"\\\\\\n\\x01'", "string_var", "\"\\\"\\\\\\u000a\\u0001\""),
+    ESCAPED_BYTES("by == b'a\\x01\"'", "by", "b\"a\\x01\\\"\""),
+    DEL_BYTES("by == b'\\x7f'", "by", "b\"\\x7f\""),
+    C1_CONTROL_STRING("string_var == '\\u0085'", "string_var", "\"\\u0085\""),
+    MIN_TIMESTAMP("ts == timestamp(-62135596800)", "ts", "timestamp(\"0001-01-01T00:00:00Z\")"),
+    MAX_TIMESTAMP(
+        "ts == google.protobuf.Timestamp{seconds: 253402300799, nanos: 999999999}",
+        "ts",
+        "timestamp(\"9999-12-31T23:59:59.999999999Z\")"),
+    SUBSECOND_TIMESTAMP(
+        "ts == google.protobuf.Timestamp{seconds: -1, nanos: 500}",
+        "ts",
+        "timestamp(\"1969-12-31T23:59:59.000000500Z\")"),
+    DURATION("timestamp(100) - timestamp(50) == dur", "dur", "duration(\"50s\")"),
+    SUBSECOND_DURATION(
+        "dur == google.protobuf.Duration{seconds: -1, nanos: -500}",
+        "dur",
+        "duration(\"-1000000500ns\")"),
+    NULL("dyn_var == null", "dyn_var", "null"),
+    EMPTY_LIST("int_list == []", "int_list", "[]"),
+    LIST_WITH_NULL("dyn_list == [true, null]", "dyn_list", "[true, null]"),
+    MAP("string_int_map == {'a': 1}", "string_int_map", "{\"a\": 1}"),
+    OPTIONAL("opt_var == optional.of(1)", "opt_var", "optional.of(1)"),
+    OPTIONAL_NONE("opt_var == optional.none()", "opt_var", "optional.none()");
+
+    private final String expr;
+    private final String variableName;
+    private final String expectedDisplayValue;
+
+    WitnessTestCase(String expr, String variableName, String expectedDisplayValue) {
+      this.expr = expr;
+      this.variableName = variableName;
+      this.expectedDisplayValue = expectedDisplayValue;
+    }
+  }
+
+  @Test
+  public void isSatisfiable_witnessValueSatisfiesExpressionAndDisplayRoundTrips(
+      @TestParameter WitnessTestCase testCase) throws Exception {
+    CelAbstractSyntaxTree ast = CEL.compile(testCase.expr).getAst();
+
+    CelVerificationResult result = VERIFIER.isSatisfiable(ast);
+
+    CelWitness.Variable variable = result.witness().get().variables().get(testCase.variableName);
+    assertThat(variable.displayValue()).isEqualTo(testCase.expectedDisplayValue);
+    ImmutableMap<String, Object> input =
+        ImmutableMap.of(testCase.variableName, variable.value().get());
+    assertThat(CEL.createProgram(ast).eval(input)).isEqualTo(true);
+    CelAbstractSyntaxTree displayRoundTrip =
+        CEL.compile(testCase.variableName + " == " + variable.displayValue()).getAst();
+    assertThat(CEL.createProgram(displayRoundTrip).eval(input)).isEqualTo(true);
+  }
+
+  private enum InexactWitnessTestCase {
+    INT_OUT_OF_RANGE("type(dyn_var) == int && dyn_var > 9223372036854775807", "dyn_var"),
+    UINT_OUT_OF_RANGE("type(dyn_var) == uint && dyn_var > 18446744073709551615u", "dyn_var"),
+    NEGATIVE_UINT("type(dyn_var) == uint && dyn_var < 0u", "dyn_var"),
+    TIMESTAMP_OUT_OF_RANGE(
+        "type(dyn_var) == google.protobuf.Timestamp"
+            + " && dyn_var > google.protobuf.Timestamp{seconds: 253402300799, nanos: 999999999}",
+        "dyn_var"),
+    SURROGATE_STRING(
+        "size(string_var) == 1 && string_var > '\\ud7ff' && string_var < '\\ue000'", "string_var"),
+    NON_ASCII_BYTES("by == b'\\xc3\\xa9'", "by"),
+    LIST_PAST_UNROLL_LIMIT("size(int_list) == 6", "int_list"),
+    MAP_PAST_UNROLL_LIMIT("size(string_int_map) == 6", "string_int_map"),
+    LIST_WITH_INEXACT_ELEMENT(
+        "size(dyn_list) == 1 && type(dyn_list[0]) == int && dyn_list[0] > 9223372036854775807",
+        "dyn_list"),
+    MAP_WITH_INEXACT_KEY(
+        "size(dyn_int_map) == 1"
+            + " && dyn_int_map.exists(k, type(k) == int && k > 9223372036854775807)",
+        "dyn_int_map"),
+    MAP_WITH_INEXACT_VALUE(
+        "size(string_dyn_map) == 1 && type(string_dyn_map['a']) == int"
+            + " && string_dyn_map['a'] > 9223372036854775807",
+        "string_dyn_map"),
+    OPTIONAL_WITH_INEXACT_VALUE(
+        "opt_dyn_var.hasValue() && type(opt_dyn_var.value()) == int"
+            + " && opt_dyn_var.value() > 9223372036854775807",
+        "opt_dyn_var");
+
+    private final String expr;
+    private final String variableName;
+
+    InexactWitnessTestCase(String expr, String variableName) {
+      this.expr = expr;
+      this.variableName = variableName;
+    }
+  }
+
+  @Test
+  public void isSatisfiable_noExactRuntimeValue_witnessValueEmpty(
+      @TestParameter InexactWitnessTestCase testCase) throws Exception {
+    CelAbstractSyntaxTree ast = CEL.compile(testCase.expr).getAst();
+
+    CelVerificationResult result = VERIFIER.isSatisfiable(ast);
+
+    assertThat(result.witness().get().variables().get(testCase.variableName).value()).isEmpty();
+  }
+
+  // A map value in the model, as its key sequence and its present keys.
+  private enum InexactMapTestCase {
+    DUPLICATE_KEY(ImmutableList.of("a", "a"), ImmutableList.of("a")),
+    ABSENT_KEY(ImmutableList.of("a", "b"), ImmutableList.of("a")),
+    PRESENT_KEY_NOT_IN_SEQUENCE(ImmutableList.of(), ImmutableList.of("a")),
+    // Entries past the unroll limit (5) may violate the declared type.
+    PAST_UNROLL_LIMIT(
+        ImmutableList.of("a", "b", "c", "d", "e", "f"),
+        ImmutableList.of("a", "b", "c", "d", "e", "f"));
+
+    private final ImmutableList<String> keySequence;
+    private final ImmutableList<String> presentKeys;
+
+    InexactMapTestCase(ImmutableList<String> keySequence, ImmutableList<String> presentKeys) {
+      this.keySequence = keySequence;
+      this.presentKeys = presentKeys;
+    }
+  }
+
+  @Test
+  @SuppressWarnings({"unchecked", "rawtypes"}) // Z3 Java API uses raw types.
+  public void generateWitness_mapWithoutExactValue_valueEmpty(
+      @TestParameter InexactMapTestCase testCase) {
+    try (Context ctx = new Context()) {
+      CelZ3TypeSystem typeSystem = new CelZ3TypeSystem(ctx, /* parameterizeUnknowns= */ false);
+      Expr<?> map = ctx.mkConst("map", typeSystem.celValueSort());
+      Expr<?> mapRef = typeSystem.getMapRef(map);
+      SeqExpr keys = ctx.mkEmptySeq(ctx.mkSeqSort(typeSystem.celValueSort()));
+      for (String key : testCase.keySequence) {
+        keys = ctx.mkConcat(keys, ctx.mkUnit(typeSystem.mkString(key)));
+      }
+      ArrayExpr presence = ctx.mkConstArray(typeSystem.celValueSort(), ctx.mkFalse());
+      for (String key : testCase.presentKeys) {
+        presence = ctx.mkStore(presence, (Expr) typeSystem.mkString(key), ctx.mkTrue());
+      }
+      Solver solver = ctx.mkSolver();
+      solver.add(typeSystem.isMap(map));
+      solver.add(ctx.mkEq(typeSystem.getMapKeys(mapRef), keys));
+      solver.add(ctx.mkEq(typeSystem.getMapPresence(mapRef), presence));
+      assertThat(solver.check()).isEqualTo(Status.SATISFIABLE);
+
+      CelWitness witness =
+          CelZ3CounterexampleGenerator.generate(
+              ctx,
+              typeSystem,
+              solver.getModel(),
+              /* comprehensionUnrollLimit= */ 5,
+              ImmutableSet.of(map));
+
+      assertThat(witness.variables().get("map").value()).isEmpty();
+    }
+  }
+
+  @Test
+  public void isSatisfiable_listAtDisplayLimit_displaysAllElements() throws Exception {
+    CelAbstractSyntaxTree ast =
+        CEL.compile("int_list == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]").getAst();
+
+    CelVerificationResult result = VERIFIER.isSatisfiable(ast);
+
+    assertThat(result.message())
+        .endsWith("int_list = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]");
+  }
+
+  @Test
+  public void isSatisfiable_listPastDisplayLimit_elidesRemainingElements() throws Exception {
+    // Within the unroll limit the whole list is extracted, so the display must still elide it.
+    CelVerifier verifier = newCheckedVerifier(CEL, b -> b.setComprehensionUnrollLimit(16));
+    CelAbstractSyntaxTree ast =
+        CEL.compile("int_list == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]").getAst();
+
+    CelVerificationResult result = verifier.isSatisfiable(ast);
+
+    assertThat(result.message())
+        .endsWith(
+            "int_list = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, ... (1 more"
+                + " elements)]");
   }
 
   @Test
@@ -447,10 +657,8 @@ public final class CelVerifierZ3ImplTest {
     CelAbstractSyntaxTree ast = CEL.compile(expr).getAst();
 
     CelVerifier customVerifier =
-        CelVerifierFactory.newVerifier(CEL)
-            .setComprehensionUnrollLimit(3)
-            .setTypeProvider(TYPE_PROVIDER)
-            .build();
+        newCheckedVerifier(
+            CEL, b -> b.setComprehensionUnrollLimit(3).setTypeProvider(TYPE_PROVIDER));
 
     CelVerificationResult result = customVerifier.isSatisfiable(ast);
 
@@ -462,8 +670,7 @@ public final class CelVerifierZ3ImplTest {
     String expr = "int_list == [1] ? int_list.exists(x, x == 1) : false";
     CelAbstractSyntaxTree ast = CEL.compile(expr).getAst();
 
-    CelVerifier verifier =
-        CelVerifierFactory.newVerifier(CEL).setComprehensionUnrollLimit(0).build();
+    CelVerifier verifier = newCheckedVerifier(CEL, b -> b.setComprehensionUnrollLimit(0));
     CelVerificationResult result = verifier.isSatisfiable(ast);
 
     assertThat(result.status()).isEqualTo(VerificationStatus.INCONCLUSIVE);
@@ -1055,8 +1262,7 @@ public final class CelVerifierZ3ImplTest {
       throws Exception {
     CelAbstractSyntaxTree ast = CEL.compile(expression).getAst();
 
-    CelVerifier verifierWithUnknown =
-        CelVerifierFactory.newVerifier(CEL).addUnknownIdentifier("x").build();
+    CelVerifier verifierWithUnknown = newCheckedVerifier(CEL, b -> b.addUnknownIdentifier("x"));
 
     // 'x == x' is not a tautology if it can be unknown
     // i.e: CelUnknown == CelUnknown is unknown.
@@ -1064,6 +1270,7 @@ public final class CelVerifierZ3ImplTest {
 
     assertThat(result.status()).isEqualTo(VerificationStatus.VIOLATED);
     assertThat(result.message()).contains("x = Unknown");
+    assertThat(result.witness().get().variables().get("x").value()).isEmpty();
   }
 
   @Test
@@ -1071,8 +1278,7 @@ public final class CelVerifierZ3ImplTest {
     // The truncated `all` may really be false, which absorbs the unknown, so this is always true.
     CelAbstractSyntaxTree ast =
         CEL.compile("!(int_list.all(x, x > 0) && unknown_var) || int_list.all(x, x > 0)").getAst();
-    CelVerifier verifier =
-        CelVerifierFactory.newVerifier(CEL).addUnknownIdentifier("unknown_var").build();
+    CelVerifier verifier = newCheckedVerifier(CEL, b -> b.addUnknownIdentifier("unknown_var"));
 
     CelVerificationResult result = verifier.isAlwaysTrue(ast);
 
@@ -1092,10 +1298,7 @@ public final class CelVerifierZ3ImplTest {
             + " dyn_list.all(x, x.not_a_bool) == false) : true";
     CelAbstractSyntaxTree ast = CEL.compile(expr).getAst();
     CelVerificationResult result =
-        CelVerifierFactory.newVerifier(CEL)
-            .setComprehensionUnrollLimit(1)
-            .build()
-            .isAlwaysTrue(ast);
+        newCheckedVerifier(CEL, b -> b.setComprehensionUnrollLimit(1)).isAlwaysTrue(ast);
 
     assertThat(result.status()).isEqualTo(VerificationStatus.VIOLATED);
     assertThat(result.message())
@@ -1109,8 +1312,7 @@ public final class CelVerifierZ3ImplTest {
     String expr = "int_list == [1, 2, 3] ? int_list.all(x, x > 0) : true";
     CelAbstractSyntaxTree ast = CEL.compile(expr).getAst();
 
-    CelVerifier verifier =
-        CelVerifierFactory.newVerifier(CEL).setComprehensionUnrollLimit(2).build();
+    CelVerifier verifier = newCheckedVerifier(CEL, b -> b.setComprehensionUnrollLimit(2));
     CelVerificationResult verifiedValue = verifier.isAlwaysTrue(ast);
 
     // Truncated loops return Unknown, which negates to Unknown.
@@ -1127,8 +1329,7 @@ public final class CelVerifierZ3ImplTest {
     String expr = "int_list == [] ? int_list.all(x, x > 0) : true";
     CelAbstractSyntaxTree ast = CEL.compile(expr).getAst();
 
-    CelVerifier verifier =
-        CelVerifierFactory.newVerifier(CEL).setComprehensionUnrollLimit(0).build();
+    CelVerifier verifier = newCheckedVerifier(CEL, b -> b.setComprehensionUnrollLimit(0));
     CelVerificationResult verifiedValue = verifier.isAlwaysTrue(ast);
 
     assertThat(verifiedValue.status()).isEqualTo(VerificationStatus.VERIFIED);
@@ -1157,8 +1358,9 @@ public final class CelVerifierZ3ImplTest {
             .build();
     CelAbstractSyntaxTree ast =
         celWithCustomFunc.compile("custom_func(1 / 0) == 5 || !(custom_func(1 / 0) == 5)").getAst();
+    CelVerifier verifier = CelVerifierFactory.newVerifier(celWithCustomFunc).build();
 
-    CelVerificationResult result = VERIFIER.isAlwaysTrue(ast);
+    CelVerificationResult result = verifier.isAlwaysTrue(ast);
 
     // Should fail verification because the error propagates through custom_func,
     // so the whole expression evaluates to an error, not true.
@@ -1186,9 +1388,7 @@ public final class CelVerifierZ3ImplTest {
     CelAbstractSyntaxTree astB = celWithCustomFunc.compile("1 / 0").getAst();
 
     CelVerifier verifier =
-        CelVerifierFactory.newVerifier(celWithCustomFunc)
-            .addUnknownIdentifier("unknown_var")
-            .build();
+        newCheckedVerifier(celWithCustomFunc, b -> b.addUnknownIdentifier("unknown_var"));
 
     CelVerificationResult result = verifier.verifyEquivalence(astA, astB);
 
@@ -1223,11 +1423,12 @@ public final class CelVerifierZ3ImplTest {
     CelAbstractSyntaxTree astA = CEL.compile(testCase.exprA).getAst();
     CelAbstractSyntaxTree astB = CEL.compile(testCase.exprB).getAst();
     CelVerifier verifier =
-        CelVerifierFactory.newVerifier(CEL)
-            .addUnknownIdentifier("a")
-            .addUnknownIdentifier("x")
-            .addUnknownIdentifier("unknown_var")
-            .build();
+        newCheckedVerifier(
+            CEL,
+            b ->
+                b.addUnknownIdentifier("a")
+                    .addUnknownIdentifier("x")
+                    .addUnknownIdentifier("unknown_var"));
 
     CelVerificationResult result = verifier.verifyEquivalence(astA, astB);
 
@@ -1280,8 +1481,9 @@ public final class CelVerifierZ3ImplTest {
             .build();
     CelAbstractSyntaxTree ast =
         celWithCustomFunc.compile("y == [] && y.map(x, approx_func(1)) == y").getAst();
+    CelVerifier verifier = CelVerifierFactory.newVerifier(celWithCustomFunc).build();
 
-    CelVerificationResult result = VERIFIER.isSatisfiable(ast);
+    CelVerificationResult result = verifier.isSatisfiable(ast);
 
     assertThat(result.status()).isEqualTo(VerificationStatus.VERIFIED);
   }
@@ -1461,12 +1663,12 @@ public final class CelVerifierZ3ImplTest {
         "dur != dur",
         "Condition is not always true\\.",
         "Counterexample input:",
-        "dur = duration\\('-?\\d+s'\\)"),
+        "dur = duration\\(\"-?\\d+s\"\\)"),
     TIMESTAMP_VARIABLE_COUNTEREXAMPLE(
         "ts != ts",
         "Condition is not always true\\.",
         "Counterexample input:",
-        "ts = timestamp\\(-?\\d+\\)"),
+        "ts = timestamp\\(\"[^\"]+\"\\)"),
     UNINTERPRETED_CONVERSION_NULL_FAILS_WITH_ERRORS(
         "string(null) == string(null)", "Condition is not always true\\."),
     LAW_OF_EXCLUDED_MIDDLE_FAILS_WITH_ERRORS(
@@ -1506,7 +1708,7 @@ public final class CelVerifierZ3ImplTest {
         "opt_dyn_var.hasValue() ? type(opt_dyn_var.value()) == int : true",
         "Condition is not always true\\.",
         "Counterexample input:",
-        "opt_dyn_var = optional\\(Unknown\\)"),
+        "opt_dyn_var = optional\\.of\\(Unknown\\)"),
     OPTIONAL_ENTRY_DYN_VAR_TYPE_MISMATCH(
         "[?dyn_var] == [?dyn_var] ? true : true",
         "Condition is not always true\\.",
@@ -1630,7 +1832,7 @@ public final class CelVerifierZ3ImplTest {
         "request == request",
         "Condition is not always true\\.",
         "Counterexample input:",
-        "request = NaN"),
+        "request = double\\(\"NaN\"\\)"),
     CROSS_TYPE_NUMERIC_EQUALITY_APPROXIMATION_VIOLATION(
         "dyn_var == 1.0",
         "Condition is not always true\\.",
@@ -2605,9 +2807,9 @@ public final class CelVerifierZ3ImplTest {
         "role == \"user\"",
         ImmutableList.of("role = \"admin\"", "role = \"user\"")),
     DOUBLE("d == 1.5", "d == 2.5", ImmutableList.of("d = 1\\.5", "d = 2\\.5")),
-    DOUBLE_NAN("d != d", "false", ImmutableList.of("d = NaN")),
-    DOUBLE_INF("d == (1.0 / 0.0)", "false", ImmutableList.of("d = Infinity")),
-    DOUBLE_NEG_INF("d == (-1.0 / 0.0)", "false", ImmutableList.of("d = -Infinity")),
+    DOUBLE_NAN("d != d", "false", ImmutableList.of("d = double\\(\"NaN\"\\)")),
+    DOUBLE_INF("d == (1.0 / 0.0)", "false", ImmutableList.of("d = double\\(\"Infinity\"\\)")),
+    DOUBLE_NEG_INF("d == (-1.0 / 0.0)", "false", ImmutableList.of("d = double\\(\"-Infinity\"\\)")),
     DOUBLE_NEG_ZERO("d == 0.0 && 1.0 / d == (-1.0 / 0.0)", "false", ImmutableList.of("d = -0\\.0")),
     DOUBLE_POS_ZERO("d == 0.0 && 1.0 / d == (1.0 / 0.0)", "false", ImmutableList.of("d = 0\\.0")),
     UINT("u == 443u", "u == 80u", ImmutableList.of("u = 443u", "u = 80u")),
@@ -2779,7 +2981,9 @@ public final class CelVerifierZ3ImplTest {
                     CelOverloadDecl.newGlobalOverload("request_overload", SimpleType.DYN)))
             .build();
     CelAbstractSyntaxTree ast = celCompiler.compile("x != 0 && request() == 1").getAst();
-    CelVerificationResult result = VERIFIER.isAlwaysTrue(ast);
+    CelVerifier verifier = CelVerifierFactory.newVerifier(CEL).build();
+
+    CelVerificationResult result = verifier.isAlwaysTrue(ast);
 
     assertThat(result.status()).isEqualTo(VerificationStatus.VIOLATED);
     assertThat(result.message()).contains("x = 0");
@@ -2921,7 +3125,7 @@ public final class CelVerifierZ3ImplTest {
             .addVar("d4", SimpleType.DOUBLE)
             .build();
     CelVerifier timeoutVerifier =
-        CelVerifierFactory.newVerifier(customCel).setTimeout(Duration.ofMillis(1)).build();
+        newCheckedVerifier(customCel, b -> b.setTimeout(Duration.ofMillis(1)));
 
     // An overly complex double multiplication to guarantee Z3 FPA theory solver timeouts.
     CelAbstractSyntaxTree ast =
@@ -3346,8 +3550,7 @@ public final class CelVerifierZ3ImplTest {
     listLiteral.append("]");
 
     CelAbstractSyntaxTree ast = cel.compile("!(large_list == " + listLiteral + ")").getAst();
-    CelVerifier verifier =
-        CelVerifierFactory.newVerifier(cel).setTimeout(Duration.ofSeconds(10)).build();
+    CelVerifier verifier = newCheckedVerifier(cel, b -> b.setTimeout(Duration.ofSeconds(10)));
 
     CelVerificationResult result = verifier.isAlwaysTrue(ast);
 
@@ -3371,8 +3574,7 @@ public final class CelVerifierZ3ImplTest {
     mapLiteral.append("}");
 
     CelAbstractSyntaxTree ast = cel.compile("!(large_map == " + mapLiteral + ")").getAst();
-    CelVerifier verifier =
-        CelVerifierFactory.newVerifier(cel).setTimeout(Duration.ofSeconds(10)).build();
+    CelVerifier verifier = newCheckedVerifier(cel, b -> b.setTimeout(Duration.ofSeconds(10)));
 
     CelVerificationResult result = verifier.isAlwaysTrue(ast);
 
@@ -3423,7 +3625,7 @@ public final class CelVerifierZ3ImplTest {
             .build();
     CelAbstractSyntaxTree ast =
         cel.compile("dyn_list == [1, 2] ? dyn_list.custom_fold(x) == true : true").getAst();
-    CelVerifier verifier = CelVerifierFactory.newVerifier(cel).build();
+    CelVerifier verifier = newCheckedVerifier(cel, b -> b);
 
     CelVerificationResult result = verifier.isAlwaysTrue(ast);
 
@@ -3458,7 +3660,7 @@ public final class CelVerifierZ3ImplTest {
             .build();
     CelAbstractSyntaxTree ast =
         cel.compile("int_list == [1, 2] ? int_list.first_elem() == 2 : true").getAst();
-    CelVerifier verifier = CelVerifierFactory.newVerifier(cel).build();
+    CelVerifier verifier = newCheckedVerifier(cel, b -> b);
 
     CelVerificationResult result = verifier.isAlwaysTrue(ast);
 
@@ -3474,8 +3676,7 @@ public final class CelVerifierZ3ImplTest {
     String expr = "int_list == [1, 2, 3, 4] ? int_list.exists(x, x == 42) && false : false";
     CelAbstractSyntaxTree ast = CEL.compile(expr).getAst();
 
-    CelVerifier verifier =
-        CelVerifierFactory.newVerifier(CEL).setComprehensionUnrollLimit(3).build();
+    CelVerifier verifier = newCheckedVerifier(CEL, b -> b.setComprehensionUnrollLimit(3));
     CelVerificationResult result = verifier.isSatisfiable(ast);
 
     assertThat(result.status()).isEqualTo(VerificationStatus.VIOLATED);
@@ -3490,8 +3691,7 @@ public final class CelVerifierZ3ImplTest {
     CelAbstractSyntaxTree astA = CEL.compile(exprA).getAst();
     CelAbstractSyntaxTree astB = CEL.compile(exprB).getAst();
 
-    CelVerifier verifier =
-        CelVerifierFactory.newVerifier(CEL).setComprehensionUnrollLimit(3).build();
+    CelVerifier verifier = newCheckedVerifier(CEL, b -> b.setComprehensionUnrollLimit(3));
     CelVerificationResult result = verifier.verifyEquivalence(astA, astB);
 
     assertThat(result.status()).isEqualTo(VerificationStatus.VERIFIED);
@@ -3518,8 +3718,7 @@ public final class CelVerifierZ3ImplTest {
     CelAbstractSyntaxTree astA = CEL.compile(testCase.exprA).getAst();
     CelAbstractSyntaxTree astB = CEL.compile(testCase.exprB).getAst();
 
-    CelVerifier verifier =
-        CelVerifierFactory.newVerifier(CEL).setComprehensionUnrollLimit(0).build();
+    CelVerifier verifier = newCheckedVerifier(CEL, b -> b.setComprehensionUnrollLimit(0));
     CelVerificationResult result = verifier.verifyEquivalence(astA, astB);
 
     assertThat(result.status()).isEqualTo(VerificationStatus.INCONCLUSIVE);
@@ -3557,8 +3756,7 @@ public final class CelVerifierZ3ImplTest {
     CelAbstractSyntaxTree astA = CEL.compile(testCase.exprA).getAst();
     CelAbstractSyntaxTree astB = CEL.compile(testCase.exprB).getAst();
 
-    CelVerifier verifier =
-        CelVerifierFactory.newVerifier(CEL).setComprehensionUnrollLimit(0).build();
+    CelVerifier verifier = newCheckedVerifier(CEL, b -> b.setComprehensionUnrollLimit(0));
     CelVerificationResult result = verifier.verifyEquivalence(astA, astB);
 
     assertWithMessage(result.message())
@@ -3609,8 +3807,7 @@ public final class CelVerifierZ3ImplTest {
     CelAbstractSyntaxTree astA = customCel.compile("dyn_list.my_macro_1(true)").getAst();
     CelAbstractSyntaxTree astB = customCel.compile("dyn_list.my_macro_2(true)").getAst();
 
-    CelVerifier verifier =
-        CelVerifierFactory.newVerifier(customCel).setComprehensionUnrollLimit(0).build();
+    CelVerifier verifier = newCheckedVerifier(customCel, b -> b.setComprehensionUnrollLimit(0));
     CelVerificationResult result = verifier.verifyEquivalence(astA, astB);
 
     assertThat(result.status()).isEqualTo(VerificationStatus.INCONCLUSIVE);
@@ -3654,8 +3851,7 @@ public final class CelVerifierZ3ImplTest {
     CelAbstractSyntaxTree astB =
         customCel.compile("cel.bind(x, 20, dyn_list.my_macro(1))").getAst();
 
-    CelVerifier verifier =
-        CelVerifierFactory.newVerifier(customCel).setComprehensionUnrollLimit(0).build();
+    CelVerifier verifier = newCheckedVerifier(customCel, b -> b.setComprehensionUnrollLimit(0));
     CelVerificationResult result = verifier.verifyEquivalence(astA, astB);
 
     assertThat(result.status()).isEqualTo(VerificationStatus.INCONCLUSIVE);
@@ -3672,7 +3868,7 @@ public final class CelVerifierZ3ImplTest {
             .build();
 
     CelVerifier timeoutVerifier =
-        CelVerifierFactory.newVerifier(customCel).setTimeout(Duration.ofMillis(1)).build();
+        newCheckedVerifier(customCel, b -> b.setTimeout(Duration.ofMillis(1)));
 
     CelAbstractSyntaxTree astA =
         customCel

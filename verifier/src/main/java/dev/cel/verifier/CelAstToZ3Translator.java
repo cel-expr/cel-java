@@ -92,6 +92,11 @@ final class CelAstToZ3Translator {
     return typeSystem;
   }
 
+  /** Returns the input variables, in order of first appearance. */
+  Set<Expr<?>> getInputVariables() {
+    return context.inputVariables();
+  }
+
   /**
    * Returns a Z3 boolean expression asserting that the provided CEL value is a boolean and is true.
    */

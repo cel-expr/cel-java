@@ -14,290 +14,306 @@
 
 package dev.cel.verifier;
 
-import com.google.common.base.Preconditions;
+import static java.nio.charset.StandardCharsets.UTF_8;
+
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.primitives.UnsignedLong;
 import com.microsoft.z3.ArrayExpr;
+import com.microsoft.z3.BitVecNum;
 import com.microsoft.z3.Context;
 import com.microsoft.z3.Expr;
 import com.microsoft.z3.FPNum;
 import com.microsoft.z3.FuncDecl;
 import com.microsoft.z3.IntNum;
 import com.microsoft.z3.Model;
-import com.microsoft.z3.RatNum;
+import dev.cel.common.internal.ProtoTimeUtils;
+import dev.cel.common.values.CelByteString;
+import dev.cel.common.values.NullValue;
 import java.math.BigInteger;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
-import org.jspecify.annotations.Nullable;
+import java.util.stream.IntStream;
 
-/** Generates human-readable counterexample strings from Z3 models. */
+/** Extracts {@link CelWitness}es from Z3 models. */
 @SuppressWarnings({"unchecked", "rawtypes"}) // Z3 Java API uses raw types.
 final class CelZ3CounterexampleGenerator {
 
   private static final int MAX_ELEMENTS_TO_PRINT = 15;
+  private static final BigInteger NANOS_PER_SECOND =
+      BigInteger.valueOf(CelZ3TypeSystem.NANOS_PER_SECOND);
 
-  private CelZ3CounterexampleGenerator() {}
+  private final Context ctx;
+  private final CelZ3TypeSystem typeSystem;
+  private final Model model;
+  private final int comprehensionUnrollLimit;
 
-  static String generate(
+  static CelWitness generate(
       Context ctx,
       CelZ3TypeSystem typeSystem,
       Model model,
-      boolean isApproximate,
-      boolean isCounterexample) {
-    FuncDecl[] constDecls = model.getConstDecls();
-
-    List<String> bindings = new ArrayList<>();
-    for (FuncDecl decl : constDecls) {
-      String name = decl.getName().toString();
-      // Filter out internal solver-generated Skolem constants (e.g., k!1, seq.empty!0).
-      // `!` is not a valid CEL identifier.
-      if (name.contains("!")) {
-        continue;
-      }
-      Expr<?> constInterp = model.getConstInterp(decl);
-      if (constInterp != null) {
-        bindings.add(
-            String.format("\n  %s = %s", name, formatExpr(ctx, typeSystem, model, constInterp)));
-      }
+      int comprehensionUnrollLimit,
+      Set<Expr<?>> inputs) {
+    CelZ3CounterexampleGenerator generator =
+        new CelZ3CounterexampleGenerator(ctx, typeSystem, model, comprehensionUnrollLimit);
+    ImmutableMap.Builder<String, CelWitness.Variable> variables = ImmutableMap.builder();
+    for (Expr<?> input : inputs) {
+      Value value = generator.extract(generator.evaluate(input));
+      variables.put(
+          input.getFuncDecl().getName().toString(),
+          CelWitness.Variable.create(value.runtimeValue, value.display));
     }
-
-    if (bindings.isEmpty()) {
-      return isCounterexample
-          ? " (The expression fails unconditionally, regardless of input state)"
-          : " (The expression is satisfiable unconditionally, regardless of input state)";
-    }
-
-    String prefix;
-    if (isCounterexample) {
-      prefix = isApproximate ? " Potential counterexample input:" : " Counterexample input:";
-    } else {
-      prefix = isApproximate ? " Potential satisfying input:" : " Satisfying input:";
-    }
-    return prefix + String.join("", bindings);
+    return CelWitness.create(variables.buildOrThrow());
   }
 
-  private static String formatExpr(
-      Context ctx, CelZ3TypeSystem typeSystem, Model model, @Nullable Expr<?> expr) {
-    Preconditions.checkState(expr != null, "Z3 failed to evaluate the expression natively.");
+  // A model value's CEL runtime representation, if it has an exact one, and its display.
+  private static final class Value {
+    private final Optional<Object> runtimeValue;
+    private final String display;
 
+    private static Value exact(Object runtimeValue, String display) {
+      return new Value(Optional.of(runtimeValue), display);
+    }
+
+    private static Value inexact(String display) {
+      return new Value(Optional.empty(), display);
+    }
+
+    private Value(Optional<Object> runtimeValue, String display) {
+      this.runtimeValue = runtimeValue;
+      this.display = display;
+    }
+  }
+
+  private Value extract(Expr<?> expr) {
     FuncDecl decl = expr.getFuncDecl();
+    Expr<?>[] args = expr.getArgs();
 
-    // Handle CelType constructors wrapper unwrapping
     if (decl.equals(typeSystem.intCons().ConstructorDecl())) {
-      return formatExpr(ctx, typeSystem, model, expr.getArgs()[0]);
-    } else if (decl.equals(typeSystem.timestampCons().ConstructorDecl())) {
-      return formatTimestamp(expr.getArgs()[0]);
-    } else if (decl.equals(typeSystem.durationCons().ConstructorDecl())) {
-      return formatDuration(expr.getArgs()[0]);
+      BigInteger val = ((IntNum) args[0]).getBigInteger();
+      return isInRange(val, Long.MIN_VALUE, Long.MAX_VALUE)
+          ? Value.exact(val.longValue(), val.toString())
+          : Value.inexact(val.toString());
     } else if (decl.equals(typeSystem.uintCons().ConstructorDecl())) {
-      return formatExpr(ctx, typeSystem, model, expr.getArgs()[0]) + "u";
+      BigInteger val = ((IntNum) args[0]).getBigInteger();
+      String display = val + "u";
+      return val.signum() >= 0 && val.bitLength() <= 64
+          ? Value.exact(UnsignedLong.valueOf(val), display)
+          : Value.inexact(display);
     } else if (decl.equals(typeSystem.boolCons().ConstructorDecl())) {
-      return formatExpr(ctx, typeSystem, model, expr.getArgs()[0]);
-    } else if (decl.equals(typeSystem.stringCons().ConstructorDecl())) {
-      return expr.getArgs()[0].toString();
-    } else if (decl.equals(typeSystem.bytesCons().ConstructorDecl())) {
-      return "b" + expr.getArgs()[0];
+      return Value.exact(args[0].isTrue(), args[0].toString());
     } else if (decl.equals(typeSystem.doubleCons().ConstructorDecl())) {
-      Expr<?> doubleArg = expr.getArgs()[0];
-      if (doubleArg instanceof FPNum) {
-        FPNum fpNum = (FPNum) doubleArg;
-        if (fpNum.isNaN()) {
-          return "NaN";
-        }
-        if (fpNum.isInf()) {
-          return fpNum.isNegative() ? "-Infinity" : "Infinity";
-        }
-        if (fpNum.isZero()) {
-          return fpNum.isNegative() ? "-0.0" : "0.0";
-        }
-        Expr<?> realExpr = ctx.mkFPToReal(fpNum).simplify();
-        if (realExpr instanceof RatNum) {
-          RatNum ratNum = (RatNum) realExpr;
-          double val =
-              ratNum.getBigIntNumerator().doubleValue()
-                  / ratNum.getBigIntDenominator().doubleValue();
-          return Double.toString(val);
-        }
+      return extractDouble((FPNum) args[0]);
+    } else if (decl.equals(typeSystem.stringCons().ConstructorDecl())) {
+      return extractString(args[0], /* isBytes= */ false);
+    } else if (decl.equals(typeSystem.bytesCons().ConstructorDecl())) {
+      return extractString(args[0], /* isBytes= */ true);
+    } else if (decl.equals(typeSystem.timestampCons().ConstructorDecl())) {
+      BigInteger nanos = ((IntNum) args[0]).getBigInteger();
+      BigInteger nanoAdjustment = nanos.mod(NANOS_PER_SECOND);
+      BigInteger seconds = nanos.subtract(nanoAdjustment).divide(NANOS_PER_SECOND);
+      if (!isInRange(
+          seconds, ProtoTimeUtils.TIMESTAMP_SECONDS_MIN, ProtoTimeUtils.TIMESTAMP_SECONDS_MAX)) {
+        // No CEL timestamp is out of range, so no literal exists; show the seconds.
+        return Value.inexact("timestamp(" + seconds + ")");
       }
-      return doubleArg.toString();
+      Instant instant = Instant.ofEpochSecond(seconds.longValue(), nanoAdjustment.longValue());
+      return Value.exact(instant, "timestamp(\"" + instant + "\")");
+    } else if (decl.equals(typeSystem.durationCons().ConstructorDecl())) {
+      BigInteger nanos = ((IntNum) args[0]).getBigInteger();
+      String display =
+          nanos.remainder(NANOS_PER_SECOND).signum() == 0
+              ? "duration(\"" + nanos.divide(NANOS_PER_SECOND) + "s\")"
+              : "duration(\"" + nanos + "ns\")";
+      return isInRange(nanos, Long.MIN_VALUE, Long.MAX_VALUE)
+          ? Value.exact(Duration.ofNanos(nanos.longValue()), display)
+          : Value.inexact(display);
     } else if (decl.equals(typeSystem.listCons().ConstructorDecl())) {
-      return reconstructList(ctx, typeSystem, model, expr.getArgs()[0]);
+      return extractList(args[0]);
     } else if (decl.equals(typeSystem.mapCons().ConstructorDecl())) {
-      return reconstructMap(ctx, typeSystem, model, expr.getArgs()[0]);
+      return extractMap(args[0]);
     } else if (decl.equals(typeSystem.messageCons().ConstructorDecl())) {
-      return reconstructMessage(ctx, typeSystem, model, expr.getArgs()[0]);
+      return extractMessage(args[0]);
     } else if (decl.equals(typeSystem.errorCons().ConstructorDecl())) {
-      return "Error";
+      return Value.inexact("Error");
     } else if (decl.equals(typeSystem.unknownCons().ConstructorDecl())) {
-      return "Unknown";
+      return Value.inexact("Unknown");
     } else if (decl.equals(typeSystem.nullCons().ConstructorDecl())) {
-      return "null";
-    } else if (decl.equals(typeSystem.optionalCons().ConstructorDecl())) {
-      Expr<?> optRef = expr.getArgs()[0];
-      Expr<?> hasValueExpr =
-          evaluateStrict(
-              model,
-              typeSystem.optHasValue(optRef),
-              String.format("Z3 failed to evaluate optHasValue natively for %s", optRef));
-      if (hasValueExpr.isTrue()) {
-        Expr<?> valueExpr =
-            evaluateStrict(
-                model,
-                typeSystem.getOptionalValue(optRef),
-                String.format("Z3 failed to evaluate optValue natively for %s", optRef));
-        return "optional(" + formatExpr(ctx, typeSystem, model, valueExpr) + ")";
-      } else if (hasValueExpr.isFalse()) {
-        return "optional.none()";
+      return Value.exact(NullValue.NULL_VALUE, "null");
+    }
+
+    // Optional is the only remaining constructor.
+    if (!evaluate(typeSystem.optHasValue(args[0])).isTrue()) {
+      return Value.exact(Optional.empty(), "optional.none()");
+    }
+    Value value = extract(evaluate(typeSystem.getOptionalValue(args[0])));
+    return new Value(
+        value.runtimeValue.<Object>map(Optional::of), "optional.of(" + value.display + ")");
+  }
+
+  private static boolean isInRange(BigInteger val, long min, long max) {
+    return val.compareTo(BigInteger.valueOf(min)) >= 0
+        && val.compareTo(BigInteger.valueOf(max)) <= 0;
+  }
+
+  private Value extractDouble(FPNum fpNum) {
+    if (fpNum.isNaN()) {
+      return Value.exact(Double.NaN, "double(\"NaN\")");
+    }
+    // Z3 doubles are IEEE 754 binary64, so their bits convert exactly.
+    double value =
+        Double.longBitsToDouble(
+            ((BitVecNum) ctx.mkFPToIEEEBV(fpNum).simplify()).getBigInteger().longValue());
+    return Value.exact(
+        value, Double.isInfinite(value) ? "double(\"" + value + "\")" : Double.toString(value));
+  }
+
+  private static Value extractString(Expr<?> arg, boolean isBytes) {
+    int[] codePoints = decodeZ3String(arg.getString());
+    // Bytes are modeled as their UTF-8 decoding, which is lossy for non-ASCII bytes. Java merges
+    // adjacent surrogates into one code point, which would change the string's size.
+    boolean isExact =
+        Arrays.stream(codePoints)
+            .allMatch(
+                isBytes
+                    ? c -> c < 0x80
+                    : c -> c < Character.MIN_SURROGATE || c > Character.MAX_SURROGATE);
+    String str = new String(codePoints, 0, codePoints.length);
+    String display = quote(codePoints, isBytes);
+    if (!isExact) {
+      return Value.inexact(display);
+    }
+    return Value.exact(isBytes ? CelByteString.copyFromUtf8(str) : str, display);
+  }
+
+  // Z3 escapes characters outside printable ASCII, and a backslash before 'u', as \\u{hex}.
+  private static int[] decodeZ3String(String encoded) {
+    IntStream.Builder codePoints = IntStream.builder();
+    for (int i = 0; i < encoded.length(); ) {
+      if (encoded.startsWith("\\u{", i)) {
+        int end = encoded.indexOf('}', i);
+        codePoints.add(Integer.parseInt(encoded.substring(i + 3, end), 16));
+        i = end + 1;
+      } else {
+        codePoints.add(encoded.charAt(i++));
       }
     }
-
-    return expr.toString();
+    return codePoints.build().toArray();
   }
 
-  private static String formatTimestamp(Expr<?> nanosExpr) {
-    BigInteger totalNanos = ((IntNum) nanosExpr).getBigInteger();
-    BigInteger nanosPerSecond = BigInteger.valueOf(CelZ3TypeSystem.NANOS_PER_SECOND);
-    BigInteger[] divRem = totalNanos.divideAndRemainder(nanosPerSecond);
-    BigInteger seconds = divRem[0];
-    BigInteger nanos = divRem[1];
-    if (nanos.signum() < 0) {
-      seconds = seconds.subtract(BigInteger.ONE);
-      nanos = nanos.add(nanosPerSecond);
+  // Takes code points rather than a String, which would merge adjacent surrogates.
+  private static String quote(int[] codePoints, boolean isBytes) {
+    StringBuilder sb = new StringBuilder(isBytes ? "b\"" : "\"");
+    for (int codePoint : codePoints) {
+      if (codePoint == '"' || codePoint == '\\') {
+        sb.append('\\').appendCodePoint(codePoint);
+      } else if (isBytes && (codePoint < 0x20 || codePoint >= 0x7f)) {
+        // Bytes literals don't accept Unicode escapes, so write the character's UTF-8 bytes.
+        for (byte b : new String(Character.toChars(codePoint)).getBytes(UTF_8)) {
+          sb.append(String.format("\\x%02x", b & 0xff));
+        }
+      } else if (Character.isISOControl(codePoint)
+          || Character.getType(codePoint) == Character.SURROGATE) {
+        // CEL rejects lone surrogates even when escaped, so those are shown, not evaluable.
+        sb.append(String.format("\\u%04x", codePoint));
+      } else {
+        sb.appendCodePoint(codePoint);
+      }
     }
-    if (nanos.equals(BigInteger.ZERO)) {
-      return "timestamp(" + seconds + ")";
-    }
-    return "google.protobuf.Timestamp{seconds: " + seconds + ", nanos: " + nanos + "}";
+    return sb.append('"').toString();
   }
 
-  private static String formatDuration(Expr<?> nanosExpr) {
-    BigInteger totalNanos = ((IntNum) nanosExpr).getBigInteger();
-    BigInteger nanosPerSecond = BigInteger.valueOf(CelZ3TypeSystem.NANOS_PER_SECOND);
-    BigInteger[] divRem = totalNanos.divideAndRemainder(nanosPerSecond);
-    if (divRem[1].equals(BigInteger.ZERO)) {
-      return "duration('" + divRem[0] + "s')";
-    }
-    return "duration('" + totalNanos + "ns')";
-  }
-
-  private static String reconstructList(
-      Context ctx, CelZ3TypeSystem typeSystem, Model model, Expr<?> listRef) {
-    Expr<?> lenExpr =
-        evaluateStrict(
-            model,
-            ctx.mkLength(typeSystem.getSeq(listRef)),
-            String.format("Z3 failed to evaluate length for list %s", listRef));
-    Preconditions.checkState(
-        lenExpr instanceof IntNum, "Expected IntNum length for list %s, got %s", listRef, lenExpr);
-    long length = ((IntNum) lenExpr).getInt64();
-    int printLimit = (int) Math.min(length, (long) MAX_ELEMENTS_TO_PRINT);
+  private Value extractList(Expr<?> listRef) {
+    long length = evaluateLength(ctx.mkLength(typeSystem.getSeq(listRef)));
+    // Elements past the unroll limit are unconstrained, so they may violate the declared type.
+    boolean isExact = length <= comprehensionUnrollLimit;
+    long limit = isExact ? length : Math.min(length, MAX_ELEMENTS_TO_PRINT);
+    ImmutableList.Builder<Object> values = ImmutableList.builder();
     List<String> elements = new ArrayList<>();
-    for (int i = 0; i < printLimit; i++) {
-      Expr<?> elem =
-          evaluateStrict(
-              model,
-              ctx.mkNth(typeSystem.getSeq(listRef), ctx.mkInt(i)),
-              String.format(
-                  "Z3 failed to evaluate list element at index %d for list %s", i, listRef));
-      elements.add(formatExpr(ctx, typeSystem, model, elem));
+    for (long i = 0; i < limit; i++) {
+      Value elem = extract(evaluate(ctx.mkNth(typeSystem.getSeq(listRef), ctx.mkInt(i))));
+      if (elem.runtimeValue.isPresent()) {
+        values.add(elem.runtimeValue.get());
+      } else {
+        isExact = false;
+      }
+      elements.add(elem.display);
     }
-    if (length > printLimit) {
-      elements.add("... (" + (length - printLimit) + " more elements)");
-    }
-
-    return "[" + String.join(", ", elements) + "]";
+    String display = join("[", elements, length, "elements", "]");
+    return isExact ? Value.exact(values.build(), display) : Value.inexact(display);
   }
 
-  private static String reconstructMap(
-      Context ctx, CelZ3TypeSystem typeSystem, Model model, Expr<?> mapRef) {
-    Expr<?> lenExpr =
-        evaluateStrict(
-            model,
-            ctx.mkLength(typeSystem.getMapKeys(mapRef)),
-            String.format("Z3 failed to evaluate length for map %s", mapRef));
-    Preconditions.checkState(
-        lenExpr instanceof IntNum, "Expected IntNum length for map %s, got %s", mapRef, lenExpr);
-
-    long length = ((IntNum) lenExpr).getInt64();
-    int printLimit = (int) Math.min(length, (long) MAX_ELEMENTS_TO_PRINT);
+  private Value extractMap(Expr<?> mapRef) {
+    long length = evaluateLength(ctx.mkLength(typeSystem.getMapKeys(mapRef)));
+    // Entries past the unroll limit are unconstrained, so they may violate the declared type.
+    boolean isExact = length <= comprehensionUnrollLimit;
+    long limit = isExact ? length : Math.min(length, MAX_ELEMENTS_TO_PRINT);
+    ImmutableMap.Builder<Object, Object> values = ImmutableMap.builder();
     List<String> entries = new ArrayList<>();
     Set<Expr<?>> seenKeys = new HashSet<>();
-    for (int i = 0; i < printLimit; i++) {
-      Expr<?> key =
-          evaluateStrict(
-              model,
-              ctx.mkNth(typeSystem.getMapKeys(mapRef), ctx.mkInt(i)),
-              String.format("Z3 failed to evaluate map key at index %d for map %s", i, mapRef));
-      if (!seenKeys.add(key)) {
+    ArrayExpr keySet = ctx.mkConstArray(typeSystem.celValueSort(), ctx.mkFalse());
+    for (long i = 0; i < limit; i++) {
+      Expr<?> key = evaluate(ctx.mkNth(typeSystem.getMapKeys(mapRef), ctx.mkInt(i)));
+      keySet = ctx.mkStore(keySet, key, ctx.mkTrue());
+      if (!seenKeys.add(key)
+          || !evaluate(ctx.mkSelect((ArrayExpr) typeSystem.getMapPresence(mapRef), key)).isTrue()) {
         continue;
       }
-      Expr<?> presence =
-          evaluateStrict(
-              model,
-              ctx.mkSelect((ArrayExpr) typeSystem.getMapPresence(mapRef), key),
-              String.format(
-                  "Z3 failed to evaluate map presence for key %s in map %s", key, mapRef));
-      if (presence.isTrue()) {
-        Expr<?> value =
-            evaluateStrict(
-                model,
-                ctx.mkSelect((ArrayExpr) typeSystem.getMapValues(mapRef), key),
-                String.format("Z3 failed to evaluate map value for key %s in map %s", key, mapRef));
-        entries.add(
-            formatExpr(ctx, typeSystem, model, key)
-                + ": "
-                + formatExpr(ctx, typeSystem, model, value));
+      Value keyValue = extract(key);
+      Value value =
+          extract(evaluate(ctx.mkSelect((ArrayExpr) typeSystem.getMapValues(mapRef), key)));
+      if (keyValue.runtimeValue.isPresent() && value.runtimeValue.isPresent()) {
+        values.put(keyValue.runtimeValue.get(), value.runtimeValue.get());
+      } else {
+        isExact = false;
       }
+      entries.add(keyValue.display + ": " + value.display);
     }
-    if (length > printLimit) {
-      entries.add("... (" + (length - printLimit) + " more entries)");
-    }
+    // Maps nested in dyn values aren't constrained to be well formed: the size comes from the key
+    // sequence and membership from the presence array, so they must agree.
+    isExact =
+        isExact
+            && seenKeys.size() == length
+            && evaluate(ctx.mkEq(typeSystem.getMapPresence(mapRef), keySet)).isTrue();
 
-    return "{" + String.join(", ", entries) + "}";
+    String display = join("{", entries, length, "entries", "}");
+    return isExact ? Value.exact(values.buildOrThrow(), display) : Value.inexact(display);
   }
 
-  private static String reconstructMessage(
-      Context ctx, CelZ3TypeSystem typeSystem, Model model, Expr<?> msgRef) {
-    Expr<?> presenceArray =
-        evaluateStrict(
-            model,
-            typeSystem.getMsgPresence(msgRef),
-            String.format("Z3 failed to evaluate presence array natively for msg %s", msgRef));
+  private static String join(
+      String prefix, List<String> displayed, long length, String noun, String suffix) {
+    List<String> shown =
+        new ArrayList<>(displayed.subList(0, Math.min(displayed.size(), MAX_ELEMENTS_TO_PRINT)));
+    if (length > MAX_ELEMENTS_TO_PRINT) {
+      shown.add("... (" + (length - MAX_ELEMENTS_TO_PRINT) + " more " + noun + ")");
+    }
+    return prefix + String.join(", ", shown) + suffix;
+  }
 
-    Expr<?> typeNameExpr =
-        evaluateStrict(
-            model,
-            typeSystem.getMsgTypeName(msgRef),
-            String.format("Z3 failed to evaluate type name natively for msg %s", msgRef));
-
-    String typeName = formatExpr(ctx, typeSystem, model, typeNameExpr).replace("\"", "");
+  // TODO: Build message values.
+  private Value extractMessage(Expr<?> msgRef) {
+    Expr<?> presenceArray = evaluate(typeSystem.getMsgPresence(msgRef));
+    String typeName = evaluate(typeSystem.getMsgTypeName(msgRef)).getString();
 
     Set<Expr<?>> keys = new LinkedHashSet<>();
     extractKeys(presenceArray, keys);
 
     List<String> entries = new ArrayList<>();
     for (Expr<?> key : keys) {
-      Expr<?> presence =
-          evaluateStrict(
-              model,
-              ctx.mkSelect((ArrayExpr) typeSystem.getMsgPresence(msgRef), key),
-              String.format(
-                  "Z3 failed to evaluate msg presence for key %s in msg %s", key, msgRef));
-
-      if (presence.isTrue()) {
-        Expr<?> value =
-            evaluateStrict(
-                model,
-                ctx.mkSelect((ArrayExpr) typeSystem.getMsgValues(msgRef), key),
-                String.format("Z3 failed to evaluate msg value for key %s in msg %s", key, msgRef));
-
-        String fieldName = formatExpr(ctx, typeSystem, model, key).replace("\"", "");
-        entries.add(fieldName + ": " + formatExpr(ctx, typeSystem, model, value));
+      if (evaluate(ctx.mkSelect((ArrayExpr) typeSystem.getMsgPresence(msgRef), key)).isTrue()) {
+        Expr<?> value = evaluate(ctx.mkSelect((ArrayExpr) typeSystem.getMsgValues(msgRef), key));
+        entries.add(key.getString() + ": " + extract(value).display);
       }
     }
 
-    return typeName + "{" + String.join(", ", entries) + "}";
+    return Value.inexact(typeName + "{" + String.join(", ", entries) + "}");
   }
 
   private static void extractKeys(Expr<?> arrayExpr, Set<Expr<?>> keys) {
@@ -314,8 +330,6 @@ final class CelZ3CounterexampleGenerator {
 
       if (declName.equals("store")) {
         Expr<?>[] args = arrayExpr.getArgs();
-        Preconditions.checkState(
-            args.length == 3, "Z3 store array operation must have exactly 3 arguments");
         keys.add(args[1]);
         arrayExpr = args[0];
         continue;
@@ -324,13 +338,20 @@ final class CelZ3CounterexampleGenerator {
     }
   }
 
-  private static Expr<?> evaluateStrict(Model model, Expr<?> expr, String errorMessage) {
-    // There are no free variables remaining after the solver is ran, so the completion flag has
-    // no effect.
-    Expr<?> evaluated = model.evaluate(expr, /* completion= */ true);
-    if (evaluated == null) {
-      throw new IllegalStateException(errorMessage);
-    }
-    return evaluated;
+  private long evaluateLength(Expr<?> lengthExpr) {
+    return ((IntNum) evaluate(lengthExpr)).getInt64();
+  }
+
+  private Expr<?> evaluate(Expr<?> expr) {
+    // Model completion assigns a value to any input the model leaves unconstrained.
+    return model.evaluate(expr, /* completion= */ true);
+  }
+
+  private CelZ3CounterexampleGenerator(
+      Context ctx, CelZ3TypeSystem typeSystem, Model model, int comprehensionUnrollLimit) {
+    this.ctx = ctx;
+    this.typeSystem = typeSystem;
+    this.model = model;
+    this.comprehensionUnrollLimit = comprehensionUnrollLimit;
   }
 }
