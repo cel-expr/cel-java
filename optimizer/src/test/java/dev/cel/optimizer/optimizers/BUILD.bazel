@@ -1,16 +1,22 @@
-load("@rules_java//java:defs.bzl", "java_library")
-load("//:testing.bzl", "junit4_test_suites")
+load("@rules_java//java:java_test.bzl", "java_test")
 
 package(
     default_applicable_licenses = ["//:license"],
 )
 
-java_library(
-    name = "tests",
-    testonly = 1,
-    srcs = glob(["*.java"]),
+java_test(
+    name = "SmallTests",
+    size = "small",
+    srcs = [
+        "ConstantFoldingOptimizerTest.java",
+        "InliningOptimizerTest.java",
+        "SelectOptimizerTest.java",
+        "SubexpressionOptimizerTest.java",
+    ],
     resources = ["//optimizer/src/test/resources:baselines"],
+    shard_count = 4,
     deps = [
+        "//:java_truth",
         "//bundle:cel",
         "//common:cel_ast",
         "//common:cel_source",
@@ -27,7 +33,6 @@ java_library(
         "//extensions",
         "//extensions:bindings",
         "//extensions:optional_library",
-        #         "//java/com/google/testing/testsize:annotations",
         "//optimizer",
         "//optimizer:ast_optimizer",
         "//optimizer:optimization_exception",
@@ -43,27 +48,46 @@ java_library(
         "//runtime:partial_vars",
         "//runtime:program",
         "//runtime:unknown_attributes",
-        "//testing:baseline_test_case",
         "//testing:cel_runtime_flavor",
-        "@maven//:junit_junit",
-        "@maven//:com_google_testparameterinjector_test_parameter_injector",
-        "//:java_truth",
-        "@maven//:com_google_truth_extensions_truth_proto_extension",
         "@cel_spec//proto/cel/expr:syntax_java_proto",
         "@cel_spec//proto/cel/expr/conformance/proto2:test_all_types_java_proto",
         "@cel_spec//proto/cel/expr/conformance/proto3:test_all_types_java_proto",
         "@maven//:com_google_guava_guava",
         "@maven//:com_google_protobuf_protobuf_java",
+        "@maven//:com_google_testparameterinjector_test_parameter_injector",
+        "@maven//:com_google_truth_extensions_truth_proto_extension",
+        "@maven//:junit_junit",
     ],
 )
 
-junit4_test_suites(
-    name = "test_suites",
+java_test(
+    name = "MediumTests",
+    size = "medium",
+    srcs = ["SubexpressionOptimizerBaselineTest.java"],
+    resources = ["//optimizer/src/test/resources:baselines"],
     shard_count = 4,
-    sizes = [
-        "small",
-        "medium",
+    deps = [
+        "//bundle:cel",
+        "//common:cel_ast",
+        "//common:compiler_common",
+        "//common:container",
+        "//common:options",
+        "//common/types",
+        "//extensions",
+        #         "//java/com/google/testing/testsize:annotations",
+        "//optimizer",
+        "//optimizer:optimizer_builder",
+        "//optimizer/optimizers:common_subexpression_elimination",
+        "//optimizer/optimizers:constant_folding",
+        "//parser:macro",
+        "//parser:unparser",
+        "//runtime:function_binding",
+        "//testing:baseline_test_case",
+        "//testing:cel_runtime_flavor",
+        "@maven//:junit_junit",
+        "@maven//:com_google_testparameterinjector_test_parameter_injector",
+        "//:java_truth",
+        "@cel_spec//proto/cel/expr/conformance/proto3:test_all_types_java_proto",
+        "@maven//:com_google_guava_guava",
     ],
-    src_dir = "src/test/java",
-    deps = [":tests"],
 )
