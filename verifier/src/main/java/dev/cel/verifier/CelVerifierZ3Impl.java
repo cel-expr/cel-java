@@ -256,23 +256,13 @@ final class CelVerifierZ3Impl implements CelVerifier {
       switch (result.outcome) {
         case EXACT_MATCH:
           return CelVerificationResult.failed(
-              "Equivalence violation detected.",
-              getCounterexampleString(
-                  ctx,
-                  translator.getTypeSystem(),
-                  result.model,
-                  /* isApproximate= */ false,
-                  /* isCounterexample= */ true));
+              "Equivalence violation detected.", extractWitness(ctx, translator, result.model));
         case APPROXIMATE_MATCH:
           return CelVerificationResult.inconclusive(
               "Inconclusive: a divergence may exist, but it depends on approximations, missing"
                   + " theories, or loop bounds.",
-              getCounterexampleString(
-                  ctx,
-                  translator.getTypeSystem(),
-                  result.model,
-                  /* isApproximate= */ true,
-                  /* isCounterexample= */ true));
+              extractWitness(ctx, translator, result.model),
+              /* isCounterexample= */ true);
         case TRUNCATED:
           return CelVerificationResult.inconclusive(
               "Inconclusive: expressions are equivalent within the current loop unroll limit, but"
@@ -343,22 +333,13 @@ final class CelVerifierZ3Impl implements CelVerifier {
         case EXACT_MATCH:
           return CelVerificationResult.failed(
               String.format("%s violation detected.", subjectName),
-              getCounterexampleString(
-                  ctx,
-                  translator.getTypeSystem(),
-                  result.model,
-                  /* isApproximate= */ false,
-                  /* isCounterexample= */ true));
+              extractWitness(ctx, translator, result.model));
         case APPROXIMATE_MATCH:
           return CelVerificationResult.inconclusive(
               "Inconclusive: a counterexample may exist, but it depends on approximations, missing"
                   + " theories, or loop bounds.",
-              getCounterexampleString(
-                  ctx,
-                  translator.getTypeSystem(),
-                  result.model,
-                  /* isApproximate= */ true,
-                  /* isCounterexample= */ true));
+              extractWitness(ctx, translator, result.model),
+              /* isCounterexample= */ true);
         case TRUNCATED:
           return CelVerificationResult.inconclusive(
               String.format(
@@ -403,23 +384,10 @@ final class CelVerifierZ3Impl implements CelVerifier {
 
       switch (result.outcome) {
         case EXACT_MATCH:
+          CelWitness witness = extractWitness(ctx, translator, result.model);
           return searchForCounterexample
-              ? CelVerificationResult.failed(
-                  "Condition is not always true.",
-                  getCounterexampleString(
-                      ctx,
-                      translator.getTypeSystem(),
-                      result.model,
-                      /* isApproximate= */ false,
-                      /* isCounterexample= */ true))
-              : CelVerificationResult.verified(
-                  "Condition is satisfiable."
-                      + getCounterexampleString(
-                          ctx,
-                          translator.getTypeSystem(),
-                          result.model,
-                          /* isApproximate= */ false,
-                          /* isCounterexample= */ false));
+              ? CelVerificationResult.failed("Condition is not always true.", witness)
+              : CelVerificationResult.verified("Condition is satisfiable.", witness);
 
         case APPROXIMATE_MATCH:
           String prefix =
@@ -430,12 +398,8 @@ final class CelVerifierZ3Impl implements CelVerifier {
                       + " approximations, missing theories, or loop bounds.";
           return CelVerificationResult.inconclusive(
               prefix,
-              getCounterexampleString(
-                  ctx,
-                  translator.getTypeSystem(),
-                  result.model,
-                  /* isApproximate= */ true,
-                  /* isCounterexample= */ searchForCounterexample));
+              extractWitness(ctx, translator, result.model),
+              /* isCounterexample= */ searchForCounterexample);
 
         case TRUNCATED:
           return CelVerificationResult.inconclusive(
@@ -538,14 +502,13 @@ final class CelVerifierZ3Impl implements CelVerifier {
         parameterizeUnknowns);
   }
 
-  private static String getCounterexampleString(
-      Context ctx,
-      CelZ3TypeSystem typeSystem,
-      Model model,
-      boolean isApproximate,
-      boolean isCounterexample) {
+  private CelWitness extractWitness(Context ctx, CelAstToZ3Translator translator, Model model) {
     return CelZ3CounterexampleGenerator.generate(
-        ctx, typeSystem, model, isApproximate, isCounterexample);
+        ctx,
+        translator.getTypeSystem(),
+        model,
+        comprehensionUnrollLimit,
+        translator.getInputVariables());
   }
 
   private enum SolverOutcome {

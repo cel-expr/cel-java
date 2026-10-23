@@ -224,8 +224,8 @@ public class PolicyVerifierExample {
         System.out.println(result.message());
         // Output:
         // Equivalence violation detected. Counterexample input:
-        //   country = "a"
         //   role = "editor"
+        //   country = "a"
         //   port = 443
         break;
       case INCONCLUSIVE:
@@ -241,7 +241,8 @@ public class PolicyVerifierExample {
 When checking whether an expression is satisfiable using `isSatisfiable`, the
 verifier returns `VERIFIED` if there exists at least one input combination
 where the expression evaluates to `true`. Furthermore, `result.message()`
-provides concrete satisfying model assignments (witness/test case generation).
+provides concrete satisfying model assignments (witness/test case generation),
+and `result.witness()` exposes them as CEL runtime values.
 
 ```java
 import dev.cel.common.CelAbstractSyntaxTree;
