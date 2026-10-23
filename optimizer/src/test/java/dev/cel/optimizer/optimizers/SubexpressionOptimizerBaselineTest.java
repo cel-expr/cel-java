@@ -17,6 +17,7 @@ package dev.cel.optimizer.optimizers;
 import static com.google.common.truth.Truth.assertThat;
 import static dev.cel.common.CelOverloadDecl.newGlobalOverload;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.testing.junit.testparameterinjector.TestParameter;
 import com.google.testing.junit.testparameterinjector.TestParameterInjector;
@@ -95,6 +96,8 @@ public class SubexpressionOptimizerBaselineTest extends BaselineTestCase {
       TestAllTypes.newBuilder()
           .setSingleInt64(3L)
           .setSingleInt32(5)
+          .addAllRepeatedInt64(ImmutableList.of(1L, 2L, 3L))
+          .addRepeatedInt32(2)
           .setOneofType(
               NestedTestAllTypes.newBuilder()
                   .setPayload(
@@ -403,7 +406,37 @@ public class SubexpressionOptimizerBaselineTest extends BaselineTestCase {
         "pure_custom_func(msg.oneof_type.payload.single_int64) +"
             + " pure_custom_func(msg.oneof_type.payload.single_int32) +"
             + " pure_custom_func(msg.oneof_type.payload.single_int64) +"
-            + " pure_custom_func(msg.single_int64)");
+            + " pure_custom_func(msg.single_int64)"),
+    VALUE_NUMBERING_COMMUTATIVE_ADD_CONVERSE_RELATION_LOGICAL_AND(
+        "(msg.single_int64 + msg.single_int32 > 5 && msg.oneof_type.payload.single_int64 <"
+            + " msg.single_int64 + msg.single_int32) == (msg.single_int32 + msg.single_int64 >"
+            + " msg.oneof_type.payload.single_int64 && 5 < msg.single_int32 + msg.single_int64)"),
+    VALUE_NUMBERING_COMMUTATIVE_MULTIPLY_EQUALITY_LOGICAL_OR(
+        "(msg.oneof_type.payload.single_int32 * msg.single_int64 == 24 || msg.single_int32 !="
+            + " msg.oneof_type.payload.single_int64) && (msg.oneof_type.payload.single_int64 !="
+            + " msg.single_int32 || 24 == msg.single_int64 * msg.oneof_type.payload.single_int32)"),
+    HOIST_NESTED_COMPREHENSION("msg.repeated_int64.all(i, msg.repeated_int32.exists(j, j == 2))"),
+    HOIST_INVARIANT_ARITHMETIC(
+        "msg.repeated_int64.exists(i, i == msg.single_int64 * 2 + msg.single_int32)"),
+    HOIST_ZERO_TRIP_ERROR_NOT_EVALUATED(
+        "msg.repeated_nested_message.exists(m, m.bb == 1 / (msg.single_int32 - 5))"),
+    HOIST_MAP_ACCUMULATION_PRESERVED("msg.repeated_int64.map(i, msg.single_int64 * 2)"),
+    HOIST_LIST_LITERAL("msg.repeated_int64.exists(i, i in [msg.single_int64, msg.single_int32])"),
+    HOIST_LIST_APPENDED_TO_ITER_VAR("[[1], [2]].map(l, l + [msg.single_int64])"),
+    HOIST_INVARIANT_INSIDE_DUPLICATE(
+        "msg.repeated_int64.exists(i, i in [msg.single_int64, msg.single_int32]) ||"
+            + " msg.repeated_int64.exists(i, i in [msg.single_int64, msg.single_int32])"),
+    HOIST_INVARIANT_OF_NESTED_COMPREHENSION(
+        "msg.repeated_int64.all(i, msg.repeated_int32.exists(j, j == msg.single_int64 * 2))"),
+    HOIST_SHARED_TERMS_ONCE(
+        "msg.repeated_int64.exists(i, i == msg.single_int64 + msg.single_int32 +"
+            + " msg.single_sint64) && [msg.single_int64, msg.single_int32, msg.single_sint64]"
+            + ".size() > 0"),
+    HOIST_SHARED_WITH_ACCUMULATED_LIST(
+        "msg.repeated_int64.exists(i, i in [msg.single_int64]) &&"
+            + " msg.repeated_int64.map(i, msg.single_int64).size() > 0"),
+    ;
+
     private final String source;
 
     CseTestCase(String source) {
