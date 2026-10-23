@@ -553,11 +553,11 @@ public final class CelPolicyVerifierImplTest {
         .isEqualTo(
             "Invariant 'universal_no_unapproved_privileged_prod' violation detected."
                 + " Counterexample input:\n"
+                + "  is_admin = true\n"
                 + "  is_owner = false\n"
                 + "  is_privileged = true\n"
                 + "  is_prod = true\n"
-                + "  has_approval = false\n"
-                + "  is_admin = true");
+                + "  has_approval = false");
   }
 
   @Test

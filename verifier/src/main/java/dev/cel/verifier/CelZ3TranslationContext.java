@@ -22,6 +22,7 @@ import dev.cel.common.types.SimpleType;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -74,6 +75,11 @@ final class CelZ3TranslationContext {
 
   void addInputVariable(Expr<?> variable, CelType declaredType) {
     inputVariableTypes.put(variable, declaredType);
+  }
+
+  /** Returns the input variables, in order of first appearance. */
+  Set<Expr<?>> inputVariables() {
+    return Collections.unmodifiableSet(inputVariableTypes.keySet());
   }
 
   /** Returns the declared type of an input variable, or dyn for any other value. */
@@ -135,7 +141,7 @@ final class CelZ3TranslationContext {
         new CelZ3TypeConstraintGenerator(ctx, typeSystem, comprehensionUnrollLimit);
     this.comprehensionUnrollLimit = comprehensionUnrollLimit;
     this.constraints = new LinkedHashSet<>();
-    this.inputVariableTypes = new HashMap<>();
+    this.inputVariableTypes = new LinkedHashMap<>();
     this.truncationConditions = new ArrayList<>();
     this.symbolTable = new HashMap<>();
   }
