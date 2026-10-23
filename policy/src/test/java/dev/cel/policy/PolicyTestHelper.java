@@ -78,12 +78,12 @@ final class PolicyTestHelper {
     REQUIRED_LABELS(
         "required_labels",
         true,
-        "cel.@block([spec.labels.filter(@it:0:0, !(@it:0:0 in resource.labels)), spec.labels,"
-            + " resource.labels.transformList(@it:0:1, @it2:0:1, @it:0:1 in @index1 && @it2:0:1 !="
-            + " @index1[@it:0:1], @it:0:1)], (@index0.size() > 0) ? optional.of(\"missing one or"
-            + " more required labels: [\"\" + @index0.join(\"\", \"\") + \"\"]\") :"
-            + " ((@index2.size() > 0) ? optional.of(\"invalid values provided on one or more"
-            + " labels: [\"\" + @index2.join(\"\", \"\") + \"\"]\") : optional.none()))"),
+        "cel.@block([resource.labels, spec.labels, @index1.filter(@it:0:0, !(@it:0:0 in"
+            + " @index0)), @index0.transformList(@it:0:1, @it2:0:1, @it:0:1 in @index1 &&"
+            + " @it2:0:1 != @index1[@it:0:1], @it:0:1)], (@index2.size() > 0) ?"
+            + " optional.of(\"missing one or more required labels: [\"\" + @index2.join(\"\", \"\")"
+            + " + \"\"]\") : ((@index3.size() > 0) ? optional.of(\"invalid values provided on one"
+            + " or more labels: [\"\" + @index3.join(\"\", \"\") + \"\"]\") : optional.none()))"),
     RESTRICTED_DESTINATIONS(
         "restricted_destinations",
         false,
@@ -96,9 +96,9 @@ final class PolicyTestHelper {
     K8S(
         "k8s",
         true,
-        "cel.@block([resource.labels.?environment.orValue(\"prod\")],"
+        "cel.@block([resource.labels.?environment.orValue(\"prod\"), @index0 + \".\"],"
             + " !(resource.labels.?break_glass.orValue(\"false\") == \"true\" ||"
-            + " resource.containers.all(@it:0:0, @it:0:0.startsWith(@index0 + \".\"))) ?"
+            + " resource.containers.all(@it:0:0, @it:0:0.startsWith(@index1))) ?"
             + " optional.of(\"only \" + @index0 + \" containers are allowed in namespace \" +"
             + " resource.namespace) : optional.none())"),
     PB(

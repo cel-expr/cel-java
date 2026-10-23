@@ -302,7 +302,9 @@ public class SubexpressionOptimizerTest {
     CelAbstractSyntaxTree optimizedAst = optimizer.optimize(ast);
 
     assertThat(CEL_UNPARSER.unparse(optimizedAst))
-        .isEqualTo("cel.@block([1, 2], @index0 + @index0 + @index1 + @index1 + x)");
+        .isEqualTo(
+            "cel.@block([3, size([@index0]), size([1, @index0])], @index1 + @index1 + @index2 +"
+                + " @index2 + x)");
   }
 
   @Test
@@ -345,6 +347,27 @@ public class SubexpressionOptimizerTest {
                             .build())
                     .optimize(ast));
     assertThat(e).hasMessageThat().isEqualTo("Optimization failure: Max iteration count reached.");
+  }
+
+  @Test
+  @TestParameters(
+      "{source: 'msg.repeated_int64.exists(i, i == (msg.single_int64 + msg.single_int32) *"
+          + " (msg.single_int32 + msg.single_int64))', expected: 'cel.@block([msg.single_int64 +"
+          + " msg.single_int32, @index0 * @index0], msg.repeated_int64.exists(@it:0:0, @it:0:0 =="
+          + " @index1))'}")
+  @TestParameters(
+      "{source: 'msg.repeated_int64.map(i, cel.bind(a, i, a + msg.single_int32 * 2))', expected:"
+          + " 'cel.@block([msg.single_int32 * 2], msg.repeated_int64.map(@it:1:0, cel.bind(a,"
+          + " @it:1:0, @ac:0:0 + @index0)))'}")
+  public void cse_hoistLoopInvariants(String source, String expected) throws Exception {
+    CelAbstractSyntaxTree ast = cel.compile(source).getAst();
+    CelOptimizer celOptimizer =
+        newCseOptimizer(
+            SubexpressionOptimizerOptions.newBuilder().populateMacroCalls(true).build());
+
+    CelAbstractSyntaxTree optimizedAst = celOptimizer.optimize(ast);
+
+    assertThat(CEL_UNPARSER.unparse(optimizedAst)).isEqualTo(expected);
   }
 
   @Test
@@ -757,12 +780,12 @@ public class SubexpressionOptimizerTest {
             .addAstOptimizers(SubexpressionOptimizer.getInstance())
             .build();
     CelAbstractSyntaxTree ast =
-        cel.compile("[{}, {\"a\": 1}, {\"b\": 2}].filter(m, has(x.a))").getAst();
+        cel.compile("[{}, {\"a\": 1}, {\"b\": 2}].filter(m, has(m.a))").getAst();
 
     CelAbstractSyntaxTree optimizedAst = celOptimizer.optimize(ast);
 
     assertThat(CEL_UNPARSER.unparse(optimizedAst))
-        .isEqualTo("[{}, {\"a\": 1}, {\"b\": 2}].filter(m, has(x.a))");
+        .isEqualTo("[{}, {\"a\": 1}, {\"b\": 2}].filter(m, has(m.a))");
     assertThat(optimizedAst).isSameInstanceAs(ast);
   }
 
@@ -797,8 +820,8 @@ public class SubexpressionOptimizerTest {
 
     assertThat(CEL_UNPARSER.unparse(optimizedAst))
         .isEqualTo(
-            "cel.@block([[{}, {\"a\": 1}, {\"b\": 2}].filter(@it:0:0, has(x.a))], @index0 =="
-                + " @index0)");
+            "cel.@block([has(x.a), [{}, {\"a\": 1}, {\"b\": 2}].filter(@it:0:0, @index0)], @index1"
+                + " == @index1)");
   }
 
   @Test
@@ -869,7 +892,7 @@ public class SubexpressionOptimizerTest {
         "cel.@block([msg.single_int64 <= msg.single_int32], @index0 && @index0)"),
     NOT_EQUALS_WITHOUT_SHARED_EQUALS_PRESERVED(
         "[msg.single_int64 != 1, msg.single_int64 != 1, msg.single_int64 == 1]",
-        "cel.@block([msg.single_int64 != 1], [@index0, @index0, msg.single_int64 == 1])"),
+        "cel.@block([msg.single_int64, @index0 != 1], [@index1, @index1, @index0 == 1])"),
     OPTIONAL_LIST_AND_MAP_DISTINCT_VALUE_NUMBERS(
         "([?optional.of(msg.single_int64)].size() == [optional.of(msg.single_int64)].size()) &&"
             + " ({?\"k\": optional.of(msg.single_int64)}.size() == {\"k\":"
