@@ -14,6 +14,10 @@
 
 package dev.cel.common.internal;
 
+import static com.google.common.base.Preconditions.checkNotNull;
+
+import com.google.common.base.Supplier;
+import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.errorprone.annotations.Immutable;
 import com.google.protobuf.Descriptors.Descriptor;
@@ -33,8 +37,9 @@ import java.util.Optional;
 public final class CombinedDescriptorPool implements CelDescriptorPool {
   private final ImmutableList<CelDescriptorPool> descriptorPools;
 
-  @SuppressWarnings("Immutable") // ExtensionRegistry is immutable, just not marked as such.
-  private final ExtensionRegistry extensionRegistry;
+  // ExtensionRegistry and the memoizing Supplier are effectively immutable.
+  @SuppressWarnings("Immutable")
+  private final Supplier<ExtensionRegistry> extensionRegistry;
 
   public static CombinedDescriptorPool create(ImmutableList<CelDescriptorPool> descriptorPools) {
     return new CombinedDescriptorPool(descriptorPools);
@@ -68,19 +73,21 @@ public final class CombinedDescriptorPool implements CelDescriptorPool {
 
   @Override
   public ExtensionRegistry getExtensionRegistry() {
-    return extensionRegistry;
+    return extensionRegistry.get();
   }
 
   private CombinedDescriptorPool(ImmutableList<CelDescriptorPool> descriptorPools) {
-    this.descriptorPools = descriptorPools;
+    this.descriptorPools = checkNotNull(descriptorPools);
     // TODO: Combine the extension registry. This will become necessary once we accept
     // ExtensionRegistry through runtime builder. Ideally, proto team should open source this
     // implementation but we may have to create our own.
     this.extensionRegistry =
-        descriptorPools.stream()
-            .map(CelDescriptorPool::getExtensionRegistry)
-            .filter(e -> !e.equals(ExtensionRegistry.getEmptyRegistry()))
-            .findFirst()
-            .orElse(ExtensionRegistry.getEmptyRegistry());
+        Suppliers.memoize(
+            () ->
+                descriptorPools.stream()
+                    .map(CelDescriptorPool::getExtensionRegistry)
+                    .filter(e -> !e.equals(ExtensionRegistry.getEmptyRegistry()))
+                    .findFirst()
+                    .orElse(ExtensionRegistry.getEmptyRegistry()));
   }
 }
