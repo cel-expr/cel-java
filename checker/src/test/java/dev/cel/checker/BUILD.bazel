@@ -1,5 +1,4 @@
-load("@rules_java//java:defs.bzl", "java_library")
-load("//:testing.bzl", "junit4_test_suites")
+load("@rules_java//java:java_test.bzl", "java_test")
 
 package(
     default_applicable_licenses = [
@@ -7,12 +6,28 @@ package(
     ],
 )
 
-java_library(
-    name = "tests",
-    testonly = True,
-    srcs = glob(["*Test.java"]),
+java_test(
+    name = "SmallTests",
+    size = "small",
+    srcs = [
+        "CelCheckerLegacyImplTest.java",
+        "CelCompilerFactoryTest.java",
+        "CelCompilerImplTest.java",
+        "CelFunctionDeclTest.java",
+        "CelIssueTest.java",
+        "CelOverloadDeclTest.java",
+        "CelProtoExprVisitorTest.java",
+        "CelStandardDeclarationsTest.java",
+        "DescriptorTypeProviderTest.java",
+        "ProtoTypeMaskTest.java",
+        "ProtoTypeMaskTypeProviderTest.java",
+        "TypeInferencerTest.java",
+        "TypesTest.java",
+    ],
     resources = ["//checker/src/test/resources:baselines"],
     deps = [
+        "//:auto_value",
+        "//:java_truth",
         "//checker",
         "//checker:checker_builder",
         "//checker:checker_legacy_environment",
@@ -29,14 +44,10 @@ java_library(
         "//common:cel_validation_exception",
         "//common:cel_var_decl",
         "//common:container",
-        "//common:mutable_ast",
         "//common:operator",
         "//common:options",
-        "//common:proto_ast",
         "//common:source_location",
         "//common/ast",
-        "//common/internal:env_visitor",
-        "//common/internal:errors",
         "//common/resources/testdata/proto3:standalone_global_enum_java_proto",
         "//common/types",
         "//common/types:cel_proto_types",
@@ -45,15 +56,7 @@ java_library(
         "//common/types:type_providers",
         "//compiler",
         "//compiler:compiler_builder",
-        #         "//java/com/google/testing/testsize:annotations",
         "//parser:macro",
-        "//testing:adorner",
-        "//testing:cel_baseline_test_case",
-        "//:auto_value",
-        "@maven//:junit_junit",
-        "@maven//:com_google_testparameterinjector_test_parameter_injector",
-        "//:java_truth",
-        "@maven//:com_google_truth_extensions_truth_proto_extension",
         "@cel_spec//proto/cel/expr:checked_java_proto",
         "@cel_spec//proto/cel/expr:syntax_java_proto",
         "@cel_spec//proto/cel/expr/conformance/proto2:test_all_types_java_proto",
@@ -61,15 +64,44 @@ java_library(
         "@com_google_googleapis//google/rpc/context:attribute_context_java_proto",
         "@maven//:com_google_guava_guava",
         "@maven//:com_google_protobuf_protobuf_java",
+        "@maven//:com_google_testparameterinjector_test_parameter_injector",
+        "@maven//:com_google_truth_extensions_truth_proto_extension",
+        "@maven//:junit_junit",
     ],
 )
 
-junit4_test_suites(
-    name = "test_suites",
-    sizes = [
-        "small",
-        "medium",
+java_test(
+    name = "MediumTests",
+    size = "medium",
+    srcs = ["ExprCheckerTest.java"],
+    resources = ["//checker/src/test/resources:baselines"],
+    deps = [
+        "//checker:checker_legacy_environment",
+        "//checker:standard_decl",
+        "//common:cel_ast",
+        "//common:cel_proto_decl_converter",
+        "//common:container",
+        "//common:mutable_ast",
+        "//common:proto_ast",
+        "//common/ast",
+        "//common/internal:env_visitor",
+        "//common/internal:errors",
+        "//common/resources/testdata/proto3:standalone_global_enum_java_proto",
+        "//common/types",
+        "//common/types:cel_proto_types",
+        "//common/types:message_type_provider",
+        "//common/types:type_providers",
+        #         "//java/com/google/testing/testsize:annotations",
+        "//parser:macro",
+        "//testing:adorner",
+        "//testing:cel_baseline_test_case",
+        "@maven//:junit_junit",
+        "@maven//:com_google_testparameterinjector_test_parameter_injector",
+        "@cel_spec//proto/cel/expr:checked_java_proto",
+        "@cel_spec//proto/cel/expr:syntax_java_proto",
+        "@cel_spec//proto/cel/expr/conformance/proto2:test_all_types_java_proto",
+        "@cel_spec//proto/cel/expr/conformance/proto3:test_all_types_java_proto",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_protobuf_protobuf_java",
     ],
-    src_dir = "src/test/java",
-    deps = [":tests"],
 )
