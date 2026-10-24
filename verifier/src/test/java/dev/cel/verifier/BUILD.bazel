@@ -1,40 +1,54 @@
 load("@rules_java//java:defs.bzl", "java_library")
-load("//:testing.bzl", "junit4_test_suites")
+load("@rules_java//java:java_library.bzl", "java_library")
+load("@rules_java//java:java_test.bzl", "java_test")
 
 package(
     default_applicable_licenses = ["//:license"],
 )
 
 java_library(
-    name = "tests",
-    testonly = True,
-    srcs = glob(
-        ["*.java"],
-    ),
+    name = "SmallTests_helpers",
+    testonly = 1,
+    srcs = ["VerifierTestHelper.java"],
     compatible_with = [],
     data = [
         "//testing:policy_test_resources",
     ],
     deps = [
+        "@bazel_tools//tools/java/runfiles",
+        "@maven//:com_google_guava_guava",
+    ],
+)
+
+java_test(
+    name = "SmallTests",
+    size = "small",
+    srcs = [
+        "CanonicalizationOptimizerTest.java",
+        "CelPolicyVerifierImplTest.java",
+    ],
+    compatible_with = [],
+    data = [
+        "//testing:policy_test_resources",
+    ],
+    shard_count = 8,
+    deps = [
+        ":SmallTests_helpers",
+        "//:java_truth",
         "//bundle:cel",
         "//common:cel_ast",
         "//common:compiler_common",
         "//common:container",
         "//common:mutable_ast",
-        "//common:operator",
         "//common:options",
         "//common/ast",
         "//common/ast:mutable_expr",
         "//common/types",
-        "//common/types:message_type_provider",
-        "//compiler:compiler_builder",
         "//extensions",
         "//extensions:optional_library",
-        #         "//java/com/google/testing/testsize:annotations",
         "//optimizer",
         "//optimizer:optimizer_builder",
         "//optimizer/optimizers:common_subexpression_elimination",
-        "//optimizer/optimizers:constant_folding",
         "//parser:macro",
         "//parser:unparser",
         "//policy",
@@ -43,16 +57,53 @@ java_library(
         "//policy:parser",
         "//policy:parser_factory",
         "//policy:validation_exception",
+        "//verifier",
+        "//verifier:canonicalization_optimizer",
+        "//verifier:policy_verifier",
+        "//verifier:policy_verifier_factory",
+        "//verifier:verifier_factory",
+        "@bazel_tools//tools/java/runfiles",
+        "@cel_spec//proto/cel/expr/conformance/proto3:test_all_types_java_proto",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_testparameterinjector_test_parameter_injector",
+        "@maven//:junit_junit",
+    ],
+)
+
+java_test(
+    name = "MediumTests",
+    size = "medium",
+    srcs = ["CelVerifierZ3ImplTest.java"],
+    compatible_with = [],
+    data = [
+        "//testing:policy_test_resources",
+    ],
+    shard_count = 8,
+    deps = [
+        "//bundle:cel",
+        "//common:cel_ast",
+        "//common:compiler_common",
+        "//common:container",
+        "//common:operator",
+        "//common:options",
+        "//common/ast",
+        "//common/types",
+        "//common/types:message_type_provider",
+        "//compiler:compiler_builder",
+        "//extensions",
+        "//extensions:optional_library",
+        #         "//java/com/google/testing/testsize:annotations",
+        "//optimizer",
+        "//optimizer:optimizer_builder",
+        "//optimizer/optimizers:constant_folding",
+        "//parser:macro",
         "@bazel_tools//tools/java/runfiles",
         "@maven//:junit_junit",
         "@maven//:com_google_testparameterinjector_test_parameter_injector",
         "//:java_truth",
         "@maven//:tools_aqua_z3_turnkey",
         "//verifier",
-        "//verifier:canonicalization_optimizer",
         "//verifier:numeric_bounds",
-        "//verifier:policy_verifier",
-        "//verifier:policy_verifier_factory",
         "//verifier:type_system",
         "//verifier:verifier_factory",
         "//verifier:z3_impl",
@@ -60,15 +111,4 @@ java_library(
         "@cel_spec//proto/cel/expr/conformance/proto3:test_all_types_java_proto",
         "@maven//:com_google_guava_guava",
     ],
-)
-
-junit4_test_suites(
-    name = "test_suites",
-    shard_count = 8,
-    sizes = [
-        "small",
-        "medium",
-    ],
-    src_dir = "src/test/java",
-    deps = [":tests"],
 )
