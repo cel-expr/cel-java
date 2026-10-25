@@ -50,6 +50,10 @@ import dev.cel.parser.CelUnparser;
 import dev.cel.parser.CelUnparserFactory;
 import dev.cel.runtime.CelFunctionBinding;
 import dev.cel.testing.CelRuntimeFlavor;
+import dev.cel.verifier.CelVerificationResult;
+import dev.cel.verifier.CelVerificationResult.VerificationStatus;
+import dev.cel.verifier.CelVerifier;
+import dev.cel.verifier.CelVerifierFactory;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -71,6 +75,7 @@ public class ConstantFoldingOptimizerTest {
 
   @Before
   public void setUp() {
+    System.setProperty("z3.skipLibraryLoad", "true");
     this.cel = setupEnv(runtimeFlavor.builder());
     this.celOptimizer =
         CelOptimizerFactory.standardCelOptimizerBuilder(this.cel)
@@ -84,6 +89,7 @@ public class ConstantFoldingOptimizerTest {
         .addVar("y", SimpleType.DYN)
         .addVar("dyn_x", SimpleType.DYN)
         .addVar("int_x", SimpleType.INT)
+        .addVar("int_y", SimpleType.INT)
         .addVar("double_x", SimpleType.DOUBLE)
         .addVar("bool_x", SimpleType.BOOL)
         .addVar("string_x", SimpleType.STRING)
@@ -129,12 +135,14 @@ public class ConstantFoldingOptimizerTest {
             CelExtensions.comprehensions(),
             CelExtensions.bindings(),
             CelOptionalLibrary.INSTANCE,
+            CelExtensions.lists(),
             CelExtensions.math(),
             CelExtensions.strings(),
             CelExtensions.sets(CEL_OPTIONS),
             CelExtensions.encoders(CEL_OPTIONS))
         .addRuntimeLibraries(
             CelOptionalLibrary.INSTANCE,
+            CelExtensions.lists(),
             CelExtensions.math(),
             CelExtensions.strings(),
             CelExtensions.sets(CEL_OPTIONS),
@@ -591,6 +599,14 @@ public class ConstantFoldingOptimizerTest {
   @TestParameters("{source: 'x != false'}")
   @TestParameters("{source: 'false != x'}")
   @TestParameters("{source: '[x].exists(item, item == true)'}")
+  @TestParameters("{source: '[1, 2, 3, ?optional_int_x][0]'}")
+  @TestParameters("{source: '[1, 2, 3, int_x][4]'}")
+  @TestParameters("{source: '[1, 2, 3, int_x][-1]'}")
+  @TestParameters("{source: '{\"a\": 1, \"a\": 2, \"b\": x}[\"b\"]'}")
+  @TestParameters("{source: '{\"a\": 1, \"b\": int_x}[string_x]'}")
+  @TestParameters("{source: '{1: 10, 1u: 20, 2: x}[2]'}")
+  @TestParameters("{source: '{\"a\": 1, ?string_x: optional_int_x}[\"a\"]'}")
+  @TestParameters("{source: '{\"a\": 2, string_x: 1}.a'}")
   public void constantFold_noOp(String source) throws Exception {
     CelAbstractSyntaxTree ast = cel.compile(source).getAst();
 
@@ -953,5 +969,110 @@ public class ConstantFoldingOptimizerTest {
     CelAbstractSyntaxTree optimizedAst = optimizer.optimize(ast);
 
     assertThat(CEL_UNPARSER.unparse(optimizedAst)).isEqualTo("NaN in [NaN, double_x]");
+  }
+
+  @Test
+  @TestParameters("{source: '{0: x, 2u: y}[0u]', expected: 'x'}")
+  @TestParameters("{source: '{-1: 10, 18446744073709551615u: int_x}[-1]', expected: '10'}")
+  @TestParameters("{source: '[{\"a\": 1, \"b\": int_x}][0].a', expected: '1'}")
+  @TestParameters(
+      "{source: 'optional.none().orValue(int_x in [1, 2])', expected: 'int_x in [1, 2]'}")
+  public void constantFold_partialEvaluation_success(String source, String expected)
+      throws Exception {
+    CelAbstractSyntaxTree ast = cel.compile(source).getAst();
+
+    CelAbstractSyntaxTree optimizedAst = celOptimizer.optimize(ast);
+
+    assertThat(CEL_UNPARSER.unparse(optimizedAst)).isEqualTo(expected);
+  }
+
+  @Test
+  public void constantFold_partialEvaluation_rootResultTypeMismatch_skipsFold() throws Exception {
+    Cel stringResultCel =
+        setupEnv(runtimeFlavor.builder()).toCelBuilder().setResultType(SimpleType.STRING).build();
+    CelOptimizer optimizer =
+        CelOptimizerFactory.standardCelOptimizerBuilder(stringResultCel)
+            .addAstOptimizers(ConstantFoldingOptimizer.getInstance())
+            .build();
+    CelAbstractSyntaxTree ast = stringResultCel.compile("[1, x][0]").getAst();
+
+    CelAbstractSyntaxTree optimizedAst = optimizer.optimize(ast);
+
+    assertThat(CEL_UNPARSER.unparse(optimizedAst)).isEqualTo("[1, x][0]");
+  }
+
+  @Test
+  @TestParameters("{source: '[1, 2, 3, int_x][0]', expected: '1'}")
+  @TestParameters("{source: '[1, 2, 3, int_x][3]', expected: 'int_x'}")
+  @TestParameters("{source: '[1, 2, 3, int_x][?-1]', expected: 'optional.none()'}")
+  @TestParameters("{source: '[1, 2, 3, int_x][?0]', expected: 'optional.of(1)'}")
+  @TestParameters("{source: '[1, 2, 3, int_x][?3]', expected: 'optional.of(int_x)'}")
+  @TestParameters("{source: '[1, 2, 3, int_x][?4]', expected: 'optional.none()'}")
+  @TestParameters("{source: '[1, 2, 3, int_x][?0].orValue(99)', expected: '1'}")
+  @TestParameters("{source: '[1, 2, 3, int_x][?3].orValue(99)', expected: 'int_x'}")
+  @TestParameters("{source: '[1, 2, 3, int_x][?4].orValue(int_x)', expected: 'int_x'}")
+  @TestParameters("{source: '{\"a\": 1, \"b\": int_x}[\"a\"]', expected: '1'}")
+  @TestParameters("{source: '{\"a\": 1, \"b\": int_x}[\"b\"]', expected: 'int_x'}")
+  @TestParameters("{source: '{\"a\": 1, \"b\": int_x}.a', expected: '1'}")
+  @TestParameters("{source: '{\"a\": 1, \"b\": int_x}.b', expected: 'int_x'}")
+  @TestParameters("{source: 'has({\"a\": 1, \"b\": int_x}.a)', expected: 'true'}")
+  @TestParameters("{source: 'has({\"a\": 1, \"b\": int_x}.b)', expected: 'true'}")
+  @TestParameters("{source: 'has({\"a\": 1, \"b\": int_x}.c)', expected: 'false'}")
+  @TestParameters("{source: '{\"a\": 1, \"b\": int_x}[?\"a\"]', expected: 'optional.of(1)'}")
+  @TestParameters("{source: '{\"a\": 1, \"b\": int_x}[?\"b\"]', expected: 'optional.of(int_x)'}")
+  @TestParameters("{source: '{\"a\": 1, \"b\": int_x}[?\"c\"]', expected: 'optional.none()'}")
+  @TestParameters("{source: '{\"a\": 1, \"b\": int_x}.?a', expected: 'optional.of(1)'}")
+  @TestParameters("{source: '{\"a\": 1, \"b\": int_x}.?b', expected: 'optional.of(int_x)'}")
+  @TestParameters("{source: '{\"a\": 1, \"b\": int_x}.?c', expected: 'optional.none()'}")
+  @TestParameters("{source: '{\"a\": 1, \"b\": int_x}.?a.orValue(0)', expected: '1'}")
+  @TestParameters("{source: '{\"a\": 1, \"b\": int_x}.?b.orValue(0)', expected: 'int_x'}")
+  @TestParameters("{source: '{\"a\": 1, \"b\": int_x}.?c.orValue(int_x)', expected: 'int_x'}")
+  @TestParameters("{source: 'optional.of(1).or(optional_int_x)', expected: 'optional.of(1)'}")
+  @TestParameters(
+      "{source: 'optional.of(int_x).or(optional.of(1))', expected: 'optional.of(int_x)'}")
+  @TestParameters(
+      "{source: 'optional.of(int_x).or(optional.none())', expected: 'optional.of(int_x)'}")
+  @TestParameters("{source: 'optional.none().or(optional_int_x)', expected: 'optional_int_x'}")
+  @TestParameters("{source: 'optional.of(1).orValue(int_x)', expected: '1'}")
+  @TestParameters("{source: 'optional.of(int_x).orValue(1)', expected: 'int_x'}")
+  @TestParameters("{source: 'optional.none().orValue(int_x)', expected: 'int_x'}")
+  @TestParameters("{source: 'optional.of(int_x).value()', expected: 'int_x'}")
+  @TestParameters("{source: 'optional.of(int_x).hasValue()', expected: 'true'}")
+  @TestParameters("{source: 'optional.none().hasValue()', expected: 'false'}")
+  public void verifyEquivalence_partialConstantFolding_isVerified(String source, String expected)
+      throws Exception {
+    CelAbstractSyntaxTree ast = cel.compile(source).getAst();
+
+    CelAbstractSyntaxTree optimizedAst = celOptimizer.optimize(ast);
+
+    assertThat(CEL_UNPARSER.unparse(optimizedAst)).isEqualTo(expected);
+    if (runtimeFlavor != CelRuntimeFlavor.PLANNER) {
+      return;
+    }
+    CelVerifier verifier = CelVerifierFactory.newVerifier(cel).build();
+    CelVerificationResult verificationResult = verifier.verifyEquivalence(ast, optimizedAst);
+    assertThat(verificationResult.status()).isEqualTo(VerificationStatus.VERIFIED);
+  }
+
+  @Test
+  @TestParameters("{source: '[1, 1 / int_x][0]', unsoundFold: '1'}")
+  @TestParameters("{source: '[1, int_x + 1][0]', unsoundFold: '1'}")
+  @TestParameters("{source: '{\"a\": 2, string_x: 1}[\"a\"]', unsoundFold: '2'}")
+  @TestParameters("{source: 'optional.of(1).orValue(1 / int_x)', unsoundFold: '1'}")
+  @TestParameters("{source: 'optional.of(1 / int_x).orValue(0)', unsoundFold: '0'}")
+  public void verifyEquivalence_unsoundPartialFold_isViolated(String source, String unsoundFold)
+      throws Exception {
+    CelAbstractSyntaxTree ast = cel.compile(source).getAst();
+
+    CelAbstractSyntaxTree optimizedAst = celOptimizer.optimize(ast);
+
+    assertThat(CEL_UNPARSER.unparse(optimizedAst)).isEqualTo(source);
+    if (runtimeFlavor != CelRuntimeFlavor.PLANNER) {
+      return;
+    }
+    CelVerifier verifier = CelVerifierFactory.newVerifier(cel).build();
+    CelAbstractSyntaxTree unsoundAst = cel.compile(unsoundFold).getAst();
+    assertThat(verifier.verifyEquivalence(ast, unsoundAst).status())
+        .isEqualTo(VerificationStatus.VIOLATED);
   }
 }
