@@ -19,6 +19,7 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.MoreCollectors.onlyElement;
 import static dev.cel.checker.CelStandardDeclarations.StandardFunction.DURATION;
 import static dev.cel.checker.CelStandardDeclarations.StandardFunction.TIMESTAMP;
+import static dev.cel.checker.CelStandardDeclarations.StandardFunction.TYPE;
 
 import com.google.auto.value.AutoValue;
 import com.google.common.collect.ImmutableList;
@@ -36,8 +37,10 @@ import dev.cel.common.ast.CelConstant;
 import dev.cel.common.ast.CelExpr.ExprKind.Kind;
 import dev.cel.common.ast.CelMutableExpr;
 import dev.cel.common.ast.CelMutableExpr.CelMutableCall;
+import dev.cel.common.ast.CelMutableExpr.CelMutableComprehension;
 import dev.cel.common.ast.CelMutableExpr.CelMutableList;
 import dev.cel.common.ast.CelMutableExpr.CelMutableMap;
+import dev.cel.common.ast.CelMutableExpr.CelMutableSelect;
 import dev.cel.common.ast.CelMutableExpr.CelMutableStruct;
 import dev.cel.common.ast.CelMutableExprConverter;
 import dev.cel.common.internal.DateTimeHelpers;
@@ -55,7 +58,6 @@ import dev.cel.common.values.CelValueProvider;
 import dev.cel.common.values.StructValue;
 import dev.cel.extensions.CelOptionalLibrary.Function;
 import dev.cel.optimizer.AstMutator;
-import dev.cel.optimizer.AstMutator.SubtreeReplacement;
 import dev.cel.optimizer.CelAstOptimizer;
 import dev.cel.optimizer.CelOptimizationException;
 import dev.cel.runtime.CelAttributePattern;
@@ -73,6 +75,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -92,6 +95,20 @@ public final class ConstantFoldingOptimizer implements CelAstOptimizer {
           Operator.GREATER.getFunction(),
           Operator.GREATER_EQUALS.getFunction(),
           Operator.IN.getFunction());
+
+  private static final ImmutableSet<String> OPTIONAL_PRODUCING_FUNCTIONS =
+      ImmutableSet.of(
+          Function.OPTIONAL_OF.getFunction(),
+          Function.FIRST.getFunction(),
+          Function.LAST.getFunction());
+
+  private static final ImmutableSet<String> EQUALITY_FUNCTIONS =
+      ImmutableSet.of(
+          Operator.EQUALS.getFunction(),
+          Operator.NOT_EQUALS.getFunction(),
+          "sets.contains",
+          "sets.intersects",
+          "sets.equivalent");
 
   private static final ConstantFoldingOptimizer INSTANCE =
       new ConstantFoldingOptimizer(ConstantFoldingOptions.newBuilder().build());
@@ -136,12 +153,19 @@ public final class ConstantFoldingOptimizer implements CelAstOptimizer {
     }
     // Override the environment's expected type to generally allow all subtrees to be folded.
     Cel optimizerEnv = builder.setResultType(SimpleType.DYN).build();
+    boolean disableStandardEquality = cel.toCheckerBuilder().options().disableCelStandardEquality();
 
     CelMutableAst initialMutableAst = CelMutableAst.fromCelAst(ast);
     ImmutableMap<String, CelType> identTypes = precomputeIdentTypes(initialMutableAst);
 
     CelMutableAst mutableAst =
-        foldConstants(optimizerEnv, valueProvider, identTypes, initialMutableAst);
+        foldConstants(
+            cel,
+            optimizerEnv,
+            disableStandardEquality,
+            valueProvider,
+            identTypes,
+            initialMutableAst);
     mutableAst = pruneOptionalElements(mutableAst);
 
     if (mutableAst == initialMutableAst) {
@@ -172,47 +196,77 @@ public final class ConstantFoldingOptimizer implements CelAstOptimizer {
   }
 
   private CelMutableAst foldConstants(
+      Cel cel,
       Cel optimizerEnv,
+      boolean disableStandardEquality,
       @Nullable CelValueProvider valueProvider,
       ImmutableMap<String, CelType> identTypes,
       CelMutableAst mutableAst)
       throws CelOptimizationException {
     for (int iterCount = 0; iterCount < constantFoldingOptions.maxIterationLimit(); iterCount++) {
-      Optional<SubtreeReplacement> replacement =
-          findNextFoldableSubtree(optimizerEnv, valueProvider, identTypes, mutableAst);
-      if (!replacement.isPresent()) {
+      Optional<CelMutableAst> nextAst =
+          findNextFoldableSubtree(
+              cel, optimizerEnv, disableStandardEquality, valueProvider, identTypes, mutableAst);
+      if (!nextAst.isPresent()) {
         return mutableAst;
       }
-      mutableAst = astMutator.replaceSubtree(mutableAst, replacement.get());
+      mutableAst = nextAst.get();
     }
     throw new IllegalStateException("Max iteration count reached.");
   }
 
-  private Optional<SubtreeReplacement> findNextFoldableSubtree(
+  private Optional<CelMutableAst> findNextFoldableSubtree(
+      Cel cel,
       Cel optimizerEnv,
+      boolean disableStandardEquality,
       @Nullable CelValueProvider valueProvider,
       ImmutableMap<String, CelType> identTypes,
       CelMutableAst mutableAst)
       throws CelOptimizationException {
     CelNavigableMutableAst navAst = CelNavigableMutableAst.fromAst(mutableAst);
     Iterator<CelNavigableMutableExpr> foldableExprs =
-        navAst.getRoot().allNodes(TraversalOrder.PRE_ORDER).filter(this::canFold).iterator();
+        navAst
+            .getRoot()
+            .allNodes(TraversalOrder.PRE_ORDER)
+            .filter(node -> canFold(disableStandardEquality, node))
+            .iterator();
     while (foldableExprs.hasNext()) {
       CelNavigableMutableExpr foldableExpr = foldableExprs.next();
-      Optional<CelMutableExpr> pruned =
+      Optional<CelMutableExpr> candidate =
           maybePruneBranches(mutableAst, identTypes, foldableExpr.expr());
-      if (pruned.isPresent()) {
-        return Optional.of(SubtreeReplacement.of(foldableExpr.id(), pruned.get()));
+      if (!candidate.isPresent()) {
+        candidate = maybeFold(optimizerEnv, disableStandardEquality, valueProvider, foldableExpr);
       }
-      Optional<CelMutableExpr> folded = maybeFold(optimizerEnv, valueProvider, foldableExpr);
-      if (folded.isPresent()) {
-        return Optional.of(SubtreeReplacement.of(foldableExpr.id(), folded.get()));
+      if (candidate.isPresent()) {
+        Optional<CelMutableAst> replacedAst =
+            tryReplaceSubtree(cel, optimizerEnv, mutableAst, foldableExpr, candidate.get());
+        if (replacedAst.isPresent()) {
+          return replacedAst;
+        }
       }
     }
     return Optional.empty();
   }
 
-  private boolean canFold(CelNavigableMutableExpr navigableExpr) {
+  private Optional<CelMutableAst> tryReplaceSubtree(
+      Cel cel,
+      Cel optimizerEnv,
+      CelMutableAst mutableAst,
+      CelNavigableMutableExpr foldableExpr,
+      CelMutableExpr candidate) {
+    // Folding an expression containing a dynamic identifier can narrow its static type from dyn to
+    // a concrete type (e.g. `false || [3, x][0]` -> `false || 3`), which may cause the enclosing
+    // expression or expected result type to fail type-checking.
+    CelMutableAst candidateAst =
+        astMutator.replaceSubtree(
+            CelMutableAst.fromCelAst(mutableAst.toParsedAst()), candidate, foldableExpr.id());
+    Cel envToCheck = foldableExpr.parent().isPresent() ? optimizerEnv : cel;
+    return envToCheck.check(candidateAst.toParsedAst()).hasError()
+        ? Optional.empty()
+        : Optional.of(candidateAst);
+  }
+
+  private boolean canFold(boolean disableStandardEquality, CelNavigableMutableExpr navigableExpr) {
     switch (navigableExpr.getKind()) {
       case CALL:
         if (!containsFoldableFunctionOnly(navigableExpr)) {
@@ -269,17 +323,109 @@ public final class ConstantFoldingOptimizer implements CelAstOptimizer {
           return !CelNavigableExprUtil.hasComprehensionVariable(navigableExpr);
         }
 
-        // Default case: all call arguments must be constants. If the argument is a container (ex:
-        // list, map), then its arguments must be a constant.
-        return areChildrenArgConstant(navigableExpr);
+        return areChildrenArgConstant(navigableExpr)
+            || maybePruneContainerLookup(navigableExpr.expr()).isPresent()
+            || maybePruneOptionalCall(mutableCall).isPresent()
+            || canPartiallyEvaluate(disableStandardEquality, navigableExpr);
       case SELECT:
         CelNavigableMutableExpr operand = navigableExpr.children().collect(onlyElement());
-        return areChildrenArgConstant(operand);
+        return areChildrenArgConstant(operand)
+            || maybePruneContainerLookup(navigableExpr.expr()).isPresent();
       case COMPREHENSION:
         return !isNestedComprehension(navigableExpr) && containsFoldableFunctionOnly(navigableExpr);
       default:
         return false;
     }
+  }
+
+  private static boolean canPartiallyEvaluate(
+      boolean disableStandardEquality, CelNavigableMutableExpr navigableExpr) {
+    if (containsUnsupportedSentinelFunction(disableStandardEquality, navigableExpr)) {
+      return false;
+    }
+    return navigableExpr
+        .children()
+        .allMatch(child -> !child.getKind().equals(Kind.IDENT) && isErrorFree(child.expr()));
+  }
+
+  private static boolean canPartiallyEvaluateComprehension(
+      boolean disableStandardEquality, CelNavigableMutableExpr navigableExpr) {
+    if (containsUnsupportedSentinelFunction(disableStandardEquality, navigableExpr)) {
+      return false;
+    }
+    CelMutableComprehension comprehension = navigableExpr.expr().comprehension();
+    return isErrorFree(comprehension.iterRange()) && isErrorFree(comprehension.accuInit());
+  }
+
+  private static boolean containsUnsupportedSentinelFunction(
+      boolean disableStandardEquality, CelNavigableMutableExpr expr) {
+    return expr.allNodes()
+        .filter(node -> node.getKind().equals(Kind.CALL))
+        .anyMatch(
+            node -> {
+              CelMutableCall call = node.expr().call();
+              String fn = call.function();
+              if (!DefaultOptimizerConstants.CEL_CANONICAL_FUNCTIONS.contains(fn)
+                  || fn.equals(Function.OPTIONAL_OF_NON_ZERO_VALUE.getFunction())
+                  || fn.equals(TYPE.functionName())
+                  || fn.equals("flatten")) {
+                return true;
+              }
+              if (!node.equals(expr) && OPTIONAL_PRODUCING_FUNCTIONS.contains(fn)) {
+                return true;
+              }
+              if (fn.equals(Operator.IN.getFunction())) {
+                return !call.args().get(0).getKind().equals(Kind.CONSTANT)
+                    || !call.args().get(1).getKind().equals(Kind.MAP)
+                    || !isErrorFreeMap(call.args().get(1).map());
+              }
+              if (EQUALITY_FUNCTIONS.contains(fn)) {
+                return disableStandardEquality
+                    || node.children().allMatch(CelNavigableExprUtil::hasComprehensionVariable);
+              }
+              return false;
+            });
+  }
+
+  private static boolean isErrorFree(CelMutableExpr expr) {
+    switch (expr.getKind()) {
+      case CONSTANT:
+      case IDENT:
+        return true;
+      case CALL:
+        CelMutableCall call = expr.call();
+        return call.function().equals(Function.OPTIONAL_NONE.getFunction())
+            || (call.function().equals(Function.OPTIONAL_OF.getFunction())
+                && isErrorFree(call.args().get(0)));
+      case LIST:
+        CelMutableList list = expr.list();
+        return list.optionalIndices().isEmpty()
+            && list.elements().stream().allMatch(ConstantFoldingOptimizer::isErrorFree);
+      case MAP:
+        return isErrorFreeMap(expr.map());
+      default:
+        return false;
+    }
+  }
+
+  private static boolean isErrorFreeMap(CelMutableMap map) {
+    Set<CelConstant> keysSeen = new HashSet<>();
+    for (CelMutableMap.Entry entry : map.entries()) {
+      if (entry.optionalEntry()
+          || !entry.key().getKind().equals(Kind.CONSTANT)
+          || !isErrorFree(entry.value())
+          || !keysSeen.add(normalizeMapKey(entry.key().constant()))) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private static CelConstant normalizeMapKey(CelConstant key) {
+    if (key.getKind().equals(CelConstant.Kind.UINT64_VALUE) && key.uint64Value().longValue() >= 0) {
+      return CelConstant.ofValue(key.uint64Value().longValue());
+    }
+    return key;
   }
 
   private boolean containsFoldableFunctionOnly(CelNavigableMutableExpr navigableExpr) {
@@ -325,16 +471,33 @@ public final class ConstantFoldingOptimizer implements CelAstOptimizer {
   }
 
   private Optional<CelMutableExpr> maybeFold(
-      Cel cel, @Nullable CelValueProvider valueProvider, CelNavigableMutableExpr node)
+      Cel cel,
+      boolean disableStandardEquality,
+      @Nullable CelValueProvider valueProvider,
+      CelNavigableMutableExpr node)
       throws CelOptimizationException {
     if (!node.getKind().equals(Kind.COMPREHENSION)
         && CelNavigableExprUtil.hasComprehensionVariable(node)) {
       return Optional.empty();
     }
+    boolean allConstant = areChildrenArgConstant(node);
+    if (!allConstant
+        && !node.getKind().equals(Kind.COMPREHENSION)
+        && !canPartiallyEvaluate(disableStandardEquality, node)) {
+      return Optional.empty();
+    }
     Object result;
     try {
-      result = evaluateExpr(cel, node);
-    } catch (CelEvaluationException | CelValidationException e) {
+      result =
+          evaluateExpr(
+              cel,
+              node,
+              !node.getKind().equals(Kind.COMPREHENSION)
+                  || canPartiallyEvaluateComprehension(disableStandardEquality, node));
+    } catch (CelEvaluationException | CelValidationException | RuntimeException e) {
+      if (!allConstant) {
+        return Optional.empty();
+      }
       throw new CelOptimizationException(
           "Constant folding failure. Failed to evaluate subtree due to: " + e.getMessage(), e);
     }
@@ -479,7 +642,7 @@ public final class ConstantFoldingOptimizer implements CelAstOptimizer {
   private Optional<CelMutableExpr> maybePruneBranches(
       CelMutableAst mutableAst, Map<String, CelType> identTypes, CelMutableExpr expr) {
     if (!expr.getKind().equals(Kind.CALL)) {
-      return Optional.empty();
+      return maybePruneContainerLookup(expr);
     }
 
     CelMutableCall call = expr.call();
@@ -575,6 +738,108 @@ public final class ConstantFoldingOptimizer implements CelAstOptimizer {
       return replacementExpr;
     }
 
+    Optional<CelMutableExpr> containerLookup = maybePruneContainerLookup(expr);
+    return containerLookup.isPresent() ? containerLookup : maybePruneOptionalCall(call);
+  }
+
+  private static Optional<CelMutableExpr> maybePruneOptionalCall(CelMutableCall call) {
+    if (!call.target().isPresent()) {
+      return Optional.empty();
+    }
+    String function = call.function();
+    CelMutableExpr target = call.target().get();
+    if (function.equals(Function.OR.getFunction())
+        || function.equals(Function.OR_VALUE.getFunction())) {
+      CelMutableExpr arg = call.args().get(0);
+      if (isCallToFunction(target, Function.OPTIONAL_NONE.getFunction())) {
+        return Optional.of(arg);
+      }
+      if (isCallToFunction(target, Function.OPTIONAL_OF.getFunction())
+          && isErrorFree(target)
+          && isErrorFree(arg)) {
+        return Optional.of(
+            function.equals(Function.OR.getFunction()) ? target : target.call().args().get(0));
+      }
+    } else if (function.equals(Function.VALUE.getFunction())) {
+      if (isCallToFunction(target, Function.OPTIONAL_OF.getFunction()) && isErrorFree(target)) {
+        return Optional.of(target.call().args().get(0));
+      }
+    } else if (function.equals(Function.HAS_VALUE.getFunction())) {
+      if (isCallToFunction(target, Function.OPTIONAL_NONE.getFunction())) {
+        return Optional.of(CelMutableExpr.ofConstant(CelConstant.ofValue(false)));
+      }
+      if (isCallToFunction(target, Function.OPTIONAL_OF.getFunction()) && isErrorFree(target)) {
+        return Optional.of(CelMutableExpr.ofConstant(CelConstant.ofValue(true)));
+      }
+    }
+    return Optional.empty();
+  }
+
+  private static Optional<CelMutableExpr> maybePruneContainerLookup(CelMutableExpr expr) {
+    if (expr.getKind().equals(Kind.SELECT)) {
+      CelMutableSelect select = expr.select();
+      if (select.operand().getKind().equals(Kind.MAP) && isErrorFreeMap(select.operand().map())) {
+        Optional<CelMutableExpr> val =
+            findMapEntryByConstantKey(select.operand().map(), CelConstant.ofValue(select.field()));
+        return select.testOnly()
+            ? Optional.of(CelMutableExpr.ofConstant(CelConstant.ofValue(val.isPresent())))
+            : val;
+      }
+      return Optional.empty();
+    }
+    if (!expr.getKind().equals(Kind.CALL)) {
+      return Optional.empty();
+    }
+    CelMutableCall call = expr.call();
+    String function = call.function();
+    if (function.equals(Operator.INDEX.getFunction())) {
+      return findContainerElement(call.args().get(0), call.args().get(1), /* optional= */ false);
+    }
+    if (function.equals(Operator.OPTIONAL_INDEX.getFunction())
+        || function.equals(Operator.OPTIONAL_SELECT.getFunction())) {
+      return findContainerElement(call.args().get(0), call.args().get(1), /* optional= */ true);
+    }
+    return Optional.empty();
+  }
+
+  private static Optional<CelMutableExpr> findContainerElement(
+      CelMutableExpr target, CelMutableExpr key, boolean optional) {
+    Optional<CelMutableExpr> elem;
+    if (target.getKind().equals(Kind.LIST)
+        && isErrorFree(target)
+        && isExprConstantOfKind(key, CelConstant.Kind.INT64_VALUE)) {
+      long idx = key.constant().int64Value();
+      List<CelMutableExpr> elements = target.list().elements();
+      elem =
+          idx >= 0 && idx < elements.size()
+              ? Optional.of(elements.get((int) idx))
+              : Optional.empty();
+    } else if (target.getKind().equals(Kind.MAP)
+        && isErrorFreeMap(target.map())
+        && key.getKind().equals(Kind.CONSTANT)) {
+      elem = findMapEntryByConstantKey(target.map(), key.constant());
+    } else {
+      return Optional.empty();
+    }
+    if (!optional) {
+      return elem;
+    }
+    return Optional.of(
+        elem.map(
+                val ->
+                    CelMutableExpr.ofCall(
+                        CelMutableCall.create(Function.OPTIONAL_OF.getFunction(), val)))
+            .orElseGet(ConstantFoldingOptimizer::newOptionalNoneExpr));
+  }
+
+  private static Optional<CelMutableExpr> findMapEntryByConstantKey(
+      CelMutableMap map, CelConstant targetKey) {
+    CelConstant normalizedTarget = normalizeMapKey(targetKey);
+    for (CelMutableMap.Entry entry : map.entries()) {
+      if (normalizeMapKey(entry.key().constant()).equals(normalizedTarget)) {
+        return Optional.of(entry.value());
+      }
+    }
     return Optional.empty();
   }
 
@@ -849,8 +1114,19 @@ public final class ConstantFoldingOptimizer implements CelAstOptimizer {
   }
 
   @CanIgnoreReturnValue
-  private static Object evaluateExpr(Cel cel, CelNavigableMutableExpr navigableMutableExpr)
+  private static Object evaluateExpr(
+      Cel cel, CelNavigableMutableExpr navigableMutableExpr, boolean useSentinels)
       throws CelValidationException, CelEvaluationException {
+    CelAbstractSyntaxTree ast =
+        CelAbstractSyntaxTree.newParsedAst(
+            CelMutableExprConverter.fromMutableExpr(navigableMutableExpr.expr()),
+            CelSource.newBuilder().build());
+    ast = cel.check(ast).getAst();
+
+    if (useSentinels) {
+      return cel.createProgram(ast).eval(unused -> Optional.of(new UnknownSentinel()));
+    }
+
     ImmutableList<CelAttributePattern> attributePatterns =
         navigableMutableExpr
             .allNodes()
@@ -858,13 +1134,27 @@ public final class ConstantFoldingOptimizer implements CelAstOptimizer {
             .map(node -> node.expr().ident().name())
             .map(CelAttributePattern::fromQualifiedIdentifier)
             .collect(toImmutableList());
-    CelAbstractSyntaxTree ast =
-        CelAbstractSyntaxTree.newParsedAst(
-            CelMutableExprConverter.fromMutableExpr(navigableMutableExpr.expr()),
-            CelSource.newBuilder().build());
-    ast = cel.check(ast).getAst();
 
     return cel.createProgram(ast).eval(PartialVars.of(attributePatterns));
+  }
+
+  private static final class UnknownElementAccessedException extends RuntimeException {}
+
+  private static final class UnknownSentinel {
+    @Override
+    public boolean equals(Object obj) {
+      throw new UnknownElementAccessedException();
+    }
+
+    @Override
+    public int hashCode() {
+      throw new UnknownElementAccessedException();
+    }
+
+    @Override
+    public String toString() {
+      throw new UnknownElementAccessedException();
+    }
   }
 
   /** Options to configure how Constant Folding behave. */

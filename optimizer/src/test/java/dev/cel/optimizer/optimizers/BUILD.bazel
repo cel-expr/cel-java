@@ -49,6 +49,8 @@ java_library(
         "@maven//:com_google_testparameterinjector_test_parameter_injector",
         "//:java_truth",
         "@maven//:com_google_truth_extensions_truth_proto_extension",
+        "//verifier",
+        "//verifier:verifier_factory",
         "@cel_spec//proto/cel/expr:syntax_java_proto",
         "@cel_spec//proto/cel/expr/conformance/proto2:test_all_types_java_proto",
         "@cel_spec//proto/cel/expr/conformance/proto3:test_all_types_java_proto",
