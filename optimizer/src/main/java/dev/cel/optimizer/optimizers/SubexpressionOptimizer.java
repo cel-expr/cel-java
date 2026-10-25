@@ -26,11 +26,11 @@ import com.google.auto.value.AutoValue;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Strings;
 import com.google.common.base.Verify;
+import com.google.common.collect.HashMultiset;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Multimaps;
+import com.google.common.collect.Multiset;
 import com.google.common.collect.Sets;
 import com.google.common.collect.Streams;
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
@@ -85,7 +85,6 @@ import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.function.Predicate;
 import java.util.stream.Stream;
 
 /**
@@ -412,20 +411,31 @@ public final class SubexpressionOptimizer implements CelAstOptimizer {
     Set<CelMutableExpr> ineligibleExprs = getIneligibleExprsFromComprehensionBranches(navAst);
     ImmutableList<CelNavigableMutableExpr> allNodes =
         navAst.getRoot().allNodes(TraversalOrder.PRE_ORDER).collect(toImmutableList());
-    ImmutableListMultimap<Integer, CelNavigableMutableExpr> nodesByHeight =
-        Multimaps.index(allNodes, CelNavigableMutableExpr::height);
+    // Loop-invariant subexpressions are extracted even if they occur once: block slots are lazily
+    // memoized, so they then run at most once and only if reached, instead of once per iteration.
+    @SuppressWarnings("ValueClassIdentity") // Integer values are only unboxed, never compared.
+    IdentityHashMap<CelMutableExpr, Integer> loopDepths = new IdentityHashMap<>();
+    for (CelNavigableMutableExpr node : allNodes) {
+      if (node.getKind().equals(Kind.COMPREHENSION)) {
+        CelNavigableMutableExpr.fromExpr(node.expr().comprehension().loopStep())
+            .allNodes()
+            .forEach(step -> loopDepths.merge(step.expr(), 1, Integer::sum));
+      }
+    }
+    Set<CelMutableExpr> eligibleExprs = getEligibleExprs(allNodes, ineligibleExprs);
+    Multiset<Integer> vnCounts = HashMultiset.create();
+    eligibleExprs.forEach(expr -> vnCounts.add(valueNumberer.vnOf(expr)));
     Set<Integer> seenVns = new HashSet<>();
     for (CelNavigableMutableExpr node : allNodes) {
-      ImmutableList<CelNavigableMutableExpr> sameHeightNodes = nodesByHeight.get(node.height());
-      if (sameHeightNodes.size() < 2 || !canEliminate(node, ineligibleExprs)) {
-        continue;
-      }
-      int vn = valueNumberer.vnOf(node.expr());
-      if (!seenVns.add(vn)) {
-        return sameHeightNodes.stream()
-            .filter(candidate -> canEliminate(candidate, ineligibleExprs))
+      CelMutableExpr expr = node.expr();
+      if (eligibleExprs.contains(expr)
+          && (loopDepths.containsKey(expr) || !seenVns.add(valueNumberer.vnOf(expr)))) {
+        int vn =
+            valueNumberer.vnOf(
+                extractionTarget(node, loopDepths, vnCounts, valueNumberer, eligibleExprs).expr());
+        return allNodes.stream()
             .map(CelNavigableMutableExpr::expr)
-            .filter(expr -> valueNumberer.vnOf(expr) == vn)
+            .filter(e -> eligibleExprs.contains(e) && valueNumberer.vnOf(e) == vn)
             .collect(toImmutableList());
       }
     }
@@ -433,34 +443,86 @@ public final class SubexpressionOptimizer implements CelAstOptimizer {
     return ImmutableList.of();
   }
 
-  private boolean canEliminate(
-      CelNavigableMutableExpr navigableExpr, Set<CelMutableExpr> ineligibleExprs) {
-    return !navigableExpr.getKind().equals(Kind.CONSTANT)
-        && !navigableExpr.getKind().equals(Kind.IDENT)
-        // Exclude empty lists (cel.bind sets this for iterRange).
-        && !(navigableExpr.getKind().equals(Kind.LIST)
-            && navigableExpr.expr().list().elements().isEmpty())
-        && !ineligibleExprs.contains(navigableExpr.expr())
-        && containsEliminableFunctionOnly(navigableExpr)
-        && containsValidComprehensionIdents(navigableExpr);
+  // Slots are never revisited, so before extracting `node` this first extracts any eligible
+  // descendant that is duplicated within or also occurs outside of it, or (for a loop-step node)
+  // that is invariant to a loop nested inside it.
+  private static CelNavigableMutableExpr extractionTarget(
+      CelNavigableMutableExpr node,
+      IdentityHashMap<CelMutableExpr, Integer> loopDepths,
+      Multiset<Integer> vnCounts,
+      ValueNumberer valueNumberer,
+      Set<CelMutableExpr> eligibleExprs) {
+    // A descendant occurring more often than `node` is duplicated within it or shared outside it.
+    int copies = vnCounts.count(valueNumberer.vnOf(node.expr()));
+    Integer depth = loopDepths.get(node.expr());
+    return node.descendants(TraversalOrder.PRE_ORDER)
+        .filter(
+            d ->
+                eligibleExprs.contains(d.expr())
+                    && (vnCounts.count(valueNumberer.vnOf(d.expr())) > copies
+                        || (depth != null && loopDepths.get(d.expr()) > depth)))
+        .findFirst()
+        .map(d -> extractionTarget(d, loopDepths, vnCounts, valueNumberer, eligibleExprs))
+        .orElse(node);
   }
 
-  private static boolean containsValidComprehensionIdents(CelNavigableMutableExpr navExpr) {
-    // For nested comprehensions of form [1].exists(x, [2].exists(y, x == y)), the inner
-    // comprehension [2].exists(y, x == y) should not be extracted out into a block index, as it
-    // causes issues with scoping. Non-comprehension subexpressions cannot reference any mangled
-    // comprehension variables.
-    Predicate<String> isInvalidIdent =
-        navExpr.getKind().equals(Kind.COMPREHENSION)
-            ? CelNavigableExprUtil.getEnclosingComprehensionVariables(navExpr)::contains
-            : name ->
-                name.startsWith(MANGLED_COMPREHENSION_ITER_VAR_PREFIX)
-                    || name.startsWith(MANGLED_COMPREHENSION_ACCU_VAR_PREFIX);
-    return navExpr
-        .descendants()
-        .filter(node -> node.getKind().equals(Kind.IDENT))
-        .map(node -> node.expr().ident().name())
-        .noneMatch(isInvalidIdent);
+  // The planner accumulates `@ac + [elem]` steps (map, filter) in place, so `[elem]` is not
+  // extracted.
+  private static boolean isAccumulation(CelMutableExpr expr) {
+    if (!expr.getKind().equals(Kind.CALL)
+        || !expr.call().function().equals(Operator.ADD.getFunction())) {
+      return false;
+    }
+    CelMutableExpr accu = expr.call().args().get(0);
+    return accu.getKind().equals(Kind.IDENT)
+        && accu.ident().name().startsWith(MANGLED_COMPREHENSION_ACCU_VAR_PREFIX)
+        && expr.call().args().get(1).getKind().equals(Kind.LIST);
+  }
+
+  // Computed bottom-up, as checking every node's subtree separately is quadratic. Only
+  // comprehensions still walk their own subtree.
+  private Set<CelMutableExpr> getEligibleExprs(
+      ImmutableList<CelNavigableMutableExpr> preOrderNodes, Set<CelMutableExpr> ineligibleExprs) {
+    // Subtrees containing an ineliminable call, or any mangled comprehension variable.
+    Set<CelMutableExpr> impureExprs = Sets.newIdentityHashSet();
+    Set<CelMutableExpr> mangledExprs = Sets.newIdentityHashSet();
+    Set<CelMutableExpr> eligibleExprs = Sets.newIdentityHashSet();
+    // Reverse pre-order visits children before their parents.
+    for (CelNavigableMutableExpr node : preOrderNodes.reverse()) {
+      CelMutableExpr expr = node.expr();
+      Kind kind = node.getKind();
+      if ((kind.equals(Kind.CALL) && !cseEliminableFunctions.contains(expr.call().function()))
+          || node.children().anyMatch(child -> impureExprs.contains(child.expr()))) {
+        impureExprs.add(expr);
+      }
+      if ((kind.equals(Kind.IDENT)
+              && (expr.ident().name().startsWith(MANGLED_COMPREHENSION_ITER_VAR_PREFIX)
+                  || expr.ident().name().startsWith(MANGLED_COMPREHENSION_ACCU_VAR_PREFIX)))
+          || node.children().anyMatch(child -> mangledExprs.contains(child.expr()))) {
+        mangledExprs.add(expr);
+      }
+      if (!kind.equals(Kind.CONSTANT)
+          && !kind.equals(Kind.IDENT)
+          // Exclude empty lists (cel.bind sets this for iterRange).
+          && !(kind.equals(Kind.LIST) && expr.list().elements().isEmpty())
+          && !ineligibleExprs.contains(expr)
+          && !impureExprs.contains(expr)
+          && (kind.equals(Kind.COMPREHENSION)
+              ? !referencesEnclosingComprehensionVars(node)
+              : !mangledExprs.contains(expr))) {
+        eligibleExprs.add(expr);
+      }
+    }
+    return eligibleExprs;
+  }
+
+  // Comprehensions may reference their own variables, but not those of enclosing ones (e.g.
+  // [2].exists(y, x == y) in [1].exists(x, [2].exists(y, x == y))), as that breaks scoping.
+  private static boolean referencesEnclosingComprehensionVars(CelNavigableMutableExpr node) {
+    return node.descendants()
+        .filter(d -> d.getKind().equals(Kind.IDENT))
+        .map(d -> d.expr().ident().name())
+        .anyMatch(CelNavigableExprUtil.getEnclosingComprehensionVariables(node)::contains);
   }
 
   /**
@@ -488,21 +550,14 @@ public final class SubexpressionOptimizer implements CelAstOptimizer {
                             .allNodes())
                     .map(CelNavigableMutableExpr::expr)
                     .forEach(ineligibleExprs::add));
+    navAst
+        .getRoot()
+        .allNodes()
+        .map(CelNavigableMutableExpr::expr)
+        .filter(SubexpressionOptimizer::isAccumulation)
+        .forEach(expr -> ineligibleExprs.add(expr.call().args().get(1)));
 
     return ineligibleExprs;
-  }
-
-  private boolean containsEliminableFunctionOnly(CelNavigableMutableExpr navigableExpr) {
-    return navigableExpr
-        .allNodes()
-        .allMatch(
-            node -> {
-              if (node.getKind().equals(Kind.CALL)) {
-                return cseEliminableFunctions.contains(node.expr().call().function());
-              }
-
-              return true;
-            });
   }
 
   // Assigns equal value numbers to equivalent subexpressions, including commuted and converse calls
