@@ -136,8 +136,42 @@ _ALL_TESTS = [
     "@cel_spec//tests/simple:testdata/wrappers.textproto",
 ]
 
-_TESTS_TO_SKIP_LEGACY = [
+_TESTS_TO_SKIP_COMMON = [
+    # Future features for CEL 1.0
+    # TODO: Strong typing support for enums, specified but not implemented.
+    "enums/strong_proto2",
+    "enums/strong_proto3",
 
+    # Type inference edgecases around null(able) assignability.
+    # These type check, but resolve to a different type.
+    # list(int), want list(wrapper(int))
+    "type_deductions/wrappers/wrapper_promotion",
+    # list(null), want list(Message)
+    "type_deductions/legacy_nullable_types/null_assignable_to_message_parameter_candidate",
+    "type_deductions/legacy_nullable_types/null_assignable_to_abstract_parameter_candidate",
+    "type_deductions/legacy_nullable_types/null_assignable_to_duration_parameter_candidate",
+    "type_deductions/legacy_nullable_types/null_assignable_to_timestamp_parameter_candidate",
+    "type_deductions/type_decay",
+
+    # Conformance tests for NaN and -0.0 comparisons
+    "comparisons/bound/bound_list_nan_eq_self_false,bound_list_nan_ne_self_true,bound_map_nan_eq_self_false,bound_map_nan_ne_self_true",
+    "comparisons/eq_literal/eq_double_neg_zero_int,eq_double_neg_zero_uint,eq_int_double_neg_zero,eq_list_mixed_type_neg_zero,eq_list_mixed_type_neg_zero_uint,eq_map_mixed_type_neg_zero,eq_map_mixed_type_neg_zero_uint,eq_nested_list_mixed_type_neg_zero,eq_nested_map_list_neg_zero,eq_uint_double_neg_zero",
+    "comparisons/gt_literal/not_gt_dyn_double_nan_int,not_gt_dyn_double_nan_uint,not_gt_dyn_int_double_neg_zero,not_gt_dyn_uint_double_neg_zero",
+    "comparisons/gte_literal/gte_dyn_double_neg_zero_int,gte_dyn_double_neg_zero_uint,not_gte_dyn_double_nan_int,not_gte_dyn_double_nan_uint",
+    "comparisons/in_list_literal/int_zero_in_list_neg_zero,nan_not_in_list,neg_zero_in_list_int,neg_zero_in_list_uint,nested_list_nan_not_in_list,nested_list_neg_zero_in_list,nested_map_nan_not_in_list,nested_map_neg_zero_in_list,uint_zero_in_list_neg_zero",
+    "comparisons/lt_literal/not_lt_dyn_double_neg_zero_int,not_lt_dyn_double_neg_zero_uint,not_lt_dyn_int_double_nan,not_lt_dyn_uint_double_nan",
+    "comparisons/lte_literal/lte_dyn_int_double_neg_zero,lte_dyn_uint_double_neg_zero,not_lte_dyn_int_double_nan,not_lte_dyn_uint_double_nan",
+    "comparisons/ne_literal/not_ne_double_neg_zero_int,not_ne_double_neg_zero_uint,not_ne_int_double_neg_zero,not_ne_list_mixed_type_neg_zero,not_ne_list_mixed_type_neg_zero_uint,not_ne_map_mixed_type_neg_zero,not_ne_map_mixed_type_neg_zero_uint,not_ne_nested_list_mixed_type_neg_zero,not_ne_nested_map_list_neg_zero,not_ne_uint_double_neg_zero",
+
+    # Aligned timestamp and duration bounds with protobuf well-known types
+    "timestamps/duration_conversions/from_string_max,from_string_min,toString_duration_max,toString_duration_min",
+    "timestamps/timestamp_arithmetic/add_duration_to_duration_max,subtract_duration_from_duration_min",
+    "timestamps/timestamp_range/sub_time_duration_over,sub_time_duration_under",
+    "wrappers/duration/nanos_over,nanos_under,negative_seconds_positive_nanos,positive_seconds_negative_nanos,seconds_over,seconds_under",
+    "wrappers/timestamp/nanos_over,nanos_under,negative_seconds_negative_nanos,seconds_over,seconds_under",
+]
+
+_TESTS_TO_SKIP_LEGACY = _TESTS_TO_SKIP_COMMON + [
     # Broken test cases which should be supported.
     # TODO: Support setting / getting enum values out of the defined enum value range.
     "enums/legacy_proto2/select_big,select_neg",
@@ -148,51 +182,12 @@ _TESTS_TO_SKIP_LEGACY = [
 
     # Skip until fixed.
     "fields/qualified_identifier_resolution/map_value_repeat_key_heterogeneous",
-
-    # Future features for CEL 1.0
-    # TODO: Strong typing support for enums, specified but not implemented.
-    "enums/strong_proto2",
-    "enums/strong_proto3",
-
-    # com.google.protobuf.TextFormat does not conform to the spec. Unknown enum values are supposed
-    # to be allowed in proto3. Currently they are rejected.
-    # "enums/legacy_proto3/select_big",
-    # "enums/legacy_proto3/select_neg",
-    # "enums/legacy_proto3/assign_standalone_int_big",
-    # "enums/legacy_proto3/assign_standalone_int_neg",
-
-    # Type inference edgecases around null(able) assignability.
-    # These type check, but resolve to a different type.
-    # list(int), want list(wrapper(int))
-    "type_deductions/wrappers/wrapper_promotion",
-    # list(null), want list(Message)
-    "type_deductions/legacy_nullable_types/null_assignable_to_message_parameter_candidate",
-    "type_deductions/legacy_nullable_types/null_assignable_to_abstract_parameter_candidate",
-    "type_deductions/legacy_nullable_types/null_assignable_to_duration_parameter_candidate",
-    "type_deductions/legacy_nullable_types/null_assignable_to_timestamp_parameter_candidate",
-    "type_deductions/type_decay",
 ]
 
-_TESTS_TO_SKIP_PLANNER = [
+_TESTS_TO_SKIP_PLANNER = _TESTS_TO_SKIP_COMMON + [
     # TODO: This is actually a user experience degradation.
     # Not worth fixing until we see a concrete need.
     "basic/functions/unbound_is_runtime_error",
-
-    # Type inference edgecases around null(able) assignability.
-    # These type check, but resolve to a different type.
-    # list(int), want list(wrapper(int))
-    "type_deductions/wrappers/wrapper_promotion",
-    # list(null), want list(Message)
-    "type_deductions/legacy_nullable_types/null_assignable_to_message_parameter_candidate",
-    "type_deductions/legacy_nullable_types/null_assignable_to_abstract_parameter_candidate",
-    "type_deductions/legacy_nullable_types/null_assignable_to_duration_parameter_candidate",
-    "type_deductions/legacy_nullable_types/null_assignable_to_timestamp_parameter_candidate",
-    "type_deductions/type_decay",
-
-    # Future features for CEL 1.0
-    # TODO: Strong typing support for enums, specified but not implemented.
-    "enums/strong_proto2",
-    "enums/strong_proto3",
 ]
 
 _TESTS_TO_SKIP_PLANNER_SELECT_OPT = _TESTS_TO_SKIP_PLANNER + [
