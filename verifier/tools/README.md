@@ -14,25 +14,25 @@ directly from Maven Central and invoke it with `java -jar`:
 <!-- disableFinding(LINE_OVER_80) -->
 ```bash
 # Download the latest CLI JAR (Note: this is an uber-JAR)
-curl -LO https://repo1.maven.org/maven2/dev/cel/verifier-cli/0.14.0/verifier-cli-0.14.0.jar
+curl -LO https://repo1.maven.org/maven2/dev/cel/verifier-cli/0.15.0/verifier-cli-0.15.0.jar
 
 # Launch interactive REPL shell
-java -jar verifier-cli-0.14.0.jar repl
+java -jar verifier-cli-0.15.0.jar repl
 
 # Run a one-shot verification command
-java -jar verifier-cli-0.14.0.jar check-sat \
+java -jar verifier-cli-0.15.0.jar check-sat \
   --expr "role == 'editor' && port > 1024" \
   --var "role:string" \
   --var "port:int"
 
 # Run with JSON output format for CI/CD integrations
-java -jar verifier-cli-0.14.0.jar check-sat \
+java -jar verifier-cli-0.15.0.jar check-sat \
   --expr "role == 'editor'" \
   --var "role:string" \
   --output_format=json
 
 # Display help and available commands
-java -jar verifier-cli-0.14.0.jar --help
+java -jar verifier-cli-0.15.0.jar --help
 ```
 
 ### Running via Bazel

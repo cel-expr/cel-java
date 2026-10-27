@@ -29,15 +29,15 @@
 ALL_TARGETS=("//publish:cel_common.publish" "//publish:cel.publish" "//publish:cel_compiler.publish" "//publish:cel_runtime.publish" "//publish:cel_v1alpha1.publish" "//publish:cel_protobuf.publish" "//publish:cel_runtime_android.publish" "//publish:cel_verifier.publish" "//publish:cel_verifier_cli.publish")
 JDK8_FLAGS="--java_language_version=8 --java_runtime_version=8"
 
-function publish_maven_remote() {
+function publish_maven_snapshot() {
   maven_repo_url=$1
   # Credentials should be read from maven config (settings.xml) once it
   # is supported by bazelbuild:
   # https://github.com/bazelbuild/rules_jvm_external/issues/679
   read -p "maven_user: " maven_user
   read -s -p "maven_password: " maven_password
+  echo ""
 
-  # Upload artifacts to staging repository
   for PUBLISH_TARGET in "${ALL_TARGETS[@]}"
   do
        bazel run --stamp \
@@ -46,37 +46,52 @@ function publish_maven_remote() {
          --define "maven_user=$maven_user" \
          --define "maven_password=$maven_password" \
          $PUBLISH_TARGET \
-         $JDK8_FLAGS
+         $JDK8_FLAGS || exit 1
+  done
+}
+
+function publish_maven_release() {
+  read -p "maven_user: " maven_user
+  read -s -p "maven_password: " maven_password
+  echo ""
+
+  staging_dir=$(mktemp -d)
+  trap 'rm -rf "$staging_dir"' EXIT
+
+  # Stage and GPG-sign artifacts locally into a single directory tree
+  for PUBLISH_TARGET in "${ALL_TARGETS[@]}"
+  do
+       bazel run --stamp \
+         --define "maven_repo=file://$staging_dir" \
+         --define gpg_sign=true \
+         $PUBLISH_TARGET \
+         $JDK8_FLAGS || exit 1
   done
 
-  # Begin creating a staging deployment in central maven
-  auth_token=$(printf "%s:%s" "$maven_user" "$maven_password" | base64)
-  repository_key=$(curl -s -X GET \
-    -H "Authorization:Bearer $auth_token" \
-    "https://ossrh-staging-api.central.sonatype.com/manual/search/repositories?ip=any&profile_id=dev.cel" | \
-    jq -r '.repositories[] | select(.state=="open") | .key' | head -n 1)
+  # Central Portal bundle validation rejects maven-metadata.xml files
+  find "$staging_dir" -name "maven-metadata.xml*" -delete
+
+  bundle_zip="$staging_dir/central-bundle.zip"
+  (cd "$staging_dir" && zip -qr "$bundle_zip" dev)
+
+  # Upload the atomic bundle to Maven Central Portal
+  auth_token=$(printf "%s:%s" "$maven_user" "$maven_password" | base64 | tr -d '\n')
   echo ""
-  if [[ -n "$repository_key" ]]; then
-    echo "Open repository key:"
-    echo "$repository_key"
+  echo "Uploading deployment bundle to Maven Central Portal..."
+  post_response=$(curl -s -w "\n%{http_code}" -X POST \
+    -H "Authorization: Bearer $auth_token" \
+    -F "bundle=@$bundle_zip" \
+    "https://central.sonatype.com/api/v1/publisher/upload?publishingType=USER_MANAGED&name=dev.cel-$version")
 
-    echo "Creating deployment..."
-    post_response=$(curl -s -w "\n%{http_code}" -X POST \
-      -H "Authorization: Bearer $auth_token" \
-      "https://ossrh-staging-api.central.sonatype.com/manual/upload/repository/$repository_key")
+  http_code=$(tail -n1 <<< "$post_response")
+  response_body=$(sed '$ d' <<< "$post_response")
 
-    http_code=$(tail -n1 <<< "$post_response")
-    response_body=$(sed '$ d' <<< "$post_response")
-
-    echo "----------------------------------------"
-    echo "Deployment API Response (HTTP Status: $http_code):"
-    echo "$response_body"
-    echo "----------------------------------------"
-    echo ""
-    echo "Proceed to https://central.sonatype.com/publishing/deployments to finalize publishing."
-  else
-    echo "No open repository was found. Likely an indication that artifacts were not uploaded."
-  fi
+  echo "----------------------------------------"
+  echo "Deployment API Response (HTTP Status: $http_code):"
+  echo "$response_body"
+  echo "----------------------------------------"
+  echo ""
+  echo "Proceed to https://central.sonatype.com/publishing/deployments to finalize publishing."
 }
 
 version=$(<cel_version.bzl)
@@ -89,7 +104,7 @@ if [ "$flag" == "--snapshot" ] || [ "$flag" == "-s" ]; then
     exit 1;
   fi
   echo "Publishing a SNAPSHOT version: $version to remote Maven repository"
-  publish_maven_remote "https://central.sonatype.com/repository/maven-snapshots/"
+  publish_maven_snapshot "https://central.sonatype.com/repository/maven-snapshots/"
 elif [ "$flag" == "--release" ] || [ "$flag" == "-r" ]; then
   if [[ $version == *"-SNAPSHOT"* ]]; then
    echo "Unable to publish. Please remove -SNAPSHOT suffix from CEL Version"
@@ -100,7 +115,7 @@ elif [ "$flag" == "--release" ] || [ "$flag" == "-r" ]; then
      read -p "Proceed (Y/N)? " yn
      case $yn in
          [Yy]* )
-           publish_maven_remote "https://ossrh-staging-api.central.sonatype.com/service/local/staging/deploy/maven2/"
+           publish_maven_release
            break;;
          [Nn]* ) exit;;
          * ) echo "Please answer yes or no.";;
