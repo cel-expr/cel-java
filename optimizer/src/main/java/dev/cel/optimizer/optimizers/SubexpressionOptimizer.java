@@ -18,8 +18,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
-import static dev.cel.optimizer.optimizers.DefaultOptimizerConstants.CEL_ATTRIBUTE_FUNCTION_NAME;
-import static dev.cel.optimizer.optimizers.DefaultOptimizerConstants.CEL_HAS_FIELD_FUNCTION_NAME;
+import static dev.cel.optimizer.optimizers.DefaultOptimizerConstants.SELECT_OPTIMIZED_FUNCTION_NAMES;
 import static java.lang.Math.max;
 
 import com.google.auto.value.AutoValue;
@@ -146,8 +145,8 @@ public final class SubexpressionOptimizer implements CelAstOptimizer {
    * {@inheritDoc}
    *
    * @throws IllegalStateException if {@code ast} contains select-optimized nodes ({@code
-   *     cel.@attribute} or {@code cel.@hasField}), as common subexpression elimination must run
-   *     before {@link SelectOptimizer}.
+   *     cel.@attribute}, {@code cel.@optionalAttribute} or {@code cel.@hasField}), as common
+   *     subexpression elimination must run before {@link SelectOptimizer}.
    */
   @Override
   public OptimizationResult optimize(CelAbstractSyntaxTree ast, Cel cel) {
@@ -164,10 +163,7 @@ public final class SubexpressionOptimizer implements CelAstOptimizer {
             .allNodes()
             .filter(node -> node.getKind() == Kind.CALL)
             .map(node -> node.expr().call().function())
-            .anyMatch(
-                func ->
-                    func.equals(CEL_ATTRIBUTE_FUNCTION_NAME)
-                        || func.equals(CEL_HAS_FIELD_FUNCTION_NAME));
+            .anyMatch(SELECT_OPTIMIZED_FUNCTION_NAMES::contains);
     checkState(!hasSelectOptimizedNodes, "SubexpressionOptimizer must run before SelectOptimizer.");
 
     CelMutableAst astToModify = CelMutableAst.fromCelAst(ast);

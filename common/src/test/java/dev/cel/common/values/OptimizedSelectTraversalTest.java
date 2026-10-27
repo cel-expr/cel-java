@@ -271,25 +271,28 @@ public final class OptimizedSelectTraversalTest {
   }
 
   @Test
-  public void qualify_errorValue_propagatesError() {
-    ErrorValue error = ErrorValue.create(1L, new RuntimeException("test error"));
-    ImmutableList<SelectField> fields =
-        ImmutableList.of(SelectField.create(1L, "field1"), SelectField.create(2L, "field2"));
+  public void find_emptyFields_returnsEmpty() {
+    Optional<Object> result = OptimizedSelectTraversal.find(new Object(), ImmutableList.of());
 
-    Object result = OptimizedSelectTraversal.qualify(error, fields);
-
-    assertThat(result).isSameInstanceAs(error);
+    assertThat(result).isEmpty();
   }
 
   @Test
-  public void hasField_errorValue_returnsFalse() {
-    ErrorValue error = ErrorValue.create(1L, new RuntimeException("test error"));
+  public void find_nestedFields(
+      @TestParameter TargetType targetType, @TestParameter NestedPresenceTestCase testCase) {
+    Object target = targetType.createNestedTarget(testCase.innerData);
     ImmutableList<SelectField> fields =
-        ImmutableList.of(SelectField.create(1L, "field1"), SelectField.create(2L, "field2"));
+        ImmutableList.of(
+            SelectField.create(1L, testCase.outerField),
+            SelectField.create(2L, testCase.innerField));
 
-    boolean result = OptimizedSelectTraversal.hasField(error, fields);
+    Optional<Object> result = OptimizedSelectTraversal.find(target, fields);
 
-    assertThat(result).isFalse();
+    if (testCase.expected) {
+      assertThat(result).hasValue("nested_val");
+    } else {
+      assertThat(result).isEmpty();
+    }
   }
 
   @SuppressWarnings("Immutable")

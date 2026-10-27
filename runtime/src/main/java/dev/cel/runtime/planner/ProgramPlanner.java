@@ -260,11 +260,10 @@ public final class ProgramPlanner {
     ResolvedFunction resolvedFunction = resolveFunction(expr, ctx.referenceMap());
     String functionName = resolvedFunction.functionName();
 
-    // Intercept optimizer-rewritten select chains (cel.@attribute and cel.@hasField) for direct
-    // traversal via OptimizedSelectPlanner (proto field number lookup on OptimizedSelectable,
-    // map key lookup on Map, and SelectableValue fallback).
-    if (functionName.equals(OptimizedSelectPlanner.CEL_ATTRIBUTE_FUNCTION_NAME)
-        || functionName.equals(OptimizedSelectPlanner.CEL_HAS_FIELD_FUNCTION_NAME)) {
+    // Intercept optimizer-rewritten select chains for direct traversal via OptimizedSelectPlanner
+    // (proto field number lookup on OptimizedSelectable, map key lookup on Map, and
+    // SelectableValue fallback).
+    if (OptimizedSelectPlanner.FUNCTION_NAMES.contains(functionName)) {
       checkArgument(
           ctx.runtimeExtensions.contains(SELECT_OPTIMIZATION_EXTENSION),
           "%s requires the %s AST extension",

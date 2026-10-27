@@ -47,12 +47,14 @@ import dev.cel.common.types.CelTypeProvider;
 import dev.cel.common.types.CelTypeProvider.CombinedCelTypeProvider;
 import dev.cel.common.types.DefaultTypeProvider;
 import dev.cel.common.types.MapType;
+import dev.cel.common.types.OptionalType;
 import dev.cel.common.types.ProtoMessageTypeProvider;
 import dev.cel.common.types.SimpleType;
 import dev.cel.common.types.StructTypeReference;
 import dev.cel.common.values.CelByteString;
 import dev.cel.common.values.CelValueConverter;
 import dev.cel.common.values.CelValueProvider;
+import dev.cel.common.values.ErrorValue;
 import dev.cel.common.values.ProtoCelValueConverter;
 import dev.cel.common.values.ProtoMessageValueProvider;
 import dev.cel.expr.conformance.proto3.NestedTestAllTypes;
@@ -80,6 +82,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
@@ -127,6 +130,10 @@ public final class OptimizedSelectPlannerTest {
           .setOptions(CEL_OPTIONS)
           .setStandardMacros(CelStandardMacro.STANDARD_MACROS)
           .addVar("msg", StructTypeReference.create(TestAllTypes.getDescriptor().getFullName()))
+          .addVar(
+              "opt_msg",
+              OptionalType.create(
+                  StructTypeReference.create(TestAllTypes.getDescriptor().getFullName())))
           .addVar("b", StructTypeReference.create(TestAllTypes.getDescriptor().getFullName()))
           .addVar("cond", SimpleType.BOOL)
           .addVar(
@@ -486,20 +493,55 @@ public final class OptimizedSelectPlannerTest {
     assertThat(e).hasMessageThat().contains("requires the select_optimization AST extension");
   }
 
+  @SuppressWarnings("ImmutableEnumChecker") // Test only
+  private enum WrongArgCountTestCase {
+    ATTRIBUTE_TOO_FEW(
+        OptimizedSelectPlanner.CEL_ATTRIBUTE_FUNCTION_NAME,
+        ImmutableList.of(CelExpr.ofIdent(2L, "msg")),
+        "Expected 3 arguments for cel.@attribute, found 1"),
+    OPTIONAL_ATTRIBUTE_WITHOUT_OPT_INDEX(
+        OptimizedSelectPlanner.CEL_OPTIONAL_ATTRIBUTE_FUNCTION_NAME,
+        ImmutableList.of(
+            CelExpr.ofIdent(0L, "msg"),
+            listExpr(fieldHop(2L, "single_int64", 3L)),
+            constantHop(0L)),
+        "Expected 4 arguments for cel.@optionalAttribute, found 3"),
+    HAS_FIELD_TOO_FEW(
+        OptimizedSelectPlanner.CEL_HAS_FIELD_FUNCTION_NAME,
+        ImmutableList.of(CelExpr.ofIdent(0L, "msg")),
+        "Expected 2 arguments for cel.@hasField, found 1"),
+    HAS_FIELD_TOO_MANY(
+        OptimizedSelectPlanner.CEL_HAS_FIELD_FUNCTION_NAME,
+        ImmutableList.of(
+            CelExpr.ofIdent(0L, "msg"),
+            listExpr(hasFieldHop(2L, "single_int64")),
+            constantHop(0L),
+            constantHop(0L)),
+        "Expected 2 arguments for cel.@hasField, found 4");
+
+    private final String functionName;
+    private final ImmutableList<CelExpr> args;
+    private final String expectedMessageSubstring;
+
+    WrongArgCountTestCase(
+        String functionName, ImmutableList<CelExpr> args, String expectedMessageSubstring) {
+      this.functionName = functionName;
+      this.args = args;
+      this.expectedMessageSubstring = expectedMessageSubstring;
+    }
+  }
+
   @Test
-  public void plan_invalidAst_wrongArgCount_throwsEvaluationException() {
+  public void plan_invalidAst_wrongArgCount_throwsEvaluationException(
+      @TestParameter WrongArgCountTestCase testCase) {
     CelAbstractSyntaxTree ast =
         CelAbstractSyntaxTree.newParsedAst(
-            CelExpr.ofCall(
-                1L,
-                OptimizedSelectPlanner.CEL_ATTRIBUTE_FUNCTION_NAME,
-                ImmutableList.of(CelExpr.ofIdent(2L, "msg"))),
-            SELECT_OPTIMIZED_SOURCE);
+            CelExpr.ofCall(1L, testCase.functionName, testCase.args), SELECT_OPTIMIZED_SOURCE);
 
     CelEvaluationException e = assertThrows(CelEvaluationException.class, () -> PLANNER.plan(ast));
 
     assertThat(e).hasCauseThat().isInstanceOf(IllegalArgumentException.class);
-    assertThat(e).hasMessageThat().contains("Expected 3 arguments for cel.@attribute, found 1");
+    assertThat(e).hasMessageThat().contains(testCase.expectedMessageSubstring);
   }
 
   @Test
@@ -821,7 +863,8 @@ public final class OptimizedSelectPlannerTest {
   }
 
   @Test
-  public void plan_invalidAst_messageStructWithEmptyMessageName_throwsEvaluationException() {
+  public void plan_invalidAst_messageStructWithEmptyMessageName_throwsEvaluationException(
+      @TestParameter({"", "."}) String messageName) {
     CelAbstractSyntaxTree ast =
         CelAbstractSyntaxTree.newParsedAst(
             CelExpr.ofCall(
@@ -829,22 +872,8 @@ public final class OptimizedSelectPlannerTest {
                 OptimizedSelectPlanner.CEL_ATTRIBUTE_FUNCTION_NAME,
                 ImmutableList.of(
                     CelExpr.ofIdent(2L, "msg"),
-                    CelExpr.ofList(
-                        3L,
-                        ImmutableList.of(
-                            CelExpr.ofList(
-                                4L,
-                                ImmutableList.of(
-                                    CelExpr.ofConstant(5L, CelConstant.ofValue(51L)),
-                                    CelExpr.ofConstant(
-                                        6L, CelConstant.ofValue("repeated_nested_message")),
-                                    CelExpr.ofConstant(7L, CelConstant.ofValue(11L))),
-                                ImmutableList.of())),
-                        ImmutableList.of()),
-                    CelExpr.ofList(
-                        8L,
-                        ImmutableList.of(CelExpr.ofStruct(9L, "", ImmutableList.of())),
-                        ImmutableList.of()))),
+                    listExpr(fieldHop(51L, "repeated_nested_message", 11L)),
+                    listExpr(CelExpr.ofStruct(9L, messageName, ImmutableList.of())))),
             SELECT_OPTIMIZED_SOURCE);
 
     CelEvaluationException e = assertThrows(CelEvaluationException.class, () -> PLANNER.plan(ast));
@@ -917,35 +946,150 @@ public final class OptimizedSelectPlannerTest {
     assertThat(e).hasMessageThat().contains(testCase.expectedMessageSubstring);
   }
 
+  @SuppressWarnings("ImmutableEnumChecker") // Test only
+  private enum InvalidOptIndexTestCase {
+    NOT_CONSTANT(
+        /* isPresenceTest= */ false,
+        CelExpr.ofIdent(0L, "x"),
+        "Expected optional qualifier index to be an int64 constant"),
+    NOT_INT(
+        /* isPresenceTest= */ false,
+        constantHop(UnsignedLong.ZERO),
+        "Expected optional qualifier index to be an int64 constant"),
+    BELOW_RANGE(
+        /* isPresenceTest= */ false,
+        constantHop(-2L),
+        "Optional qualifier index -2 is out of range [-1, 2)"),
+    ABOVE_RANGE(
+        /* isPresenceTest= */ false,
+        constantHop(2L),
+        "Optional qualifier index 2 is out of range [-1, 2)"),
+    HAS_FIELD_ON_TESTED_LEAF(
+        /* isPresenceTest= */ true,
+        constantHop(1L),
+        "Optional qualifier index 1 is out of range [-1, 1)");
+
+    private final boolean isPresenceTest;
+    private final CelExpr optIndex;
+    private final String expectedMessageSubstring;
+
+    InvalidOptIndexTestCase(
+        boolean isPresenceTest, CelExpr optIndex, String expectedMessageSubstring) {
+      this.isPresenceTest = isPresenceTest;
+      this.optIndex = optIndex;
+      this.expectedMessageSubstring = expectedMessageSubstring;
+    }
+  }
+
+  @Test
+  public void plan_invalidAst_invalidOptIndex_throwsEvaluationException(
+      @TestParameter InvalidOptIndexTestCase testCase) {
+    ImmutableList<CelExpr> args =
+        testCase.isPresenceTest
+            ? ImmutableList.of(
+                CelExpr.ofIdent(0L, "msg"),
+                listExpr(hasFieldHop(21L, "single_nested_message"), hasFieldHop(1L, "bb")),
+                testCase.optIndex)
+            : ImmutableList.of(
+                CelExpr.ofIdent(0L, "msg"),
+                listExpr(fieldHop(21L, "single_nested_message", 11L), fieldHop(1L, "bb", 5L)),
+                testCase.optIndex,
+                constantHop(0L));
+    CelAbstractSyntaxTree ast =
+        CelAbstractSyntaxTree.newParsedAst(
+            CelExpr.ofCall(
+                1L,
+                testCase.isPresenceTest
+                    ? OptimizedSelectPlanner.CEL_HAS_FIELD_FUNCTION_NAME
+                    : OptimizedSelectPlanner.CEL_OPTIONAL_ATTRIBUTE_FUNCTION_NAME,
+                args),
+            SELECT_OPTIMIZED_SOURCE);
+
+    CelEvaluationException e = assertThrows(CelEvaluationException.class, () -> PLANNER.plan(ast));
+
+    assertThat(e).hasCauseThat().isInstanceOf(IllegalArgumentException.class);
+    assertThat(e).hasMessageThat().contains(testCase.expectedMessageSubstring);
+  }
+
+  @Test
+  public void plan_celOptionalAttribute_presentOptionalOperand_returnsOptionalOfValue()
+      throws Exception {
+    Program program = PLANNER.plan(optimizeSelectAst("opt_msg.single_int64"));
+    TestAllTypes msg = TestAllTypes.newBuilder().setSingleInt64(42L).build();
+
+    Object result = program.eval(ImmutableMap.of("opt_msg", Optional.of(msg)));
+
+    assertThat(result).isEqualTo(Optional.of(42L));
+  }
+
+  @Test
+  public void plan_celOptionalAttribute_absentOptionalOperand_returnsOptionalEmpty()
+      throws Exception {
+    Program program = PLANNER.plan(optimizeSelectAst("opt_msg.single_int64"));
+
+    Object result = program.eval(ImmutableMap.of("opt_msg", Optional.empty()));
+
+    assertThat(result).isEqualTo(Optional.empty());
+  }
+
+  @Test
+  public void plan_errorValueOperand_propagatesError(
+      @TestParameter({
+            "msg.?single_int64",
+            "msg.repeated_nested_message[?0].bb",
+            "opt_msg.single_int64",
+            "has(opt_msg.single_nested_message.bb)"
+          })
+          String expression)
+      throws Exception {
+    Program program = PLANNER.plan(optimizeSelectAst(expression));
+    ErrorValue error = ErrorValue.create(0L, new IllegalStateException("Intentional error"));
+    ImmutableMap<String, Object> input = ImmutableMap.of("msg", error, "opt_msg", error);
+
+    CelEvaluationException e =
+        assertThrows(CelEvaluationException.class, () -> program.eval(input));
+
+    assertThat(e).hasCauseThat().isInstanceOf(IllegalStateException.class);
+    assertThat(e).hasCauseThat().hasMessageThat().isEqualTo("Intentional error");
+  }
+
+  @Test
+  public void plan_directSelectOptimizerAstWithLeadingDotMessageName_resolvesDefaultValue()
+      throws Exception {
+    SelectOptimizer directOptimizer =
+        SelectOptimizer.newInstance(TestAllTypes.getDescriptor().getFile());
+    CelAbstractSyntaxTree optimizedAst =
+        directOptimizer.optimize(CEL.compile("msg.single_duration").getAst(), CEL).optimizedAst();
+
+    Object result =
+        PLANNER.plan(optimizedAst).eval(ImmutableMap.of("msg", TestAllTypes.getDefaultInstance()));
+
+    assertThat(result).isEqualTo(Duration.ZERO);
+  }
+
+  private static CelExpr hasFieldHop(long fieldNumber, String fieldName) {
+    return listExpr(constantHop(fieldNumber), constantHop(fieldName));
+  }
+
   private static CelExpr fieldHop(long fieldNumber, String fieldName, long typeCode) {
-    return CelExpr.ofList(
-        0L,
-        ImmutableList.of(
-            CelExpr.ofConstant(0L, CelConstant.ofValue(fieldNumber)),
-            CelExpr.ofConstant(0L, CelConstant.ofValue(fieldName)),
-            CelExpr.ofConstant(0L, CelConstant.ofValue(typeCode))),
-        ImmutableList.of());
+    return listExpr(constantHop(fieldNumber), constantHop(fieldName), constantHop(typeCode));
   }
 
   private static CelExpr mapHop(
       long fieldNumber, String fieldName, long keyTypeCode, long valueTypeCode) {
-    return CelExpr.ofList(
-        0L,
-        ImmutableList.of(
-            CelExpr.ofConstant(0L, CelConstant.ofValue(fieldNumber)),
-            CelExpr.ofConstant(0L, CelConstant.ofValue(fieldName)),
-            CelExpr.ofConstant(0L, CelConstant.ofValue(-1L)),
-            mapEntrySpec(keyTypeCode, valueTypeCode)),
-        ImmutableList.of());
+    return listExpr(
+        constantHop(fieldNumber),
+        constantHop(fieldName),
+        constantHop(-1L),
+        mapEntrySpec(keyTypeCode, valueTypeCode));
   }
 
   private static CelExpr mapEntrySpec(long keyTypeCode, long valueTypeCode) {
-    return CelExpr.ofList(
-        8L,
-        ImmutableList.of(
-            CelExpr.ofConstant(9L, CelConstant.ofValue(keyTypeCode)),
-            CelExpr.ofConstant(10L, CelConstant.ofValue(valueTypeCode))),
-        ImmutableList.of());
+    return listExpr(constantHop(keyTypeCode), constantHop(valueTypeCode));
+  }
+
+  private static CelExpr listExpr(CelExpr... elements) {
+    return CelExpr.ofList(0L, ImmutableList.copyOf(elements), ImmutableList.of());
   }
 
   private static CelExpr constantHop(Object index) {
@@ -1117,7 +1261,47 @@ public final class OptimizedSelectPlannerTest {
         CelInvalidArgumentException.class,
         "Map value cannot be null for key: null_key"),
     ATTRIBUTE_UNBOUND_ROOT_VARIABLE(
-        "msg.single_int64", ImmutableMap.of(), CelAttributeNotFoundException.class, "msg");
+        "msg.single_int64", ImmutableMap.of(), CelAttributeNotFoundException.class, "msg"),
+    OPTIONAL_ATTRIBUTE_PLAIN_VALUE_BOUND_TO_OPTIONAL_OPERAND(
+        "opt_msg.single_int64",
+        ImmutableMap.of("opt_msg", TestAllTypes.getDefaultInstance()),
+        IllegalArgumentException.class,
+        "Expected an optional operand for the optional select chain at: single_int64"),
+    OPTIONAL_HAS_FIELD_PLAIN_VALUE_BOUND_TO_OPTIONAL_OPERAND(
+        "has(opt_msg.single_int64)",
+        ImmutableMap.of("opt_msg", TestAllTypes.getDefaultInstance()),
+        IllegalArgumentException.class,
+        "Expected an optional operand for the optional select chain at: single_int64"),
+    ATTRIBUTE_OPTIONAL_BOUND_TO_PLAIN_OPERAND(
+        "msg.single_int64",
+        ImmutableMap.of("msg", Optional.of(TestAllTypes.getDefaultInstance())),
+        IllegalArgumentException.class,
+        "Unexpected optional operand for the select chain at: single_int64"),
+    OPTIONAL_ATTRIBUTE_OPTIONAL_BOUND_TO_PLAIN_OPERAND(
+        "msg.?single_int64",
+        ImmutableMap.of("msg", Optional.of(TestAllTypes.getDefaultInstance())),
+        IllegalArgumentException.class,
+        "Unexpected optional operand for the select chain at: single_int64"),
+    HAS_FIELD_OPTIONAL_BOUND_TO_PLAIN_OPERAND(
+        "has(msg.single_int64)",
+        ImmutableMap.of("msg", Optional.of(TestAllTypes.getDefaultInstance())),
+        IllegalArgumentException.class,
+        "Unexpected optional operand for the select chain at: single_int64"),
+    OPTIONAL_HAS_FIELD_OPTIONAL_BOUND_TO_PLAIN_OPERAND(
+        "has(msg.?single_nested_message.bb)",
+        ImmutableMap.of("msg", Optional.empty()),
+        IllegalArgumentException.class,
+        "Unexpected optional operand for the select chain at: bb"),
+    INDEXED_ATTRIBUTE_OPTIONAL_BOUND_TO_PLAIN_OPERAND(
+        "msg.repeated_nested_message[0].bb",
+        ImmutableMap.of("msg", Optional.of(TestAllTypes.getDefaultInstance())),
+        IllegalArgumentException.class,
+        "Unexpected optional operand for the select chain at: repeated_nested_message"),
+    OPTIONAL_INDEX_OPTIONAL_BOUND_TO_PLAIN_OPERAND(
+        "msg.repeated_nested_message[?0].bb",
+        ImmutableMap.of("msg", Optional.of(TestAllTypes.getDefaultInstance())),
+        IllegalArgumentException.class,
+        "Unexpected optional operand for the select chain at: repeated_nested_message");
 
     private final String expression;
     private final ImmutableMap<String, Object> input;
