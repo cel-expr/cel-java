@@ -1,5 +1,4 @@
-load("@rules_java//java:defs.bzl", "java_library")
-load("//:testing.bzl", "junit4_test_suites")
+load("@rules_java//java:defs.bzl", "java_test")
 
 package(
     default_applicable_licenses = [
@@ -7,64 +6,229 @@ package(
     ],
 )
 
-java_library(
-    name = "tests",
-    testonly = True,
-    srcs = glob(["*.java"]),
+java_test(
+    name = "CelAbstractSyntaxTreeTest",
+    srcs = ["CelAbstractSyntaxTreeTest.java"],
+    test_class = "dev.cel.common.CelAbstractSyntaxTreeTest",
     deps = [
         "//:java_truth",
-        "//common:cel_ast",
-        "//common:cel_descriptor_util",
-        "//common:cel_descriptors",
-        "//common:cel_issue",
-        "//common:cel_overload_decl",
-        "//common:cel_overload_decl_formatter",
-        "//common:cel_proto_decl_converter",
-        "//common:cel_source",
-        "//common:cel_validation_exception",
-        "//common:cel_var_decl",
-        "//common:container",
-        "//common:operator",
-        "//common:options",
-        "//common:proto_ast",
-        "//common:proto_json_adapter",
-        "//common:proto_v1alpha1_ast",
-        "//common:source_location",
-        "//common:type_specifier_formatter",
         "//common/ast",
         "//common/internal",
-        "//common/internal:code_point_stream",
         "//common/types",
-        "//common/types:cel_internal_types",
-        "//common/types:cel_proto_types",
-        "//common/types:cel_types",
-        "//common/types:cel_v1alpha1_types",
         "//common/types:type_providers",
         "//common/values:cel_byte_string",
+        "//common:cel_ast",
+        "//common:cel_source",
+        "//common:cel_validation_exception",
+        "//common:options",
         "//compiler",
         "//compiler:compiler_builder",
         "//parser:macro",
-        "@cel_spec//proto/cel/expr:checked_java_proto",
-        "@cel_spec//proto/cel/expr:syntax_java_proto",
-        "@cel_spec//proto/cel/expr/conformance/proto3:test_all_types_java_proto",
-        "@com_google_googleapis//google/api/expr/v1alpha1:expr_java_proto",
         "@maven//:com_google_guava_guava",
         "@maven//:com_google_guava_guava_testlib",
         "@maven//:com_google_protobuf_protobuf_java",
+        "@maven//:junit_junit",
+    ],
+)
+
+java_test(
+    name = "CelContainerTest",
+    srcs = ["CelContainerTest.java"],
+    test_class = "dev.cel.common.CelContainerTest",
+    deps = [
+        "//:java_truth",
+        "//common:container",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_testparameterinjector_test_parameter_injector",
+        "@maven//:junit_junit",
+    ],
+)
+
+java_test(
+    name = "CelDescriptorUtilTest",
+    srcs = ["CelDescriptorUtilTest.java"],
+    test_class = "dev.cel.common.CelDescriptorUtilTest",
+    deps = [
+        "//:java_truth",
+        "//common:cel_descriptor_util",
+        "//common:cel_descriptors",
+        "@cel_spec//proto/cel/expr/conformance/proto3:test_all_types_java_proto",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_protobuf_protobuf_java",
+        "@maven//:junit_junit",
+    ],
+)
+
+java_test(
+    name = "CelOptionsTest",
+    srcs = ["CelOptionsTest.java"],
+    test_class = "dev.cel.common.CelOptionsTest",
+    deps = [
+        "//:java_truth",
+        "//common:options",
+        "@maven//:com_google_guava_guava",
+        "@maven//:junit_junit",
+    ],
+)
+
+java_test(
+    name = "CelOverloadDeclFormatterTest",
+    srcs = ["CelOverloadDeclFormatterTest.java"],
+    test_class = "dev.cel.common.CelOverloadDeclFormatterTest",
+    deps = [
+        "//:java_truth",
+        "//common/types",
+        "//common/types:type_providers",
+        "//common:cel_overload_decl",
+        "//common:cel_overload_decl_formatter",
+        "@maven//:com_google_guava_guava",
+        "@maven//:junit_junit",
+    ],
+)
+
+java_test(
+    name = "CelProtoAbstractSyntaxTreeTest",
+    srcs = ["CelProtoAbstractSyntaxTreeTest.java"],
+    test_class = "dev.cel.common.CelProtoAbstractSyntaxTreeTest",
+    deps = [
+        "//:java_truth",
+        "//common/types:cel_proto_types",
+        "//common:cel_ast",
+        "//common:proto_ast",
+        "@cel_spec//proto/cel/expr:checked_java_proto",
+        "@cel_spec//proto/cel/expr:syntax_java_proto",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_protobuf_protobuf_java",
+        "@maven//:com_google_truth_extensions_truth_proto_extension",
+        "@maven//:junit_junit",
+    ],
+)
+
+java_test(
+    name = "CelProtoJsonAdapterTest",
+    srcs = ["CelProtoJsonAdapterTest.java"],
+    test_class = "dev.cel.common.CelProtoJsonAdapterTest",
+    deps = [
+        "//:java_truth",
+        "//common/values:cel_byte_string",
+        "//common:cel_source",
+        "//common:proto_json_adapter",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_protobuf_protobuf_java",
         "@maven//:com_google_testparameterinjector_test_parameter_injector",
         "@maven//:com_google_truth_extensions_truth_proto_extension",
+        "@maven//:junit_junit",
+    ],
+)
+
+java_test(
+    name = "CelProtoV1Alpha1AbstractSyntaxTreeTest",
+    srcs = ["CelProtoV1Alpha1AbstractSyntaxTreeTest.java"],
+    test_class = "dev.cel.common.CelProtoV1Alpha1AbstractSyntaxTreeTest",
+    deps = [
+        "//:java_truth",
+        "//common/types:cel_v1alpha1_types",
+        "//common:cel_ast",
+        "//common:proto_v1alpha1_ast",
+        "@com_google_googleapis//google/api/expr/v1alpha1:expr_java_proto",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_protobuf_protobuf_java",
+        "@maven//:com_google_truth_extensions_truth_proto_extension",
+        "@maven//:junit_junit",
+    ],
+)
+
+java_test(
+    name = "CelSourceLocationTest",
+    srcs = ["CelSourceLocationTest.java"],
+    test_class = "dev.cel.common.CelSourceLocationTest",
+    deps = [
+        "//:java_truth",
+        "//common:source_location",
+        "@maven//:com_google_guava_guava",
+        "@maven//:junit_junit",
+    ],
+)
+
+java_test(
+    name = "CelSourceTest",
+    srcs = ["CelSourceTest.java"],
+    test_class = "dev.cel.common.CelSourceTest",
+    deps = [
+        "//:java_truth",
+        "//common/ast",
+        "//common/internal",
+        "//common/internal:code_point_stream",
+        "//common:cel_source",
+        "//common:source_location",
+        "@maven//:com_google_guava_guava",
         "@maven//:junit_junit",
         "@maven//:org_antlr_antlr4_runtime",
     ],
 )
 
-junit4_test_suites(
-    name = "test_suites",
-    sizes = [
-        "small",
-    ],
-    src_dir = "src/test/java",
+java_test(
+    name = "CelValidationExceptionTest",
+    srcs = ["CelValidationExceptionTest.java"],
+    test_class = "dev.cel.common.CelValidationExceptionTest",
     deps = [
-        ":tests",
+        "//:java_truth",
+        "//common:cel_issue",
+        "//common:cel_source",
+        "//common:cel_validation_exception",
+        "//common:source_location",
+        "@maven//:com_google_guava_guava",
+        "@maven//:junit_junit",
+    ],
+)
+
+java_test(
+    name = "CelVarDeclTest",
+    srcs = ["CelVarDeclTest.java"],
+    test_class = "dev.cel.common.CelVarDeclTest",
+    deps = [
+        "//:java_truth",
+        "//common/ast",
+        "//common/types",
+        "//common/types:type_providers",
+        "//common/values:cel_byte_string",
+        "//common:cel_proto_decl_converter",
+        "//common:cel_var_decl",
+        "@cel_spec//proto/cel/expr:checked_java_proto",
+        "@cel_spec//proto/cel/expr:syntax_java_proto",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_protobuf_protobuf_java",
+        "@maven//:com_google_truth_extensions_truth_proto_extension",
+        "@maven//:junit_junit",
+    ],
+)
+
+java_test(
+    name = "OperatorTest",
+    srcs = ["OperatorTest.java"],
+    test_class = "dev.cel.common.OperatorTest",
+    deps = [
+        "//:java_truth",
+        "//common:operator",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_testparameterinjector_test_parameter_injector",
+        "@maven//:junit_junit",
+    ],
+)
+
+java_test(
+    name = "TypeSpecifierFormatterTest",
+    srcs = ["TypeSpecifierFormatterTest.java"],
+    test_class = "dev.cel.common.TypeSpecifierFormatterTest",
+    deps = [
+        "//:java_truth",
+        "//common/types",
+        "//common/types:cel_internal_types",
+        "//common/types:cel_types",
+        "//common/types:type_providers",
+        "//common:type_specifier_formatter",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_testparameterinjector_test_parameter_injector",
+        "@maven//:junit_junit",
     ],
 )

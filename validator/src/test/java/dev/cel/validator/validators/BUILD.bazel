@@ -1,38 +1,24 @@
-load("@rules_java//java:defs.bzl", "java_library")
-load("//:testing.bzl", "junit4_test_suites")
+load("@rules_java//java:defs.bzl", "java_test")
 
 package(
     default_applicable_licenses = ["//:license"],
 )
 
-java_library(
-    name = "tests",
-    testonly = 1,
-    srcs = glob(["*.java"]),
+java_test(
+    name = "AstDepthLimitValidatorTest",
+    srcs = ["AstDepthLimitValidatorTest.java"],
+    test_class = "dev.cel.validator.validators.AstDepthLimitValidatorTest",
     deps = [
         "//:java_truth",
         "//bundle:cel",
-        "//checker:standard_decl",
+        "//common/types",
         "//common:cel_ast",
         "//common:compiler_common",
-        "//common:options",
         "//common:proto_ast",
-        "//common/internal:proto_time_utils",
-        "//common/types",
-        "//extensions",
-        "//extensions:optional_library",
-        "//parser:macro",
         "//runtime",
-        "//runtime:function_binding",
-        "//runtime:standard_functions",
         "//validator",
-        "//validator:validator_builder",
         "//validator/validators:ast_depth_limit_validator",
-        "//validator/validators:comprehension_nesting_limit_validator",
-        "//validator/validators:duration",
-        "//validator/validators:homogeneous_literal",
-        "//validator/validators:regex",
-        "//validator/validators:timestamp",
+        "//validator:validator_builder",
         "@cel_spec//proto/cel/expr:checked_java_proto",
         "@maven//:com_google_guava_guava",
         "@maven//:com_google_testparameterinjector_test_parameter_injector",
@@ -41,11 +27,126 @@ java_library(
     ],
 )
 
-junit4_test_suites(
-    name = "test_suites",
-    sizes = [
-        "small",
+java_test(
+    name = "ComprehensionNestingLimitValidatorTest",
+    srcs = ["ComprehensionNestingLimitValidatorTest.java"],
+    test_class = "dev.cel.validator.validators.ComprehensionNestingLimitValidatorTest",
+    deps = [
+        "//:java_truth",
+        "//bundle:cel",
+        "//common/types",
+        "//common:cel_ast",
+        "//common:compiler_common",
+        "//extensions",
+        "//extensions:optional_library",
+        "//parser:macro",
+        "//runtime",
+        "//validator",
+        "//validator/validators:comprehension_nesting_limit_validator",
+        "//validator:validator_builder",
+        "@cel_spec//proto/cel/expr:checked_java_proto",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_testparameterinjector_test_parameter_injector",
+        "@maven//:junit_junit",
+        "@maven_android//:com_google_protobuf_protobuf_javalite",
     ],
-    src_dir = "src/test/java",
-    deps = [":tests"],
+)
+
+java_test(
+    name = "DurationLiteralValidatorTest",
+    srcs = ["DurationLiteralValidatorTest.java"],
+    test_class = "dev.cel.validator.validators.DurationLiteralValidatorTest",
+    deps = [
+        "//:java_truth",
+        "//bundle:cel",
+        "//checker:standard_decl",
+        "//common/internal:proto_time_utils",
+        "//common/types",
+        "//common:cel_ast",
+        "//common:compiler_common",
+        "//runtime",
+        "//runtime:function_binding",
+        "//runtime:standard_functions",
+        "//validator",
+        "//validator/validators:duration",
+        "//validator:validator_builder",
+        "@cel_spec//proto/cel/expr:checked_java_proto",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_testparameterinjector_test_parameter_injector",
+        "@maven//:junit_junit",
+        "@maven_android//:com_google_protobuf_protobuf_javalite",
+    ],
+)
+
+java_test(
+    name = "HomogeneousLiteralValidatorTest",
+    srcs = ["HomogeneousLiteralValidatorTest.java"],
+    test_class = "dev.cel.validator.validators.HomogeneousLiteralValidatorTest",
+    deps = [
+        "//:java_truth",
+        "//bundle:cel",
+        "//common/types",
+        "//common:cel_ast",
+        "//common:compiler_common",
+        "//extensions:optional_library",
+        "//runtime",
+        "//validator",
+        "//validator/validators:homogeneous_literal",
+        "//validator:validator_builder",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_testparameterinjector_test_parameter_injector",
+        "@maven//:junit_junit",
+        "@maven_android//:com_google_protobuf_protobuf_javalite",
+    ],
+)
+
+java_test(
+    name = "RegexLiteralValidatorTest",
+    srcs = ["RegexLiteralValidatorTest.java"],
+    test_class = "dev.cel.validator.validators.RegexLiteralValidatorTest",
+    deps = [
+        "//:java_truth",
+        "//bundle:cel",
+        "//common/types",
+        "//common:cel_ast",
+        "//common:compiler_common",
+        "//common:options",
+        "//runtime",
+        "//runtime:function_binding",
+        "//validator",
+        "//validator/validators:regex",
+        "//validator:validator_builder",
+        "@cel_spec//proto/cel/expr:checked_java_proto",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_testparameterinjector_test_parameter_injector",
+        "@maven//:junit_junit",
+        "@maven_android//:com_google_protobuf_protobuf_javalite",
+    ],
+)
+
+java_test(
+    name = "TimestampLiteralValidatorTest",
+    srcs = ["TimestampLiteralValidatorTest.java"],
+    test_class = "dev.cel.validator.validators.TimestampLiteralValidatorTest",
+    deps = [
+        "//:java_truth",
+        "//bundle:cel",
+        "//checker:standard_decl",
+        "//common/internal:proto_time_utils",
+        "//common/types",
+        "//common:cel_ast",
+        "//common:compiler_common",
+        "//common:options",
+        "//runtime",
+        "//runtime:function_binding",
+        "//runtime:standard_functions",
+        "//validator",
+        "//validator/validators:timestamp",
+        "//validator:validator_builder",
+        "@cel_spec//proto/cel/expr:checked_java_proto",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_testparameterinjector_test_parameter_injector",
+        "@maven//:junit_junit",
+        "@maven_android//:com_google_protobuf_protobuf_javalite",
+    ],
 )

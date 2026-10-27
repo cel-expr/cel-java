@@ -1,40 +1,76 @@
-load("@rules_java//java:defs.bzl", "java_library")
-load("//:testing.bzl", "junit4_test_suites")
+load("@rules_java//java:defs.bzl", "java_library", "java_test")
 
 package(
     default_applicable_licenses = ["//:license"],
 )
 
 java_library(
-    name = "tests",
+    name = "test_helpers",
     testonly = True,
-    srcs = glob(
-        ["*.java"],
-    ),
-    compatible_with = [],
+    srcs = [
+        "VerifierTestHelper.java",
+    ],
     data = [
         "//testing:policy_test_resources",
     ],
     deps = [
+        "@bazel_tools//tools/java/runfiles:runfiles",
+        "@maven//:com_google_guava_guava",
+    ],
+)
+
+java_test(
+    name = "CanonicalizationOptimizerTest",
+    srcs = ["CanonicalizationOptimizerTest.java"],
+    data = [
+        "//testing:policy_test_resources",
+    ],
+    test_class = "dev.cel.verifier.CanonicalizationOptimizerTest",
+    deps = [
+        "//:java_truth",
         "//bundle:cel",
+        "//common/ast",
+        "//common/ast:mutable_expr",
+        "//common/types",
         "//common:cel_ast",
         "//common:compiler_common",
         "//common:container",
         "//common:mutable_ast",
-        "//common:operator",
         "//common:options",
-        "//common/ast",
-        "//common/ast:mutable_expr",
-        "//common/types",
-        "//common/types:message_type_provider",
         "//compiler:compiler_builder",
         "//extensions",
         "//extensions:optional_library",
-        #         "//java/com/google/testing/testsize:annotations",
         "//optimizer",
         "//optimizer:optimizer_builder",
+        "//parser:macro",
+        "//parser:unparser",
+        "//verifier:canonicalization_optimizer",
+        "@cel_spec//proto/cel/expr/conformance/proto3:test_all_types_java_proto",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_testparameterinjector_test_parameter_injector",
+        "@maven//:junit_junit",
+    ],
+)
+
+java_test(
+    name = "CelPolicyVerifierImplTest",
+    srcs = ["CelPolicyVerifierImplTest.java"],
+    data = [
+        "//testing:policy_test_resources",
+    ],
+    test_class = "dev.cel.verifier.CelPolicyVerifierImplTest",
+    deps = [
+        "//:java_truth",
+        "//bundle:cel",
+        "//common/types",
+        "//common:cel_ast",
+        "//common:compiler_common",
+        "//common:options",
+        "//compiler:compiler_builder",
+        "//extensions",
+        "//optimizer",
         "//optimizer/optimizers:common_subexpression_elimination",
-        "//optimizer/optimizers:constant_folding",
+        "//optimizer:optimizer_builder",
         "//parser:macro",
         "//parser:unparser",
         "//policy",
@@ -43,32 +79,53 @@ java_library(
         "//policy:parser",
         "//policy:parser_factory",
         "//policy:validation_exception",
-        "@bazel_tools//tools/java/runfiles",
-        "@maven//:junit_junit",
-        "@maven//:com_google_testparameterinjector_test_parameter_injector",
-        "//:java_truth",
-        "@maven//:tools_aqua_z3_turnkey",
         "//verifier",
-        "//verifier:canonicalization_optimizer",
-        "//verifier:numeric_bounds",
         "//verifier:policy_verifier",
         "//verifier:policy_verifier_factory",
-        "//verifier:type_system",
         "//verifier:verifier_factory",
-        "//verifier:z3_impl",
-        "//verifier/axioms",
+        ":test_helpers",
         "@cel_spec//proto/cel/expr/conformance/proto3:test_all_types_java_proto",
         "@maven//:com_google_guava_guava",
+        "@maven//:com_google_testparameterinjector_test_parameter_injector",
+        "@maven//:junit_junit",
     ],
 )
 
-junit4_test_suites(
-    name = "test_suites",
-    shard_count = 8,
-    sizes = [
-        "small",
-        "medium",
+java_test(
+    name = "CelVerifierZ3ImplTest",
+    srcs = ["CelVerifierZ3ImplTest.java"],
+    data = [
+        "//testing:policy_test_resources",
     ],
-    src_dir = "src/test/java",
-    deps = [":tests"],
+    test_class = "dev.cel.verifier.CelVerifierZ3ImplTest",
+    deps = [
+        "//:java_truth",
+        "//bundle:cel",
+        "//common/ast",
+        "//common/types",
+        "//common/types:message_type_provider",
+        "//common:cel_ast",
+        "//common:compiler_common",
+        "//common:container",
+        "//common:operator",
+        "//common:options",
+        "//compiler:compiler_builder",
+        "//extensions",
+        "//extensions:optional_library",
+        "//optimizer",
+        "//optimizer/optimizers:constant_folding",
+        "//optimizer:optimizer_builder",
+        "//parser:macro",
+        "//verifier",
+        "//verifier/axioms",
+        "//verifier:numeric_bounds",
+        "//verifier:type_system",
+        "//verifier:verifier_factory",
+        "//verifier:z3_impl",
+        "@cel_spec//proto/cel/expr/conformance/proto3:test_all_types_java_proto",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_testparameterinjector_test_parameter_injector",
+        "@maven//:junit_junit",
+        "@maven//:tools_aqua_z3_turnkey",
+    ],
 )

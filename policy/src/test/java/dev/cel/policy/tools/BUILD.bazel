@@ -1,6 +1,5 @@
-load("@rules_java//java:defs.bzl", "java_library")
+load("@rules_java//java:defs.bzl", "java_test")
 load("@rules_proto//proto:defs.bzl", "proto_descriptor_set")
-load("//:testing.bzl", "junit4_test_suites")
 load("//policy/tools:compile_cel_policy.bzl", "compile_cel_policy")
 
 package(
@@ -22,15 +21,15 @@ compile_cel_policy(
     simple_variables = True,
 )
 
-java_library(
-    name = "tests",
-    testonly = True,
-    srcs = glob(["*Test.java"]),
+java_test(
+    name = "CelPolicyCompilerToolTest",
+    srcs = ["CelPolicyCompilerToolTest.java"],
     data = [
         ":compiled_test_policy.binarypb",
         ":test_all_types_fds",
         "//testing/environment:proto3_message_variables",
     ],
+    test_class = "dev.cel.policy.tools.CelPolicyCompilerToolTest",
     deps = [
         "//:java_truth",
         "//common:cel_ast",
@@ -39,22 +38,13 @@ java_library(
         "//extensions:optional_library",
         "//policy/tools",
         "//runtime",
-        "@bazel_tools//tools/java/runfiles",
-        "@cel_spec//proto/cel/expr:checked_java_proto",
+        "@bazel_tools//tools/java/runfiles:runfiles",
         "@cel_spec//proto/cel/expr/conformance/proto3:test_all_types_java_proto",
+        "@cel_spec//proto/cel/expr:checked_java_proto",
         "@com_google_googleapis//google/api/expr/v1alpha1:expr_java_proto",
         "@maven//:com_google_guava_guava",
         "@maven//:com_google_protobuf_protobuf_java",
         "@maven//:info_picocli_picocli",
         "@maven//:junit_junit",
     ],
-)
-
-junit4_test_suites(
-    name = "test_suites",
-    sizes = [
-        "small",
-    ],
-    src_dir = "src/test/java",
-    deps = [":tests"],
 )

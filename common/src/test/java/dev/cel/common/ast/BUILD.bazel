@@ -1,5 +1,4 @@
-load("@rules_java//java:defs.bzl", "java_library")
-load("//:testing.bzl", "junit4_test_suites")
+load("@rules_java//java:defs.bzl", "java_test")
 
 package(
     default_applicable_licenses = [
@@ -7,51 +6,221 @@ package(
     ],
 )
 
-java_library(
-    name = "tests",
-    testonly = True,
-    srcs = glob(["*.java"]),
+java_test(
+    name = "CelConstantTest",
+    srcs = ["CelConstantTest.java"],
+    test_class = "dev.cel.common.ast.CelConstantTest",
     deps = [
-        "//:auto_value",
         "//:java_truth",
+        "//common/ast",
+        "//common/values",
+        "//common/values:cel_byte_string",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_protobuf_protobuf_java",
+        "@maven//:com_google_testparameterinjector_test_parameter_injector",
+        "@maven//:junit_junit",
+    ],
+)
+
+java_test(
+    name = "CelExprConverterTest",
+    srcs = ["CelExprConverterTest.java"],
+    test_class = "dev.cel.common.ast.CelExprConverterTest",
+    deps = [
+        "//:java_truth",
+        "//common/ast",
+        "//common/ast:expr_converter",
+        "//common/values",
+        "//common/values:cel_byte_string",
+        "@cel_spec//proto/cel/expr:checked_java_proto",
+        "@cel_spec//proto/cel/expr:syntax_java_proto",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_protobuf_protobuf_java",
+        "@maven//:com_google_testparameterinjector_test_parameter_injector",
+        "@maven//:junit_junit",
+    ],
+)
+
+java_test(
+    name = "CelExprFactoryTest",
+    srcs = ["CelExprFactoryTest.java"],
+    test_class = "dev.cel.common.ast.CelExprFactoryTest",
+    deps = [
+        "//:java_truth",
+        "//common/ast:expr_factory",
+        "@maven//:com_google_guava_guava",
+        "@maven//:junit_junit",
+    ],
+)
+
+java_test(
+    name = "CelExprFormatterTest",
+    srcs = ["CelExprFormatterTest.java"],
+    test_class = "dev.cel.common.ast.CelExprFormatterTest",
+    deps = [
+        "//:java_truth",
+        "//common/ast",
+        "//common/types",
         "//common:cel_ast",
         "//common:compiler_common",
         "//common:container",
-        "//common:mutable_ast",
-        "//common:mutable_source",
-        "//common:operator",
-        "//common:options",
-        "//common/ast",
-        "//common/ast:cel_expr_visitor",
-        "//common/ast:expr_converter",
-        "//common/ast:expr_factory",
-        "//common/ast:expr_v1alpha1_converter",
-        "//common/ast:mutable_expr",
-        "//common/types",
-        "//common/values",
-        "//common/values:cel_byte_string",
         "//compiler",
         "//compiler:compiler_builder",
         "//extensions:optional_library",
         "//parser:macro",
-        "@cel_spec//proto/cel/expr:checked_java_proto",
-        "@cel_spec//proto/cel/expr:syntax_java_proto",
         "@cel_spec//proto/cel/expr/conformance/proto3:test_all_types_java_proto",
+        "@cel_spec//proto/cel/expr:checked_java_proto",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_protobuf_protobuf_java",
+        "@maven//:com_google_testparameterinjector_test_parameter_injector",
+        "@maven//:junit_junit",
+    ],
+)
+
+java_test(
+    name = "CelExprIdGeneratorTest",
+    srcs = ["CelExprIdGeneratorTest.java"],
+    test_class = "dev.cel.common.ast.CelExprIdGeneratorTest",
+    deps = [
+        "//:java_truth",
+        "//common/ast:expr_factory",
+        "@maven//:com_google_guava_guava",
+        "@maven//:junit_junit",
+    ],
+)
+
+java_test(
+    name = "CelExprTest",
+    srcs = ["CelExprTest.java"],
+    test_class = "dev.cel.common.ast.CelExprTest",
+    deps = [
+        "//:java_truth",
+        "//common/ast",
+        "//common/values",
+        "//common/values:cel_byte_string",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_protobuf_protobuf_java",
+        "@maven//:com_google_testparameterinjector_test_parameter_injector",
+        "@maven//:junit_junit",
+    ],
+)
+
+java_test(
+    name = "CelExprV1Alpha1ConverterTest",
+    srcs = ["CelExprV1Alpha1ConverterTest.java"],
+    test_class = "dev.cel.common.ast.CelExprV1Alpha1ConverterTest",
+    deps = [
+        "//:java_truth",
+        "//common/ast",
+        "//common/ast:expr_v1alpha1_converter",
+        "//common/values",
+        "//common/values:cel_byte_string",
         "@com_google_googleapis//google/api/expr/v1alpha1:expr_java_proto",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_protobuf_protobuf_java",
+        "@maven//:com_google_testparameterinjector_test_parameter_injector",
+        "@maven//:junit_junit",
+    ],
+)
+
+java_test(
+    name = "CelExprVisitorTest",
+    srcs = ["CelExprVisitorTest.java"],
+    test_class = "dev.cel.common.ast.CelExprVisitorTest",
+    deps = [
+        "//:auto_value",
+        "//:java_truth",
+        "//common/ast",
+        "//common/ast:cel_expr_visitor",
+        "//common/types",
+        "//common/values",
+        "//common/values:cel_byte_string",
+        "//common:cel_ast",
+        "//common:compiler_common",
+        "//common:container",
+        "//common:operator",
+        "//compiler",
+        "//compiler:compiler_builder",
+        "//parser:macro",
+        "@cel_spec//proto/cel/expr/conformance/proto3:test_all_types_java_proto",
+        "@cel_spec//proto/cel/expr:checked_java_proto",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_protobuf_protobuf_java",
+        "@maven//:junit_junit",
+    ],
+)
+
+java_test(
+    name = "CelMutableAstTest",
+    srcs = ["CelMutableAstTest.java"],
+    test_class = "dev.cel.common.ast.CelMutableAstTest",
+    deps = [
+        "//:java_truth",
+        "//common/ast",
+        "//common/ast:mutable_expr",
+        "//common/types",
+        "//common/values",
+        "//common/values:cel_byte_string",
+        "//common:cel_ast",
+        "//common:compiler_common",
+        "//common:mutable_ast",
+        "//common:mutable_source",
+        "//common:options",
+        "//compiler",
+        "//compiler:compiler_builder",
+        "//parser:macro",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_protobuf_protobuf_java",
+        "@maven//:junit_junit",
+    ],
+)
+
+java_test(
+    name = "CelMutableExprConverterTest",
+    srcs = ["CelMutableExprConverterTest.java"],
+    test_class = "dev.cel.common.ast.CelMutableExprConverterTest",
+    deps = [
+        "//:java_truth",
+        "//common/ast",
+        "//common/ast:mutable_expr",
+        "//common/values",
+        "//common/values:cel_byte_string",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_protobuf_protobuf_java",
+        "@maven//:com_google_testparameterinjector_test_parameter_injector",
+        "@maven//:junit_junit",
+    ],
+)
+
+java_test(
+    name = "CelMutableExprTest",
+    srcs = ["CelMutableExprTest.java"],
+    test_class = "dev.cel.common.ast.CelMutableExprTest",
+    deps = [
+        "//:java_truth",
+        "//common/ast",
+        "//common/ast:mutable_expr",
+        "//common/values",
+        "//common/values:cel_byte_string",
         "@maven//:com_google_guava_guava",
         "@maven//:com_google_guava_guava_testlib",
         "@maven//:com_google_protobuf_protobuf_java",
         "@maven//:com_google_testparameterinjector_test_parameter_injector",
         "@maven//:junit_junit",
-        "@maven_android//:com_google_protobuf_protobuf_javalite",
     ],
 )
 
-junit4_test_suites(
-    name = "test_suites",
-    sizes = [
-        "small",
+java_test(
+    name = "CelReferenceTest",
+    srcs = ["CelReferenceTest.java"],
+    test_class = "dev.cel.common.ast.CelReferenceTest",
+    deps = [
+        "//:java_truth",
+        "//common/ast",
+        "//common/values",
+        "//common/values:cel_byte_string",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_protobuf_protobuf_java",
+        "@maven//:junit_junit",
     ],
-    src_dir = "src/test/java",
-    deps = [":tests"],
 )

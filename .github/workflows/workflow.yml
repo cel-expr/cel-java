@@ -57,7 +57,8 @@ jobs:
         run: .github/workflows/cross_artifact_dependencies_check.sh
       - name: Prune disk cache entries not used by this job
         # Bazel bumps mtimes on use; drop stale entries so the saved cache doesn't grow unbounded.
-        if: github.event_name != 'pull_request'
+        # TODO(testing): Uncomment `if` before merging
+        # if: github.event_name != 'pull_request'
         run: |
           if [ -d ~/.cache/bazel-disk ]; then
             du -sh ~/.cache/bazel-disk
@@ -65,7 +66,8 @@ jobs:
             du -sh ~/.cache/bazel-disk
           fi
       - name: Save Bazel disk cache
-        if: github.event_name != 'pull_request'
+        # TODO(testing): Uncomment `if` before merging
+        # if: github.event_name != 'pull_request'
         uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           path: ~/.cache/bazel-disk
@@ -111,7 +113,8 @@ jobs:
         run: bazelisk test ... --deleted_packages=//codelab/src/test/codelab --test_output=errors --test_tag_filters=-conformance_maven --build_tag_filters=-conformance_maven
       - name: Prune disk cache entries not used by this job
         # Bazel bumps mtimes on use; drop stale entries so the saved cache doesn't grow unbounded.
-        if: github.event_name != 'pull_request'
+        # TODO(testing): Uncomment `if` before merging
+        # if: github.event_name != 'pull_request'
         run: |
           if [ -d ~/.cache/bazel-disk ]; then
             du -sh ~/.cache/bazel-disk
@@ -119,7 +122,8 @@ jobs:
             du -sh ~/.cache/bazel-disk
           fi
       - name: Save Bazel disk cache
-        if: github.event_name != 'pull_request'
+        # TODO(testing): Uncomment `if` before merging
+        # if: github.event_name != 'pull_request'
         uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           path: ~/.cache/bazel-disk

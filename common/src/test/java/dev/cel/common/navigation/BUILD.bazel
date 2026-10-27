@@ -1,22 +1,47 @@
-load("@rules_java//java:defs.bzl", "java_library")
-load("//:testing.bzl", "junit4_test_suites")
+load("@rules_java//java:defs.bzl", "java_test")
 
 package(
     default_applicable_licenses = ["//:license"],
 )
 
-java_library(
-    name = "tests",
-    testonly = True,
-    srcs = glob(["*.java"]),
+java_test(
+    name = "CelNavigableAstTest",
+    srcs = ["CelNavigableAstTest.java"],
+    test_class = "dev.cel.common.navigation.CelNavigableAstTest",
     deps = [
         "//:java_truth",
+        "//common/ast",
+        "//common/navigation",
+        "//common/navigation:common",
         "//common:cel_ast",
         "//common:compiler_common",
-        "//common:container",
-        "//common:mutable_ast",
-        "//common:operator",
-        "//common:options",
+        "//compiler",
+        "//compiler:compiler_builder",
+        "@maven//:com_google_guava_guava",
+        "@maven//:junit_junit",
+    ],
+)
+
+java_test(
+    name = "CelNavigableExprTest",
+    srcs = ["CelNavigableExprTest.java"],
+    test_class = "dev.cel.common.navigation.CelNavigableExprTest",
+    deps = [
+        "//:java_truth",
+        "//common/ast",
+        "//common/navigation",
+        "//common/navigation:common",
+        "@maven//:com_google_guava_guava",
+        "@maven//:junit_junit",
+    ],
+)
+
+java_test(
+    name = "CelNavigableExprUtilTest",
+    srcs = ["CelNavigableExprUtilTest.java"],
+    test_class = "dev.cel.common.navigation.CelNavigableExprUtilTest",
+    deps = [
+        "//:java_truth",
         "//common/ast",
         "//common/ast:mutable_expr",
         "//common/navigation",
@@ -24,9 +49,35 @@ java_library(
         "//common/navigation:expr_util",
         "//common/navigation:mutable_navigation",
         "//common/types",
+        "//common:cel_ast",
+        "//common:compiler_common",
+        "//common:mutable_ast",
         "//compiler",
         "//compiler:compiler_builder",
         "//extensions",
+        "//parser:macro",
+        "@maven//:com_google_guava_guava",
+        "@maven//:junit_junit",
+    ],
+)
+
+java_test(
+    name = "CelNavigableExprVisitorTest",
+    srcs = ["CelNavigableExprVisitorTest.java"],
+    test_class = "dev.cel.common.navigation.CelNavigableExprVisitorTest",
+    deps = [
+        "//:java_truth",
+        "//common/ast",
+        "//common/navigation",
+        "//common/navigation:common",
+        "//common/types",
+        "//common:cel_ast",
+        "//common:compiler_common",
+        "//common:container",
+        "//common:operator",
+        "//common:options",
+        "//compiler",
+        "//compiler:compiler_builder",
         "//parser:macro",
         "@cel_spec//proto/cel/expr/conformance/proto3:test_all_types_java_proto",
         "@maven//:com_google_guava_guava",
@@ -35,11 +86,37 @@ java_library(
     ],
 )
 
-junit4_test_suites(
-    name = "test_suites",
-    sizes = [
-        "small",
+java_test(
+    name = "CelNavigableMutableAstTest",
+    srcs = ["CelNavigableMutableAstTest.java"],
+    test_class = "dev.cel.common.navigation.CelNavigableMutableAstTest",
+    deps = [
+        "//:java_truth",
+        "//common/ast",
+        "//common/ast:mutable_expr",
+        "//common/navigation:common",
+        "//common/navigation:mutable_navigation",
+        "//common:cel_ast",
+        "//common:compiler_common",
+        "//common:mutable_ast",
+        "//compiler",
+        "//compiler:compiler_builder",
+        "@maven//:com_google_guava_guava",
+        "@maven//:junit_junit",
     ],
-    src_dir = "src/test/java",
-    deps = [":tests"],
+)
+
+java_test(
+    name = "CelNavigableMutableExprTest",
+    srcs = ["CelNavigableMutableExprTest.java"],
+    test_class = "dev.cel.common.navigation.CelNavigableMutableExprTest",
+    deps = [
+        "//:java_truth",
+        "//common/ast",
+        "//common/ast:mutable_expr",
+        "//common/navigation:common",
+        "//common/navigation:mutable_navigation",
+        "@maven//:com_google_guava_guava",
+        "@maven//:junit_junit",
+    ],
 )

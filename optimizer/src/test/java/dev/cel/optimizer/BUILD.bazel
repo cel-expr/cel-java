@@ -1,17 +1,21 @@
-load("@rules_java//java:defs.bzl", "java_library")
-load("//:testing.bzl", "junit4_test_suites")
+load("@rules_java//java:defs.bzl", "java_test")
 
 package(
     default_applicable_licenses = ["//:license"],
 )
 
-java_library(
-    name = "tests",
-    testonly = 1,
-    srcs = glob(["*.java"]),
+java_test(
+    name = "AstMutatorTest",
+    srcs = ["AstMutatorTest.java"],
+    test_class = "dev.cel.optimizer.AstMutatorTest",
     deps = [
         "//:java_truth",
         "//bundle:cel",
+        "//common/ast",
+        "//common/ast:mutable_expr",
+        "//common/navigation",
+        "//common/navigation:common",
+        "//common/types",
         "//common:cel_ast",
         "//common:cel_function_decl",
         "//common:cel_overload_decl",
@@ -20,19 +24,9 @@ java_library(
         "//common:container",
         "//common:mutable_ast",
         "//common:options",
-        "//common/ast",
-        "//common/ast:mutable_expr",
-        "//common/navigation",
-        "//common/navigation:common",
-        "//common/types",
         "//extensions",
         "//extensions:optional_library",
-        "//optimizer:ast_optimizer",
         "//optimizer:mutable_ast",
-        "//optimizer:optimization_exception",
-        "//optimizer:optimizer_builder",
-        "//optimizer:optimizer_impl",
-        "//optimizer:optimizer_listener",
         "//parser:macro",
         "//parser:unparser",
         "@cel_spec//proto/cel/expr/conformance/proto3:test_all_types_java_proto",
@@ -42,11 +36,25 @@ java_library(
     ],
 )
 
-junit4_test_suites(
-    name = "test_suites",
-    sizes = [
-        "small",
+java_test(
+    name = "CelOptimizerImplTest",
+    srcs = ["CelOptimizerImplTest.java"],
+    test_class = "dev.cel.optimizer.CelOptimizerImplTest",
+    deps = [
+        "//:java_truth",
+        "//bundle:cel",
+        "//common/ast",
+        "//common:cel_ast",
+        "//common:cel_source",
+        "//common:cel_validation_exception",
+        "//common:options",
+        "//optimizer:ast_optimizer",
+        "//optimizer:optimization_exception",
+        "//optimizer:optimizer_builder",
+        "//optimizer:optimizer_impl",
+        "//optimizer:optimizer_listener",
+        "//parser:macro",
+        "@maven//:com_google_guava_guava",
+        "@maven//:junit_junit",
     ],
-    src_dir = "src/test/java",
-    deps = [":tests"],
 )

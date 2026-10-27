@@ -1,19 +1,16 @@
-load("@rules_java//java:defs.bzl", "java_library")
-load("//:testing.bzl", "junit4_test_suites")
+load("@rules_java//java:defs.bzl", "java_test")
 
 package(default_applicable_licenses = [
     "//:license",
 ])
 
-java_library(
-    name = "tests",
-    testonly = True,
-    srcs = glob(["*.java"]),
+java_test(
+    name = "CelExprKindAndIdAdornerTest",
+    srcs = ["CelExprKindAndIdAdornerTest.java"],
+    test_class = "dev.cel.testing.CelExprKindAndIdAdornerTest",
     deps = [
         "//:java_truth",
-        "//common:source_location",
         "//testing:adorner",
-        "//testing:line_differ",
         "@cel_spec//proto/cel/expr:syntax_java_proto",
         "@maven//:com_google_guava_guava",
         "@maven//:com_google_protobuf_protobuf_java",
@@ -21,11 +18,29 @@ java_library(
     ],
 )
 
-junit4_test_suites(
-    name = "test_suites",
-    sizes = [
-        "small",
+java_test(
+    name = "CelLocationAdornerTest",
+    srcs = ["CelLocationAdornerTest.java"],
+    test_class = "dev.cel.testing.CelLocationAdornerTest",
+    deps = [
+        "//:java_truth",
+        "//common:source_location",
+        "//testing:adorner",
+        "@cel_spec//proto/cel/expr:syntax_java_proto",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_protobuf_protobuf_java",
+        "@maven//:junit_junit",
     ],
-    src_dir = "src/test/java",
-    deps = [":tests"],
+)
+
+java_test(
+    name = "LineDifferTest",
+    srcs = ["LineDifferTest.java"],
+    test_class = "dev.cel.testing.LineDifferTest",
+    deps = [
+        "//:java_truth",
+        "//testing:line_differ",
+        "@maven//:com_google_guava_guava",
+        "@maven//:junit_junit",
+    ],
 )

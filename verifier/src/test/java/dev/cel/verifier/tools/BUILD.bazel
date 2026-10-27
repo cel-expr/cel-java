@@ -1,14 +1,25 @@
-load("@rules_java//java:defs.bzl", "java_library")
-load("//:testing.bzl", "junit4_test_suites")
+load("@rules_java//java:defs.bzl", "java_test")
 
 package(
     default_applicable_licenses = ["//:license"],
 )
 
-java_library(
-    name = "tests",
-    testonly = True,
-    srcs = glob(["*.java"]),
+java_test(
+    name = "CelVerifierReplTest",
+    srcs = ["CelVerifierReplTest.java"],
+    test_class = "dev.cel.verifier.tools.CelVerifierReplTest",
+    deps = [
+        "//:java_truth",
+        "//verifier/tools",
+        "@maven//:com_google_guava_guava",
+        "@maven//:junit_junit",
+    ],
+)
+
+java_test(
+    name = "CelVerifierToolTest",
+    srcs = ["CelVerifierToolTest.java"],
+    test_class = "dev.cel.verifier.tools.CelVerifierToolTest",
     deps = [
         "//:java_truth",
         "//common/types",
@@ -21,11 +32,31 @@ java_library(
     ],
 )
 
-junit4_test_suites(
-    name = "test_suites",
-    sizes = [
-        "small",
+java_test(
+    name = "FormatUtilsTest",
+    srcs = ["FormatUtilsTest.java"],
+    test_class = "dev.cel.verifier.tools.FormatUtilsTest",
+    deps = [
+        "//:java_truth",
+        "//common/types",
+        "//common/types:type_providers",
+        "//verifier",
+        "//verifier/tools",
+        "@maven//:com_google_guava_guava",
+        "@maven//:junit_junit",
     ],
-    src_dir = "src/test/java",
-    deps = [":tests"],
+)
+
+java_test(
+    name = "VerificationOptionsTest",
+    srcs = ["VerificationOptionsTest.java"],
+    test_class = "dev.cel.verifier.tools.VerificationOptionsTest",
+    deps = [
+        "//:java_truth",
+        "//common/types",
+        "//common/types:type_providers",
+        "//verifier/tools",
+        "@maven//:com_google_guava_guava",
+        "@maven//:junit_junit",
+    ],
 )

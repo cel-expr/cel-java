@@ -1,5 +1,4 @@
-load("@rules_java//java:defs.bzl", "java_library")
-load("//:testing.bzl", "junit4_test_suites")
+load("@rules_java//java:defs.bzl", "java_test")
 
 package(
     default_applicable_licenses = [
@@ -7,22 +6,245 @@ package(
     ],
 )
 
-java_library(
-    name = "tests",
-    testonly = True,
-    srcs = glob(["*Test.java"]),
-    resources = ["//checker/src/test/resources:baselines"],
+java_test(
+    name = "CelCheckerLegacyImplTest",
+    srcs = ["CelCheckerLegacyImplTest.java"],
+    resources = [
+        "//checker/src/test/resources:baselines",
+    ],
+    test_class = "dev.cel.checker.CelCheckerLegacyImplTest",
     deps = [
+        "//:java_truth",
         "//checker",
         "//checker:checker_builder",
         "//checker:checker_legacy_environment",
-        "//checker:proto_expr_visitor",
         "//checker:proto_type_mask",
         "//checker:standard_decl",
-        "//checker:type_inferencer",
+        "//common/ast",
+        "//common/internal:env_visitor",
+        "//common/types",
+        "//common/types:type_providers",
         "//common:cel_ast",
         "//common:cel_function_decl",
+        "//common:cel_overload_decl",
+        "//common:cel_source",
+        "//common:cel_validation_exception",
+        "//common:cel_var_decl",
+        "//common:container",
+        "//common:options",
+        "//compiler",
+        "//compiler:compiler_builder",
+        "@cel_spec//proto/cel/expr/conformance/proto2:test_all_types_java_proto",
+        "@cel_spec//proto/cel/expr/conformance/proto3:test_all_types_java_proto",
+        "@cel_spec//proto/cel/expr:checked_java_proto",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_protobuf_protobuf_java",
+        "@maven//:com_google_testparameterinjector_test_parameter_injector",
+        "@maven//:junit_junit",
+    ],
+)
+
+java_test(
+    name = "CelCompilerFactoryTest",
+    srcs = ["CelCompilerFactoryTest.java"],
+    resources = [
+        "//checker/src/test/resources:baselines",
+    ],
+    test_class = "dev.cel.checker.CelCompilerFactoryTest",
+    deps = [
+        "//:java_truth",
+        "//checker:checker_builder",
+        "//common/ast",
+        "//compiler",
+        "//compiler:compiler_builder",
+        "//parser:macro",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_protobuf_protobuf_java",
+        "@maven//:junit_junit",
+    ],
+)
+
+java_test(
+    name = "CelCompilerImplTest",
+    srcs = ["CelCompilerImplTest.java"],
+    resources = [
+        "//checker/src/test/resources:baselines",
+    ],
+    test_class = "dev.cel.checker.CelCompilerImplTest",
+    deps = [
+        "//:java_truth",
+        "//checker:checker_builder",
+        "//common/internal:env_visitor",
+        "//common/types",
+        "//common/types:type_providers",
+        "//common:cel_function_decl",
+        "//common:cel_overload_decl",
+        "//compiler",
+        "//compiler:compiler_builder",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_protobuf_protobuf_java",
+        "@maven//:junit_junit",
+    ],
+)
+
+java_test(
+    name = "CelFunctionDeclTest",
+    srcs = ["CelFunctionDeclTest.java"],
+    resources = [
+        "//checker/src/test/resources:baselines",
+    ],
+    test_class = "dev.cel.checker.CelFunctionDeclTest",
+    deps = [
+        "//:java_truth",
+        "//common/types",
+        "//common/types:type_providers",
+        "//common:cel_function_decl",
+        "//common:cel_overload_decl",
+        "@maven//:com_google_guava_guava",
+        "@maven//:junit_junit",
+    ],
+)
+
+java_test(
+    name = "CelIssueTest",
+    srcs = ["CelIssueTest.java"],
+    resources = [
+        "//checker/src/test/resources:baselines",
+    ],
+    test_class = "dev.cel.checker.CelIssueTest",
+    deps = [
+        "//:java_truth",
         "//common:cel_issue",
+        "//common:cel_source",
+        "//common:source_location",
+        "@maven//:com_google_guava_guava",
+        "@maven//:junit_junit",
+    ],
+)
+
+java_test(
+    name = "CelOverloadDeclTest",
+    srcs = ["CelOverloadDeclTest.java"],
+    resources = [
+        "//checker/src/test/resources:baselines",
+    ],
+    test_class = "dev.cel.checker.CelOverloadDeclTest",
+    deps = [
+        "//:java_truth",
+        "//common/types",
+        "//common/types:cel_proto_types",
+        "//common/types:type_providers",
+        "//common:cel_function_decl",
+        "//common:cel_overload_decl",
+        "//common:cel_proto_decl_converter",
+        "@cel_spec//proto/cel/expr:checked_java_proto",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_protobuf_protobuf_java",
+        "@maven//:com_google_truth_extensions_truth_proto_extension",
+        "@maven//:junit_junit",
+    ],
+)
+
+java_test(
+    name = "CelProtoExprVisitorTest",
+    srcs = ["CelProtoExprVisitorTest.java"],
+    resources = [
+        "//checker/src/test/resources:baselines",
+    ],
+    test_class = "dev.cel.checker.CelProtoExprVisitorTest",
+    deps = [
+        "//:auto_value",
+        "//:java_truth",
+        "//checker:checker_builder",
+        "//checker:checker_legacy_environment",
+        "//checker:proto_expr_visitor",
+        "//common/types",
+        "//common/types:type_providers",
+        "//common:cel_ast",
+        "//common:cel_validation_exception",
+        "//common:container",
+        "//common:operator",
+        "//compiler",
+        "//compiler:compiler_builder",
+        "//parser:macro",
+        "@cel_spec//proto/cel/expr/conformance/proto3:test_all_types_java_proto",
+        "@cel_spec//proto/cel/expr:checked_java_proto",
+        "@cel_spec//proto/cel/expr:syntax_java_proto",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_protobuf_protobuf_java",
+        "@maven//:com_google_truth_extensions_truth_proto_extension",
+        "@maven//:junit_junit",
+    ],
+)
+
+java_test(
+    name = "CelStandardDeclarationsTest",
+    srcs = ["CelStandardDeclarationsTest.java"],
+    resources = [
+        "//checker/src/test/resources:baselines",
+    ],
+    test_class = "dev.cel.checker.CelStandardDeclarationsTest",
+    deps = [
+        "//:java_truth",
+        "//checker:checker_builder",
+        "//checker:standard_decl",
+        "//common:cel_ast",
+        "//common:cel_function_decl",
+        "//common:cel_overload_decl",
+        "//common:cel_validation_exception",
+        "//common:cel_var_decl",
+        "//common:options",
+        "//compiler",
+        "//compiler:compiler_builder",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_protobuf_protobuf_java",
+        "@maven//:com_google_testparameterinjector_test_parameter_injector",
+        "@maven//:junit_junit",
+    ],
+)
+
+java_test(
+    name = "DescriptorTypeProviderTest",
+    srcs = ["DescriptorTypeProviderTest.java"],
+    resources = [
+        "//checker/src/test/resources:baselines",
+    ],
+    test_class = "dev.cel.checker.DescriptorTypeProviderTest",
+    deps = [
+        "//:java_truth",
+        "//checker:checker_legacy_environment",
+        "//common/types:cel_proto_types",
+        "//common/types:type_providers",
+        "@cel_spec//proto/cel/expr/conformance/proto2:test_all_types_java_proto",
+        "@cel_spec//proto/cel/expr:checked_java_proto",
+        "@com_google_googleapis//google/rpc/context:attribute_context_java_proto",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_protobuf_protobuf_java",
+        "@maven//:junit_junit",
+    ],
+)
+
+java_test(
+    name = "ExprCheckerTest",
+    srcs = ["ExprCheckerTest.java"],
+    resources = [
+        "//checker/src/test/resources:baselines",
+    ],
+    test_class = "dev.cel.checker.ExprCheckerTest",
+    deps = [
+        "//checker:checker_builder",
+        "//checker:checker_legacy_environment",
+        "//checker:standard_decl",
+        "//common/ast",
+        "//common/internal:env_visitor",
+        "//common/internal:errors",
+        "//common/resources/testdata/proto3:standalone_global_enum_java_proto",
+        "//common/types",
+        "//common/types:cel_proto_types",
+        "//common/types:message_type_provider",
+        "//common/types:type_providers",
+        "//common:cel_ast",
+        "//common:cel_function_decl",
         "//common:cel_overload_decl",
         "//common:cel_proto_decl_converter",
         "//common:cel_source",
@@ -30,46 +252,104 @@ java_library(
         "//common:cel_var_decl",
         "//common:container",
         "//common:mutable_ast",
-        "//common:operator",
         "//common:options",
         "//common:proto_ast",
-        "//common:source_location",
-        "//common/ast",
-        "//common/internal:env_visitor",
-        "//common/internal:errors",
-        "//common/resources/testdata/proto3:standalone_global_enum_java_proto",
-        "//common/types",
-        "//common/types:cel_proto_types",
-        "//common/types:json",
-        "//common/types:message_type_provider",
-        "//common/types:type_providers",
-        "//compiler",
         "//compiler:compiler_builder",
-        #         "//java/com/google/testing/testsize:annotations",
         "//parser:macro",
         "//testing:adorner",
         "//testing:cel_baseline_test_case",
-        "//:auto_value",
-        "@maven//:junit_junit",
-        "@maven//:com_google_testparameterinjector_test_parameter_injector",
-        "//:java_truth",
-        "@maven//:com_google_truth_extensions_truth_proto_extension",
-        "@cel_spec//proto/cel/expr:checked_java_proto",
-        "@cel_spec//proto/cel/expr:syntax_java_proto",
         "@cel_spec//proto/cel/expr/conformance/proto2:test_all_types_java_proto",
         "@cel_spec//proto/cel/expr/conformance/proto3:test_all_types_java_proto",
-        "@com_google_googleapis//google/rpc/context:attribute_context_java_proto",
+        "@cel_spec//proto/cel/expr:checked_java_proto",
+        "@cel_spec//proto/cel/expr:syntax_java_proto",
         "@maven//:com_google_guava_guava",
         "@maven//:com_google_protobuf_protobuf_java",
+        "@maven//:com_google_testparameterinjector_test_parameter_injector",
+        "@maven//:junit_junit",
     ],
 )
 
-junit4_test_suites(
-    name = "test_suites",
-    sizes = [
-        "small",
-        "medium",
+java_test(
+    name = "ProtoTypeMaskTest",
+    srcs = ["ProtoTypeMaskTest.java"],
+    resources = [
+        "//checker/src/test/resources:baselines",
     ],
-    src_dir = "src/test/java",
-    deps = [":tests"],
+    test_class = "dev.cel.checker.ProtoTypeMaskTest",
+    deps = [
+        "//:java_truth",
+        "//checker:proto_type_mask",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_protobuf_protobuf_java",
+        "@maven//:junit_junit",
+    ],
+)
+
+java_test(
+    name = "ProtoTypeMaskTypeProviderTest",
+    srcs = ["ProtoTypeMaskTypeProviderTest.java"],
+    resources = [
+        "//checker/src/test/resources:baselines",
+    ],
+    test_class = "dev.cel.checker.ProtoTypeMaskTypeProviderTest",
+    deps = [
+        "//:java_truth",
+        "//checker",
+        "//checker:proto_type_mask",
+        "//common/types",
+        "//common/types:message_type_provider",
+        "//common/types:type_providers",
+        "//common:cel_var_decl",
+        "@com_google_googleapis//google/rpc/context:attribute_context_java_proto",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_protobuf_protobuf_java",
+        "@maven//:junit_junit",
+    ],
+)
+
+java_test(
+    name = "TypeInferencerTest",
+    srcs = ["TypeInferencerTest.java"],
+    resources = [
+        "//checker/src/test/resources:baselines",
+    ],
+    test_class = "dev.cel.checker.TypeInferencerTest",
+    deps = [
+        "//:java_truth",
+        "//checker:type_inferencer",
+        "//common/types",
+        "//common/types:json",
+        "//common/types:type_providers",
+        "@maven//:com_google_guava_guava",
+        "@maven//:junit_junit",
+    ],
+)
+
+java_test(
+    name = "TypesTest",
+    srcs = ["TypesTest.java"],
+    resources = [
+        "//checker/src/test/resources:baselines",
+    ],
+    test_class = "dev.cel.checker.TypesTest",
+    deps = [
+        "//:java_truth",
+        "//checker:checker_builder",
+        "//checker:checker_legacy_environment",
+        "//common/types",
+        "//common/types:cel_proto_types",
+        "//common/types:type_providers",
+        "//common:cel_ast",
+        "//common:cel_function_decl",
+        "//common:cel_overload_decl",
+        "//common:cel_validation_exception",
+        "//common:container",
+        "//compiler",
+        "//compiler:compiler_builder",
+        "@cel_spec//proto/cel/expr:checked_java_proto",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_protobuf_protobuf_java",
+        "@maven//:com_google_testparameterinjector_test_parameter_injector",
+        "@maven//:junit_junit",
+    ],
 )

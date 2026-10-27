@@ -1,6 +1,5 @@
-load("@rules_java//java:defs.bzl", "java_library")
+load("@rules_java//java:defs.bzl", "java_test")
 load("//:cel_android_rules.bzl", "cel_android_local_test")
-load("//:testing.bzl", "junit4_test_suites")
 
 package(
     default_applicable_licenses = [
@@ -11,47 +10,6 @@ package(
 ANDROID_TESTS = [
     "CelLiteParserAndroidTest.java",
 ]
-
-java_library(
-    name = "tests",
-    testonly = True,
-    srcs = glob(
-        ["*Test.java"],
-        exclude = ["TmpPrattParserTest.java"] + ANDROID_TESTS,
-    ),
-    resources = ["//parser/src/test/resources:baselines"],
-    deps = [
-        "//:java_truth",
-        "//common:cel_ast",
-        "//common:cel_issue",
-        "//common:cel_source",
-        "//common:cel_validation_exception",
-        "//common:cel_validation_result",
-        "//common:operator",
-        "//common:options",
-        "//common:proto_ast",
-        "//common:source_location",
-        "//common/ast",
-        "//common/internal",
-        "//common/values:cel_byte_string",
-        "//extensions:optional_library",
-        "//parser",
-        "//parser:lite_parser_factory",
-        "//parser:macro",
-        "//parser:parser_builder",
-        "//parser:pratt_parser",
-        "//parser:unparser",
-        "//parser:unparser_visitor",
-        "//testing:adorner",
-        "//testing:baseline_test_case",
-        "@cel_spec//proto/cel/expr:syntax_java_proto",
-        "@maven//:com_google_guava_guava",
-        "@maven//:com_google_guava_guava_testlib",
-        "@maven//:com_google_protobuf_protobuf_java",
-        "@maven//:com_google_testparameterinjector_test_parameter_injector",
-        "@maven//:junit_junit",
-    ],
-)
 
 cel_android_local_test(
     name = "android_tests",
@@ -65,11 +23,197 @@ cel_android_local_test(
     ],
 )
 
-junit4_test_suites(
-    name = "test_suites",
-    sizes = [
-        "small",
+java_test(
+    name = "CelLiteParserFactoryTest",
+    srcs = ["CelLiteParserFactoryTest.java"],
+    resources = [
+        "//parser/src/test/resources:baselines",
     ],
-    src_dir = "src/test/java",
-    deps = [":tests"],
+    test_class = "dev.cel.parser.CelLiteParserFactoryTest",
+    deps = [
+        "//:java_truth",
+        "//common/ast",
+        "//common:cel_ast",
+        "//common:cel_source",
+        "//common:cel_validation_exception",
+        "//common:cel_validation_result",
+        "//common:options",
+        "//parser:lite_parser_factory",
+        "//parser:macro",
+        "//parser:parser_builder",
+        "@maven//:com_google_guava_guava",
+        "@maven//:junit_junit",
+    ],
+)
+
+java_test(
+    name = "CelMacroExprFactoryTest",
+    srcs = ["CelMacroExprFactoryTest.java"],
+    resources = [
+        "//parser/src/test/resources:baselines",
+    ],
+    test_class = "dev.cel.parser.CelMacroExprFactoryTest",
+    deps = [
+        "//:java_truth",
+        "//common/ast",
+        "//common/internal",
+        "//common/values:cel_byte_string",
+        "//common:cel_issue",
+        "//common:source_location",
+        "//parser:macro",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_protobuf_protobuf_java",
+        "@maven//:junit_junit",
+    ],
+)
+
+java_test(
+    name = "CelMacroTest",
+    srcs = ["CelMacroTest.java"],
+    resources = [
+        "//parser/src/test/resources:baselines",
+    ],
+    test_class = "dev.cel.parser.CelMacroTest",
+    deps = [
+        "//:java_truth",
+        "//common/ast",
+        "//parser:macro",
+        "@maven//:com_google_guava_guava",
+        "@maven//:junit_junit",
+    ],
+)
+
+java_test(
+    name = "CelParserImplTest",
+    srcs = ["CelParserImplTest.java"],
+    resources = [
+        "//parser/src/test/resources:baselines",
+    ],
+    test_class = "dev.cel.parser.CelParserImplTest",
+    deps = [
+        "//:java_truth",
+        "//common/ast",
+        "//common/internal",
+        "//common/values:cel_byte_string",
+        "//common:cel_ast",
+        "//common:cel_issue",
+        "//common:cel_source",
+        "//common:cel_validation_exception",
+        "//common:cel_validation_result",
+        "//common:options",
+        "//common:source_location",
+        "//parser",
+        "//parser:macro",
+        "//parser:parser_builder",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_protobuf_protobuf_java",
+        "@maven//:com_google_testparameterinjector_test_parameter_injector",
+        "@maven//:junit_junit",
+    ],
+)
+
+java_test(
+    name = "CelParserParameterizedTest",
+    srcs = ["CelParserParameterizedTest.java"],
+    resources = [
+        "//parser/src/test/resources:baselines",
+    ],
+    test_class = "dev.cel.parser.CelParserParameterizedTest",
+    deps = [
+        "//:java_truth",
+        "//common/ast",
+        "//common/internal",
+        "//common/values:cel_byte_string",
+        "//common:cel_ast",
+        "//common:cel_source",
+        "//common:cel_validation_exception",
+        "//common:cel_validation_result",
+        "//common:options",
+        "//common:proto_ast",
+        "//parser",
+        "//parser:macro",
+        "//parser:parser_builder",
+        "//testing:adorner",
+        "//testing:baseline_test_case",
+        "@cel_spec//proto/cel/expr:syntax_java_proto",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_protobuf_protobuf_java",
+        "@maven//:com_google_testparameterinjector_test_parameter_injector",
+        "@maven//:junit_junit",
+    ],
+)
+
+java_test(
+    name = "CelStandardMacroTest",
+    srcs = ["CelStandardMacroTest.java"],
+    resources = [
+        "//parser/src/test/resources:baselines",
+    ],
+    test_class = "dev.cel.parser.CelStandardMacroTest",
+    deps = [
+        "//:java_truth",
+        "//common:operator",
+        "//parser:macro",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_guava_guava_testlib",
+        "@maven//:junit_junit",
+    ],
+)
+
+java_test(
+    name = "CelUnparserImplTest",
+    srcs = ["CelUnparserImplTest.java"],
+    resources = [
+        "//parser/src/test/resources:baselines",
+    ],
+    test_class = "dev.cel.parser.CelUnparserImplTest",
+    deps = [
+        "//:java_truth",
+        "//common/ast",
+        "//common:cel_ast",
+        "//common:cel_source",
+        "//common:cel_validation_exception",
+        "//common:cel_validation_result",
+        "//common:options",
+        "//common:proto_ast",
+        "//extensions:optional_library",
+        "//parser",
+        "//parser:macro",
+        "//parser:parser_builder",
+        "//parser:unparser",
+        "//parser:unparser_visitor",
+        "@cel_spec//proto/cel/expr:syntax_java_proto",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_protobuf_protobuf_java",
+        "@maven//:com_google_testparameterinjector_test_parameter_injector",
+        "@maven//:junit_junit",
+    ],
+)
+
+java_test(
+    name = "PrattParserTest",
+    srcs = ["PrattParserTest.java"],
+    resources = [
+        "//parser/src/test/resources:baselines",
+    ],
+    test_class = "dev.cel.parser.PrattParserTest",
+    deps = [
+        "//common/ast",
+        "//common/internal",
+        "//common:cel_ast",
+        "//common:cel_source",
+        "//common:cel_validation_exception",
+        "//common:cel_validation_result",
+        "//common:options",
+        "//common:proto_ast",
+        "//parser:macro",
+        "//parser:pratt_parser",
+        "//testing:adorner",
+        "//testing:baseline_test_case",
+        "@cel_spec//proto/cel/expr:syntax_java_proto",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_protobuf_protobuf_java",
+        "@maven//:com_google_testparameterinjector_test_parameter_injector",
+        "@maven//:junit_junit",
+    ],
 )

@@ -1,14 +1,13 @@
-load("@rules_java//java:defs.bzl", "java_library")
-load("//:testing.bzl", "junit4_test_suites")
+load("@rules_java//java:defs.bzl", "java_test")
 
 package(
     default_applicable_licenses = ["//:license"],
 )
 
-java_library(
-    name = "tests",
-    testonly = 1,
-    srcs = glob(["*.java"]),
+java_test(
+    name = "CelValidatorImplTest",
+    srcs = ["CelValidatorImplTest.java"],
+    test_class = "dev.cel.validator.CelValidatorImplTest",
     deps = [
         "//:java_truth",
         "//bundle:cel",
@@ -18,13 +17,4 @@ java_library(
         "//validator:validator_impl",
         "@maven//:junit_junit",
     ],
-)
-
-junit4_test_suites(
-    name = "test_suites",
-    sizes = [
-        "small",
-    ],
-    src_dir = "src/test/java",
-    deps = [":tests"],
 )

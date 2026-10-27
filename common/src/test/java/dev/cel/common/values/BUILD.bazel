@@ -1,43 +1,172 @@
-load("@rules_java//java:defs.bzl", "java_library")
-load("//:testing.bzl", "junit4_test_suites")
+load("@rules_java//java:defs.bzl", "java_test")
 
 package(
     default_applicable_licenses = ["//:license"],
 )
 
-java_library(
-    name = "tests",
-    testonly = True,
-    srcs = glob(["*.java"]),
+java_test(
+    name = "CelByteStringTest",
+    srcs = ["CelByteStringTest.java"],
+    test_class = "dev.cel.common.values.CelByteStringTest",
     deps = [
         "//:java_truth",
-        "//bundle:cel",
-        "//common:cel_ast",
-        "//common:cel_descriptor_util",
-        "//common:error_codes",
-        "//common:options",
-        "//common/exceptions:attribute_not_found",
-        "//common/exceptions:invalid_argument",
-        "//common/internal:cel_descriptor_pools",
-        "//common/internal:cel_lite_descriptor_pool",
-        "//common/internal:default_lite_descriptor_pool",
-        "//common/internal:default_message_factory",
-        "//common/internal:dynamic_proto",
-        "//common/internal:proto_message_factory",
-        "//common/internal:proto_time_utils",
-        "//common/types",
-        "//common/types:type_providers",
-        "//common/values",
         "//common/values:cel_byte_string",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_guava_guava_testlib",
+        "@maven//:junit_junit",
+    ],
+)
+
+java_test(
+    name = "CelValueConverterTest",
+    srcs = ["CelValueConverterTest.java"],
+    test_class = "dev.cel.common.values.CelValueConverterTest",
+    deps = [
+        "//:java_truth",
+        "//common/exceptions:invalid_argument",
+        "//common/values",
+        "//common:error_codes",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:com_google_guava_guava",
+        "@maven//:junit_junit",
+    ],
+)
+
+java_test(
+    name = "CombinedCelValueConverterTest",
+    srcs = ["CombinedCelValueConverterTest.java"],
+    test_class = "dev.cel.common.values.CombinedCelValueConverterTest",
+    deps = [
+        "//:java_truth",
+        "//common/values",
         "//common/values:cel_value_provider",
         "//common/values:combined_cel_value_converter",
         "//common/values:combined_cel_value_provider",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:com_google_guava_guava",
+        "@maven//:junit_junit",
+    ],
+)
+
+java_test(
+    name = "ErrorValueTest",
+    srcs = ["ErrorValueTest.java"],
+    test_class = "dev.cel.common.values.ErrorValueTest",
+    deps = [
+        "//:java_truth",
+        "//common/types",
+        "//common/types:type_providers",
+        "//common/values",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:com_google_guava_guava",
+        "@maven//:junit_junit",
+    ],
+)
+
+java_test(
+    name = "NullValueTest",
+    srcs = ["NullValueTest.java"],
+    test_class = "dev.cel.common.values.NullValueTest",
+    deps = [
+        "//:java_truth",
+        "//common/types",
+        "//common/types:type_providers",
+        "//common/values",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:com_google_guava_guava",
+        "@maven//:junit_junit",
+    ],
+)
+
+java_test(
+    name = "OpaqueValueTest",
+    srcs = ["OpaqueValueTest.java"],
+    test_class = "dev.cel.common.values.OpaqueValueTest",
+    deps = [
+        "//:java_truth",
+        "//bundle:cel",
+        "//common/types",
+        "//common/types:type_providers",
+        "//common/values",
+        "//common/values:cel_value_provider",
+        "//common:cel_ast",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_protobuf_protobuf_java",
+        "@maven//:junit_junit",
+    ],
+)
+
+java_test(
+    name = "OptimizedSelectTraversalTest",
+    srcs = ["OptimizedSelectTraversalTest.java"],
+    test_class = "dev.cel.common.values.OptimizedSelectTraversalTest",
+    deps = [
+        "//:java_truth",
+        "//common/exceptions:attribute_not_found",
+        "//common/types",
+        "//common/types:type_providers",
+        "//common/values",
         "//common/values:optimized_select_traversal",
         "//common/values:optimized_selectable",
-        "//common/values:proto_message_lite_value",
-        "//common/values:proto_message_lite_value_provider",
+        "//common/values:select_field",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_testparameterinjector_test_parameter_injector",
+        "@maven//:junit_junit",
+    ],
+)
+
+java_test(
+    name = "OptionalValueTest",
+    srcs = ["OptionalValueTest.java"],
+    test_class = "dev.cel.common.values.OptionalValueTest",
+    deps = [
+        "//:java_truth",
+        "//common/types",
+        "//common/types:type_providers",
+        "//common/values",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_testparameterinjector_test_parameter_injector",
+        "@maven//:junit_junit",
+    ],
+)
+
+java_test(
+    name = "ProtoCelValueConverterTest",
+    srcs = ["ProtoCelValueConverterTest.java"],
+    test_class = "dev.cel.common.values.ProtoCelValueConverterTest",
+    deps = [
+        "//:java_truth",
+        "//common/internal:cel_descriptor_pools",
+        "//common/internal:default_message_factory",
+        "//common/internal:dynamic_proto",
+        "//common/internal:proto_message_factory",
+        "//common/values",
         "//common/values:proto_message_value",
-        "//common/values:proto_message_value_provider",
+        "//common:options",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_protobuf_protobuf_java",
+        "@maven//:junit_junit",
+    ],
+)
+
+java_test(
+    name = "ProtoLiteCelValueConverterTest",
+    srcs = ["ProtoLiteCelValueConverterTest.java"],
+    test_class = "dev.cel.common.values.ProtoLiteCelValueConverterTest",
+    deps = [
+        "@maven//:com_google_protobuf_protobuf_java",
+        "//:java_truth",
+        "//common/internal:cel_lite_descriptor_pool",
+        "//common/internal:default_lite_descriptor_pool",
+        "//common/values",
+        "//common/values:cel_byte_string",
+        "//common/values:optimized_selectable",
+        "//common/values:proto_message_lite_value",
         "//common/values:select_field",
         "//protobuf:cel_lite_descriptor",
         "//testing/protos:test_all_types_cel_java_proto2",
@@ -46,19 +175,181 @@ java_library(
         "@cel_spec//proto/cel/expr/conformance/proto3:test_all_types_java_proto",
         "@maven//:com_google_errorprone_error_prone_annotations",
         "@maven//:com_google_guava_guava",
-        "@maven//:com_google_guava_guava_testlib",
-        "@maven//:com_google_protobuf_protobuf_java",
         "@maven//:com_google_testparameterinjector_test_parameter_injector",
         "@maven//:junit_junit",
-        "@maven_android//:com_google_protobuf_protobuf_javalite",
     ],
 )
 
-junit4_test_suites(
-    name = "test_suites",
-    sizes = [
-        "small",
+java_test(
+    name = "ProtoMessageLiteValueProviderTest",
+    srcs = ["ProtoMessageLiteValueProviderTest.java"],
+    test_class = "dev.cel.common.values.ProtoMessageLiteValueProviderTest",
+    deps = [
+        "//:java_truth",
+        "//common/types",
+        "//common/types:type_providers",
+        "//common/values",
+        "//common/values:cel_value_provider",
+        "//common/values:optimized_selectable",
+        "//common/values:proto_message_lite_value",
+        "//common/values:proto_message_lite_value_provider",
+        "//protobuf:cel_lite_descriptor",
+        "//testing/protos:test_all_types_cel_java_proto3",
+        "@cel_spec//proto/cel/expr/conformance/proto3:test_all_types_java_proto",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_protobuf_protobuf_java",
+        "@maven//:com_google_testparameterinjector_test_parameter_injector",
+        "@maven//:junit_junit",
     ],
-    src_dir = "src/test/java",
-    deps = [":tests"],
+)
+
+java_test(
+    name = "ProtoMessageLiteValueTest",
+    srcs = ["ProtoMessageLiteValueTest.java"],
+    test_class = "dev.cel.common.values.ProtoMessageLiteValueTest",
+    deps = [
+        "@maven//:com_google_protobuf_protobuf_java",
+        "//:java_truth",
+        "//common/exceptions:attribute_not_found",
+        "//common/internal:cel_lite_descriptor_pool",
+        "//common/internal:default_lite_descriptor_pool",
+        "//common/values",
+        "//common/values:cel_byte_string",
+        "//common/values:optimized_select_traversal",
+        "//common/values:optimized_selectable",
+        "//common/values:proto_message_lite_value",
+        "//common/values:select_field",
+        "//protobuf:cel_lite_descriptor",
+        "//testing/protos:test_all_types_cel_java_proto3",
+        "@cel_spec//proto/cel/expr/conformance/proto3:test_all_types_java_proto",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_guava_guava_testlib",
+        "@maven//:com_google_testparameterinjector_test_parameter_injector",
+        "@maven//:junit_junit",
+    ],
+)
+
+java_test(
+    name = "ProtoMessageValueProviderTest",
+    srcs = ["ProtoMessageValueProviderTest.java"],
+    test_class = "dev.cel.common.values.ProtoMessageValueProviderTest",
+    deps = [
+        "//:java_truth",
+        "//common/internal:cel_descriptor_pools",
+        "//common/internal:default_message_factory",
+        "//common/internal:dynamic_proto",
+        "//common/internal:proto_message_factory",
+        "//common/values",
+        "//common/values:cel_value_provider",
+        "//common/values:combined_cel_value_provider",
+        "//common/values:optimized_selectable",
+        "//common/values:proto_message_value",
+        "//common/values:proto_message_value_provider",
+        "//common:cel_descriptor_util",
+        "//common:options",
+        "@cel_spec//proto/cel/expr/conformance/proto2:test_all_types_java_proto",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_protobuf_protobuf_java",
+        "@maven//:com_google_testparameterinjector_test_parameter_injector",
+        "@maven//:junit_junit",
+    ],
+)
+
+java_test(
+    name = "ProtoMessageValueTest",
+    srcs = ["ProtoMessageValueTest.java"],
+    test_class = "dev.cel.common.values.ProtoMessageValueTest",
+    deps = [
+        "//:java_truth",
+        "//common/exceptions:attribute_not_found",
+        "//common/internal:cel_descriptor_pools",
+        "//common/internal:default_message_factory",
+        "//common/internal:dynamic_proto",
+        "//common/internal:proto_message_factory",
+        "//common/types",
+        "//common/types:type_providers",
+        "//common/values",
+        "//common/values:cel_byte_string",
+        "//common/values:optimized_selectable",
+        "//common/values:proto_message_value",
+        "//common/values:select_field",
+        "//common:cel_descriptor_util",
+        "//common:options",
+        "@cel_spec//proto/cel/expr/conformance/proto2:test_all_types_java_proto",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_protobuf_protobuf_java",
+        "@maven//:com_google_testparameterinjector_test_parameter_injector",
+        "@maven//:junit_junit",
+    ],
+)
+
+java_test(
+    name = "RawProtoMessageLiteValueTest",
+    srcs = ["RawProtoMessageLiteValueTest.java"],
+    test_class = "dev.cel.common.values.RawProtoMessageLiteValueTest",
+    deps = [
+        "@maven//:com_google_protobuf_protobuf_java",
+        "//:java_truth",
+        "//common/exceptions:attribute_not_found",
+        "//common/internal:cel_lite_descriptor_pool",
+        "//common/internal:default_lite_descriptor_pool",
+        "//common/internal:proto_time_utils",
+        "//common/types:type_providers",
+        "//common/values",
+        "//common/values:cel_byte_string",
+        "//common/values:optimized_selectable",
+        "//common/values:proto_message_lite_value",
+        "//common/values:select_field",
+        "//protobuf:cel_lite_descriptor",
+        "//testing/protos:test_all_types_cel_java_proto3",
+        "@cel_spec//proto/cel/expr/conformance/proto3:test_all_types_java_proto",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_testparameterinjector_test_parameter_injector",
+        "@maven//:junit_junit",
+    ],
+)
+
+java_test(
+    name = "SelectFieldTest",
+    srcs = ["SelectFieldTest.java"],
+    test_class = "dev.cel.common.values.SelectFieldTest",
+    deps = [
+        "//:java_truth",
+        "//common/values:select_field",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_guava_guava_testlib",
+        "@maven//:com_google_testparameterinjector_test_parameter_injector",
+        "@maven//:junit_junit",
+    ],
+)
+
+java_test(
+    name = "StructValueTest",
+    srcs = ["StructValueTest.java"],
+    test_class = "dev.cel.common.values.StructValueTest",
+    deps = [
+        "//:java_truth",
+        "//bundle:cel",
+        "//common/internal:dynamic_proto",
+        "//common/internal:proto_message_factory",
+        "//common/types",
+        "//common/types:type_providers",
+        "//common/values",
+        "//common/values:cel_value_provider",
+        "//common/values:combined_cel_value_provider",
+        "//common/values:proto_message_value_provider",
+        "//common:cel_ast",
+        "//common:options",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_protobuf_protobuf_java",
+        "@maven//:com_google_testparameterinjector_test_parameter_injector",
+        "@maven//:junit_junit",
+    ],
 )

@@ -1,14 +1,15 @@
-load("@rules_java//java:defs.bzl", "java_library")
-load("//:testing.bzl", "junit4_test_suites")
+load("@rules_java//java:defs.bzl", "java_library", "java_test")
 
 package(
     default_applicable_licenses = ["//:license"],
 )
 
 java_library(
-    name = "tests",
+    name = "test_helpers",
     testonly = True,
-    srcs = glob(["*.java"]),
+    srcs = [
+        "PolicyTestHelper.java",
+    ],
     data = [
         "@cel_policy//conformance:testdata",
     ],
@@ -16,33 +17,48 @@ java_library(
         "//testing:policy_test_resources",
     ],
     deps = [
+        "@bazel_tools//tools/java/runfiles:runfiles",
+        "@maven//:com_google_guava_guava",
+        "@maven//:org_yaml_snakeyaml",
+    ],
+)
+
+java_test(
+    name = "CelPolicyCompilerImplTest",
+    srcs = ["CelPolicyCompilerImplTest.java"],
+    data = [
+        "@cel_policy//conformance:testdata",
+    ],
+    resources = [
+        "//testing:policy_test_resources",
+    ],
+    test_class = "dev.cel.policy.CelPolicyCompilerImplTest",
+    deps = [
         "//:java_truth",
         "//bundle:cel",
         "//bundle:environment",
         "//bundle:environment_yaml_parser",
-        "//common:cel_ast",
-        "//common:options",
         "//common/formats:value_string",
-        "//common/internal",
         "//common/resources/testdata/proto3:standalone_global_enum_java_proto",
         "//common/types",
+        "//common:cel_ast",
+        "//common:options",
         "//extensions:optional_library",
         "//parser:macro",
         "//parser:unparser",
         "//policy",
+        "//policy/testing:k8s_test_tag_handler",
         "//policy:compiled_rule",
         "//policy:compiler_factory",
         "//policy:parser",
         "//policy:parser_factory",
         "//policy:rule_composer",
-        "//policy:source",
         "//policy:validation_exception",
-        "//policy/testing:k8s_test_tag_handler",
         "//runtime",
         "//runtime:function_binding",
-        "//testing:cel_runtime_flavor",
         "//testing/protos:single_file_java_proto",
-        "@bazel_tools//tools/java/runfiles",
+        "//testing:cel_runtime_flavor",
+        ":test_helpers",
         "@cel_spec//proto/cel/expr/conformance/proto3:test_all_types_java_proto",
         "@maven//:com_google_guava_guava",
         "@maven//:com_google_testparameterinjector_test_parameter_injector",
@@ -51,11 +67,50 @@ java_library(
     ],
 )
 
-junit4_test_suites(
-    name = "test_suites",
-    sizes = [
-        "small",
+java_test(
+    name = "CelPolicySourceTest",
+    srcs = ["CelPolicySourceTest.java"],
+    data = [
+        "@cel_policy//conformance:testdata",
     ],
-    src_dir = "src/test/java",
-    deps = [":tests"],
+    resources = [
+        "//testing:policy_test_resources",
+    ],
+    test_class = "dev.cel.policy.CelPolicySourceTest",
+    deps = [
+        "//:java_truth",
+        "//common/internal",
+        "//policy:source",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_testparameterinjector_test_parameter_injector",
+        "@maven//:junit_junit",
+    ],
+)
+
+java_test(
+    name = "CelPolicyYamlParserTest",
+    srcs = ["CelPolicyYamlParserTest.java"],
+    data = [
+        "@cel_policy//conformance:testdata",
+    ],
+    resources = [
+        "//testing:policy_test_resources",
+    ],
+    test_class = "dev.cel.policy.CelPolicyYamlParserTest",
+    deps = [
+        "//:java_truth",
+        "//common/formats:value_string",
+        "//common/internal",
+        "//policy",
+        "//policy/testing:k8s_test_tag_handler",
+        "//policy:parser",
+        "//policy:parser_factory",
+        "//policy:source",
+        "//policy:validation_exception",
+        ":test_helpers",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_testparameterinjector_test_parameter_injector",
+        "@maven//:junit_junit",
+        "@maven//:org_yaml_snakeyaml",
+    ],
 )

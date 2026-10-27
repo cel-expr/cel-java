@@ -1,5 +1,4 @@
-load("@rules_java//java:defs.bzl", "java_library")
-load("//:testing.bzl", "junit4_test_suites")
+load("@rules_java//java:defs.bzl", "java_test")
 
 package(
     default_applicable_licenses = [
@@ -7,56 +6,253 @@ package(
     ],
 )
 
-java_library(
-    name = "tests",
-    testonly = 1,
-    srcs = glob(["*.java"]),
-    resources = ["//common/src/test/resources"],
+java_test(
+    name = "CelCodePointArrayTest",
+    srcs = ["CelCodePointArrayTest.java"],
+    resources = [
+        "//common/src/test/resources",
+    ],
+    test_class = "dev.cel.common.internal.CelCodePointArrayTest",
     deps = [
         "//:auto_value",
         "//:java_truth",
+        "//common/internal",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_testparameterinjector_test_parameter_injector",
+        "@maven//:junit_junit",
+    ],
+)
+
+java_test(
+    name = "CombinedDescriptorPoolTest",
+    srcs = ["CombinedDescriptorPoolTest.java"],
+    resources = [
+        "//common/src/test/resources",
+    ],
+    test_class = "dev.cel.common.internal.CombinedDescriptorPoolTest",
+    deps = [
+        "//:java_truth",
+        "//common/internal:cel_descriptor_pools",
         "//common:cel_descriptor_util",
         "//common:cel_descriptors",
-        "//common:options",
+        "@cel_spec//proto/cel/expr/conformance/proto2:test_all_types_java_proto",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_protobuf_protobuf_java",
+        "@maven//:junit_junit",
+    ],
+)
+
+java_test(
+    name = "ComparisonFunctionsTest",
+    srcs = ["ComparisonFunctionsTest.java"],
+    resources = [
+        "//common/src/test/resources",
+    ],
+    test_class = "dev.cel.common.internal.ComparisonFunctionsTest",
+    deps = [
+        "//:java_truth",
+        "//common/internal:comparison_functions",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_testparameterinjector_test_parameter_injector",
+        "@maven//:junit_junit",
+    ],
+)
+
+java_test(
+    name = "ConstantsTest",
+    srcs = ["ConstantsTest.java"],
+    resources = [
+        "//common/src/test/resources",
+    ],
+    test_class = "dev.cel.common.internal.ConstantsTest",
+    deps = [
+        "//:java_truth",
         "//common/ast",
         "//common/internal",
-        "//common/internal:cel_descriptor_pools",
-        "//common/internal:comparison_functions",
-        "//common/internal:converter",
-        "//common/internal:default_instance_message_factory",
-        "//common/internal:default_lite_descriptor_pool",
-        "//common/internal:default_message_factory",
-        "//common/internal:dynamic_proto",
-        "//common/internal:errors",
-        "//common/internal:proto_equality",
-        "//common/internal:proto_message_factory",
-        "//common/internal:proto_time_utils",
-        "//common/internal:well_known_proto",
-        "//common/src/test/resources:default_instance_message_test_protos_java_proto",
-        "//common/src/test/resources:service_conflicting_name_java_proto",
-        "//common/testing",
-        "//common/values",
         "//common/values:cel_byte_string",
-        "//protobuf:cel_lite_descriptor",
-        "//testing/protos:multi_file_java_proto",
-        "//testing/protos:single_file_java_proto",
-        "//testing/protos:test_all_types_cel_java_proto3",
-        "@cel_spec//proto/cel/expr/conformance/proto2:test_all_types_java_proto",
-        "@cel_spec//proto/cel/expr/conformance/proto3:test_all_types_java_proto",
-        "@com_google_googleapis//google/type:type_java_proto",
         "@maven//:com_google_guava_guava",
         "@maven//:com_google_protobuf_protobuf_java",
         "@maven//:com_google_testparameterinjector_test_parameter_injector",
         "@maven//:junit_junit",
-        "@maven_android//:com_google_protobuf_protobuf_javalite",
     ],
 )
 
-junit4_test_suites(
-    name = "test_suites",
-    sizes = [
-        "small",
+java_test(
+    name = "DefaultInstanceMessageFactoryTest",
+    srcs = ["DefaultInstanceMessageFactoryTest.java"],
+    resources = [
+        "//common/src/test/resources",
     ],
-    src_dir = "src/test/java",
-    deps = [":tests"],
+    test_class = "dev.cel.common.internal.DefaultInstanceMessageFactoryTest",
+    deps = [
+        "//:java_truth",
+        "//common/internal:default_instance_message_factory",
+        "//common/src/test/resources:default_instance_message_test_protos_java_proto",
+        "//common/src/test/resources:service_conflicting_name_java_proto",
+        "//common/testing",
+        "@cel_spec//proto/cel/expr/conformance/proto3:test_all_types_java_proto",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_protobuf_protobuf_java",
+        "@maven//:com_google_testparameterinjector_test_parameter_injector",
+        "@maven//:junit_junit",
+    ],
+)
+
+java_test(
+    name = "DefaultLiteDescriptorPoolTest",
+    srcs = ["DefaultLiteDescriptorPoolTest.java"],
+    resources = [
+        "//common/src/test/resources",
+    ],
+    test_class = "dev.cel.common.internal.DefaultLiteDescriptorPoolTest",
+    deps = [
+        "//:java_truth",
+        "//common/internal:cel_descriptor_pools",
+        "//common/internal:default_lite_descriptor_pool",
+        "//common/internal:well_known_proto",
+        "//protobuf:cel_lite_descriptor",
+        "//testing/protos:test_all_types_cel_java_proto3",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_protobuf_protobuf_java",
+        "@maven//:com_google_testparameterinjector_test_parameter_injector",
+        "@maven//:junit_junit",
+    ],
+)
+
+java_test(
+    name = "DefaultMessageFactoryTest",
+    srcs = ["DefaultMessageFactoryTest.java"],
+    resources = [
+        "//common/src/test/resources",
+    ],
+    test_class = "dev.cel.common.internal.DefaultMessageFactoryTest",
+    deps = [
+        "//:java_truth",
+        "//common/internal:cel_descriptor_pools",
+        "//common/internal:default_message_factory",
+        "//common/internal:proto_message_factory",
+        "//common:cel_descriptor_util",
+        "//common:cel_descriptors",
+        "@cel_spec//proto/cel/expr/conformance/proto3:test_all_types_java_proto",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_protobuf_protobuf_java",
+        "@maven//:junit_junit",
+    ],
+)
+
+java_test(
+    name = "DynamicProtoTest",
+    srcs = ["DynamicProtoTest.java"],
+    resources = [
+        "//common/src/test/resources",
+    ],
+    test_class = "dev.cel.common.internal.DynamicProtoTest",
+    deps = [
+        "//:java_truth",
+        "//common/internal:cel_descriptor_pools",
+        "//common/internal:default_message_factory",
+        "//common/internal:dynamic_proto",
+        "//common/internal:proto_message_factory",
+        "//common:cel_descriptor_util",
+        "//common:cel_descriptors",
+        "//testing/protos:multi_file_java_proto",
+        "//testing/protos:single_file_java_proto",
+        "@com_google_googleapis//google/type:type_java_proto",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_protobuf_protobuf_java",
+        "@maven//:junit_junit",
+    ],
+)
+
+java_test(
+    name = "ErrorsTest",
+    srcs = ["ErrorsTest.java"],
+    resources = [
+        "//common/src/test/resources",
+    ],
+    test_class = "dev.cel.common.internal.ErrorsTest",
+    deps = [
+        "//:java_truth",
+        "//common/internal:errors",
+        "@maven//:com_google_guava_guava",
+        "@maven//:junit_junit",
+    ],
+)
+
+java_test(
+    name = "ProtoAdapterTest",
+    srcs = ["ProtoAdapterTest.java"],
+    resources = [
+        "//common/src/test/resources",
+    ],
+    test_class = "dev.cel.common.internal.ProtoAdapterTest",
+    deps = [
+        "//:java_truth",
+        "//common/internal:converter",
+        "//common/internal:default_message_factory",
+        "//common/internal:dynamic_proto",
+        "//common/internal:proto_message_factory",
+        "//common/values",
+        "//common/values:cel_byte_string",
+        "//common:options",
+        "@com_google_googleapis//google/type:type_java_proto",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_protobuf_protobuf_java",
+        "@maven//:junit_junit",
+    ],
+)
+
+java_test(
+    name = "ProtoEqualityTest",
+    srcs = ["ProtoEqualityTest.java"],
+    resources = [
+        "//common/src/test/resources",
+    ],
+    test_class = "dev.cel.common.internal.ProtoEqualityTest",
+    deps = [
+        "//:java_truth",
+        "//common/internal:cel_descriptor_pools",
+        "//common/internal:default_message_factory",
+        "//common/internal:dynamic_proto",
+        "//common/internal:proto_equality",
+        "//common/internal:proto_message_factory",
+        "@cel_spec//proto/cel/expr/conformance/proto3:test_all_types_java_proto",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_protobuf_protobuf_java",
+        "@maven//:junit_junit",
+    ],
+)
+
+java_test(
+    name = "ProtoTimeUtilsTest",
+    srcs = ["ProtoTimeUtilsTest.java"],
+    resources = [
+        "//common/src/test/resources",
+    ],
+    test_class = "dev.cel.common.internal.ProtoTimeUtilsTest",
+    deps = [
+        "//:java_truth",
+        "//common/internal:proto_time_utils",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_protobuf_protobuf_java",
+        "@maven//:com_google_testparameterinjector_test_parameter_injector",
+        "@maven//:junit_junit",
+    ],
+)
+
+java_test(
+    name = "WellKnownProtoTest",
+    srcs = ["WellKnownProtoTest.java"],
+    resources = [
+        "//common/src/test/resources",
+    ],
+    test_class = "dev.cel.common.internal.WellKnownProtoTest",
+    deps = [
+        "//:java_truth",
+        "//common/internal:well_known_proto",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_protobuf_protobuf_java",
+        "@maven//:com_google_testparameterinjector_test_parameter_injector",
+        "@maven//:junit_junit",
+    ],
 )
