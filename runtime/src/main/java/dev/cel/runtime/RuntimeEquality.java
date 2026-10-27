@@ -251,7 +251,7 @@ public class RuntimeEquality {
     if (object instanceof Number) {
       double value = ((Number) object).doubleValue();
       // Normalize -0.0 to 0.0. objectEquals reports the two as equal, so they must hash alike.
-      return Double.hashCode(value == 0.0d ? 0.0d : value);
+      return Double.hashCode(normalizeZero(value));
     }
     if (object instanceof Iterable) {
       int h = 1;
@@ -292,6 +292,10 @@ public class RuntimeEquality {
 
   private static boolean isNan(Object value) {
     return value instanceof Number && Double.isNaN(((Number) value).doubleValue());
+  }
+
+  static double normalizeZero(double value) {
+    return value == 0.0d ? 0.0d : value;
   }
 
   RuntimeEquality(RuntimeHelpers runtimeHelpers, CelOptions celOptions) {
