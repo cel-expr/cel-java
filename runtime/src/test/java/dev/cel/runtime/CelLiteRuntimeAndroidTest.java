@@ -49,6 +49,7 @@ import dev.cel.extensions.CelComprehensionsRuntimeLibrary;
 import dev.cel.extensions.CelEncoderRuntimeLibrary;
 import dev.cel.extensions.CelListsRuntimeLibrary;
 import dev.cel.extensions.CelMathRuntimeLibrary;
+import dev.cel.extensions.CelOptionalRuntimeLibrary;
 import dev.cel.extensions.CelRegexRuntimeLibrary;
 import dev.cel.extensions.CelSetsRuntimeLibrary;
 import dev.cel.extensions.CelStringRuntimeLibrary;
@@ -154,10 +155,8 @@ public class CelLiteRuntimeAndroidTest {
     assertThat(newRuntimeBuilder.standardFunctionBuilder.build())
         .containsExactly(intFunction, equalsOperator)
         .inOrder();
-    assertThat(newRuntimeBuilder.customFunctionBindings).hasSize(3);
+    assertThat(newRuntimeBuilder.customFunctionBindings).hasSize(1);
     assertThat(newRuntimeBuilder.customFunctionBindings).containsKey("string_isEmpty");
-    assertThat(newRuntimeBuilder.customFunctionBindings).containsKey("list_sets_intersects_list");
-    assertThat(newRuntimeBuilder.customFunctionBindings).containsKey("sets.intersects");
   }
 
   @Test
@@ -289,6 +288,51 @@ public class CelLiteRuntimeAndroidTest {
     boolean result = (boolean) program.eval();
 
     assertThat(result).isTrue();
+  }
+
+  @Test
+  public void eval_customFunctions_dispatchFailureUsesFunctionName() throws Exception {
+    CelLiteRuntime runtime =
+        CelLiteRuntimeFactory.newLiteRuntimeBuilder()
+            .addFunctionBindings(
+                CelFunctionBinding.fromOverloads(
+                    "isEmpty",
+                    CelFunctionBinding.from(
+                        "string_isEmpty",
+                        String.class,
+                        unused -> {
+                          throw new IllegalStateException("unexpected failure");
+                        })))
+            .setStandardFunctions(CelStandardFunctions.ALL_STANDARD_FUNCTIONS)
+            .build();
+    // Expr: ''.isEmpty() && [].isEmpty()
+    CelAbstractSyntaxTree ast = readCheckedExpr("compiled_custom_functions");
+    Program program = runtime.createProgram(ast);
+
+    CelEvaluationException e = assertThrows(CelEvaluationException.class, program::eval);
+
+    assertThat(e).hasMessageThat().contains("Function 'isEmpty' failed with arg(s)");
+  }
+
+  @Test
+  public void eval_customFunctions_overloadMismatchUsesFunctionName() throws Exception {
+    CelLiteRuntime runtime =
+        CelLiteRuntimeFactory.newLiteRuntimeBuilder()
+            .addFunctionBindings(
+                CelFunctionBinding.fromOverloads(
+                    "isEmpty", CelFunctionBinding.from("string_isEmpty", Long.class, x -> x == 0L)))
+            .setStandardFunctions(CelStandardFunctions.ALL_STANDARD_FUNCTIONS)
+            .build();
+    // Expr: ''.isEmpty() && [].isEmpty()
+    CelAbstractSyntaxTree ast = readCheckedExpr("compiled_custom_functions");
+    Program program = runtime.createProgram(ast);
+
+    CelEvaluationException e = assertThrows(CelEvaluationException.class, program::eval);
+
+    assertThat(e)
+        .hasMessageThat()
+        .contains(
+            "No matching overload for function 'isEmpty'. Overload candidates: string_isEmpty");
   }
 
   @Test
@@ -816,6 +860,19 @@ public class CelLiteRuntimeAndroidTest {
     CelAbstractSyntaxTree ast = readCheckedExpr("compiled_regex_replace");
 
     assertThat(runtime.createProgram(ast).eval()).isEqualTo("hello cel");
+  }
+
+  @Test
+  public void eval_optionalExtension() throws Exception {
+    CelLiteRuntime runtime =
+        CelLiteRuntimeFactory.newLiteRuntimeBuilder()
+            .setStandardFunctions(CelStandardFunctions.ALL_STANDARD_FUNCTIONS)
+            .addLibraries(CelOptionalRuntimeLibrary.optional())
+            .build();
+    // Expr: optional.of(1).or(optional.none()).value()
+    CelAbstractSyntaxTree ast = readCheckedExpr("compiled_optional_value");
+
+    assertThat(runtime.createProgram(ast).eval()).isEqualTo(1L);
   }
 
   private enum CelOptionsTestCase {

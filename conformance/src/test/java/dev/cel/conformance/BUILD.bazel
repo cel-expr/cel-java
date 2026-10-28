@@ -39,6 +39,7 @@ java_library(
         "//extensions:lists_runtime_library",
         "//extensions:math_runtime_library",
         "//extensions:optional_library",
+        "//extensions:optional_runtime_library",
         "//extensions:sets_runtime_library",
         "//extensions:strings_runtime_library",
         "//optimizer",
@@ -273,11 +274,7 @@ _TESTS_TO_SKIP_PLANNER_SELECT_OPT = _TESTS_TO_SKIP_PLANNER + [
     "optionals",
 ]
 
-_TESTS_TO_SKIP_LITE_SELECT_OPT = _TESTS_TO_SKIP_PLANNER + [
-    # Optionals are not supported in CelLiteRuntime.
-    "optionals",
-    "block_ext/basic/optional_list,optional_map,optional_map_chained,optional_message",
-
+_TESTS_TO_SKIP_LITE_BASE = _TESTS_TO_SKIP_PLANNER + [
     # Proto2 extensions are not supported in CelLiteRuntime.
     "proto2_ext",
     "proto2/extensions_has",
@@ -291,6 +288,7 @@ _TESTS_TO_SKIP_LITE_SELECT_OPT = _TESTS_TO_SKIP_PLANNER + [
 
     # TODO: Message creation with prepopulated fields is not yet supported in
     # CelLiteRuntime.
+    "block_ext/basic/optional_message",
     "comparisons/eq_wrapper/eq_bool,eq_bytes,eq_double,eq_float,eq_int32,eq_int64,eq_string,eq_uint32,eq_uint64",
     "comparisons/eq_wrapper/eq_proto2,eq_proto3,eq_proto2_missing_fields_neq,eq_proto3_missing_fields_neq,eq_proto_nan_equal",
     "comparisons/eq_wrapper/eq_proto2_any_unpack_equal,eq_proto2_any_unpack_not_equal,eq_proto2_any_unpack_bytewise_fallback_not_equal,eq_proto2_any_unpack_bytewise_fallback_equal,eq_proto3_any_unpack_equal,eq_proto3_any_unpack_not_equal,eq_proto3_any_unpack_bytewise_fallback_not_equal,eq_proto3_any_unpack_bytewise_fallback_equal",
@@ -317,6 +315,7 @@ _TESTS_TO_SKIP_LITE_SELECT_OPT = _TESTS_TO_SKIP_PLANNER + [
     "dynamic/complex",
     "enums/legacy_proto2/assign_standalone_name,assign_standalone_int,assign_standalone_int_too_big,assign_standalone_int_too_neg,assign_repeated_enum,list_enum_as_list_int,enum_as_int",
     "enums/legacy_proto3/assign_standalone_name,assign_standalone_int,assign_standalone_int_big,assign_standalone_int_neg,assign_standalone_int_too_big,assign_standalone_int_too_neg,assign_repeated_enum,list_enum_as_list_int,enum_as_int",
+    "optionals/optionals/struct_map_optindex_field,struct_map_optindex_field_nested,struct_list_optindex_field,struct_optindex_value,optional_struct_optindex_value,optional_struct_optindex_index_value",
     "parse/nest/message_literal",
     "parse/repeat/message_literal",
     "parse/whitespace",
@@ -337,7 +336,13 @@ _TESTS_TO_SKIP_LITE_SELECT_OPT = _TESTS_TO_SKIP_PLANNER + [
     "wrappers",
 ]
 
-_TESTS_TO_SKIP_LITE = _TESTS_TO_SKIP_LITE_SELECT_OPT + [
+_TESTS_TO_SKIP_LITE_SELECT_OPT = _TESTS_TO_SKIP_LITE_BASE + [
+    # TODO: Optional field selection on proto messages is not yet supported by
+    # SelectOptimizer.
+    "optionals",
+]
+
+_TESTS_TO_SKIP_LITE = _TESTS_TO_SKIP_LITE_BASE + [
     # Custom proto2 default values on unset fields require SelectOptimization in CelLiteRuntime.
     "proto2/empty_field/scalar_with_default",
 ]

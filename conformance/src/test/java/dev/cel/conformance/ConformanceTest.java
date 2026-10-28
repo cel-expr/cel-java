@@ -60,6 +60,7 @@ import dev.cel.extensions.CelExtensions;
 import dev.cel.extensions.CelListsRuntimeLibrary;
 import dev.cel.extensions.CelMathRuntimeLibrary;
 import dev.cel.extensions.CelOptionalLibrary;
+import dev.cel.extensions.CelOptionalRuntimeLibrary;
 import dev.cel.extensions.CelSetsRuntimeLibrary;
 import dev.cel.extensions.CelStringRuntimeLibrary;
 import dev.cel.optimizer.CelOptimizerFactory;
@@ -126,6 +127,7 @@ public final class ConformanceTest extends Statement {
           CelEncoderRuntimeLibrary.encoders(),
           CelListsRuntimeLibrary.lists(),
           CelMathRuntimeLibrary.math(),
+          CelOptionalRuntimeLibrary.optional(),
           CelSetsRuntimeLibrary.sets(),
           CelStringRuntimeLibrary.strings());
 

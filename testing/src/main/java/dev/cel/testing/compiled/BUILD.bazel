@@ -54,6 +54,7 @@ java_library(
         ":compiled_lists_slice",
         ":compiled_math_greatest",
         ":compiled_one_plus_two",
+        ":compiled_optional_value",
         ":compiled_primitive_variables",
         ":compiled_proto2_deep_traversal",
         ":compiled_proto2_select_map_fields",
@@ -127,6 +128,12 @@ compile_cel(
     name = "compiled_math_greatest",
     environment = "//testing/environment:all_extensions",
     expression = "math.greatest(1, 2)",
+)
+
+compile_cel(
+    name = "compiled_optional_value",
+    environment = "//testing/environment:all_extensions",
+    expression = "optional.of(1).or(optional.none()).value()",
 )
 
 compile_cel(

@@ -66,6 +66,23 @@ java_library(
 )
 
 java_library(
+    name = "optional_compiler_library",
+    visibility = ["//:internal"],
+    exports = ["//extensions/src/main/java/dev/cel/extensions:optional_compiler_library"],
+)
+
+java_library(
+    name = "optional_runtime_library",
+    visibility = ["//:internal"],
+    exports = ["//extensions/src/main/java/dev/cel/extensions:optional_runtime_library"],
+)
+
+cel_android_library(
+    name = "optional_runtime_library_android",
+    exports = ["//extensions/src/main/java/dev/cel/extensions:optional_runtime_library_android"],
+)
+
+java_library(
     name = "sets",
     exports = ["//extensions/src/main/java/dev/cel/extensions:sets"],
 )

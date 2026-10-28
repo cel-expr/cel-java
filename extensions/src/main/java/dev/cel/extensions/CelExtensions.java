@@ -59,6 +59,30 @@ public final class CelExtensions {
   }
 
   /**
+   * Implementation of optional values.
+   *
+   * <p>Refer to README.md for available functions.
+   *
+   * <p>This will include only the specific functions denoted by {@link
+   * CelOptionalLibrary.Function}.
+   */
+  public static CelOptionalLibrary optional(CelOptionalLibrary.Function... functions) {
+    return optional(ImmutableSet.copyOf(functions));
+  }
+
+  /**
+   * Implementation of optional values.
+   *
+   * <p>Refer to README.md for available functions.
+   *
+   * <p>This will include only the specific functions denoted by {@link
+   * CelOptionalLibrary.Function}.
+   */
+  public static CelOptionalLibrary optional(Set<CelOptionalLibrary.Function> functions) {
+    return new CelOptionalLibrary(functions);
+  }
+
+  /**
    * Extended functions for string manipulation.
    *
    * <p>Refer to README.md for available functions.

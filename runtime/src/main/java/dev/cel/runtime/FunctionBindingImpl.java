@@ -176,6 +176,8 @@ final class FunctionBindingImpl implements InternalCelFunctionBinding {
     public Object apply(Object arg) throws CelEvaluationException {
       for (CelFunctionBinding overload : overloadBindings) {
         if (CelFunctionOverload.canHandle(arg, overload.getArgTypes(), overload.isStrict())) {
+          // Unary function binding setups always instantiate an OptimizedFunctionOverload, avoiding
+          // an instanceof check on the hotpath.
           OptimizedFunctionOverload def = (OptimizedFunctionOverload) overload.getDefinition();
           return def.apply(arg);
         }
@@ -192,6 +194,8 @@ final class FunctionBindingImpl implements InternalCelFunctionBinding {
       for (CelFunctionBinding overload : overloadBindings) {
         if (CelFunctionOverload.canHandle(
             arg1, arg2, overload.getArgTypes(), overload.isStrict())) {
+          // Binary function binding setups always instantiate an OptimizedFunctionOverload,
+          // avoiding an instanceof check on the hotpath.
           OptimizedFunctionOverload def = (OptimizedFunctionOverload) overload.getDefinition();
           return def.apply(arg1, arg2);
         }

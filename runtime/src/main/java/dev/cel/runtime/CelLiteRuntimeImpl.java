@@ -19,7 +19,6 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import javax.annotation.concurrent.ThreadSafe;
 import dev.cel.common.CelAbstractSyntaxTree;
@@ -45,8 +44,6 @@ final class CelLiteRuntimeImpl implements CelLiteRuntime {
   private final CelValueProvider celValueProvider;
   private final CelTypeProvider celTypeProvider;
   private final CelContainer celContainer;
-
-  // CEL-Internal-4
   private final ImmutableSet<CelLiteRuntimeLibrary> runtimeLibraries;
 
   @Override
@@ -174,9 +171,22 @@ final class CelLiteRuntimeImpl implements CelLiteRuntime {
       }
     }
 
+    private static void addBindingToDispatcher(
+        DefaultDispatcher.Builder dispatcherBuilder, CelFunctionBinding func) {
+      String overloadId = func.getOverloadId();
+      String functionName = overloadId;
+      if (func instanceof InternalCelFunctionBinding) {
+        functionName = ((InternalCelFunctionBinding) func).getFunctionName();
+      }
+      dispatcherBuilder.addOverload(
+          functionName, overloadId, func.getArgTypes(), func.isStrict(), func.getDefinition());
+    }
+
     @Override
     public CelLiteRuntime build() {
       assertAllowedCelOptions(celOptions);
+      ImmutableList<CelFunctionBinding> userFunctionBindings =
+          ImmutableList.copyOf(customFunctionBindings.values());
       RuntimeHelpers runtimeHelpers = RuntimeHelpers.create();
       RuntimeEquality runtimeEquality = RuntimeEquality.create(runtimeHelpers, celOptions);
       ImmutableSet<CelLiteRuntimeLibrary> runtimeLibs = runtimeLibrariesBuilder.build();
@@ -195,9 +205,7 @@ final class CelLiteRuntimeImpl implements CelLiteRuntime {
             new CelTypeProvider.CombinedCelTypeProvider(celTypeProvider, this.celTypeProvider);
       }
 
-      ImmutableMap.Builder<String, CelFunctionBinding> functionBindingsBuilder =
-          ImmutableMap.builder();
-
+      DefaultDispatcher.Builder dispatcherBuilder = DefaultDispatcher.newBuilder();
       ImmutableSet<CelStandardFunction> standardFunctions = standardFunctionBuilder.build();
       for (CelStandardFunction standardFunction : standardFunctions) {
         for (CelFunctionBinding func :
@@ -206,28 +214,13 @@ final class CelLiteRuntimeImpl implements CelLiteRuntime {
                 runtimeEquality,
                 celTypeProvider,
                 celValueProvider.celValueConverter())) {
-          functionBindingsBuilder.put(func.getOverloadId(), func);
+          addBindingToDispatcher(dispatcherBuilder, func);
         }
       }
 
-      functionBindingsBuilder.putAll(customFunctionBindings);
-
-      DefaultDispatcher.Builder dispatcherBuilder = DefaultDispatcher.newBuilder();
-      functionBindingsBuilder
-          .buildOrThrow()
-          .forEach(
-              (String overloadId, CelFunctionBinding func) -> {
-                String functionName = func.getOverloadId();
-                if (func instanceof InternalCelFunctionBinding) {
-                  functionName = ((InternalCelFunctionBinding) func).getFunctionName();
-                }
-                dispatcherBuilder.addOverload(
-                    functionName,
-                    overloadId,
-                    func.getArgTypes(),
-                    func.isStrict(),
-                    func.getDefinition());
-              });
+      for (CelFunctionBinding func : customFunctionBindings.values()) {
+        addBindingToDispatcher(dispatcherBuilder, func);
+      }
 
       ProgramPlanner planner =
           ProgramPlanner.newPlanner(
@@ -246,7 +239,7 @@ final class CelLiteRuntimeImpl implements CelLiteRuntime {
       return new CelLiteRuntimeImpl(
           planner,
           celOptions,
-          customFunctionBindings.values(),
+          userFunctionBindings,
           standardFunctions,
           runtimeLibs,
           celValueProvider,
@@ -283,7 +276,7 @@ final class CelLiteRuntimeImpl implements CelLiteRuntime {
   private CelLiteRuntimeImpl(
       ProgramPlanner planner,
       CelOptions celOptions,
-      Iterable<CelFunctionBinding> customFunctionBindings,
+      ImmutableList<CelFunctionBinding> customFunctionBindings,
       ImmutableSet<CelStandardFunction> celStandardFunctions,
       ImmutableSet<CelLiteRuntimeLibrary> runtimeLibraries,
       CelValueProvider celValueProvider,
@@ -291,7 +284,7 @@ final class CelLiteRuntimeImpl implements CelLiteRuntime {
       CelContainer celContainer) {
     this.planner = planner;
     this.celOptions = celOptions;
-    this.customFunctionBindings = ImmutableList.copyOf(customFunctionBindings);
+    this.customFunctionBindings = customFunctionBindings;
     this.celStandardFunctions = celStandardFunctions;
     this.runtimeLibraries = runtimeLibraries;
     this.celValueProvider = celValueProvider;
