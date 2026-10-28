@@ -348,6 +348,27 @@ public class SubexpressionOptimizerTest {
   }
 
   @Test
+  @TestParameters(
+      "{source: 'msg.repeated_int64.exists(i, i == (msg.single_int64 + msg.single_int32) *"
+          + " (msg.single_int32 + msg.single_int64))', expected: 'cel.@block([msg.single_int64 +"
+          + " msg.single_int32, @index0 * @index0], msg.repeated_int64.exists(@it:0:0, @it:0:0 =="
+          + " @index1))'}")
+  @TestParameters(
+      "{source: 'msg.repeated_int64.map(i, cel.bind(a, i, a + msg.single_int32 * 2))', expected:"
+          + " 'cel.@block([msg.single_int32 * 2], msg.repeated_int64.map(@it:1:0, cel.bind(a,"
+          + " @it:1:0, @ac:0:0 + @index0)))'}")
+  public void cse_hoistLoopInvariants(String source, String expected) throws Exception {
+    CelAbstractSyntaxTree ast = cel.compile(source).getAst();
+    CelOptimizer celOptimizer =
+        newCseOptimizer(
+            SubexpressionOptimizerOptions.newBuilder().populateMacroCalls(true).build());
+
+    CelAbstractSyntaxTree optimizedAst = celOptimizer.optimize(ast);
+
+    assertThat(CEL_UNPARSER.unparse(optimizedAst)).isEqualTo(expected);
+  }
+
+  @Test
   public void cse_comprehensionReferencingOuterBindVar_notExtractedOutOfBindScope()
       throws Exception {
     CelAbstractSyntaxTree ast =
@@ -773,12 +794,12 @@ public class SubexpressionOptimizerTest {
             .addAstOptimizers(SubexpressionOptimizer.getInstance())
             .build();
     CelAbstractSyntaxTree ast =
-        cel.compile("[{}, {\"a\": 1}, {\"b\": 2}].filter(m, has(x.a))").getAst();
+        cel.compile("[{}, {\"a\": 1}, {\"b\": 2}].filter(m, has(m.a))").getAst();
 
     CelAbstractSyntaxTree optimizedAst = celOptimizer.optimize(ast);
 
     assertThat(CEL_UNPARSER.unparse(optimizedAst))
-        .isEqualTo("[{}, {\"a\": 1}, {\"b\": 2}].filter(m, has(x.a))");
+        .isEqualTo("[{}, {\"a\": 1}, {\"b\": 2}].filter(m, has(m.a))");
     assertThat(optimizedAst).isSameInstanceAs(ast);
   }
 
@@ -813,8 +834,8 @@ public class SubexpressionOptimizerTest {
 
     assertThat(CEL_UNPARSER.unparse(optimizedAst))
         .isEqualTo(
-            "cel.@block([[{}, {\"a\": 1}, {\"b\": 2}].filter(@it:0:0, has(x.a))], @index0 =="
-                + " @index0)");
+            "cel.@block([has(x.a), [{}, {\"a\": 1}, {\"b\": 2}].filter(@it:0:0, @index0)], @index1"
+                + " == @index1)");
   }
 
   @Test

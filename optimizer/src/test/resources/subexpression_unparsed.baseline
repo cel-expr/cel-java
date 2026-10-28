@@ -134,13 +134,13 @@ Test case: NESTED_MACROS
 Source: [1,2,3].map(i, [1, 2, 3].map(i, i + 1)) == [[2, 3, 4], [2, 3, 4], [2, 3, 4]]
 =====>
 Result: true
-Unparsed: cel.@block([[1, 2, 3], [2, 3, 4]], @index0.map(@it:1:0, @index0.map(@it:0:0, @it:0:0 + 1)) == [@index1, @index1, @index1])
+Unparsed: cel.@block([[1, 2, 3], @index0.map(@it:0:0, @it:0:0 + 1), [2, 3, 4]], @index0.map(@it:1:0, @index1) == [@index2, @index2, @index2])
 
 Test case: NESTED_MACROS_2
 Source: [1, 2].map(y, [1, 2, 3].filter(x, x == y)) == [[1], [2]]
 =====>
 Result: true
-Unparsed: [1, 2].map(y, [1, 2, 3].filter(x, x == y)) == [[1], [2]]
+Unparsed: cel.@block([[1, 2, 3]], [1, 2].map(@it:1:0, @index0.filter(@it:0:0, @it:0:0 == @it:1:0)) == [[1], [2]])
 
 Test case: NESTED_MACROS_3
 Source: [1,2,3].map(i, i * 2) + [1,2,3].map(i, i * 2).map(i, i * 2)
@@ -152,25 +152,25 @@ Test case: NESTED_MACROS_COMP_V2_1
 Source: [1,2,3].transformList(i, v, [1, 2, 3].transformList(i, v, i + v + 1)) == [[2, 4, 6], [2, 4, 6], [2, 4, 6]]
 =====>
 Result: true
-Unparsed: cel.@block([[1, 2, 3], [2, 4, 6]], @index0.transformList(@it:1:0, @it2:1:0, @index0.transformList(@it:0:0, @it2:0:0, @it:0:0 + @it2:0:0 + 1)) == [@index1, @index1, @index1])
+Unparsed: cel.@block([[1, 2, 3], @index0.transformList(@it:0:0, @it2:0:0, @it:0:0 + @it2:0:0 + 1), [2, 4, 6]], @index0.transformList(@it:1:0, @it2:1:0, @index1) == [@index2, @index2, @index2])
 
 Test case: NESTED_MACROS_COMP_V2_2
 Source: [1, 2].transformList(i, y, [1, 2, 3].filter(x, x == y && i < y)) == [[1], [2]]
 =====>
 Result: true
-Unparsed: [1, 2].transformList(i, y, [1, 2, 3].filter(x, x == y && i < y)) == [[1], [2]]
+Unparsed: cel.@block([[1, 2, 3]], [1, 2].transformList(@it:1:0, @it2:1:0, @index0.filter(@it:0:0, @it:0:0 == @it2:1:0 && @it:1:0 < @it2:1:0)) == [[1], [2]])
 
 Test case: ADJACENT_NESTED_MACROS
 Source: [1,2,3].map(i, [1, 2, 3].map(i, i + 1)) == [1,2,3].map(j, [1, 2, 3].map(j, j + 1))
 =====>
 Result: true
-Unparsed: cel.@block([[1, 2, 3], @index0.map(@it:1:0, @index0.map(@it:0:0, @it:0:0 + 1))], @index1 == @index1)
+Unparsed: cel.@block([[1, 2, 3], @index0.map(@it:0:0, @it:0:0 + 1), @index0.map(@it:1:0, @index1)], @index2 == @index2)
 
 Test case: ADJACENT_NESTED_MACROS_COMP_V2
 Source: [1,2,3].transformMap(i, x, [1, 2, 3].transformMap(i, x, i + x + 1)) == [1,2,3].transformMap(j, y, [1, 2, 3].transformMap(j, y,  j + y + 1))
 =====>
 Result: true
-Unparsed: cel.@block([[1, 2, 3], @index0.transformMap(@it:1:0, @it2:1:0, @index0.transformMap(@it:0:0, @it2:0:0, @it:0:0 + @it2:0:0 + 1))], @index1 == @index1)
+Unparsed: cel.@block([[1, 2, 3], @index0.transformMap(@it:0:0, @it2:0:0, @it:0:0 + @it2:0:0 + 1), @index0.transformMap(@it:1:0, @it2:1:0, @index1)], @index2 == @index2)
 
 Test case: INCLUSION_LIST
 Source: 1 in [1,2,3] && 2 in [1,2,3] && 3 in [3, [1,2,3]] && 1 in [1,2,3]
@@ -188,13 +188,13 @@ Test case: MACRO_ITER_VAR_NOT_REFERENCED
 Source: [1,2].map(i, [1, 2].map(i, [3,4])) == [[[3, 4], [3, 4]], [[3, 4], [3, 4]]]
 =====>
 Result: true
-Unparsed: cel.@block([[1, 2], [3, 4], [@index1, @index1]], @index0.map(@it:1:0, @index0.map(@it:0:0, @index1)) == [@index2, @index2])
+Unparsed: cel.@block([[1, 2], [3, 4], @index0.map(@it:0:0, @index1), [@index1, @index1]], @index0.map(@it:1:0, @index2) == [@index3, @index3])
 
 Test case: MACRO_ITER_VAR2_NOT_REFERENCED
 Source: [1,2].transformList(i, v, [1, 2].transformList(i, v, [3,4])) == [[[3, 4], [3, 4]], [[3, 4], [3, 4]]]
 =====>
 Result: true
-Unparsed: cel.@block([[1, 2], [3, 4], [@index1, @index1]], @index0.transformList(@it:1:0, @it2:1:0, @index0.transformList(@it:0:0, @it2:0:0, @index1)) == [@index2, @index2])
+Unparsed: cel.@block([[1, 2], [3, 4], @index0.transformList(@it:0:0, @it2:0:0, @index1), [@index1, @index1]], @index0.transformList(@it:1:0, @it2:1:0, @index2) == [@index3, @index3])
 
 Test case: MACRO_SHADOWED_VARIABLE
 Source: [x - 1 > 3 ? x - 1 : 5].exists(x, x - 1 > 3) || x - 1 > 3
@@ -327,3 +327,63 @@ Source: (msg.oneof_type.payload.single_int32 * msg.single_int64 == 24 || msg.sin
 =====>
 Result: true
 Unparsed: cel.@block([msg.oneof_type.payload, @index0.single_int32 * msg.single_int64 == 24 || msg.single_int32 != @index0.single_int64], @index1 && @index1)
+
+Test case: HOIST_NESTED_COMPREHENSION
+Source: msg.repeated_int64.all(i, msg.repeated_int32.exists(j, j == 2))
+=====>
+Result: true
+Unparsed: cel.@block([msg.repeated_int32.exists(@it:0:0, @it:0:0 == 2)], msg.repeated_int64.all(@it:1:0, @index0))
+
+Test case: HOIST_INVARIANT_ARITHMETIC
+Source: msg.repeated_int64.exists(i, i == msg.single_int64 * 2 + msg.single_int32)
+=====>
+Result: false
+Unparsed: cel.@block([msg.single_int64 * 2 + msg.single_int32], msg.repeated_int64.exists(@it:0:0, @it:0:0 == @index0))
+
+Test case: HOIST_ZERO_TRIP_ERROR_NOT_EVALUATED
+Source: msg.repeated_nested_message.exists(m, m.bb == 1 / (msg.single_int32 - 5))
+=====>
+Result: false
+Unparsed: cel.@block([1 / (msg.single_int32 - 5)], msg.repeated_nested_message.exists(@it:0:0, @it:0:0.bb == @index0))
+
+Test case: HOIST_MAP_ACCUMULATION_PRESERVED
+Source: msg.repeated_int64.map(i, msg.single_int64 * 2)
+=====>
+Result: [6, 6, 6]
+Unparsed: cel.@block([msg.single_int64 * 2], msg.repeated_int64.map(@it:0:0, @index0))
+
+Test case: HOIST_LIST_LITERAL
+Source: msg.repeated_int64.exists(i, i in [msg.single_int64, msg.single_int32])
+=====>
+Result: true
+Unparsed: cel.@block([[msg.single_int64, msg.single_int32]], msg.repeated_int64.exists(@it:0:0, @it:0:0 in @index0))
+
+Test case: HOIST_LIST_APPENDED_TO_ITER_VAR
+Source: [[1], [2]].map(l, l + [msg.single_int64])
+=====>
+Result: [[1, 3], [2, 3]]
+Unparsed: cel.@block([[msg.single_int64]], [[1], [2]].map(@it:0:0, @it:0:0 + @index0))
+
+Test case: HOIST_INVARIANT_INSIDE_DUPLICATE
+Source: msg.repeated_int64.exists(i, i in [msg.single_int64, msg.single_int32]) || msg.repeated_int64.exists(i, i in [msg.single_int64, msg.single_int32])
+=====>
+Result: true
+Unparsed: cel.@block([[msg.single_int64, msg.single_int32], msg.repeated_int64.exists(@it:0:0, @it:0:0 in @index0)], @index1 || @index1)
+
+Test case: HOIST_INVARIANT_OF_NESTED_COMPREHENSION
+Source: msg.repeated_int64.all(i, msg.repeated_int32.exists(j, j == msg.single_int64 * 2))
+=====>
+Result: false
+Unparsed: cel.@block([msg.single_int64 * 2, msg.repeated_int32.exists(@it:0:0, @it:0:0 == @index0)], msg.repeated_int64.all(@it:1:0, @index1))
+
+Test case: HOIST_SHARED_TERMS_ONCE
+Source: msg.repeated_int64.exists(i, i == msg.single_int64 + msg.single_int32 + msg.single_sint64) && [msg.single_int64, msg.single_int32, msg.single_sint64].size() > 0
+=====>
+Result: false
+Unparsed: cel.@block([msg.single_int64, msg.single_int32, msg.single_sint64, @index0 + @index1 + @index2], msg.repeated_int64.exists(@it:0:0, @it:0:0 == @index3) && [@index0, @index1, @index2].size() > 0)
+
+Test case: HOIST_SHARED_WITH_ACCUMULATED_LIST
+Source: msg.repeated_int64.exists(i, i in [msg.single_int64]) && msg.repeated_int64.map(i, msg.single_int64).size() > 0
+=====>
+Result: true
+Unparsed: cel.@block([msg.single_int64, [@index0], msg.repeated_int64], @index2.exists(@it:0:0, @it:0:0 in @index1) && @index2.map(@it:0:1, @index0).size() > 0)

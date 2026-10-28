@@ -26,11 +26,13 @@ import com.google.auto.value.AutoValue;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Strings;
 import com.google.common.base.Verify;
+import com.google.common.collect.HashMultiset;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Multimaps;
+import com.google.common.collect.Multiset;
 import com.google.common.collect.Sets;
 import com.google.common.collect.Streams;
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
@@ -414,15 +416,40 @@ public final class SubexpressionOptimizer implements CelAstOptimizer {
         navAst.getRoot().allNodes(TraversalOrder.PRE_ORDER).collect(toImmutableList());
     ImmutableListMultimap<Integer, CelNavigableMutableExpr> nodesByHeight =
         Multimaps.index(allNodes, CelNavigableMutableExpr::height);
+    // Loop-invariant subexpressions are extracted even if they occur once: block slots are lazily
+    // memoized, so they then run at most once and only if reached, instead of once per iteration.
+    @SuppressWarnings("ValueClassIdentity") // Integer values are only unboxed, never compared.
+    IdentityHashMap<CelMutableExpr, Integer> loopDepths = new IdentityHashMap<>();
+    for (CelNavigableMutableExpr node : allNodes) {
+      if (node.getKind().equals(Kind.COMPREHENSION)) {
+        CelNavigableMutableExpr.fromExpr(node.expr().comprehension().loopStep())
+            .allNodes()
+            .forEach(step -> loopDepths.merge(step.expr(), 1, Integer::sum));
+      }
+    }
+    // Only hoisting needs these, and computing them walks every node's subtree.
+    Set<CelMutableExpr> eligibleExprs = Sets.newIdentityHashSet();
+    Multiset<Integer> vnCounts = HashMultiset.create();
+    if (!loopDepths.isEmpty()) {
+      for (CelNavigableMutableExpr node : allNodes) {
+        if (canEliminate(node, ineligibleExprs)) {
+          eligibleExprs.add(node.expr());
+          vnCounts.add(valueNumberer.vnOf(node.expr()));
+        }
+      }
+    }
     Set<Integer> seenVns = new HashSet<>();
     for (CelNavigableMutableExpr node : allNodes) {
-      ImmutableList<CelNavigableMutableExpr> sameHeightNodes = nodesByHeight.get(node.height());
-      if (sameHeightNodes.size() < 2 || !canEliminate(node, ineligibleExprs)) {
+      boolean inLoopStep = loopDepths.containsKey(node.expr());
+      if ((!inLoopStep && nodesByHeight.get(node.height()).size() < 2)
+          || !canEliminate(node, ineligibleExprs)) {
         continue;
       }
-      int vn = valueNumberer.vnOf(node.expr());
-      if (!seenVns.add(vn)) {
-        return sameHeightNodes.stream()
+      CelNavigableMutableExpr target =
+          inLoopStep ? hoistTarget(node, loopDepths, vnCounts, valueNumberer, eligibleExprs) : node;
+      int vn = valueNumberer.vnOf(target.expr());
+      if (!seenVns.add(vn) || inLoopStep) {
+        return nodesByHeight.get(target.height()).stream()
             .filter(candidate -> canEliminate(candidate, ineligibleExprs))
             .map(CelNavigableMutableExpr::expr)
             .filter(expr -> valueNumberer.vnOf(expr) == vn)
@@ -431,6 +458,41 @@ public final class SubexpressionOptimizer implements CelAstOptimizer {
     }
 
     return ImmutableList.of();
+  }
+
+  // Slots are never revisited, so before hoisting `node` this first hoists any eligible descendant
+  // that also occurs outside of it, or that is invariant to a loop nested inside it.
+  private static CelNavigableMutableExpr hoistTarget(
+      CelNavigableMutableExpr node,
+      IdentityHashMap<CelMutableExpr, Integer> loopDepths,
+      Multiset<Integer> vnCounts,
+      ValueNumberer valueNumberer,
+      Set<CelMutableExpr> eligibleExprs) {
+    // A descendant occurring more often than `node` is duplicated within it or shared outside it.
+    int copies = vnCounts.count(valueNumberer.vnOf(node.expr()));
+    int depth = loopDepths.get(node.expr());
+    return node.descendants(TraversalOrder.PRE_ORDER)
+        .filter(
+            d ->
+                eligibleExprs.contains(d.expr())
+                    && (vnCounts.count(valueNumberer.vnOf(d.expr())) > copies
+                        || loopDepths.get(d.expr()) > depth))
+        .findFirst()
+        .map(d -> hoistTarget(d, loopDepths, vnCounts, valueNumberer, eligibleExprs))
+        .orElse(node);
+  }
+
+  // The planner accumulates `@ac + [elem]` steps (map, filter) in place, so `[elem]` is not
+  // extracted.
+  private static boolean isAccumulation(CelMutableExpr expr) {
+    if (!expr.getKind().equals(Kind.CALL)
+        || !expr.call().function().equals(Operator.ADD.getFunction())) {
+      return false;
+    }
+    CelMutableExpr accu = expr.call().args().get(0);
+    return accu.getKind().equals(Kind.IDENT)
+        && accu.ident().name().startsWith(MANGLED_COMPREHENSION_ACCU_VAR_PREFIX)
+        && expr.call().args().get(1).getKind().equals(Kind.LIST);
   }
 
   private boolean canEliminate(
@@ -488,6 +550,12 @@ public final class SubexpressionOptimizer implements CelAstOptimizer {
                             .allNodes())
                     .map(CelNavigableMutableExpr::expr)
                     .forEach(ineligibleExprs::add));
+    navAst
+        .getRoot()
+        .allNodes()
+        .map(CelNavigableMutableExpr::expr)
+        .filter(SubexpressionOptimizer::isAccumulation)
+        .forEach(expr -> ineligibleExprs.add(expr.call().args().get(1)));
 
     return ineligibleExprs;
   }
