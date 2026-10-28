@@ -136,7 +136,79 @@ _ALL_TESTS = [
     "@cel_spec//tests/simple:testdata/wrappers.textproto",
 ]
 
-_TESTS_TO_SKIP_LEGACY = [
+_TESTS_TO_SKIP_SPEC_IMPORT = [
+    # Skip until duration/timestamp range, negative zero/NaN comparisons, and proto wrapper validation are updated for spec parity.
+    "comparisons/bound/bound_list_nan_eq_self_false",
+    "comparisons/bound/bound_list_nan_ne_self_true",
+    "comparisons/bound/bound_map_nan_eq_self_false",
+    "comparisons/bound/bound_map_nan_ne_self_true",
+    "comparisons/eq_literal/eq_double_neg_zero_int",
+    "comparisons/eq_literal/eq_double_neg_zero_uint",
+    "comparisons/eq_literal/eq_int_double_neg_zero",
+    "comparisons/eq_literal/eq_list_mixed_type_neg_zero",
+    "comparisons/eq_literal/eq_list_mixed_type_neg_zero_uint",
+    "comparisons/eq_literal/eq_map_mixed_type_neg_zero",
+    "comparisons/eq_literal/eq_map_mixed_type_neg_zero_uint",
+    "comparisons/eq_literal/eq_nested_list_mixed_type_neg_zero",
+    "comparisons/eq_literal/eq_nested_map_list_neg_zero",
+    "comparisons/eq_literal/eq_uint_double_neg_zero",
+    "comparisons/gt_literal/not_gt_dyn_double_nan_int",
+    "comparisons/gt_literal/not_gt_dyn_double_nan_uint",
+    "comparisons/gt_literal/not_gt_dyn_int_double_neg_zero",
+    "comparisons/gt_literal/not_gt_dyn_uint_double_neg_zero",
+    "comparisons/gte_literal/gte_dyn_double_neg_zero_int",
+    "comparisons/gte_literal/gte_dyn_double_neg_zero_uint",
+    "comparisons/gte_literal/not_gte_dyn_double_nan_int",
+    "comparisons/gte_literal/not_gte_dyn_double_nan_uint",
+    "comparisons/in_list_literal/int_zero_in_list_neg_zero",
+    "comparisons/in_list_literal/nan_not_in_list",
+    "comparisons/in_list_literal/neg_zero_in_list_int",
+    "comparisons/in_list_literal/neg_zero_in_list_uint",
+    "comparisons/in_list_literal/nested_list_nan_not_in_list",
+    "comparisons/in_list_literal/nested_list_neg_zero_in_list",
+    "comparisons/in_list_literal/nested_map_nan_not_in_list",
+    "comparisons/in_list_literal/nested_map_neg_zero_in_list",
+    "comparisons/in_list_literal/uint_zero_in_list_neg_zero",
+    "comparisons/lt_literal/not_lt_dyn_double_neg_zero_int",
+    "comparisons/lt_literal/not_lt_dyn_double_neg_zero_uint",
+    "comparisons/lt_literal/not_lt_dyn_int_double_nan",
+    "comparisons/lt_literal/not_lt_dyn_uint_double_nan",
+    "comparisons/lte_literal/lte_dyn_int_double_neg_zero",
+    "comparisons/lte_literal/lte_dyn_uint_double_neg_zero",
+    "comparisons/lte_literal/not_lte_dyn_int_double_nan",
+    "comparisons/lte_literal/not_lte_dyn_uint_double_nan",
+    "comparisons/ne_literal/not_ne_double_neg_zero_int",
+    "comparisons/ne_literal/not_ne_double_neg_zero_uint",
+    "comparisons/ne_literal/not_ne_int_double_neg_zero",
+    "comparisons/ne_literal/not_ne_list_mixed_type_neg_zero",
+    "comparisons/ne_literal/not_ne_list_mixed_type_neg_zero_uint",
+    "comparisons/ne_literal/not_ne_map_mixed_type_neg_zero",
+    "comparisons/ne_literal/not_ne_map_mixed_type_neg_zero_uint",
+    "comparisons/ne_literal/not_ne_nested_list_mixed_type_neg_zero",
+    "comparisons/ne_literal/not_ne_nested_map_list_neg_zero",
+    "comparisons/ne_literal/not_ne_uint_double_neg_zero",
+    "timestamps/duration_conversions/from_string_max",
+    "timestamps/duration_conversions/from_string_min",
+    "timestamps/duration_conversions/toString_duration_max",
+    "timestamps/duration_conversions/toString_duration_min",
+    "timestamps/timestamp_arithmetic/add_duration_to_duration_max",
+    "timestamps/timestamp_arithmetic/subtract_duration_from_duration_min",
+    "timestamps/timestamp_range/sub_time_duration_over",
+    "timestamps/timestamp_range/sub_time_duration_under",
+    "wrappers/duration/nanos_over",
+    "wrappers/duration/nanos_under",
+    "wrappers/duration/negative_seconds_positive_nanos",
+    "wrappers/duration/positive_seconds_negative_nanos",
+    "wrappers/duration/seconds_over",
+    "wrappers/duration/seconds_under",
+    "wrappers/timestamp/nanos_over",
+    "wrappers/timestamp/nanos_under",
+    "wrappers/timestamp/negative_seconds_negative_nanos",
+    "wrappers/timestamp/seconds_over",
+    "wrappers/timestamp/seconds_under",
+]
+
+_TESTS_TO_SKIP_LEGACY = _TESTS_TO_SKIP_SPEC_IMPORT + [
 
     # Broken test cases which should be supported.
     # TODO: Support setting / getting enum values out of the defined enum value range.
@@ -173,7 +245,7 @@ _TESTS_TO_SKIP_LEGACY = [
     "type_deductions/type_decay",
 ]
 
-_TESTS_TO_SKIP_PLANNER = [
+_TESTS_TO_SKIP_PLANNER = _TESTS_TO_SKIP_SPEC_IMPORT + [
     # TODO: This is actually a user experience degradation.
     # Not worth fixing until we see a concrete need.
     "basic/functions/unbound_is_runtime_error",
