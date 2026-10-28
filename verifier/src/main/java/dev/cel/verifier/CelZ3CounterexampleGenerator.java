@@ -45,6 +45,7 @@ final class CelZ3CounterexampleGenerator {
   private final Context ctx;
   private final CelZ3TypeSystem typeSystem;
   private final Model model;
+  private final Set<Expr<?>> valuesOnPath;
 
   static String generate(
       Context ctx,
@@ -78,6 +79,16 @@ final class CelZ3CounterexampleGenerator {
 
   // Formats a model value as a CEL literal where one exists.
   private String format(Expr<?> expr) {
+    // Refs are uninterpreted, so Z3 may return a cyclic model (e.g. a map containing itself).
+    if (!valuesOnPath.add(expr)) {
+      return "<cycle>";
+    }
+    String formatted = formatValue(expr);
+    valuesOnPath.remove(expr);
+    return formatted;
+  }
+
+  private String formatValue(Expr<?> expr) {
     FuncDecl decl = expr.getFuncDecl();
     Expr<?>[] args = expr.getArgs();
 
@@ -274,5 +285,6 @@ final class CelZ3CounterexampleGenerator {
     this.ctx = ctx;
     this.typeSystem = typeSystem;
     this.model = model;
+    this.valuesOnPath = new HashSet<>();
   }
 }
