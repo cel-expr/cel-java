@@ -60,6 +60,17 @@ public final class ProtoMessageRuntimeEquality extends RuntimeEquality {
     return super.objectEquals(x, y);
   }
 
+  @Override
+  public int hashCode(Object object) {
+    if (!celOptions.disableCelStandardEquality() && celOptions.enableProtoDifferencerEquality()) {
+      object = runtimeHelpers.adaptValue(object);
+      if (object instanceof Message) {
+        return protoEquality.hashCode((Message) object);
+      }
+    }
+    return super.hashCode(object);
+  }
+
   private ProtoMessageRuntimeEquality(DynamicProto dynamicProto, CelOptions celOptions) {
     super(ProtoMessageRuntimeHelpers.create(dynamicProto, celOptions), celOptions);
     this.protoEquality = new ProtoEquality(dynamicProto);

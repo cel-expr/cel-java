@@ -19,17 +19,20 @@ import static com.google.common.truth.Truth.assertThat;
 import com.google.protobuf.Any;
 import com.google.protobuf.DynamicMessage;
 import com.google.protobuf.InvalidProtocolBufferException;
+import com.google.protobuf.Message;
 import com.google.protobuf.Struct;
+import com.google.protobuf.UnknownFieldSet;
 import com.google.protobuf.Value;
+import com.google.testing.junit.testparameterinjector.TestParameter;
+import com.google.testing.junit.testparameterinjector.TestParameterInjector;
 import dev.cel.expr.conformance.proto3.TestAllTypes;
 import dev.cel.expr.conformance.proto3.TestAllTypes.NestedEnum;
 import dev.cel.expr.conformance.proto3.TestAllTypes.NestedMessage;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-import org.junit.runners.JUnit4;
 
-@RunWith(JUnit4.class)
+@RunWith(TestParameterInjector.class)
 public final class ProtoEqualityTest {
 
   private DynamicProto dynamicProto;
@@ -60,12 +63,21 @@ public final class ProtoEqualityTest {
   }
 
   @Test
+  public void notEqualsNegativeZeroFields_proto3ImplicitPresence() {
+    // Proto3 implicit presence treats -0.0 as wire-present and +0.0 as unset, matching C++/Go.
+    TestAllTypes negativeZero = TestAllTypes.newBuilder().setSingleDouble(-0.0).build();
+    TestAllTypes positiveZero = TestAllTypes.newBuilder().setSingleDouble(0.0).build();
+
+    assertThat(protoEquality.equals(negativeZero, positiveZero)).isFalse();
+  }
+
+  @Test
   public void notEqualsNaNFields() {
-    assertThat(
-            protoEquality.equals(
-                TestAllTypes.newBuilder().setSingleDouble(Double.NaN).build(),
-                TestAllTypes.newBuilder().setSingleDouble(Double.NaN).build()))
-        .isFalse();
+    TestAllTypes nanDouble = TestAllTypes.newBuilder().setSingleDouble(Double.NaN).build();
+    TestAllTypes nanFloat = TestAllTypes.newBuilder().setSingleFloat(Float.NaN).build();
+
+    assertThat(protoEquality.equals(nanDouble, nanDouble)).isFalse();
+    assertThat(protoEquality.equals(nanFloat, nanFloat)).isFalse();
   }
 
   @Test
@@ -239,7 +251,10 @@ public final class ProtoEqualityTest {
             .build();
     Any packedStruct = Any.pack(struct);
     Any packedStruct2 = Any.pack(struct);
+
     assertThat(protoEquality.equals(packedStruct, packedStruct2)).isTrue();
+    assertThat(protoEquality.hashCode(packedStruct))
+        .isEqualTo(protoEquality.hashCode(packedStruct2));
   }
 
   @Test
@@ -252,7 +267,10 @@ public final class ProtoEqualityTest {
     Any packedStruct = Any.pack(struct);
     Any packedStruct2 = Any.pack(struct);
     packedStruct = packedStruct.toBuilder().setTypeUrl("type.googleapis.com/Unknown").build();
+
     assertThat(protoEquality.equals(packedStruct, packedStruct2)).isTrue();
+    assertThat(protoEquality.hashCode(packedStruct))
+        .isEqualTo(protoEquality.hashCode(packedStruct2));
   }
 
   @Test
@@ -274,6 +292,84 @@ public final class ProtoEqualityTest {
             Any.getDescriptor(),
             doublePackedStruct.getValue(),
             DefaultDescriptorPool.INSTANCE.getExtensionRegistry());
+
     assertThat(protoEquality.equals(dynAny, dynAny2)).isTrue();
+    assertThat(protoEquality.hashCode(dynAny)).isEqualTo(protoEquality.hashCode(dynAny2));
+  }
+
+  @SuppressWarnings("ImmutableEnumChecker") // Test only
+  private enum EqualMessagePairTestCase {
+    REPEATED_SIGNED_ZERO(
+        TestAllTypes.newBuilder().addRepeatedDouble(-0.0).addRepeatedFloat(-0.0f).build(),
+        TestAllTypes.newBuilder().addRepeatedDouble(0.0).addRepeatedFloat(0.0f).build()),
+    MAP_KEY_ORDER(
+        TestAllTypes.newBuilder()
+            .putMapStringString("a", "1")
+            .putMapStringString("b", "10")
+            .build(),
+        TestAllTypes.newBuilder()
+            .putMapStringString("b", "10")
+            .putMapStringString("a", "1")
+            .build()),
+    SINGLE_VALUE_SIGNED_ZERO(
+        TestAllTypes.newBuilder().setSingleValue(Value.newBuilder().setNumberValue(-0.0)).build(),
+        TestAllTypes.newBuilder().setSingleValue(Value.newBuilder().setNumberValue(0.0)).build()),
+    MAP_DOUBLE_VALUE_SIGNED_ZERO(
+        TestAllTypes.newBuilder().putMapInt64Double(1L, -0.0).build(),
+        TestAllTypes.newBuilder().putMapInt64Double(1L, 0.0).build());
+
+    private final Message x;
+    private final Message y;
+
+    EqualMessagePairTestCase(Message x, Message y) {
+      this.x = x;
+      this.y = y;
+    }
+  }
+
+  @SuppressWarnings("ImmutableEnumChecker") // Test only
+  private enum DistinctMessagePairTestCase {
+    DIFFERENT_UNKNOWN_FIELDS(
+        TestAllTypes.getDefaultInstance(),
+        TestAllTypes.newBuilder()
+            .setUnknownFields(
+                UnknownFieldSet.newBuilder()
+                    .addField(999, UnknownFieldSet.Field.newBuilder().addVarint(1L).build())
+                    .build())
+            .build()),
+    DIFFERENT_REPEATED_DOUBLES(
+        TestAllTypes.newBuilder().addRepeatedDouble(1.0).build(),
+        TestAllTypes.newBuilder().addRepeatedDouble(2.0).build()),
+    DIFFERENT_MAP_VALUES(
+        TestAllTypes.newBuilder().putMapStringString("a", "1").build(),
+        TestAllTypes.newBuilder().putMapStringString("a", "2").build()),
+    DIFFERENT_NESTED_MESSAGES(
+        TestAllTypes.newBuilder()
+            .setSingleNestedMessage(NestedMessage.newBuilder().setBb(1))
+            .build(),
+        TestAllTypes.newBuilder()
+            .setSingleNestedMessage(NestedMessage.newBuilder().setBb(2))
+            .build());
+
+    private final Message x;
+    private final Message y;
+
+    DistinctMessagePairTestCase(Message x, Message y) {
+      this.x = x;
+      this.y = y;
+    }
+  }
+
+  @Test
+  public void hashCode_equalMessagesHaveEqualHash(
+      @TestParameter EqualMessagePairTestCase testCase) {
+    assertThat(protoEquality.equals(testCase.x, testCase.y)).isTrue();
+    assertThat(protoEquality.hashCode(testCase.x)).isEqualTo(protoEquality.hashCode(testCase.y));
+  }
+
+  @Test
+  public void hashCode_distinctMessagesHaveDifferentHashes(
+      @TestParameter DistinctMessagePairTestCase testCase) {
+    assertThat(protoEquality.hashCode(testCase.x)).isNotEqualTo(protoEquality.hashCode(testCase.y));
   }
 }

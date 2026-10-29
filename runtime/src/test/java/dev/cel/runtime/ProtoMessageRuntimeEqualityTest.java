@@ -172,6 +172,20 @@ public final class ProtoMessageRuntimeEqualityTest {
         () -> RUNTIME_EQUALITY_DEFAULT_OPTIONS.indexMap(mixedKeyMap, 1.1));
   }
 
+  @Test
+  public void hashCode_delegatesBasedOnOptions() {
+    AttributeContext hostAttr =
+        AttributeContext.newBuilder().setRequest(Request.newBuilder().setHost("localhost")).build();
+    ProtoMessageRuntimeEquality legacyWithProtoDiff =
+        ProtoMessageRuntimeEquality.create(
+            DYNAMIC_PROTO, PROTO_EQUALITY.toBuilder().disableCelStandardEquality(true).build());
+
+    assertThat(RUNTIME_EQUALITY_PROTO_EQUALITY.hashCode(hostAttr))
+        .isNotEqualTo(hostAttr.hashCode());
+    assertThat(RUNTIME_EQUALITY_EMPTY_OPTIONS.hashCode(hostAttr)).isEqualTo(hostAttr.hashCode());
+    assertThat(legacyWithProtoDiff.hashCode(hostAttr)).isEqualTo(hostAttr.hashCode());
+  }
+
   @AutoValue
   abstract static class State {
     /**
@@ -652,6 +666,19 @@ public final class ProtoMessageRuntimeEqualityTest {
                 .build(),
             Result.proto(/* equalsOutcome= */ true, /* diffOutcome= */ false),
           },
+          {
+            Auth.newBuilder()
+                .setClaims(
+                    Struct.newBuilder()
+                        .putFields("custom", Value.newBuilder().setNumberValue(-0.0).build()))
+                .build(),
+            Auth.newBuilder()
+                .setClaims(
+                    Struct.newBuilder()
+                        .putFields("custom", Value.newBuilder().setNumberValue(0.0).build()))
+                .build(),
+            Result.proto(/* equalsOutcome= */ false, /* diffOutcome= */ true),
+          },
 
           // Note: this is the motivating use case for converting to heterogeneous equality in
           // the future.
@@ -695,6 +722,10 @@ public final class ProtoMessageRuntimeEqualityTest {
       }
       assertThat(state.runtimeEquality().objectEquals(lhs, rhs)).isEqualTo(state.outcome());
       assertThat(state.runtimeEquality().objectEquals(rhs, lhs)).isEqualTo(state.outcome());
+      if (state.outcome() && lhs != null && rhs != null) {
+        assertThat(state.runtimeEquality().hashCode(lhs))
+            .isEqualTo(state.runtimeEquality().hashCode(rhs));
+      }
     }
   }
 }

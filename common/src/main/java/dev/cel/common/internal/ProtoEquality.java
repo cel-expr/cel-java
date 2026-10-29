@@ -16,6 +16,8 @@ package dev.cel.common.internal;
 
 import com.google.auto.value.AutoValue;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.errorprone.annotations.CheckReturnValue;
 import com.google.errorprone.annotations.Immutable;
 import com.google.protobuf.Any;
@@ -26,6 +28,7 @@ import com.google.protobuf.Message;
 import dev.cel.common.annotations.Internal;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -35,9 +38,11 @@ import java.util.Optional;
  * <p>These are the key differences between CEL's proto equality and Java's proto equality:
  *
  * <ul>
- *   <li/>NaN is not equal to itself.
- *   <li/>Any values are unpacked before comparison.
- *   <li/>If two Any values cannot be unpacked, they are compared by bytes.
+ *   <li>NaN is not equal to itself.
+ *   <li>Positive and negative zero (+0.0 and -0.0) compare as equal when both fields are present
+ *       (under proto3 implicit presence, -0.0 is serialized as present while +0.0 is unset).
+ *   <li>Any values are unpacked before comparison.
+ *   <li>If two Any values cannot be unpacked, they are compared by bytes.
  * </ul>
  *
  * <p>CEL Library Internals. Do Not Use.
@@ -56,9 +61,6 @@ public final class ProtoEquality {
   }
 
   public boolean equals(Message message1, Message message2) {
-    if (message1 == message2) {
-      return true;
-    }
     if (!message1.getDescriptorForType().equals(message2.getDescriptorForType())) {
       return false;
     }
@@ -124,22 +126,51 @@ public final class ProtoEquality {
     return true;
   }
 
+  /** Returns a hash code consistent with {@link #equals(Message, Message)}. */
+  public int hashCode(Message message) {
+    if (isAny(message)) {
+      // Constant hash: unpacked Any equality ignores wire bytes, while fallback ignores type_url.
+      return ANY_FULL_NAME.hashCode();
+    }
+    return Objects.hash(
+        message.getDescriptorForType(),
+        message.getUnknownFields(),
+        Maps.transformEntries(message.getAllFields(), this::hashFieldEntry));
+  }
+
+  private int hashFieldEntry(FieldDescriptor field, Object value) {
+    if (field.isMapField()) {
+      ProtoMap protoMap = protoMap((List<?>) value);
+      return Maps.transformValues(protoMap.map(), v -> hashFieldValue(protoMap.valueField(), v))
+          .hashCode();
+    }
+    if (field.isRepeated()) {
+      return Lists.transform((List<?>) value, elem -> hashFieldValue(field, elem)).hashCode();
+    }
+    return hashFieldValue(field, value);
+  }
+
+  private int hashFieldValue(FieldDescriptor field, Object value) {
+    switch (field.getJavaType()) {
+      case MESSAGE:
+        return hashCode((Message) value);
+      case DOUBLE:
+      case FLOAT:
+        double v = ((Number) value).doubleValue();
+        // Normalize -0.0 to 0.0 so equal zeros hash alike.
+        return Double.hashCode(v == 0.0d ? 0.0d : v);
+      default:
+        return value.hashCode();
+    }
+  }
+
   private boolean equalsFieldValues(FieldDescriptor field, Object value1, Object value2) {
     switch (field.getJavaType()) {
       case MESSAGE:
         return equals((Message) value1, (Message) value2);
       case DOUBLE:
-        // fallthrough
       case FLOAT:
-        Number num1 = (Number) value1;
-        Number num2 = (Number) value2;
-        boolean num1IsNaN = Double.isNaN(num1.doubleValue());
-        boolean num2IsNaN = Double.isNaN(num2.doubleValue());
-        // handle the NaN case
-        if (num1IsNaN && num2IsNaN) {
-          return false;
-        }
-        return num1.equals(num2);
+        return ((Number) value1).doubleValue() == ((Number) value2).doubleValue();
       default:
         return value1.equals(value2);
     }
