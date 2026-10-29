@@ -140,6 +140,14 @@ public class RuntimeHelpers {
     return list.get((int) longIndex);
   }
 
+  /** Returns the element of {@code list} at {@code index}, or empty if it's out of bounds. */
+  public static Optional<Object> optIndexList(List<?> list, long index) {
+    if (index < 0 || index >= list.size()) {
+      return Optional.empty();
+    }
+    return Optional.of(list.get((int) index));
+  }
+
   // Integer Arithmetic
   // ==================
   //

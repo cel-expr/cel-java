@@ -1124,6 +1124,38 @@ public class CelOptionalLibraryTest {
   }
 
   @Test
+  public void optionalIndex_outOfBounds_returnsOptionalEmpty(
+      @TestParameter({
+            "l[?-1]",
+            "l[?1]",
+            "l[?4294967296]",
+            "l[?-4294967296]",
+            "optl[?4294967296]",
+            "optl[4294967296]"
+          })
+          String expression)
+      throws Exception {
+    TestCel cel =
+        newCelBuilder()
+            .addVar("l", ListType.create(SimpleType.STRING))
+            .addVar("optl", OptionalType.create(ListType.create(SimpleType.STRING)))
+            .setResultType(OptionalType.create(SimpleType.STRING))
+            .build();
+    CelAbstractSyntaxTree ast = compile(cel, expression);
+
+    Object result =
+        cel.createProgram(ast)
+            .eval(
+                ImmutableMap.of(
+                    "l",
+                    ImmutableList.of("hello"),
+                    "optl",
+                    Optional.of(ImmutableList.of("hello"))));
+
+    assertThat(result).isEqualTo(Optional.empty());
+  }
+
+  @Test
   public void optionalIndex_onListWithUnknownInput_returnsUnknownResult() throws Exception {
     TestCel cel =
         newCelBuilder()

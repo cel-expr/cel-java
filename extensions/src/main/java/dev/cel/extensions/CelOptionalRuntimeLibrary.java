@@ -17,7 +17,6 @@ package dev.cel.extensions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
-import com.google.common.primitives.Ints;
 import com.google.common.primitives.UnsignedLong;
 import com.google.errorprone.annotations.Immutable;
 import com.google.protobuf.MessageLite;
@@ -30,6 +29,7 @@ import dev.cel.runtime.CelFunctionBinding;
 import dev.cel.runtime.CelInternalLiteRuntimeLibrary;
 import dev.cel.runtime.CelLiteRuntimeBuilder;
 import dev.cel.runtime.RuntimeEquality;
+import dev.cel.runtime.RuntimeHelpers;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Collection;
@@ -222,10 +222,7 @@ public final class CelOptionalRuntimeLibrary implements CelInternalLiteRuntimeLi
         CelFunctionBinding.fromOverloads(
             Operator.OPTIONAL_INDEX.getFunction(),
             CelFunctionBinding.from(
-                "list_optindex_optional_int",
-                List.class,
-                Long.class,
-                CelOptionalRuntimeLibrary::indexList),
+                "list_optindex_optional_int", List.class, Long.class, RuntimeHelpers::optIndexList),
             CelFunctionBinding.from(
                 "optional_list_optindex_optional_int",
                 Optional.class,
@@ -312,20 +309,12 @@ public final class CelOptionalRuntimeLibrary implements CelInternalLiteRuntimeLi
     return runtimeEquality.findInMap(map, key);
   }
 
-  private static Object indexList(List<?> list, long index) {
-    int castIndex = Ints.checkedCast(index);
-    if (castIndex < 0 || castIndex >= list.size()) {
-      return Optional.empty();
-    }
-    return Optional.of(list.get(castIndex));
-  }
-
   private static Object indexOptionalList(Optional<?> optionalList, long index) {
     if (!optionalList.isPresent()) {
       return Optional.empty();
     }
     List<?> list = (List<?>) optionalList.get();
-    return indexList(list, index);
+    return RuntimeHelpers.optIndexList(list, index);
   }
 
   private static Object listOptionalFirst(Collection<?> list) {
