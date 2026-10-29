@@ -21,8 +21,10 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hasher;
 import com.google.common.hash.Hashing;
+import dev.cel.common.CelAbstractSyntaxTree;
 import dev.cel.common.ast.CelConstant;
 import dev.cel.common.ast.CelExpr;
+import dev.cel.common.ast.CelReference;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -65,14 +67,21 @@ final class CelAstAlphaHasher {
     }
   }
 
-  static AlphaSignature computeSignature(CelExpr expr) {
-    HasherContext context = new HasherContext(HASH_FUNCTION);
+  static AlphaSignature computeSignature(CelExpr expr, CelAbstractSyntaxTree ast) {
+    HasherContext context = new HasherContext(HASH_FUNCTION, ast);
     hashAst(expr, /* scope= */ null, context);
     return AlphaSignature.create(
         context.hasher.hash().asLong(), ImmutableList.copyOf(context.freeVars));
   }
 
   private static void hashAst(CelExpr expr, @Nullable Scope scope, HasherContext context) {
+    CelConstant refValue =
+        context.ast.getReference(expr.id()).flatMap(CelReference::value).orElse(null);
+    if (refValue != null) {
+      context.hasher.putString(CelExpr.ExprKind.Kind.CONSTANT.name(), UTF_8);
+      hashConstant(refValue, context);
+      return;
+    }
     context.hasher.putString(expr.exprKind().getKind().name(), UTF_8);
     switch (expr.exprKind().getKind()) {
       case CONSTANT:
@@ -85,11 +94,12 @@ final class CelAstAlphaHasher {
           context.hasher.putByte((byte) 0); // 0 = bound
           context.hasher.putInt(bIdx);
         } else {
-          Integer fIdx = context.freeVarIndices.get(name);
+          String freeName = name.startsWith(".") ? name.substring(1) : name;
+          Integer fIdx = context.freeVarIndices.get(freeName);
           if (fIdx == null) {
             context.freeVars.add(expr);
             fIdx = context.freeVars.size() - 1;
-            context.freeVarIndices.put(name, fIdx);
+            context.freeVarIndices.put(freeName, fIdx);
           }
           context.hasher.putByte((byte) 1); // 1 = free
           context.hasher.putInt(fIdx);
@@ -205,11 +215,13 @@ final class CelAstAlphaHasher {
 
   private static final class HasherContext {
     final Hasher hasher;
+    final CelAbstractSyntaxTree ast;
     final Map<String, Integer> freeVarIndices = new HashMap<>();
     final List<CelExpr> freeVars = new ArrayList<>();
 
-    HasherContext(HashFunction hashFunction) {
+    HasherContext(HashFunction hashFunction, CelAbstractSyntaxTree ast) {
       this.hasher = hashFunction.newHasher();
+      this.ast = ast;
     }
   }
 

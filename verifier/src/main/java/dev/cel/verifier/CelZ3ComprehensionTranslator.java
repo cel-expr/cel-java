@@ -508,7 +508,7 @@ final class CelZ3ComprehensionTranslator {
   }
 
   private Expr<?> mkParameterizedUnknown(CelExpr expr, CelAbstractSyntaxTree ast) {
-    CelAstAlphaHasher.AlphaSignature sig = CelAstAlphaHasher.computeSignature(expr);
+    CelAstAlphaHasher.AlphaSignature sig = CelAstAlphaHasher.computeSignature(expr, ast);
 
     ImmutableList.Builder<Expr<?>> smtArgs = ImmutableList.builder();
     for (CelExpr freeVar : sig.freeVariables()) {

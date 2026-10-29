@@ -42,6 +42,7 @@ final class CelZ3TranslationContext {
   private final Map<Expr<?>, CelType> inputVariableTypes;
   private final List<BoolExpr> truncationConditions;
   private final Map<String, TranslatedValue> symbolTable;
+  private final Map<String, TranslatedValue> localScope;
 
   Context ctx() {
     return ctx;
@@ -108,28 +109,32 @@ final class CelZ3TranslationContext {
   }
 
   void bindSymbol(String name, TranslatedValue value) {
-    symbolTable.put(name, value);
+    localScope.put(name, value);
   }
 
   Optional<TranslatedValue> lookupSymbol(String name) {
-    return Optional.ofNullable(symbolTable.get(name));
+    return Optional.ofNullable(localScope.get(name));
   }
 
   TranslatedValue computeSymbolIfAbsent(
-      String name, Function<String, TranslatedValue> mappingFunction) {
-    return symbolTable.computeIfAbsent(name, mappingFunction);
+      String rawName, Function<String, TranslatedValue> mappingFunction) {
+    if (!rawName.startsWith(".") && localScope.containsKey(rawName)) {
+      return localScope.get(rawName);
+    }
+    return symbolTable.computeIfAbsent(
+        rawName.startsWith(".") ? rawName.substring(1) : rawName, mappingFunction);
   }
 
   /** Binds {@code varName} to {@code value} while running {@code action}, then restores it. */
   <T> T withScope(String varName, TranslatedValue value, Supplier<T> action) {
-    TranslatedValue prev = symbolTable.put(varName, value);
+    TranslatedValue prev = localScope.put(varName, value);
     try {
       return action.get();
     } finally {
       if (prev != null) {
-        symbolTable.put(varName, prev);
+        localScope.put(varName, prev);
       } else {
-        symbolTable.remove(varName);
+        localScope.remove(varName);
       }
     }
   }
@@ -144,5 +149,6 @@ final class CelZ3TranslationContext {
     this.inputVariableTypes = new LinkedHashMap<>();
     this.truncationConditions = new ArrayList<>();
     this.symbolTable = new HashMap<>();
+    this.localScope = new HashMap<>();
   }
 }

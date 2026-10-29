@@ -36,6 +36,7 @@ import dev.cel.common.CelContainer;
 import dev.cel.common.CelFunctionDecl;
 import dev.cel.common.CelOptions;
 import dev.cel.common.CelOverloadDecl;
+import dev.cel.common.CelVarDecl;
 import dev.cel.common.Operator;
 import dev.cel.common.ast.CelConstant;
 import dev.cel.common.ast.CelExpr;
@@ -613,6 +614,8 @@ public final class CelVerifierZ3ImplTest {
         "size(string_int_map) == 6 && dyn(1) in string_int_map"),
     LIST_INDEX_DYN_STRING_KEY("int_list[dyn('0')] == 1"),
     NON_BOOL_LOGICAL_OPERAND("dyn(1) && true"),
+    ENUM_CONSTANTS_DISTINCT("TestAllTypes.NestedEnum.FOO == TestAllTypes.NestedEnum.BAR"),
+    LEADING_DOT_GLOBAL_DISAMBIGUATION_CONTRADICTION("x == 5 && [1, 2].all(x, x > .x)"),
     ;
 
     private final String expr;
@@ -1114,6 +1117,9 @@ public final class CelVerifierZ3ImplTest {
         "size(string_int_map) > 0 && size(string_int_map) <= 5 ?"
             + " string_int_map.all(k, v, v >= -9223372036854775808 &&"
             + " v <= 9223372036854775807) : true"),
+    ENUM_CONSTANT_EQUALITY("TestAllTypes.NestedEnum.BAR == 1"),
+    ENUM_CONSTANT_INEQUALITY("TestAllTypes.NestedEnum.FOO != TestAllTypes.NestedEnum.BAR"),
+    LEADING_DOT_GLOBAL_DISAMBIGUATION_IN_COMPREHENSION("x == 0 ? [1, 2].all(x, x > .x) : true"),
     ;
 
     final String expr;
@@ -2452,7 +2458,19 @@ public final class CelVerifierZ3ImplTest {
             + " && z_key == 'foo')"),
     CANONICALIZE_CEL_BIND_ALPHA_RENAME_PREDICATE_ORDER(
         "cel.bind(a, x + 10, cel.bind(b, x + 20, 2 == b && 1 == a))",
-        "cel.bind(c, x + 10, cel.bind(d, x + 20, c == 1 && d == 2))");
+        "cel.bind(c, x + 10, cel.bind(d, x + 20, c == 1 && d == 2))"),
+    ENUM_FIELD_COMPARE_VS_INT_LITERAL(
+        "test_all_types.single_nested_enum == TestAllTypes.NestedEnum.BAR",
+        "test_all_types.single_nested_enum == 1"),
+    LEADING_DOT_GLOBAL_DISAMBIGUATION("[1, 2].all(x, x > .x) && x == 0", "x == 0"),
+    TRUNCATED_COMPREHENSION_ENUM_VS_INT_LITERAL(
+        "dyn_list.all(e, e == TestAllTypes.NestedEnum.BAR)", "dyn_list.all(e, e == 1)"),
+    TRUNCATED_COMPREHENSION_LEADING_DOT_VS_UNSHADOWED(
+        "int_list.all(y, (.y == x) && y > 0 && [1].all(x, .x > 0 && .y > 0))",
+        "int_list.all(z, (y == x) && z > 0 && [1].all(w, x > 0 && y > 0))"),
+    TRUNCATED_COMPREHENSION_SHADOWED_CEL_BIND(
+        "cel.bind(x, x + 1, int_list.all(e, e > x && a))",
+        "cel.bind(x, x + 1, int_list.all(v, a && v > x))");
 
     private final String exprA;
     private final String exprB;
@@ -3593,8 +3611,8 @@ public final class CelVerifierZ3ImplTest {
     DIFFERENT_CONSTANTS("dyn_list.exists(i, i == 1)", "dyn_list.exists(i, i == 2)"),
     DIFFERENT_VARIABLES("dyn_list.exists(i, i == x)", "dyn_list.exists(i, i == y)");
 
-    final String exprA;
-    final String exprB;
+    private final String exprA;
+    private final String exprB;
 
     EquivalenceZeroUnrollLimitTestCase(String exprA, String exprB) {
       this.exprA = exprA;
@@ -3607,9 +3625,9 @@ public final class CelVerifierZ3ImplTest {
       @TestParameter EquivalenceZeroUnrollLimitTestCase testCase) throws Exception {
     CelAbstractSyntaxTree astA = CEL.compile(testCase.exprA).getAst();
     CelAbstractSyntaxTree astB = CEL.compile(testCase.exprB).getAst();
-
     CelVerifier verifier =
         CelVerifierFactory.newVerifier(CEL).setComprehensionUnrollLimit(0).build();
+
     CelVerificationResult result = verifier.verifyEquivalence(astA, astB);
 
     assertThat(result.status()).isEqualTo(VerificationStatus.INCONCLUSIVE);
@@ -3632,8 +3650,8 @@ public final class CelVerifierZ3ImplTest {
         "string_int_map.exists(z_key, a_val, int_list.all(idx, elem, idx == 0 && elem == a_val)"
             + " && z_key == 'foo')");
 
-    final String exprA;
-    final String exprB;
+    private final String exprA;
+    private final String exprB;
 
     EquivalenceZeroUnrollLimitVerifiedTestCase(String exprA, String exprB) {
       this.exprA = exprA;
@@ -3646,9 +3664,9 @@ public final class CelVerifierZ3ImplTest {
       @TestParameter EquivalenceZeroUnrollLimitVerifiedTestCase testCase) throws Exception {
     CelAbstractSyntaxTree astA = CEL.compile(testCase.exprA).getAst();
     CelAbstractSyntaxTree astB = CEL.compile(testCase.exprB).getAst();
-
     CelVerifier verifier =
         CelVerifierFactory.newVerifier(CEL).setComprehensionUnrollLimit(0).build();
+
     CelVerificationResult result = verifier.verifyEquivalence(astA, astB);
 
     assertWithMessage(result.message())
@@ -3673,7 +3691,6 @@ public final class CelVerifierZ3ImplTest {
                         exprFactory.newBoolLiteral(true),
                         /* step= */ exprFactory.newIdentifier("x"),
                         /* result= */ exprFactory.newIdentifier("x"))));
-
     CelMacro macro2 =
         CelMacro.newReceiverMacro(
             "my_macro_2",
@@ -3689,18 +3706,16 @@ public final class CelVerifierZ3ImplTest {
                         exprFactory.newBoolLiteral(true),
                         /* step= */ exprFactory.newIdentifier("y"),
                         /* result= */ exprFactory.newIdentifier("x"))));
-
     Cel customCel =
         CelFactory.plannerCelBuilder()
             .addVar("dyn_list", ListType.create(SimpleType.DYN))
             .addMacros(macro1, macro2)
             .build();
-
     CelAbstractSyntaxTree astA = customCel.compile("dyn_list.my_macro_1(true)").getAst();
     CelAbstractSyntaxTree astB = customCel.compile("dyn_list.my_macro_2(true)").getAst();
-
     CelVerifier verifier =
         CelVerifierFactory.newVerifier(customCel).setComprehensionUnrollLimit(0).build();
+
     CelVerificationResult result = verifier.verifyEquivalence(astA, astB);
 
     assertThat(result.status()).isEqualTo(VerificationStatus.INCONCLUSIVE);
@@ -3730,7 +3745,6 @@ public final class CelVerifierZ3ImplTest {
                                 exprFactory.newIntLiteral(0L)),
                             exprFactory.newIntLiteral(0L),
                             exprFactory.newIdentifier("x")))));
-
     Cel customCel =
         CelFactory.plannerCelBuilder()
             .addVar("dyn_list", ListType.create(SimpleType.DYN))
@@ -3738,14 +3752,13 @@ public final class CelVerifierZ3ImplTest {
             .addMacros(macro)
             .addCompilerLibraries(CelExtensions.bindings())
             .build();
-
     CelAbstractSyntaxTree astA =
         customCel.compile("cel.bind(x, 10, dyn_list.my_macro(1))").getAst();
     CelAbstractSyntaxTree astB =
         customCel.compile("cel.bind(x, 20, dyn_list.my_macro(1))").getAst();
-
     CelVerifier verifier =
         CelVerifierFactory.newVerifier(customCel).setComprehensionUnrollLimit(0).build();
+
     CelVerificationResult result = verifier.verifyEquivalence(astA, astB);
 
     assertThat(result.status()).isEqualTo(VerificationStatus.INCONCLUSIVE);
@@ -3760,10 +3773,8 @@ public final class CelVerifierZ3ImplTest {
             .addVar("d3", SimpleType.DOUBLE)
             .addVar("d4", SimpleType.DOUBLE)
             .build();
-
     CelVerifier timeoutVerifier =
         CelVerifierFactory.newVerifier(customCel).setTimeout(Duration.ofMillis(1)).build();
-
     CelAbstractSyntaxTree astA =
         customCel
             .compile(
@@ -3775,6 +3786,7 @@ public final class CelVerifierZ3ImplTest {
     CelVerificationException e =
         assertThrows(
             CelVerificationException.class, () -> timeoutVerifier.verifyEquivalence(astA, astB));
+
     assertThat(e).hasMessageThat().containsMatch("timeout|canceled");
   }
 
@@ -3783,9 +3795,9 @@ public final class CelVerifierZ3ImplTest {
     CelAbstractSyntaxTree assumeAst =
         CEL.compile("size(int_list) <= 2 && int_list[0] > 0 && int_list[1] > 0").getAst();
     CelAbstractSyntaxTree assertAst = CEL.compile("int_list.all(x, x > 0)").getAst();
-
     CelVerifier verifier =
         CelVerifierFactory.newVerifier(CEL).setComprehensionUnrollLimit(2).build();
+
     CelVerificationResult result =
         ((CelVerifierZ3Impl) verifier)
             .verifyImplication(assumeAst, assertAst, ImmutableMap.of(), "Implication");
@@ -3801,12 +3813,38 @@ public final class CelVerifierZ3ImplTest {
     CelAbstractSyntaxTree assumeAst = CEL.compile("d != d").getAst();
     // Assertion: x < d is false when d is NaN
     CelAbstractSyntaxTree assertAst = CEL.compile("!(x < d)").getAst();
-
     CelVerifier verifier = CelVerifierFactory.newVerifier(CEL).build();
+
     CelVerificationResult result =
         ((CelVerifierZ3Impl) verifier)
             .verifyImplication(assumeAst, assertAst, ImmutableMap.of(), "Implication");
+
     assertThat(result.status()).isEqualTo(VerificationStatus.VERIFIED);
+  }
+
+  @Test
+  public void isAlwaysTrue_constantVarDecl_verified() throws Exception {
+    Cel celWithConstVar =
+        CelFactory.plannerCelBuilder()
+            .setStandardMacros(CelStandardMacro.STANDARD_MACROS)
+            .addVarDeclarations(
+                CelVarDecl.newBuilder()
+                    .setName("CONST_INT")
+                    .setType(SimpleType.INT)
+                    .setConstant(CelConstant.ofValue(42L))
+                    .build())
+            .build();
+    CelVerifier verifier = CelVerifierFactory.newVerifier(celWithConstVar).build();
+    CelAbstractSyntaxTree ast =
+        celWithConstVar
+            .compile("CONST_INT == 42 && [1, 2].all(x, .CONST_INT == 42 && x > 0)")
+            .getAst();
+
+    CelVerificationResult result = verifier.isAlwaysTrue(ast);
+
+    assertWithMessage(result.message())
+        .that(result.status())
+        .isEqualTo(VerificationStatus.VERIFIED);
   }
 }
 

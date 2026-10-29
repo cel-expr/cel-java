@@ -33,6 +33,7 @@ import dev.cel.common.ast.CelConstant;
 import dev.cel.common.ast.CelExpr;
 import dev.cel.common.ast.CelExpr.CelList;
 import dev.cel.common.ast.CelExpr.ExprKind;
+import dev.cel.common.ast.CelReference;
 import dev.cel.common.types.CelKind;
 import dev.cel.common.types.CelType;
 import dev.cel.common.types.CelTypeProvider;
@@ -223,6 +224,10 @@ final class CelAstToZ3Translator {
   private TranslatedValue translateIdent(CelExpr celExpr, CelAbstractSyntaxTree ast) {
     CelExpr.CelIdent ident = celExpr.ident();
     long exprId = celExpr.id();
+    CelConstant refValue = ast.getReference(exprId).flatMap(CelReference::value).orElse(null);
+    if (refValue != null) {
+      return translateConstant(CelExpr.ofConstant(exprId, refValue));
+    }
     String name = ident.name();
     CelType type = ast.getTypeOrThrow(exprId);
     if (type instanceof TypeType) {
@@ -244,7 +249,7 @@ final class CelAstToZ3Translator {
               context.addConstraint(ctx.mkNot(typeSystem.isError(v)));
 
               BoolExpr constraint = typeConstraintGenerator.createTypeConstraint(v, exprId, ast);
-              if (unknownIdentifiers.contains(name)) {
+              if (unknownIdentifiers.contains(n)) {
                 context.addConstraint(ctx.mkOr(typeSystem.isUnknown(v), constraint));
               } else {
                 context.addConstraint(ctx.mkNot(typeSystem.isUnknown(v)));

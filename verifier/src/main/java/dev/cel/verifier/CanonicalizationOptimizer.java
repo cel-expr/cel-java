@@ -476,7 +476,11 @@ final class CanonicalizationOptimizer implements CelAstOptimizer {
       if (bIdx2 >= 0) {
         return 1; // Free variable comes after bound variable
       }
-      return name1.compareTo(name2);
+      return stripLeadingDot(name1).compareTo(stripLeadingDot(name2));
+    }
+
+    private static String stripLeadingDot(String name) {
+      return name.startsWith(".") ? name.substring(1) : name;
     }
 
     private int compareSelect(CelMutableSelect s1, CelMutableSelect s2) {
