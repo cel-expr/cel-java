@@ -1727,6 +1727,27 @@ public final class SelectOptimizerTest {
             "cel.@attribute(msg, [[61, \"map_string_string\", -1, [9, 9]]], {\"\": \"\"}).?key");
   }
 
+  @Test
+  public void optimize_afterConstantFolding_preservesMacroCalls() throws Exception {
+    CelOptimizer optimizer =
+        CelOptimizerFactory.standardCelOptimizerBuilder(cel)
+            .addAstOptimizers(
+                ConstantFoldingOptimizer.getInstance(),
+                SelectOptimizer.newInstance(
+                    PROTO2_TEST_ALL_TYPES_DESCRIPTOR.getFile(),
+                    NestedTestAllTypes.getDescriptor().getFile()))
+            .build();
+    CelAbstractSyntaxTree ast =
+        cel.compile("[nested_msg].map(n, n.child.payload.single_int64 + (1 + 1))").getAst();
+
+    CelAbstractSyntaxTree optimizedAst = optimizer.optimize(ast);
+
+    assertThat(CEL_UNPARSER.unparse(optimizedAst))
+        .isEqualTo(
+            "[nested_msg].map(n, cel.@attribute(n, [[1, \"child\", 11], [2, \"payload\", 11],"
+                + " [2, \"single_int64\", 3]], -64) + 2)");
+  }
+
   private static CelOptimizer newSelectOptimizer(Cel cel) {
     return CelOptimizerFactory.standardCelOptimizerBuilder(cel)
         .addAstOptimizers(

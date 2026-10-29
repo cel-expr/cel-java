@@ -19,6 +19,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static dev.cel.optimizer.optimizers.DefaultOptimizerConstants.CEL_ATTRIBUTE_FUNCTION_NAME;
 import static dev.cel.optimizer.optimizers.DefaultOptimizerConstants.CEL_HAS_FIELD_FUNCTION_NAME;
+import static java.lang.Math.max;
 
 import com.google.auto.value.AutoValue;
 import com.google.common.annotations.VisibleForTesting;
@@ -244,8 +245,13 @@ public final class SelectOptimizer implements CelAstOptimizer {
       return OptimizationResult.create(ast);
     }
 
-    MonotonicIdGenerator idGenerator =
-        CelExprIdGeneratorFactory.newMonotonicIdGenerator(navAst.getRoot().maxId());
+    // Macro calls may hold nodes absent from the expression (e.g. comprehension variables) whose
+    // IDs exceed its own, so new IDs must start past them too.
+    long maxId = navAst.getRoot().maxId();
+    for (CelMutableExpr macroCall : astToModify.source().getMacroCalls().values()) {
+      maxId = max(maxId, CelNavigableMutableExpr.fromExpr(macroCall).maxId());
+    }
+    MonotonicIdGenerator idGenerator = CelExprIdGeneratorFactory.newMonotonicIdGenerator(maxId);
 
     int iterationCount = 0;
     for (CelNavigableMutableExpr topNode : topOfChainSelects) {
