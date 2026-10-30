@@ -31,7 +31,7 @@ import org.junit.runner.RunWith;
 public final class FunctionBindingImplTest {
 
   @Test
-  public void dynamicDispatch_unaryOptimizedOverload_invokesOptimizedUnaryApply() throws Exception {
+  public void dynamicDispatch_unary_invokesOptimizedApplyAndAdaptsNonOptimized() throws Exception {
     OptimizedFunctionOverload mockOverload =
         new OptimizedFunctionOverload() {
           @Override
@@ -48,7 +48,8 @@ public final class FunctionBindingImplTest {
         CelFunctionBinding.from(
             "custom_opt_unary_long", ImmutableList.of(Long.class), mockOverload);
     CelFunctionBinding b2 =
-        CelFunctionBinding.from("custom_opt_unary_str", String.class, (String arg) -> arg + "!");
+        CelFunctionBinding.from(
+            "custom_unary_str", ImmutableList.of(String.class), args -> args[0] + "!");
     ImmutableSet<CelFunctionBinding> bindings =
         FunctionBindingImpl.groupOverloadsToFunction("custom_opt_unary", ImmutableSet.of(b1, b2));
     OptimizedFunctionOverload overload =
@@ -61,8 +62,7 @@ public final class FunctionBindingImplTest {
   }
 
   @Test
-  public void dynamicDispatch_binaryOptimizedOverload_invokesOptimizedBinaryApply()
-      throws Exception {
+  public void dynamicDispatch_binary_invokesOptimizedApplyAndAdaptsNonOptimized() throws Exception {
     OptimizedFunctionOverload mockOverload =
         new OptimizedFunctionOverload() {
           @Override
@@ -81,7 +81,9 @@ public final class FunctionBindingImplTest {
             "custom_opt_binary_long", ImmutableList.of(Long.class, Long.class), mockOverload);
     CelFunctionBinding b2 =
         CelFunctionBinding.from(
-            "custom_opt_bin_str", String.class, String.class, (String a, String b) -> a + b);
+            "custom_bin_str",
+            ImmutableList.of(String.class, String.class),
+            args -> (String) args[0] + args[1]);
     ImmutableSet<CelFunctionBinding> bindings =
         FunctionBindingImpl.groupOverloadsToFunction("custom_opt_binary", ImmutableSet.of(b1, b2));
     OptimizedFunctionOverload overload =

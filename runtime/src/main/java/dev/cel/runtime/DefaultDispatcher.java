@@ -189,7 +189,7 @@ public final class DefaultDispatcher implements CelFunctionResolver {
         DynamicDispatchOverload mergedOverload =
             new DynamicDispatchOverload(
                 overloadId,
-                ImmutableSet.<CelFunctionBinding>builder()
+                ImmutableSet.<FunctionBindingImpl>builder()
                     .addAll(existingOverload.getOverloadBindings())
                     .addAll(incomingOverload.getOverloadBindings())
                     .build());

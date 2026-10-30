@@ -106,17 +106,13 @@ public abstract class CelResolvedOverload {
       CelFunctionOverload definition,
       boolean isStrict,
       List<Class<?>> parameterTypes) {
-    OptimizedFunctionOverload optimizedDef =
-        (definition instanceof OptimizedFunctionOverload)
-            ? (OptimizedFunctionOverload) definition
-            : definition::apply;
     return new AutoValue_CelResolvedOverload(
         functionName,
         overloadId,
         ImmutableList.copyOf(parameterTypes),
         isStrict,
         definition,
-        optimizedDef);
+        OptimizedFunctionOverload.of(definition));
   }
 
   /**

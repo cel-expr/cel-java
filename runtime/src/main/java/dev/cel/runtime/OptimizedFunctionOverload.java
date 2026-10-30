@@ -32,4 +32,10 @@ interface OptimizedFunctionOverload extends CelFunctionOverload {
   default Object apply(Object arg1, Object arg2) throws CelEvaluationException {
     return apply(new Object[] {arg1, arg2});
   }
+
+  static OptimizedFunctionOverload of(CelFunctionOverload overload) {
+    return (overload instanceof OptimizedFunctionOverload)
+        ? (OptimizedFunctionOverload) overload
+        : overload::apply;
+  }
 }

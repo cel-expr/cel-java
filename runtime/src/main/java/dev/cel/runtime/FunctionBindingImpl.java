@@ -33,6 +33,8 @@ final class FunctionBindingImpl implements InternalCelFunctionBinding {
 
   private final CelFunctionOverload definition;
 
+  private final OptimizedFunctionOverload optimizedDefinition;
+
   private final boolean isStrict;
 
   @Override
@@ -55,6 +57,10 @@ final class FunctionBindingImpl implements InternalCelFunctionBinding {
     return definition;
   }
 
+  OptimizedFunctionOverload getOptimizedDefinition() {
+    return optimizedDefinition;
+  }
+
   @Override
   public boolean isStrict() {
     return isStrict;
@@ -70,6 +76,7 @@ final class FunctionBindingImpl implements InternalCelFunctionBinding {
     this.overloadId = overloadId;
     this.argTypes = argTypes;
     this.definition = definition;
+    this.optimizedDefinition = OptimizedFunctionOverload.of(definition);
     this.isStrict = isStrict;
   }
 
@@ -83,12 +90,15 @@ final class FunctionBindingImpl implements InternalCelFunctionBinding {
 
   static ImmutableSet<CelFunctionBinding> groupOverloadsToFunction(
       String functionName, ImmutableSet<CelFunctionBinding> overloadBindings) {
-    ImmutableSet.Builder<CelFunctionBinding> builder = ImmutableSet.builder();
+    ImmutableSet.Builder<FunctionBindingImpl> functionBindingsBuilder = ImmutableSet.builder();
     for (CelFunctionBinding b : overloadBindings) {
-      builder.add(
+      functionBindingsBuilder.add(
           new FunctionBindingImpl(
               functionName, b.getOverloadId(), b.getArgTypes(), b.getDefinition(), b.isStrict()));
     }
+    ImmutableSet<FunctionBindingImpl> functionBindings = functionBindingsBuilder.build();
+    ImmutableSet.Builder<CelFunctionBinding> builder =
+        ImmutableSet.<CelFunctionBinding>builder().addAll(functionBindings);
 
     // If there is already a binding with the same name as the function, we treat it as a
     // "Singleton" binding and do not create a dynamic dispatch wrapper for it.
@@ -107,7 +117,7 @@ final class FunctionBindingImpl implements InternalCelFunctionBinding {
                 singleBinding.getDefinition(),
                 singleBinding.isStrict()));
       } else if (overloadBindings.size() > 1) {
-        builder.add(new DynamicDispatchBinding(functionName, overloadBindings));
+        builder.add(new DynamicDispatchBinding(functionName, functionBindings));
       }
     }
 
@@ -146,7 +156,7 @@ final class FunctionBindingImpl implements InternalCelFunctionBinding {
     }
 
     private DynamicDispatchBinding(
-        String functionName, ImmutableSet<CelFunctionBinding> overloadBindings) {
+        String functionName, ImmutableSet<FunctionBindingImpl> overloadBindings) {
       this.isStrict = overloadBindings.stream().allMatch(CelFunctionBinding::isStrict);
       this.dynamicDispatchOverload = new DynamicDispatchOverload(functionName, overloadBindings);
     }
@@ -155,11 +165,11 @@ final class FunctionBindingImpl implements InternalCelFunctionBinding {
   @Immutable
   static final class DynamicDispatchOverload implements OptimizedFunctionOverload {
     private final String functionName;
-    private final ImmutableSet<CelFunctionBinding> overloadBindings;
+    private final ImmutableSet<FunctionBindingImpl> overloadBindings;
 
     @Override
     public Object apply(Object[] args) throws CelEvaluationException {
-      for (CelFunctionBinding overload : overloadBindings) {
+      for (FunctionBindingImpl overload : overloadBindings) {
         if (CelFunctionOverload.canHandle(args, overload.getArgTypes(), overload.isStrict())) {
           return overload.getDefinition().apply(args);
         }
@@ -174,12 +184,9 @@ final class FunctionBindingImpl implements InternalCelFunctionBinding {
 
     @Override
     public Object apply(Object arg) throws CelEvaluationException {
-      for (CelFunctionBinding overload : overloadBindings) {
+      for (FunctionBindingImpl overload : overloadBindings) {
         if (CelFunctionOverload.canHandle(arg, overload.getArgTypes(), overload.isStrict())) {
-          // Unary function binding setups always instantiate an OptimizedFunctionOverload, avoiding
-          // an instanceof check on the hotpath.
-          OptimizedFunctionOverload def = (OptimizedFunctionOverload) overload.getDefinition();
-          return def.apply(arg);
+          return overload.getOptimizedDefinition().apply(arg);
         }
       }
       throw new CelOverloadNotFoundException(
@@ -191,13 +198,10 @@ final class FunctionBindingImpl implements InternalCelFunctionBinding {
 
     @Override
     public Object apply(Object arg1, Object arg2) throws CelEvaluationException {
-      for (CelFunctionBinding overload : overloadBindings) {
+      for (FunctionBindingImpl overload : overloadBindings) {
         if (CelFunctionOverload.canHandle(
             arg1, arg2, overload.getArgTypes(), overload.isStrict())) {
-          // Binary function binding setups always instantiate an OptimizedFunctionOverload,
-          // avoiding an instanceof check on the hotpath.
-          OptimizedFunctionOverload def = (OptimizedFunctionOverload) overload.getDefinition();
-          return def.apply(arg1, arg2);
+          return overload.getOptimizedDefinition().apply(arg1, arg2);
         }
       }
       throw new CelOverloadNotFoundException(
@@ -207,12 +211,12 @@ final class FunctionBindingImpl implements InternalCelFunctionBinding {
               .collect(toImmutableList()));
     }
 
-    ImmutableSet<CelFunctionBinding> getOverloadBindings() {
+    ImmutableSet<FunctionBindingImpl> getOverloadBindings() {
       return overloadBindings;
     }
 
     DynamicDispatchOverload(
-        String functionName, ImmutableSet<CelFunctionBinding> overloadBindings) {
+        String functionName, ImmutableSet<FunctionBindingImpl> overloadBindings) {
       this.functionName = functionName;
       this.overloadBindings = overloadBindings;
     }
