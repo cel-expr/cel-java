@@ -279,6 +279,18 @@ public final class ProtoMessageRuntimeEqualityTest {
 
   @Parameters
   public static List<Object[]> data() {
+    AttributeContext nanAttributeContext =
+        AttributeContext.newBuilder()
+            .setRequest(
+                Request.newBuilder()
+                    .setAuth(
+                        Auth.newBuilder()
+                            .setClaims(
+                                Struct.newBuilder()
+                                    .putFields(
+                                        "custom",
+                                        Value.newBuilder().setNumberValue(Double.NaN).build()))))
+            .build();
     return Arrays.asList(
         new Object[][] {
           // Boolean tests.
@@ -638,19 +650,12 @@ public final class ProtoMessageRuntimeEqualityTest {
           // Message.equals() treats NaN values as equal. Message differencer treats NaN values
           // as inequal (the same behavior as the C++ implementation).
           {
-            AttributeContext.newBuilder()
-                .setRequest(
-                    Request.newBuilder()
-                        .setAuth(
-                            Auth.newBuilder()
-                                .setClaims(
-                                    Struct.newBuilder()
-                                        .putFields(
-                                            "custom",
-                                            Value.newBuilder()
-                                                .setNumberValue(Double.NaN)
-                                                .build()))))
-                .build(),
+            nanAttributeContext,
+            nanAttributeContext,
+            Result.proto(/* equalsOutcome= */ true, /* diffOutcome= */ false),
+          },
+          {
+            nanAttributeContext,
             AttributeContext.newBuilder()
                 .setRequest(
                     Request.newBuilder()

@@ -146,7 +146,7 @@ public final class ProgramPlannerAsyncTest {
               newFunctionDeclaration(
                   "asyncListSize",
                   newGlobalOverload(
-                      "asyncListSize_list", SimpleType.INT, ListType.create(SimpleType.INT))),
+                      "asyncListSize_list", SimpleType.INT, ListType.create(SimpleType.DYN))),
               newFunctionDeclaration(
                   "asyncMapSize",
                   newGlobalOverload(
@@ -1128,6 +1128,28 @@ public final class ProgramPlannerAsyncTest {
     Object result = program.evalAsync(ImmutableMap.of("dx", Double.NaN)).get(5, SECONDS);
 
     assertThat((Double) result).isNaN();
+    assertThat(callCounter.get()).isEqualTo(1);
+  }
+
+  @Test
+  @SuppressWarnings("Immutable") // Test only
+  public void evalAsync_memoization_nanListArgsAcrossPasses() throws Exception {
+    AtomicInteger callCounter = new AtomicInteger();
+    Program program =
+        createProgram(
+            "asyncListSize([dx]) + asyncSquare(asyncSquare(2))",
+            ASYNC_SQUARE_INT,
+            CelFunctionBinding.fromAsync(
+                "asyncListSize_list",
+                List.class,
+                arg -> {
+                  callCounter.incrementAndGet();
+                  return immediateFuture((long) arg.size());
+                }));
+
+    Object result = program.evalAsync(ImmutableMap.of("dx", Double.NaN)).get(5, SECONDS);
+
+    assertThat(result).isEqualTo(17L);
     assertThat(callCounter.get()).isEqualTo(1);
   }
 

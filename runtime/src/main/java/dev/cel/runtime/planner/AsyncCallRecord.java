@@ -21,6 +21,7 @@ import javax.annotation.concurrent.ThreadSafe;
 import dev.cel.runtime.CelAsyncCall;
 import dev.cel.runtime.CelAsyncFunctionOverload;
 import dev.cel.runtime.RuntimeEquality;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.jspecify.annotations.Nullable;
@@ -96,9 +97,6 @@ final class AsyncCallRecord implements CelAsyncCall {
   /**
    * Returns whether this record tracks a call to the same expression node, function, overload, and
    * arguments.
-   *
-   * <p>Arguments are compared under CEL equality, except that NaN compares equal to itself so that
-   * a node re-evaluated with a NaN argument can find its existing record.
    */
   boolean matches(
       long exprId,
@@ -115,7 +113,10 @@ final class AsyncCallRecord implements CelAsyncCall {
     for (int i = 0; i < this.args.length; i++) {
       Object arg = this.args[i];
       Object otherArg = args[i];
-      if (!runtimeEquality.objectEquals(arg, otherArg) && !(isNan(arg) && isNan(otherArg))) {
+      // Treat Java-equal containers and scalar NaNs as matching so NaN args memoize across passes.
+      if (!Objects.equals(arg, otherArg)
+          && !runtimeEquality.objectEquals(arg, otherArg)
+          && !(isNan(arg) && isNan(otherArg))) {
         return false;
       }
     }

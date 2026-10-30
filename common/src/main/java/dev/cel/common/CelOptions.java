@@ -120,6 +120,8 @@ public abstract class CelOptions {
 
   public abstract boolean enableTimestampOverflowCheck();
 
+  public abstract boolean enableIeee754ContainerEquality();
+
   public abstract int maxRegexProgramSize();
 
   public abstract Builder toBuilder();
@@ -166,6 +168,7 @@ public abstract class CelOptions {
         .fromProtoUnsetFieldOption(ProtoUnsetFieldOptions.BIND_DEFAULT)
         .enableComprehension(true)
         .enableTimestampOverflowCheck(true)
+        .enableIeee754ContainerEquality(true)
         .maxRegexProgramSize(-1);
   }
 
@@ -524,6 +527,12 @@ public abstract class CelOptions {
      * overflow validation when subtracting timestamps.
      */
     public abstract Builder enableTimestampOverflowCheck(boolean value);
+
+    /**
+     * Enforces IEEE 754 NaN inequality on identical container references instead of
+     * short-circuiting on {@code x == y} (enabled by default).
+     */
+    public abstract Builder enableIeee754ContainerEquality(boolean value);
 
     public abstract CelOptions build();
   }

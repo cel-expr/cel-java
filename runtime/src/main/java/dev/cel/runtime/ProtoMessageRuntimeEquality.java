@@ -16,11 +16,11 @@ package dev.cel.runtime;
 
 import com.google.errorprone.annotations.Immutable;
 import com.google.protobuf.Message;
+import com.google.protobuf.MessageLiteOrBuilder;
 import dev.cel.common.CelOptions;
 import dev.cel.common.annotations.Internal;
 import dev.cel.common.internal.DynamicProto;
 import dev.cel.common.internal.ProtoEquality;
-import java.util.Objects;
 
 /**
  * ProtoMessageRuntimeEquality contains methods for performing CEL related equality checks,
@@ -41,23 +41,11 @@ public final class ProtoMessageRuntimeEquality extends RuntimeEquality {
   }
 
   @Override
-  public boolean objectEquals(Object x, Object y) {
-    if (celOptions.disableCelStandardEquality()) {
-      return Objects.equals(x, y);
+  boolean protoEquals(MessageLiteOrBuilder x, MessageLiteOrBuilder y) {
+    if (x instanceof Message && y instanceof Message) {
+      return protoEquality.equals((Message) x, (Message) y);
     }
-
-    if (celOptions.enableProtoDifferencerEquality()) {
-      x = runtimeHelpers.adaptValue(x);
-      y = runtimeHelpers.adaptValue(y);
-      if (x instanceof Message) {
-        if (!(y instanceof Message)) {
-          return false;
-        }
-        return protoEquality.equals((Message) x, (Message) y);
-      }
-    }
-
-    return super.objectEquals(x, y);
+    return super.protoEquals(x, y);
   }
 
   @Override

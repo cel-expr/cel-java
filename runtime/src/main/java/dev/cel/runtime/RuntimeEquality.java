@@ -24,10 +24,9 @@ import dev.cel.common.internal.ComparisonFunctions;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
+import java.util.RandomAccess;
 
 /** RuntimeEquality contains methods for performing CEL related equality checks. */
 @Immutable
@@ -45,10 +44,14 @@ public class RuntimeEquality {
 
   /** Determine whether the {@code list} contains the given {@code value}. */
   public <A> boolean inList(List<A> list, A value) {
-    if (list.contains(value)) {
-      return true;
-    }
-    if (value instanceof Number) {
+    if (list instanceof RandomAccess) {
+      int size = list.size();
+      for (int i = 0; i < size; i++) {
+        if (objectEquals(list.get(i), value)) {
+          return true;
+        }
+      }
+    } else {
       for (A elem : list) {
         if (objectEquals(elem, value)) {
           return true;
@@ -82,6 +85,9 @@ public class RuntimeEquality {
 
     if (index instanceof MessageLiteOrBuilder) {
       index = runtimeHelpers.adaptProtoToValue((MessageLiteOrBuilder) index);
+    }
+    if (isNan(index)) {
+      return Optional.empty();
     }
     Object v = map.get(index);
     if (v != null) {
@@ -135,100 +141,116 @@ public class RuntimeEquality {
    * comparable even if they are not of the same type, where type differences are usually trivially
    * false.
    */
-  @SuppressWarnings({"rawtypes", "unchecked", "ReferenceEquality"})
+  @SuppressWarnings("ReferenceEquality")
   public boolean objectEquals(Object x, Object y) {
     if (celOptions.disableCelStandardEquality()) {
       return Objects.equals(x, y);
     }
-    if (x instanceof Optional) {
-      if (!(y instanceof Optional)) {
-        return false;
-      }
-      Optional<?> xOpt = (Optional<?>) x;
-      Optional<?> yOpt = (Optional<?>) y;
-      return xOpt.isPresent() == yOpt.isPresent()
-          && (!xOpt.isPresent() || objectEquals(xOpt.get(), yOpt.get()));
+    if (x == y) {
+      return !containsNan(x);
     }
-    if (x == y && !isNan(x)) {
-      return true;
+    if (x instanceof Optional) {
+      return y instanceof Optional && optionalEquals((Optional<?>) x, (Optional<?>) y);
     }
     x = runtimeHelpers.adaptValue(x);
     y = runtimeHelpers.adaptValue(y);
-    if (x instanceof Number) {
-      if (!(y instanceof Number)) {
-        return false;
-      }
-      return ComparisonFunctions.numericEquals((Number) x, (Number) y);
+    if (ComparisonFunctions.isNumeric(x)) {
+      return y instanceof Number && ComparisonFunctions.numericEquals((Number) x, (Number) y);
     }
-    if (celOptions.enableProtoDifferencerEquality()) {
-      if (x instanceof MessageLiteOrBuilder) {
-        if (!(y instanceof MessageLiteOrBuilder)) {
-          return false;
-        }
-        // TODO: Implement when CelLiteDescriptor is available
-        throw new UnsupportedOperationException(
-            "Proto Differencer equality is not supported for MessageLite.");
-      }
+    if (celOptions.enableProtoDifferencerEquality() && x instanceof MessageLiteOrBuilder) {
+      return y instanceof MessageLiteOrBuilder
+          && protoEquals((MessageLiteOrBuilder) x, (MessageLiteOrBuilder) y);
     }
     if (x instanceof Iterable) {
-      if (!(y instanceof Iterable)) {
+      return y instanceof Iterable && iterableEquals((Iterable<?>) x, (Iterable<?>) y);
+    }
+    if (x instanceof Map) {
+      return y instanceof Map && mapEquals((Map<?, ?>) x, (Map<?, ?>) y);
+    }
+    return Objects.equals(x, y);
+  }
+
+  boolean protoEquals(MessageLiteOrBuilder x, MessageLiteOrBuilder y) {
+    // TODO: Implement when CelLiteDescriptor is available
+    throw new UnsupportedOperationException(
+        "Proto Differencer equality is not supported for MessageLite.");
+  }
+
+  private boolean optionalEquals(Optional<?> x, Optional<?> y) {
+    return x.isPresent() == y.isPresent() && (!x.isPresent() || objectEquals(x.get(), y.get()));
+  }
+
+  private boolean iterableEquals(Iterable<?> x, Iterable<?> y) {
+    if (areRandomAccessLists(x, y)) {
+      List<?> xList = (List<?>) x;
+      List<?> yList = (List<?>) y;
+      int size = xList.size();
+      if (size != yList.size()) {
         return false;
       }
-      Iterable<?> xIter = (Iterable<?>) x;
-      Iterable<?> yIter = (Iterable<?>) y;
-      Iterator<?> yElems = yIter.iterator();
-      IllegalArgumentException e = null;
-      for (Object xElem : xIter) {
-        if (!yElems.hasNext()) {
+      for (int i = 0; i < size; i++) {
+        if (!objectEquals(xList.get(i), yList.get(i))) {
           return false;
         }
-        try {
-          if (!objectEquals(xElem, yElems.next())) {
-            return false;
-          }
-        } catch (IllegalArgumentException iae) {
-          e = iae;
+      }
+    } else {
+      Iterator<?> yElems = y.iterator();
+      for (Object xElem : x) {
+        if (!yElems.hasNext() || !objectEquals(xElem, yElems.next())) {
+          return false;
         }
       }
       if (yElems.hasNext()) {
         return false;
       }
-      if (e != null) {
-        throw e;
-      }
-      return true;
     }
-    if (x instanceof Map) {
-      if (!(y instanceof Map)) {
+    return true;
+  }
+
+  private boolean mapEquals(Map<?, ?> x, Map<?, ?> y) {
+    if (x.size() != y.size()) {
+      return false;
+    }
+    for (Map.Entry<?, ?> xEntry : x.entrySet()) {
+      Optional<Object> yVal = findInMap(y, xEntry.getKey());
+      // Use isPresent() rather than isEmpty() to stay backwards compatible with Java 8.
+      if (!yVal.isPresent() || !objectEquals(xEntry.getValue(), yVal.get())) {
         return false;
       }
-      Map xMap = (Map) x;
-      Map yMap = (Map) y;
-      if (xMap.size() != yMap.size()) {
-        return false;
-      }
-      IllegalArgumentException e = null;
-      Set<Entry> entrySet = xMap.entrySet();
-      for (Map.Entry xEntry : entrySet) {
-        Optional<Object> yVal = findInMap(yMap, xEntry.getKey());
-        // Use isPresent() rather than isEmpty() to stay backwards compatible with Java 8.
-        if (!yVal.isPresent()) {
-          return false;
-        }
-        try {
-          if (!objectEquals(xEntry.getValue(), yVal.get())) {
-            return false;
-          }
-        } catch (IllegalArgumentException iae) {
-          e = iae;
-        }
-      }
-      if (e != null) {
-        throw e;
-      }
-      return true;
     }
-    return Objects.equals(x, y);
+    return true;
+  }
+
+  private boolean containsNan(Object v) {
+    if (v instanceof Optional) {
+      Optional<?> opt = (Optional<?>) v;
+      return opt.isPresent() && containsNan(opt.get());
+    }
+    if (!celOptions.enableIeee754ContainerEquality()
+        && (v instanceof Iterable || v instanceof Map)) {
+      return false;
+    }
+    v = runtimeHelpers.adaptValue(v);
+    if (v instanceof Double) {
+      return ((Double) v).isNaN();
+    }
+    if (celOptions.enableProtoDifferencerEquality() && v instanceof MessageLiteOrBuilder) {
+      return !protoEquals((MessageLiteOrBuilder) v, (MessageLiteOrBuilder) v);
+    }
+    if (v instanceof Iterable) {
+      return !iterableEquals((Iterable<?>) v, (Iterable<?>) v);
+    }
+    if (v instanceof Map) {
+      for (Map.Entry<?, ?> entry : ((Map<?, ?>) v).entrySet()) {
+        if (entry.getValue() == null
+            || containsNan(entry.getKey())
+            || containsNan(entry.getValue())) {
+          return true;
+        }
+      }
+      return false;
+    }
+    return false;
   }
 
   /**
@@ -292,6 +314,14 @@ public class RuntimeEquality {
 
   private static boolean isNan(Object value) {
     return value instanceof Number && Double.isNaN(((Number) value).doubleValue());
+  }
+
+  private static boolean areRandomAccessLists(Iterable<?> x, Iterable<?> y) {
+    // NOMUTANTS -- RandomAccess fast path is allocation-free; Iterator fallback is equivalent.
+    return x instanceof List
+        && x instanceof RandomAccess
+        && y instanceof List
+        && y instanceof RandomAccess;
   }
 
   RuntimeEquality(RuntimeHelpers runtimeHelpers, CelOptions celOptions) {

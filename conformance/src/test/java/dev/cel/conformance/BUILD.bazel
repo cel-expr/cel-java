@@ -138,16 +138,7 @@ _ALL_TESTS = [
 ]
 
 _TESTS_TO_SKIP_SPEC_IMPORT = [
-    # Skip until duration/timestamp range, container NaN/negative-zero equality, and proto wrapper validation are updated for spec parity.
-    "comparisons/bound/bound_list_nan_eq_self_false",
-    "comparisons/bound/bound_list_nan_ne_self_true",
-    "comparisons/bound/bound_map_nan_eq_self_false",
-    "comparisons/bound/bound_map_nan_ne_self_true",
-    "comparisons/in_list_literal/nan_not_in_list",
-    "comparisons/in_list_literal/nested_list_nan_not_in_list",
-    "comparisons/in_list_literal/nested_list_neg_zero_in_list",
-    "comparisons/in_list_literal/nested_map_nan_not_in_list",
-    "comparisons/in_list_literal/nested_map_neg_zero_in_list",
+    # Skip until duration/timestamp range and proto wrapper validation are updated for spec parity.
     "timestamps/duration_conversions/from_string_max",
     "timestamps/duration_conversions/from_string_min",
     "timestamps/duration_conversions/toString_duration_max",

@@ -24,11 +24,13 @@ import com.google.common.primitives.UnsignedLong;
 import com.google.common.util.concurrent.SettableFuture;
 import com.google.testing.junit.testparameterinjector.TestParameter;
 import com.google.testing.junit.testparameterinjector.TestParameterInjector;
+import com.google.testing.junit.testparameterinjector.TestParameters;
 import dev.cel.common.CelOptions;
 import dev.cel.common.values.NullValue;
 import dev.cel.runtime.CelAsyncFunctionOverload;
 import dev.cel.runtime.RuntimeEquality;
 import dev.cel.runtime.RuntimeHelpers;
+import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -212,11 +214,32 @@ public final class AsyncCallRecordTest {
   }
 
   @Test
-  public void matches_nanVsNonNan_returnsFalse() {
-    AsyncCallRecord record = recordWithArgs(Double.NaN);
+  public void matches_nanContainerArgs_returnsTrue() {
+    AsyncCallRecord record =
+        recordWithArgs(
+            ImmutableList.of(Double.NaN),
+            ImmutableMap.of("k", Double.NaN),
+            Optional.of(Double.NaN));
 
-    assertThat(matches(record, 10L, "myFunc", "myFunc_overload", 0.0d)).isFalse();
-    assertThat(matches(record, 10L, "myFunc", "myFunc_overload", 1.0d)).isFalse();
+    assertThat(
+            matches(
+                record,
+                10L,
+                "myFunc",
+                "myFunc_overload",
+                ImmutableList.of(Double.NaN),
+                ImmutableMap.of("k", Double.NaN),
+                Optional.of(Double.NaN)))
+        .isTrue();
+  }
+
+  @Test
+  @TestParameters("{recorded: NaN, candidate: 0.0}")
+  @TestParameters("{recorded: 0.0, candidate: NaN}")
+  public void matches_nanVsNonNan_returnsFalse(double recorded, double candidate) {
+    AsyncCallRecord record = recordWithArgs(recorded);
+
+    assertThat(matches(record, 10L, "myFunc", "myFunc_overload", candidate)).isFalse();
   }
 
   @Test
