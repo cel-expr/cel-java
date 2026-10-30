@@ -76,7 +76,7 @@ final class CelAstToZ3Translator {
   private final CelZ3ComprehensionTranslator comprehensionTranslator;
   private final CelZ3StructTranslator structTranslator;
   private final ImmutableSet<String> unknownIdentifiers;
-  private final Map<Object, Expr<?>> listLiteralCache;
+  private final Map<SeqExpr<?>, Expr<?>> listLiteralCache;
 
   /**
    * Returns a set of Z3 boolean expressions representing type constraints for the translated AST.
@@ -268,50 +268,48 @@ final class CelAstToZ3Translator {
 
   private TranslatedValue translateList(CelExpr celExpr, CelAbstractSyntaxTree ast) {
     CelList createList = celExpr.list();
-    Optional<Object> cacheKey = toCacheKey(celExpr);
     List<TranslatedValue> elementsTv = new ArrayList<>();
-    Expr<?> listRef = cacheKey.map(listLiteralCache::get).orElse(null);
+    SeqExpr seq = ctx.mkEmptySeq(ctx.mkSeqSort(typeSystem.celValueSort()));
+    List<Expr<?>> values = new ArrayList<>();
+    ImmutableList<Integer> optionalIndices = createList.optionalIndices();
+    ImmutableList<CelExpr> elements = createList.elements();
+    for (int i = 0; i < elements.size(); i++) {
+      CelExpr element = elements.get(i);
+      TranslatedValue elem = translateExpr(element, ast);
 
-    // Cache list literals containing only constants. If the same list literal appears multiple
-    // times (e.g., in equality checks like `[1, 2] == [1, 2]`), caching allows us to reuse the
-    // same Z3 constant. This avoids expensive sequence equality reasoning in Z3 by reducing the
-    // check to a trivial identity check (e.g., `list_ref_0 == list_ref_0`).
-    if (listRef == null) {
-      SeqExpr seq = ctx.mkEmptySeq(ctx.mkSeqSort(typeSystem.celValueSort()));
-      List<Expr<?>> values = new ArrayList<>();
-      ImmutableList<Integer> optionalIndices = createList.optionalIndices();
-      ImmutableList<CelExpr> elements = createList.elements();
-      for (int i = 0; i < elements.size(); i++) {
-        CelExpr element = elements.get(i);
-        TranslatedValue elem = translateExpr(element, ast);
+      if (optionalIndices.contains(i)) {
+        Expr<?> checkedValue =
+            typeSystem.withRuntimeError(
+                elem.z3Expr(), ctx.mkNot(typeSystem.isOptional(elem.z3Expr())));
+        elem = TranslatedValue.create(checkedValue, element, typeSystem, elem.isApproximate());
 
-        if (optionalIndices.contains(i)) {
-          Expr<?> checkedValue =
-              typeSystem.withRuntimeError(
-                  elem.z3Expr(), ctx.mkNot(typeSystem.isOptional(elem.z3Expr())));
-          elem = TranslatedValue.create(checkedValue, element, typeSystem, elem.isApproximate());
-
-          Expr<?> optRef = typeSystem.getOptionalRef(elem.z3Expr());
-          Expr<?> value = typeSystem.getOptionalValue(optRef);
-          seq =
-              (SeqExpr)
-                  ctx.mkITE(
-                      typeSystem.optHasValue(optRef),
-                      typeSystem.mkConcatSafe(seq, ctx.mkUnit(value)),
-                      seq);
-          values.add(value);
-        } else {
-          seq = typeSystem.mkConcatSafe(seq, ctx.mkUnit(elem.z3Expr()));
-          values.add(elem.z3Expr());
-        }
-        elementsTv.add(elem);
+        Expr<?> optRef = typeSystem.getOptionalRef(elem.z3Expr());
+        Expr<?> value = typeSystem.getOptionalValue(optRef);
+        seq =
+            (SeqExpr)
+                ctx.mkITE(
+                    typeSystem.optHasValue(optRef),
+                    typeSystem.mkConcatSafe(seq, ctx.mkUnit(value)),
+                    seq);
+        values.add(value);
+      } else {
+        seq = typeSystem.mkConcatSafe(seq, ctx.mkUnit(elem.z3Expr()));
+        values.add(elem.z3Expr());
       }
-      listRef = typeSystem.mkListRefConst(LIST_REF_PREFIX);
-      context.addConstraint(ctx.mkEq(typeSystem.getSeq(listRef), seq));
-      propagateTruncatedTypeConstraint(typeSystem.wrapList(listRef), values);
-      Expr<?> finalListRef = listRef;
-      cacheKey.ifPresent(key -> listLiteralCache.put(key, finalListRef));
+      elementsTv.add(elem);
     }
+
+    // Reuse the same Z3 ListRef whenever two list constructions yield the exact same sequence term
+    // (e.g., identical constant lists or identical unrolled map/filter step lists across ASTs).
+    Expr<?> listRef =
+        listLiteralCache.computeIfAbsent(
+            seq,
+            s -> {
+              Expr<?> ref = typeSystem.mkListRefConst(LIST_REF_PREFIX);
+              context.addConstraint(ctx.mkEq(typeSystem.getSeq(ref), s));
+              propagateTruncatedTypeConstraint(typeSystem.wrapList(ref), values);
+              return ref;
+            });
 
     Expr<?> result = typeSystem.wrapList(listRef);
     return TranslatedValue.propagateStrict(ctx, typeSystem, result, celExpr, elementsTv);
@@ -479,31 +477,6 @@ final class CelAstToZ3Translator {
             || !resultType.parameters().isEmpty())
         && !functionName.equals(Operator.INDEX.getFunction())
         && !functionName.equals(Operator.CONDITIONAL.getFunction());
-  }
-
-  private Optional<Object> toCacheKey(CelExpr expr) {
-    switch (expr.exprKind().getKind()) {
-      case CONSTANT:
-        return Optional.of(expr.constant());
-      case LIST:
-        if (!expr.list().optionalIndices().isEmpty()) {
-          // Do not cache lists with optional elements. Optional elements conditionally alter
-          // sequence length and presence via ITE branches at runtime; caching would collide
-          // [1, 2] with [?1, 2] and freeze conditional evaluations to a static reference.
-          return Optional.empty();
-        }
-        ImmutableList.Builder<Object> builder = ImmutableList.builder();
-        for (CelExpr elem : expr.list().elements()) {
-          Optional<Object> elemKey = toCacheKey(elem);
-          if (!elemKey.isPresent()) {
-            return Optional.empty(); // Contains non-constants
-          }
-          builder.add(elemKey.get());
-        }
-        return Optional.of(builder.build());
-      default:
-        return Optional.empty();
-    }
   }
 
   CelAstToZ3Translator(

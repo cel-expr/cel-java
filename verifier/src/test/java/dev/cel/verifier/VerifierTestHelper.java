@@ -22,28 +22,42 @@ import com.google.devtools.build.runfiles.AutoBazelRepository;
 import com.google.devtools.build.runfiles.Runfiles;
 import java.io.File;
 import java.io.IOException;
+import java.util.Optional;
 
 /** Package-private class to assist with verifier testing and runfiles resolution. */
 @AutoBazelRepository
 final class VerifierTestHelper {
 
-  private static final Runfiles runfiles = createRunfiles();
+  private static final Runfiles RUNFILES = createRunfiles();
 
   static String loadVerificationPolicyYaml(String filename) throws IOException {
-    String rlocationPath =
-        "cel_java/testing/src/test/resources/policy/verification/" + filename;
-    String resolvedPath = runfiles.rlocation(Ascii.toLowerCase(rlocationPath));
-    if (resolvedPath == null) {
-      throw new IOException("Unmapped runfile path: " + rlocationPath);
+    return loadRunfile(
+        "cel_java/testing/src/test/resources/policy/verification/" + filename);
+  }
+
+  static String loadConformancePolicyYaml(String policyDir) throws IOException {
+    return loadRunfile(
+        String.format(
+            "cel_policy/conformance/testdata/%s/policy.yaml", policyDir));
+  }
+
+  static Optional<String> maybeLoadConformanceConfigYaml(String policyDir) throws IOException {
+    return maybeLoadRunfile(
+        String.format(
+            "cel_policy/conformance/testdata/%s/config.yaml", policyDir));
+  }
+
+  private static String loadRunfile(String rlocationPath) throws IOException {
+    return maybeLoadRunfile(rlocationPath)
+        .orElseThrow(() -> new IOException("Runfile not found: " + rlocationPath));
+  }
+
+  private static Optional<String> maybeLoadRunfile(String rlocationPath) throws IOException {
+    String resolvedPath = RUNFILES.rlocation(Ascii.toLowerCase(rlocationPath));
+    if (resolvedPath == null || !new File(resolvedPath).exists()) {
+      return Optional.empty();
     }
-    File file = new File(resolvedPath);
-    if (!file.exists()) {
-      throw new IOException(
-          String.format(
-              "Runfile not found on disk at '%s' (unresolved path: '%s')",
-              resolvedPath, rlocationPath));
-    }
-    return Files.asCharSource(file, UTF_8).read();
+    return Optional.of(Files.asCharSource(new File(resolvedPath), UTF_8).read());
   }
 
   private static Runfiles createRunfiles() {

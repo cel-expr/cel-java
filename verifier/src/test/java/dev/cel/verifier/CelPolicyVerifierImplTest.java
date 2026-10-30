@@ -18,10 +18,12 @@ import static com.google.common.truth.Truth.assertThat;
 import static com.google.common.truth.Truth.assertWithMessage;
 import static org.junit.Assert.assertThrows;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.testing.junit.testparameterinjector.TestParameter;
 import com.google.testing.junit.testparameterinjector.TestParameterInjector;
 import dev.cel.bundle.Cel;
+import dev.cel.bundle.CelEnvironmentYamlParser;
 import dev.cel.bundle.CelFactory;
 import dev.cel.common.CelAbstractSyntaxTree;
 import dev.cel.common.CelFunctionDecl;
@@ -31,6 +33,7 @@ import dev.cel.common.types.SimpleType;
 import dev.cel.common.types.StructTypeReference;
 import dev.cel.expr.conformance.proto3.TestAllTypes;
 import dev.cel.extensions.CelExtensions;
+import dev.cel.extensions.CelOptionalLibrary;
 import dev.cel.optimizer.CelOptimizer;
 import dev.cel.optimizer.CelOptimizerFactory;
 import dev.cel.optimizer.optimizers.SubexpressionOptimizer;
@@ -43,6 +46,9 @@ import dev.cel.policy.CelPolicyCompilerFactory;
 import dev.cel.policy.CelPolicyParser;
 import dev.cel.policy.CelPolicyParserFactory;
 import dev.cel.policy.CelPolicyValidationException;
+import dev.cel.policy.testing.K8sTagHandler;
+import dev.cel.testing.testdata.SingleFile;
+import dev.cel.testing.testdata.proto3.StandaloneGlobalEnum;
 import dev.cel.verifier.CelVerificationResult.VerificationStatus;
 import org.junit.Before;
 import org.junit.Test;
@@ -80,7 +86,7 @@ public final class CelPolicyVerifierImplTest {
   private static final CelPolicyCompiler POLICY_COMPILER =
       CelPolicyCompilerFactory.newPolicyCompiler(CEL).build();
 
-  private static final CelVerifier AST_VERIFIER = CelVerifierFactory.newVerifier().build();
+  private static final CelVerifier AST_VERIFIER = CelVerifierFactory.newVerifier(CEL).build();
   private static final CelPolicyVerifier VERIFIER =
       CelPolicyVerifierFactory.newVerifier(POLICY_COMPILER, AST_VERIFIER).build();
 
@@ -721,5 +727,86 @@ public final class CelPolicyVerifierImplTest {
 
     assertThat(results).containsKey("check_approx");
     assertThat(results.get("check_approx").status()).isEqualTo(VerificationStatus.INCONCLUSIVE);
+  }
+
+  private enum ConformancePolicyTestCase {
+    AGGREGATE("aggregate"),
+    AGGREGATE_EXPLICIT_LIST_OUTPUT("aggregate_explicit_list_output"),
+    AGGREGATE_EXPLICIT_OPTIONAL_NONE("aggregate_explicit_optional_none"),
+    AGGREGATE_NESTED_EXPLICIT_LIST_DOUBLE_WRAPPING(
+        "aggregate_nested_explicit_list_double_wrapping"),
+    AGGREGATE_SHADOWED_VARIABLES("aggregate_shadowed_variables"),
+    CONTEXT_PB("context_pb"),
+    FIRST_MATCH_NESTED_AGGREGATE("first_match_nested_aggregate"),
+    K8S("k8s"),
+    LIMITS("limits"),
+    NESTED_RULE("nested_rule"),
+    NESTED_RULE2("nested_rule2"),
+    NESTED_RULE3("nested_rule3"),
+    NESTED_RULE4("nested_rule4"),
+    NESTED_RULE5("nested_rule5"),
+    NESTED_RULE6("nested_rule6"),
+    NESTED_RULE7("nested_rule7"),
+    NESTED_RULES_VARIABLE_SHADOWING("nested_rules_variable_shadowing"),
+    PB("pb"),
+    REQUIRED_LABELS("required_labels"),
+    RESTRICTED_DESTINATIONS("restricted_destinations"),
+    UNCONDITIONAL_RULES("unconditional_rules"),
+    UNNEST("unnest"),
+    VARIABLE_TYPE_PROPAGATION("variable_type_propagation");
+
+    private final String policyDir;
+
+    ConformancePolicyTestCase(String policyDir) {
+      this.policyDir = policyDir;
+    }
+  }
+
+  @Test
+  public void verifyEquivalence_conformancePolicies_unoptimizedVsOptimized(
+      @TestParameter ConformancePolicyTestCase testCase) throws Exception {
+    CelPolicyParser policyParser =
+        CelPolicyParserFactory.newYamlParserBuilder().addTagVisitor(new K8sTagHandler()).build();
+    CelOptions options =
+        CelOptions.current()
+            .populateMacroCalls(true)
+            .enableHeterogeneousNumericComparisons(true)
+            .build();
+    Cel baseCel =
+        CelFactory.plannerCelBuilder()
+            .setOptions(options)
+            .setStandardMacros(CelStandardMacro.STANDARD_MACROS)
+            .addCompilerLibraries(CelOptionalLibrary.INSTANCE, CelExtensions.bindings())
+            .addRuntimeLibraries(CelOptionalLibrary.INSTANCE)
+            .addFileTypes(StandaloneGlobalEnum.getDescriptor().getFile())
+            .addMessageTypes(TestAllTypes.getDescriptor(), SingleFile.getDescriptor())
+            .build();
+    String configYaml =
+        VerifierTestHelper.maybeLoadConformanceConfigYaml(testCase.policyDir).orElse(null);
+    Cel cel =
+        configYaml != null
+            ? CelEnvironmentYamlParser.newInstance().parse(configYaml).extend(baseCel, options)
+            : baseCel;
+    CelPolicy policy =
+        policyParser.parse(VerifierTestHelper.loadConformancePolicyYaml(testCase.policyDir));
+    CelPolicyCompiler unoptimizedCompiler = CelPolicyCompilerFactory.newPolicyCompiler(cel).build();
+    CelPolicyCompiler optimizedCompiler =
+        CelPolicyCompilerFactory.newPolicyCompiler(cel)
+            .setOptimizers(
+                ImmutableList.of(
+                    SubexpressionOptimizer.newInstance(
+                        SubexpressionOptimizerOptions.newBuilder()
+                            .populateMacroCalls(true)
+                            .build())))
+            .build();
+    CelVerifier verifier = CelVerifierFactory.newVerifier(cel).build();
+
+    CelAbstractSyntaxTree unoptimizedAst = unoptimizedCompiler.compile(policy);
+    CelAbstractSyntaxTree optimizedAst = optimizedCompiler.compile(policy);
+    CelVerificationResult result = verifier.verifyEquivalence(unoptimizedAst, optimizedAst);
+
+    assertWithMessage(result.message())
+        .that(result.status())
+        .isEqualTo(VerificationStatus.VERIFIED);
   }
 }

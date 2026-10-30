@@ -14,9 +14,11 @@ java_library(
     compatible_with = [],
     data = [
         "//testing:policy_test_resources",
+        "@cel_policy//conformance:testdata",
     ],
     deps = [
         "//bundle:cel",
+        "//bundle:environment_yaml_parser",
         "//common:cel_ast",
         "//common:compiler_common",
         "//common:container",
@@ -25,6 +27,7 @@ java_library(
         "//common:options",
         "//common/ast",
         "//common/ast:mutable_expr",
+        "//common/resources/testdata/proto3:standalone_global_enum_java_proto",
         "//common/types",
         "//common/types:message_type_provider",
         "//compiler:compiler_builder",
@@ -43,6 +46,8 @@ java_library(
         "//policy:parser",
         "//policy:parser_factory",
         "//policy:validation_exception",
+        "//policy/testing:k8s_test_tag_handler",
+        "//testing/protos:single_file_java_proto",
         "@bazel_tools//tools/java/runfiles",
         "@maven//:junit_junit",
         "@maven//:com_google_testparameterinjector_test_parameter_injector",
