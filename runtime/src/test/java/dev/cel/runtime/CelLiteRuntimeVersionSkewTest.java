@@ -57,6 +57,7 @@ import dev.cel.common.CelOptions;
 import dev.cel.common.CelOverloadDecl;
 import dev.cel.common.CelProtoAbstractSyntaxTree;
 import dev.cel.common.ast.CelBlock;
+import dev.cel.common.exceptions.CelAttributeNotFoundException;
 import dev.cel.common.internal.ProtoTimeUtils;
 import dev.cel.common.types.ListType;
 import dev.cel.common.types.SimpleType;
@@ -71,6 +72,7 @@ import dev.cel.expr.conformance.proto3.TestAllTypes.NestedEnum;
 import dev.cel.expr.conformance.proto3.TestAllTypes.NestedMessage;
 import dev.cel.expr.conformance.proto3.TestAllTypesCelDescriptor;
 import dev.cel.extensions.CelExtensions;
+import dev.cel.extensions.CelOptionalRuntimeLibrary;
 import dev.cel.optimizer.CelOptimizer;
 import dev.cel.optimizer.CelOptimizerFactory;
 import dev.cel.optimizer.optimizers.SelectOptimizer;
@@ -85,6 +87,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import org.jspecify.annotations.Nullable;
 import org.junit.Before;
 import org.junit.Test;
@@ -293,7 +296,7 @@ public final class CelLiteRuntimeVersionSkewTest {
         CelFactory.plannerCelBuilder()
             .setOptions(CEL_OPTIONS)
             .setStandardMacros(CelStandardMacro.STANDARD_MACROS)
-            .addCompilerLibraries(CelExtensions.bindings())
+            .addCompilerLibraries(CelExtensions.bindings(), CelExtensions.optional())
             .addMessageTypes(TestAllTypes.getDescriptor(), NestedTestAllTypes.getDescriptor())
             .addVar("msg", StructTypeReference.create(TestAllTypes.getDescriptor().getFullName()))
             .addVar(
@@ -338,6 +341,7 @@ public final class CelLiteRuntimeVersionSkewTest {
     clientRuntime =
         CelLiteRuntimeFactory.newLiteRuntimeBuilder()
             .setStandardFunctions(CelStandardFunctions.ALL_STANDARD_FUNCTIONS)
+            .addLibraries(CelOptionalRuntimeLibrary.optional())
             .setValueProvider(clientValueProvider)
             .setContainer(CEL_CONTAINER)
             .build();
@@ -2840,6 +2844,70 @@ public final class CelLiteRuntimeVersionSkewTest {
     assertThat(shortCircuitResult).isEqualTo(true);
     assertThat(unknownResult).isInstanceOf(CelUnknownSet.class);
     assertThat(((CelUnknownSet) unknownResult).attributes()).containsExactly(attribute);
+  }
+
+  @SuppressWarnings("ImmutableEnumChecker") // Test only
+  private enum OptionalSelectTestCase {
+    UNKNOWN_SCALAR("msg.?single_int64", Optional.empty(), Optional.of(-42L)),
+    UNKNOWN_SUBMESSAGE_SCALAR("msg.?single_nested_message.bb", Optional.empty(), Optional.of(123L)),
+    UNKNOWN_REPEATED_INDEX(
+        "msg.repeated_nested_message[?1].bb", Optional.empty(), Optional.of(20L)),
+    UNKNOWN_REPEATED_INDEX_OUT_OF_RANGE(
+        "msg.repeated_nested_message[?2].bb", Optional.empty(), Optional.empty()),
+    UNKNOWN_MAP_KEY(
+        "msg.map_int64_nested_type[?2].payload.single_int64", Optional.empty(), Optional.of(200L)),
+    UNKNOWN_MAP_KEY_ABSENT(
+        "msg.map_int64_nested_type[?3].payload.single_int64", Optional.empty(), Optional.empty()),
+    HAS_FIELD("has(msg.?single_nested_message.bb)", false, true),
+    OR_VALUE("msg.?single_int64.orValue(7)", 7L, -42L),
+    HAS_VALUE("msg.?single_nested_message.hasValue()", false, true);
+
+    private final String expression;
+    private final Object expectedDefault;
+    private final Object expectedPopulated;
+
+    OptionalSelectTestCase(String expression, Object expectedDefault, Object expectedPopulated) {
+      this.expression = expression;
+      this.expectedDefault = expectedDefault;
+      this.expectedPopulated = expectedPopulated;
+    }
+  }
+
+  @Test
+  public void optionalSelect_unsetSkewedFields_returnsAbsent(
+      @TestParameter OptionalSelectTestCase testCase) throws Exception {
+    Object result = eval(testCase.expression, TestAllTypes.getDefaultInstance());
+
+    assertThat(result).isEqualTo(testCase.expectedDefault);
+  }
+
+  @Test
+  public void optionalSelect_populatedSkewedFields_decodesFromWireBytes(
+      @TestParameter OptionalSelectTestCase testCase) throws Exception {
+    Object result = eval(testCase.expression, POPULATED_SERVER_MESSAGE);
+
+    assertThat(result).isEqualTo(testCase.expectedPopulated);
+  }
+
+  @Test
+  @TestParameters("{expression: 'msg.?single_int32', expected: 42}")
+  @TestParameters("{expression: 'msg.?standalone_message.bb', expected: 77}")
+  public void optionalSelect_renamedFields_resolvesByFieldNumber(String expression, long expected)
+      throws Exception {
+    Object result = eval(expression, POPULATED_RENAMED_MESSAGE);
+
+    assertThat((Optional<?>) result).hasValue(expected);
+  }
+
+  @Test
+  public void optionalSelect_missingMapKeyBeforeOptionalHop_throws() throws Exception {
+    CelEvaluationException e =
+        assertThrows(
+            CelEvaluationException.class,
+            () -> eval("msg.map_int64_nested_type[3].?child.payload", POPULATED_SERVER_MESSAGE));
+
+    assertThat(e).hasCauseThat().isInstanceOf(CelAttributeNotFoundException.class);
+    assertThat(e).hasCauseThat().hasMessageThat().isEqualTo("3");
   }
 
   @Test

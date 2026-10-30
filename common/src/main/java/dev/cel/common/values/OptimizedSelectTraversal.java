@@ -52,6 +52,23 @@ public final class OptimizedSelectTraversal {
   }
 
   /**
+   * Presence tests every field in {@code fields} in turn, returning the terminal value or empty if
+   * any field is absent.
+   */
+  public static Optional<Object> find(Object target, ImmutableList<SelectField> fields) {
+    Optional<Object> current = Optional.empty();
+    Object next = target;
+    for (int i = 0; i < fields.size(); i++) {
+      current = navigateField(next, fields.get(i));
+      if (!current.isPresent()) {
+        return Optional.empty();
+      }
+      next = current.get();
+    }
+    return current;
+  }
+
+  /**
    * Presence tests the terminal field of {@code fields}, navigating through all preceding fields.
    */
   public static boolean hasField(Object target, ImmutableList<SelectField> fields) {
@@ -77,9 +94,6 @@ public final class OptimizedSelectTraversal {
   // StructValue is only ever instantiated with String keys in the select path.
   @SuppressWarnings("unchecked")
   private static Object qualifyField(Object target, SelectField field) {
-    if (target instanceof ErrorValue) {
-      return target;
-    }
     if (target instanceof OptimizedSelectable) {
       return ((OptimizedSelectable) target).selectByFieldNumber(field);
     }
@@ -99,9 +113,6 @@ public final class OptimizedSelectTraversal {
   // StructValue is only ever instantiated with String keys in the select path.
   @SuppressWarnings("unchecked")
   private static Optional<Object> navigateField(Object target, SelectField field) {
-    if (target instanceof ErrorValue) {
-      return Optional.of(target);
-    }
     if (target instanceof OptimizedSelectable) {
       return ((OptimizedSelectable) target).findByFieldNumber(field);
     }
@@ -114,9 +125,6 @@ public final class OptimizedSelectTraversal {
   // StructValue is only ever instantiated with String keys in the select path.
   @SuppressWarnings("unchecked")
   private static boolean hasTerminalField(Object target, SelectField field) {
-    if (target instanceof ErrorValue) {
-      return false;
-    }
     if (target instanceof OptimizedSelectable) {
       return ((OptimizedSelectable) target).hasFieldByNumber(field);
     }
