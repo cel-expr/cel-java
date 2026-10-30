@@ -102,7 +102,8 @@ import org.junit.runner.RunWith;
 @RunWith(TestParameterInjector.class)
 public final class ProgramPlannerTest {
   // Note that the following deps will be built from top-level builder APIs
-  private static final CelOptions CEL_OPTIONS = CelOptions.current().build();
+  private static final CelOptions CEL_OPTIONS =
+      CelOptions.current().enableHeterogeneousNumericComparisons(true).build();
   private static final CelTypeProvider TYPE_PROVIDER =
       new CombinedCelTypeProvider(
           DefaultTypeProvider.getInstance(),
@@ -179,6 +180,7 @@ public final class ProgramPlannerTest {
 
   private static final CelCompiler CEL_COMPILER =
       CelCompilerFactory.standardCelCompilerBuilder()
+          .setOptions(CEL_OPTIONS)
           .setStandardMacros(CelStandardMacro.STANDARD_MACROS)
           .addMacros(COMPREHENSION_TEST_MACROS)
           .addFunctionDeclarations(
@@ -235,6 +237,7 @@ public final class ProgramPlannerTest {
                 StandardFunction.GREATER,
                 StandardFunction.GREATER_EQUALS,
                 StandardFunction.LESS,
+                StandardFunction.LESS_EQUALS,
                 StandardFunction.DIVIDE,
                 StandardFunction.EQUALS,
                 StandardFunction.NOT_STRICTLY_FALSE,
@@ -2724,6 +2727,110 @@ public final class ProgramPlannerTest {
             "evaluation error at <input>:13: Regex pattern exceeds allowed program size. Allowed: "
                 + maxProgramSize
                 + ", Provided: 7");
+  }
+
+  @Test
+  @TestParameters("{expression: '-1 < 0.0', expectedResult: true}")
+  @TestParameters("{expression: '1 < 0.0', expectedResult: false}")
+  @TestParameters("{expression: '-1.0 < 0', expectedResult: true}")
+  @TestParameters("{expression: '1.0 < 0', expectedResult: false}")
+  @TestParameters("{expression: '0u < 1.0', expectedResult: true}")
+  @TestParameters("{expression: '1u < 0.0', expectedResult: false}")
+  @TestParameters("{expression: '-1.0 < 0u', expectedResult: true}")
+  @TestParameters("{expression: '1.0 < 0u', expectedResult: false}")
+  @TestParameters("{expression: '0 < -0.0', expectedResult: false}")
+  @TestParameters("{expression: '-0.0 < 0', expectedResult: false}")
+  @TestParameters("{expression: '0u < -0.0', expectedResult: false}")
+  @TestParameters("{expression: '-0.0 < 0u', expectedResult: false}")
+  @TestParameters("{expression: '1 < 0.0 / 0.0', expectedResult: false}")
+  @TestParameters("{expression: '0.0 / 0.0 < 1', expectedResult: false}")
+  @TestParameters("{expression: '1u < 0.0 / 0.0', expectedResult: false}")
+  @TestParameters("{expression: '0.0 / 0.0 < 1u', expectedResult: false}")
+  public void plan_call_less_heterogeneousNumeric(String expression, boolean expectedResult)
+      throws Exception {
+    Program program = PLANNER.plan(compile(expression));
+
+    Object result = program.eval();
+
+    assertThat(result).isEqualTo(expectedResult);
+  }
+
+  @Test
+  @TestParameters("{expression: '-1 <= 0.0', expectedResult: true}")
+  @TestParameters("{expression: '1 <= 0.0', expectedResult: false}")
+  @TestParameters("{expression: '-1.0 <= 0', expectedResult: true}")
+  @TestParameters("{expression: '1.0 <= 0', expectedResult: false}")
+  @TestParameters("{expression: '0u <= 1.0', expectedResult: true}")
+  @TestParameters("{expression: '1u <= 0.0', expectedResult: false}")
+  @TestParameters("{expression: '-1.0 <= 0u', expectedResult: true}")
+  @TestParameters("{expression: '1.0 <= 0u', expectedResult: false}")
+  @TestParameters("{expression: '0 <= -0.0', expectedResult: true}")
+  @TestParameters("{expression: '-0.0 <= 0', expectedResult: true}")
+  @TestParameters("{expression: '0u <= -0.0', expectedResult: true}")
+  @TestParameters("{expression: '-0.0 <= 0u', expectedResult: true}")
+  @TestParameters("{expression: '1 <= 0.0 / 0.0', expectedResult: false}")
+  @TestParameters("{expression: '0.0 / 0.0 <= 1', expectedResult: false}")
+  @TestParameters("{expression: '1u <= 0.0 / 0.0', expectedResult: false}")
+  @TestParameters("{expression: '0.0 / 0.0 <= 1u', expectedResult: false}")
+  public void plan_call_lessEquals_heterogeneousNumeric(String expression, boolean expectedResult)
+      throws Exception {
+    Program program = PLANNER.plan(compile(expression));
+
+    Object result = program.eval();
+
+    assertThat(result).isEqualTo(expectedResult);
+  }
+
+  @Test
+  @TestParameters("{expression: '-1 > 0.0', expectedResult: false}")
+  @TestParameters("{expression: '1 > 0.0', expectedResult: true}")
+  @TestParameters("{expression: '-1.0 > 0', expectedResult: false}")
+  @TestParameters("{expression: '1.0 > 0', expectedResult: true}")
+  @TestParameters("{expression: '0u > 1.0', expectedResult: false}")
+  @TestParameters("{expression: '1u > 0.0', expectedResult: true}")
+  @TestParameters("{expression: '-1.0 > 0u', expectedResult: false}")
+  @TestParameters("{expression: '1.0 > 0u', expectedResult: true}")
+  @TestParameters("{expression: '0 > -0.0', expectedResult: false}")
+  @TestParameters("{expression: '-0.0 > 0', expectedResult: false}")
+  @TestParameters("{expression: '0u > -0.0', expectedResult: false}")
+  @TestParameters("{expression: '-0.0 > 0u', expectedResult: false}")
+  @TestParameters("{expression: '1 > 0.0 / 0.0', expectedResult: false}")
+  @TestParameters("{expression: '0.0 / 0.0 > 1', expectedResult: false}")
+  @TestParameters("{expression: '1u > 0.0 / 0.0', expectedResult: false}")
+  @TestParameters("{expression: '0.0 / 0.0 > 1u', expectedResult: false}")
+  public void plan_call_greater_heterogeneousNumeric(String expression, boolean expectedResult)
+      throws Exception {
+    Program program = PLANNER.plan(compile(expression));
+
+    Object result = program.eval();
+
+    assertThat(result).isEqualTo(expectedResult);
+  }
+
+  @Test
+  @TestParameters("{expression: '-1 >= 0.0', expectedResult: false}")
+  @TestParameters("{expression: '1 >= 0.0', expectedResult: true}")
+  @TestParameters("{expression: '-1.0 >= 0', expectedResult: false}")
+  @TestParameters("{expression: '1.0 >= 0', expectedResult: true}")
+  @TestParameters("{expression: '0u >= 1.0', expectedResult: false}")
+  @TestParameters("{expression: '1u >= 0.0', expectedResult: true}")
+  @TestParameters("{expression: '-1.0 >= 0u', expectedResult: false}")
+  @TestParameters("{expression: '1.0 >= 0u', expectedResult: true}")
+  @TestParameters("{expression: '0 >= -0.0', expectedResult: true}")
+  @TestParameters("{expression: '-0.0 >= 0', expectedResult: true}")
+  @TestParameters("{expression: '0u >= -0.0', expectedResult: true}")
+  @TestParameters("{expression: '-0.0 >= 0u', expectedResult: true}")
+  @TestParameters("{expression: '1 >= 0.0 / 0.0', expectedResult: false}")
+  @TestParameters("{expression: '0.0 / 0.0 >= 1', expectedResult: false}")
+  @TestParameters("{expression: '1u >= 0.0 / 0.0', expectedResult: false}")
+  @TestParameters("{expression: '0.0 / 0.0 >= 1u', expectedResult: false}")
+  public void plan_call_greaterEquals_heterogeneousNumeric(
+      String expression, boolean expectedResult) throws Exception {
+    Program program = PLANNER.plan(compile(expression));
+
+    Object result = program.eval();
+
+    assertThat(result).isEqualTo(expectedResult);
   }
 
   private static ProgramPlanner newPlannerWithOptions(CelOptions options) {

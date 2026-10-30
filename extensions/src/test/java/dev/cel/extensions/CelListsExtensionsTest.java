@@ -220,6 +220,8 @@ public class CelListsExtensionsTest extends CelExtensionTestBase {
       "{expression: '[1, 2.0, \"c\", 3, \"c\", 1].distinct()', "
           + "expected: '[1, 2.0, \"c\", 3]'}")
   @TestParameters("{expression: '[1, 1.0, 2, 2u].distinct()', expected: '[1, 2]'}")
+  @TestParameters("{expression: '[-0.0, 0.0, 0, 0u].distinct()', expected: '[-0.0]'}")
+  @TestParameters("{expression: '[0.0/0.0, 0.0/0.0].distinct()', expected: '[0.0/0.0, 0.0/0.0]'}")
   @TestParameters("{expression: '[[1], [1], [2]].distinct()', expected: '[[1], [2]]'}")
   @TestParameters(
       "{expression: '[SimpleTest{name: \"a\"}, SimpleTest{name: \"b\"}, SimpleTest{name: \"a\"}]"
@@ -281,6 +283,9 @@ public class CelListsExtensionsTest extends CelExtensionTestBase {
   @Test
   @TestParameters("{expression: '[3.0, 2, 1u].sort()', expected: '[1u, 2, 3.0]'}")
   @TestParameters("{expression: '[4, 3, 2, 1].sort()', expected: '[1, 2, 3, 4]'}")
+  @TestParameters(
+      "{expression: '[0.0/0.0, 1.0, -0.0, 0.0].sort()', expected: '[-0.0, 0.0, 1.0, 0.0/0.0]'}")
+  @TestParameters("{expression: '[0, -0.0, 0u].sort()', expected: '[0, -0.0, 0u]'}")
   public void sort_success_heterogeneousNumbers(String expression, String expected)
       throws Exception {
     Object result = eval(cel, expression);

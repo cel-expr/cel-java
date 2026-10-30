@@ -30,18 +30,9 @@ import dev.cel.common.annotations.Internal;
 public final class ComparisonFunctions {
 
   private static final UnsignedLong UINT_TO_INT_MAX = UnsignedLong.valueOf(Long.MAX_VALUE);
-  private static final double DOUBLE_TO_INT_MAX = (double) Long.MAX_VALUE;
-  private static final double DOUBLE_TO_INT_MIN = (double) Long.MIN_VALUE;
-  private static final double DOUBLE_TO_UINT_MAX = UnsignedLong.MAX_VALUE.doubleValue();
 
   public static int compareDoubleInt(double d, long l) {
-    if (d < DOUBLE_TO_INT_MIN) {
-      return -1;
-    }
-    if (d > DOUBLE_TO_INT_MAX) {
-      return 1;
-    }
-    return Double.compare(d, (double) l);
+    return compareDouble(d, (double) l);
   }
 
   public static int compareIntDouble(long l, double d) {
@@ -49,13 +40,7 @@ public final class ComparisonFunctions {
   }
 
   public static int compareDoubleUint(double d, UnsignedLong ul) {
-    if (d < 0.0) {
-      return -1;
-    }
-    if (d > DOUBLE_TO_UINT_MAX) {
-      return 1;
-    }
-    return Double.compare(d, ul.doubleValue());
+    return compareDouble(d, ul.doubleValue());
   }
 
   public static int compareUintDouble(UnsignedLong ul, double d) {
@@ -73,54 +58,33 @@ public final class ComparisonFunctions {
     return -compareIntUint(l, ul);
   }
 
+  /** Returns true if {@code value} is one of CEL's canonical runtime numeric types. */
+  public static boolean isNumeric(Object value) {
+    return value instanceof Long || value instanceof Double || value instanceof UnsignedLong;
+  }
+
   /**
    * Compare two numeric values of any type (double, int, uint) for equality.
    *
-   * <p>Floating point values are follow IEEE 754 standard for NaN comparisons.
+   * <p>Floating point values follow IEEE 754 standard for NaN and negative zero comparisons.
    */
   public static boolean numericEquals(Number x, Number y) {
-    if (x instanceof Double) {
-      if (y instanceof Double) {
-        return !(Double.isNaN((Double) x) || Double.isNaN((Double) y))
-            && x.doubleValue() == y.doubleValue();
-      }
-      if (y instanceof Long) {
-        return compareDoubleInt((Double) x, (Long) y) == 0;
-      }
-      if (y instanceof UnsignedLong) {
-        return compareDoubleUint((Double) x, (UnsignedLong) y) == 0;
-      }
-    }
-    if (x instanceof Long) {
-      if (y instanceof Long) {
-        return x.equals(y);
-      }
-      if (y instanceof Double) {
-        return compareIntDouble((Long) x, (Double) y) == 0;
-      }
-      if (y instanceof UnsignedLong) {
-        return compareIntUint((Long) x, (UnsignedLong) y) == 0;
-      }
-    }
-    if (x instanceof UnsignedLong) {
-      if (y instanceof UnsignedLong) {
-        return x.equals(y);
-      }
-      if (y instanceof Double) {
-        return compareUintDouble((UnsignedLong) x, (Double) y) == 0;
-      }
-      if (y instanceof Long) {
-        return compareUintInt((UnsignedLong) x, (Long) y) == 0;
-      }
-    }
-    return false;
+    // Only x needs a NaN check: if y is NaN and x is not, numericCompare returns -1 != 0.
+    return isNumeric(x)
+        && isNumeric(y)
+        && !(x instanceof Double && ((Double) x).isNaN())
+        && numericCompare(x, y) == 0;
   }
 
-  /** Compare two numeric values of any type (double, int, uint). */
+  /**
+   * Compares two numeric values of any type (double, int, uint) for sorting (ordering {@code NaN}
+   * last and equal to itself, with {@code -0.0 == 0.0}); use {@link #numericEquals} for CEL {@code
+   * ==} semantics.
+   */
   public static int numericCompare(Number x, Number y) {
     if (x instanceof Double) {
       if (y instanceof Double) {
-        return ((Double) x).compareTo((Double) y);
+        return compareDouble((Double) x, (Double) y);
       }
       if (y instanceof Long) {
         return compareDoubleInt((Double) x, (Long) y);
@@ -153,6 +117,11 @@ public final class ComparisonFunctions {
     }
     throw new UnsupportedOperationException(
         "Unsupported argument types: " + x.getClass() + ", " + y.getClass());
+  }
+
+  private static int compareDouble(double a, double b) {
+    // Treat -0.0 and 0.0 as equal via ==; Double.compare orders NaN after all non-NaN numbers.
+    return a == b ? 0 : Double.compare(a, b);
   }
 
   private ComparisonFunctions() {}

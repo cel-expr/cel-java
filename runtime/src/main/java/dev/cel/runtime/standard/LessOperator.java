@@ -95,13 +95,14 @@ public final class LessOperator extends CelStandardFunction {
         (celOptions, runtimeEquality) ->
             CelFunctionBinding.from(
                 "less_double", Double.class, Double.class, (Double x, Double y) -> x < y)),
+    // Use IEEE 754 primitive comparison so NaN yields false (ComparisonFunctions orders NaN last).
     LESS_DOUBLE_UINT64(
         (celOptions, runtimeEquality) ->
             CelFunctionBinding.from(
                 "less_double_uint64",
                 Double.class,
                 UnsignedLong.class,
-                (Double x, UnsignedLong y) -> ComparisonFunctions.compareDoubleUint(x, y) == -1)),
+                (Double x, UnsignedLong y) -> x < y.doubleValue())),
     LESS_INT64_UINT64(
         (celOptions, runtimeEquality) ->
             CelFunctionBinding.from(
@@ -122,21 +123,21 @@ public final class LessOperator extends CelStandardFunction {
                 "less_int64_double",
                 Long.class,
                 Double.class,
-                (Long x, Double y) -> ComparisonFunctions.compareIntDouble(x, y) == -1)),
+                (Long x, Double y) -> (double) x < y)),
     LESS_DOUBLE_INT64(
         (celOptions, runtimeEquality) ->
             CelFunctionBinding.from(
                 "less_double_int64",
                 Double.class,
                 Long.class,
-                (Double x, Long y) -> ComparisonFunctions.compareDoubleInt(x, y) == -1)),
+                (Double x, Long y) -> x < (double) y)),
     LESS_UINT64_DOUBLE(
         (celOptions, runtimeEquality) ->
             CelFunctionBinding.from(
                 "less_uint64_double",
                 UnsignedLong.class,
                 Double.class,
-                (UnsignedLong x, Double y) -> ComparisonFunctions.compareUintDouble(x, y) == -1)),
+                (UnsignedLong x, Double y) -> x.doubleValue() < y)),
     LESS_DURATION(
         (celOptions, runtimeEquality) -> {
           if (celOptions.evaluateCanonicalTypesToNativeValues()) {

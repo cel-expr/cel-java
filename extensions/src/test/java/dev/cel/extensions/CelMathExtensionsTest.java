@@ -102,6 +102,7 @@ public class CelMathExtensionsTest {
   @TestParameters(
       "{expr: 'math.greatest([dyn(5.4), dyn(10), dyn(3u), dyn(-5.0), dyn(3.5)])', expectedResult:"
           + " 10}")
+  @TestParameters("{expr: 'math.greatest(0, -0.0)', expectedResult: 0}")
   public void greatest_intResult_success(String expr, long expectedResult) throws Exception {
     Object result = eval(expr);
 
@@ -142,6 +143,7 @@ public class CelMathExtensionsTest {
   @TestParameters(
       "{expr: 'math.greatest([dyn(5.4), dyn(10.0), dyn(3u), dyn(-5.0), dyn(3.5)])', expectedResult:"
           + " 10.0}")
+  @TestParameters("{expr: 'math.greatest(-0.0, 0)', expectedResult: -0.0}")
   public void greatest_doubleResult_success(String expr, double expectedResult) throws Exception {
     Object result = eval(expr);
 
@@ -319,6 +321,7 @@ public class CelMathExtensionsTest {
   @TestParameters(
       "{expr: 'math.least([dyn(5.4), dyn(-10), dyn(3u), dyn(-5.0), dyn(3.5)])', expectedResult:"
           + " -10}")
+  @TestParameters("{expr: 'math.least(0, -0.0)', expectedResult: 0}")
   public void least_intResult_success(String expr, long expectedResult) throws Exception {
     Object result = eval(expr);
 
@@ -358,6 +361,7 @@ public class CelMathExtensionsTest {
   @TestParameters(
       "{expr: 'math.least([dyn(5.4), dyn(10.0), dyn(3u), dyn(-5.0), dyn(3.5)])', expectedResult:"
           + " -5.0}")
+  @TestParameters("{expr: 'math.least(-0.0, 0)', expectedResult: -0.0}")
   public void least_doubleResult_success(String expr, double expectedResult) throws Exception {
     Object result = eval(expr);
 

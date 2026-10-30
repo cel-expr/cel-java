@@ -148,34 +148,35 @@ public final class GreaterOperator extends CelStandardFunction {
                 UnsignedLong.class,
                 Long.class,
                 (UnsignedLong x, Long y) -> ComparisonFunctions.compareUintInt(x, y) == 1)),
+    // Use IEEE 754 primitive comparison so NaN yields false (ComparisonFunctions orders NaN last).
     GREATER_INT64_DOUBLE(
         (celOptions, runtimeEquality) ->
             CelFunctionBinding.from(
                 "greater_int64_double",
                 Long.class,
                 Double.class,
-                (Long x, Double y) -> ComparisonFunctions.compareIntDouble(x, y) == 1)),
+                (Long x, Double y) -> (double) x > y)),
     GREATER_DOUBLE_INT64(
         (celOptions, runtimeEquality) ->
             CelFunctionBinding.from(
                 "greater_double_int64",
                 Double.class,
                 Long.class,
-                (Double x, Long y) -> ComparisonFunctions.compareDoubleInt(x, y) == 1)),
+                (Double x, Long y) -> x > (double) y)),
     GREATER_UINT64_DOUBLE(
         (celOptions, runtimeEquality) ->
             CelFunctionBinding.from(
                 "greater_uint64_double",
                 UnsignedLong.class,
                 Double.class,
-                (UnsignedLong x, Double y) -> ComparisonFunctions.compareUintDouble(x, y) == 1)),
+                (UnsignedLong x, Double y) -> x.doubleValue() > y)),
     GREATER_DOUBLE_UINT64(
         (celOptions, runtimeEquality) ->
             CelFunctionBinding.from(
                 "greater_double_uint64",
                 Double.class,
                 UnsignedLong.class,
-                (Double x, UnsignedLong y) -> ComparisonFunctions.compareDoubleUint(x, y) == 1)),
+                (Double x, UnsignedLong y) -> x > y.doubleValue())),
     ;
 
     private final CelStandardOverload standardOverload;
