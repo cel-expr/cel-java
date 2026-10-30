@@ -14,8 +14,6 @@
 
 package dev.cel.runtime;
 
-import static com.google.common.base.Preconditions.checkArgument;
-
 import com.google.common.primitives.Ints;
 import com.google.common.primitives.UnsignedLong;
 import com.google.common.primitives.UnsignedLongs;
@@ -31,12 +29,12 @@ import dev.cel.common.exceptions.CelIndexOutOfBoundsException;
 import dev.cel.common.exceptions.CelInvalidArgumentException;
 import dev.cel.common.exceptions.CelNumericOverflowException;
 import dev.cel.common.internal.Converter;
+import dev.cel.common.internal.DateTimeHelpers;
+import dev.cel.common.internal.ProtoTimeUtils;
 import dev.cel.common.values.NullValue;
-import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import org.threeten.extra.AmountFormats;
 
 /**
  * Helper methods for common CEL related routines.
@@ -47,10 +45,6 @@ import org.threeten.extra.AmountFormats;
 @Internal
 public class RuntimeHelpers {
 
-  // Maximum and minimum range supported by protobuf Duration values.
-  private static final java.time.Duration DURATION_MAX = java.time.Duration.ofDays(3652500);
-  private static final java.time.Duration DURATION_MIN = DURATION_MAX.negated();
-
   public static RuntimeHelpers create() {
     return new RuntimeHelpers();
   }
@@ -60,22 +54,12 @@ public class RuntimeHelpers {
 
   /** Convert a string to a Protobuf Duration. */
   public static Duration createDurationFromString(String d) {
-    java.time.Duration dv = createJavaDurationFromString(d);
-    return Duration.newBuilder().setSeconds(dv.getSeconds()).setNanos(dv.getNano()).build();
+    return ProtoTimeUtils.toProtoDuration(createJavaDurationFromString(d));
   }
 
   /** Convert a string to a native Java Duration. */
   public static java.time.Duration createJavaDurationFromString(String d) {
-    try {
-      java.time.Duration dv = AmountFormats.parseUnitBasedDuration(d);
-      // Ensure that the duration value can be adequately represented within a protobuf.Duration.
-      checkArgument(
-          dv.compareTo(DURATION_MAX) <= 0 && dv.compareTo(DURATION_MIN) >= 0,
-          "invalid duration range");
-      return dv;
-    } catch (DateTimeParseException e) {
-      throw new IllegalArgumentException("invalid duration format", e);
-    }
+    return DateTimeHelpers.parseDuration(d);
   }
 
   public static Pattern compileRegexPattern(String regexp, CelOptions celOptions) {

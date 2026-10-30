@@ -138,15 +138,7 @@ _ALL_TESTS = [
 ]
 
 _TESTS_TO_SKIP_SPEC_IMPORT = [
-    # Skip until duration/timestamp range and proto wrapper validation are updated for spec parity.
-    "timestamps/duration_conversions/from_string_max",
-    "timestamps/duration_conversions/from_string_min",
-    "timestamps/duration_conversions/toString_duration_max",
-    "timestamps/duration_conversions/toString_duration_min",
-    "timestamps/timestamp_arithmetic/add_duration_to_duration_max",
-    "timestamps/timestamp_arithmetic/subtract_duration_from_duration_min",
-    "timestamps/timestamp_range/sub_time_duration_over",
-    "timestamps/timestamp_range/sub_time_duration_under",
+    # Skip until proto wrapper validation is updated for spec parity.
     "wrappers/duration/nanos_over",
     "wrappers/duration/nanos_under",
     "wrappers/duration/negative_seconds_positive_nanos",
