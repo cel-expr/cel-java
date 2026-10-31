@@ -29,15 +29,24 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
-      - name: Mark job start
-        run: touch "$RUNNER_TEMP/job-start"
       - name: Setup Bazel
         uses: bazel-contrib/setup-bazel@083175551ceeceebc757ebee2127fde78840ca77 # 0.18.0
         with:
-            # Store build cache per workflow.
-            disk-cache: ${{ github.workflow }}-${{ github.job }}
+            # Share repository cache between workflows.
+            repository-cache: true
+            bazelrc: |
+              build --disk_cache=/home/runner/.cache/bazel-disk
             # Prevent PRs from polluting cache
             cache-save: ${{ github.event_name != 'pull_request' }}
+      - name: Restore Bazel disk cache
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: ~/.cache/bazel-disk
+          key: bazel-disk-${{ runner.os }}-${{ github.job }}-${{ github.sha }}
+          restore-keys: |
+            bazel-disk-${{ runner.os }}-${{ github.job }}-
+      - name: Mark job start
+        run: touch "$RUNNER_TEMP/job-start"
       - name: Bazel Output Version
         run: bazelisk --version
       - name: Java 8 Build
@@ -50,9 +59,17 @@ jobs:
         # Bazel bumps mtimes on use; drop stale entries so the saved cache doesn't grow unbounded.
         if: github.event_name != 'pull_request'
         run: |
-          du -sh ~/.cache/bazel-disk
-          find ~/.cache/bazel-disk -type f ! -newer "$RUNNER_TEMP/job-start" -delete
-          du -sh ~/.cache/bazel-disk
+          if [ -d ~/.cache/bazel-disk ]; then
+            du -sh ~/.cache/bazel-disk
+            find ~/.cache/bazel-disk -type f ! -newer "$RUNNER_TEMP/job-start" -delete
+            du -sh ~/.cache/bazel-disk
+          fi
+      - name: Save Bazel disk cache
+        if: github.event_name != 'pull_request'
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: ~/.cache/bazel-disk
+          key: bazel-disk-${{ runner.os }}-${{ github.job }}-${{ github.sha }}
       - run: echo "🍏 This job's status is ${JOB_STATUS}."
         env:
           JOB_STATUS: ${{ job.status }}
@@ -68,15 +85,24 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
-      - name: Mark job start
-        run: touch "$RUNNER_TEMP/job-start"
       - name: Setup Bazel
         uses: bazel-contrib/setup-bazel@083175551ceeceebc757ebee2127fde78840ca77 # 0.18.0
         with:
-            # Store build cache per workflow.
-            disk-cache: ${{ github.workflow }}-${{ github.job }}
+            # Share repository cache between workflows.
+            repository-cache: true
+            bazelrc: |
+              build --disk_cache=/home/runner/.cache/bazel-disk
             # Prevent PRs from polluting cache
             cache-save: ${{ github.event_name != 'pull_request' }}
+      - name: Restore Bazel disk cache
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: ~/.cache/bazel-disk
+          key: bazel-disk-${{ runner.os }}-${{ github.job }}-${{ github.sha }}
+          restore-keys: |
+            bazel-disk-${{ runner.os }}-${{ github.job }}-
+      - name: Mark job start
+        run: touch "$RUNNER_TEMP/job-start"
       - name: Bazel Output Version
         run: bazelisk --version
       - name: Bazel Test
@@ -87,9 +113,17 @@ jobs:
         # Bazel bumps mtimes on use; drop stale entries so the saved cache doesn't grow unbounded.
         if: github.event_name != 'pull_request'
         run: |
-          du -sh ~/.cache/bazel-disk
-          find ~/.cache/bazel-disk -type f ! -newer "$RUNNER_TEMP/job-start" -delete
-          du -sh ~/.cache/bazel-disk
+          if [ -d ~/.cache/bazel-disk ]; then
+            du -sh ~/.cache/bazel-disk
+            find ~/.cache/bazel-disk -type f ! -newer "$RUNNER_TEMP/job-start" -delete
+            du -sh ~/.cache/bazel-disk
+          fi
+      - name: Save Bazel disk cache
+        if: github.event_name != 'pull_request'
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: ~/.cache/bazel-disk
+          key: bazel-disk-${{ runner.os }}-${{ github.job }}-${{ github.sha }}
       - run: echo "🍏 This job's status is ${JOB_STATUS}."
         env:
           JOB_STATUS: ${{ job.status }}
@@ -117,8 +151,8 @@ jobs:
         if: steps.changed_file.outputs.any_changed == 'true'
         uses: bazel-contrib/setup-bazel@083175551ceeceebc757ebee2127fde78840ca77 # 0.18.0
         with:
-            # Store build cache per workflow.
-            disk-cache: ${{ github.workflow }}-${{ github.job }}
+            # Share repository cache between workflows.
+            repository-cache: true
             # Never write to the cache, strictly read-only
             cache-save: false
       - name: Verify Version Consistency
