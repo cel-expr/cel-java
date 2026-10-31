@@ -203,8 +203,8 @@ public final class CelVerifierZ3ImplTest {
         "ts = timestamp\\(\"1969-12-31T23:59:59\\.000000500Z\"\\)"),
     DURATION_SUBSECOND_SATISFIABLE(
         "dur == google.protobuf.Duration{seconds: 1, nanos: 500}",
-        "dur = duration\\(\"1000000500ns\"\\)"),
-    // Timestamps nested in dyn aren't range constrained, and RFC 3339 can't express these.
+        "dur = duration\\(\"1\\.000000500s\"\\)"),
+    // Timestamps and durations nested in dyn aren't range constrained.
     TIMESTAMP_ABOVE_RANGE_SATISFIABLE(
         "type(dyn_var) == google.protobuf.Timestamp"
             + " && dyn_var > google.protobuf.Timestamp{seconds: 253402300799, nanos: 999999999}",
@@ -213,6 +213,14 @@ public final class CelVerifierZ3ImplTest {
         "type(dyn_var) == google.protobuf.Timestamp"
             + " && dyn_var < google.protobuf.Timestamp{seconds: -62135596800}",
         "dyn_var = timestamp\\(-\\d+\\)"),
+    DURATION_ABOVE_RANGE_SATISFIABLE(
+        "type(dyn_var) == google.protobuf.Duration"
+            + " && dyn_var > google.protobuf.Duration{seconds: 315576000000, nanos: 999999999}",
+        "dyn_var = duration\\(\"\\d+s\"\\)"),
+    DURATION_BELOW_RANGE_SATISFIABLE(
+        "type(dyn_var) == google.protobuf.Duration"
+            + " && dyn_var < google.protobuf.Duration{seconds: -315576000000, nanos: -999999999}",
+        "dyn_var = duration\\(\"-\\d+s\"\\)"),
     ;
 
     private final String expr;
@@ -275,7 +283,17 @@ public final class CelVerifierZ3ImplTest {
     SUBSECOND_DURATION(
         "dur == google.protobuf.Duration{seconds: -1, nanos: -500}",
         "dur",
-        "duration(\"-1000000500ns\")"),
+        "duration(\"-1.000000500s\")"),
+    NEGATIVE_SUBSECOND_DURATION(
+        "dur == google.protobuf.Duration{nanos: -500}", "dur", "duration(\"-0.000000500s\")"),
+    MIN_DURATION(
+        "dur == google.protobuf.Duration{seconds: -315576000000, nanos: -999999999}",
+        "dur",
+        "duration(\"-315576000000.999999999s\")"),
+    MAX_DURATION(
+        "dur == google.protobuf.Duration{seconds: 315576000000, nanos: 999999999}",
+        "dur",
+        "duration(\"315576000000.999999999s\")"),
     NULL("dyn_var == null", "dyn_var", "null"),
     EMPTY_LIST("int_list == []", "int_list", "[]"),
     LIST_WITH_NULL("dyn_list == [true, null]", "dyn_list", "[true, null]"),
@@ -666,8 +684,8 @@ public final class CelVerifierZ3ImplTest {
             + " nanos: 999999999}"),
     TIMESTAMP_VARIABLE_SECONDS_BOUNDS("int(ts) >= -62135596800 && int(ts) <= 253402300799"),
     DURATION_VARIABLE_BOUNDS(
-        "dur >= google.protobuf.Duration{seconds: -9223372036, nanos: -854775808} && dur <="
-            + " google.protobuf.Duration{seconds: 9223372036, nanos: 854775807}"),
+        "dur >= google.protobuf.Duration{seconds: -315576000000, nanos: -999999999} && dur <="
+            + " google.protobuf.Duration{seconds: 315576000000, nanos: 999999999}"),
     CYCLIC_MACRO_SHADOWING_SAFETY("[1].all(x, [x].all(x, x == 1))"),
     TAUTOLOGY("x > 5 || x <= 5"),
     LIST_VARIABLE_CONSTRAINED("1 in int_list || !(1 in int_list)"),
@@ -2376,13 +2394,17 @@ public final class CelVerifierZ3ImplTest {
         "int(google.protobuf.Timestamp{seconds: 0, nanos: 0} -"
             + " google.protobuf.Duration{nanos: 1})",
         "-1"),
-    DURATION_STRUCT_MAX_GO_DURATION_VALID(
-        "google.protobuf.Duration{seconds: 9223372036, nanos: 854775807} >"
+    DURATION_STRUCT_MAX_VALID(
+        "google.protobuf.Duration{seconds: 315576000000, nanos: 999999999} >"
             + " google.protobuf.Duration{}",
         "true"),
-    DURATION_STRUCT_MIN_GO_DURATION_VALID(
-        "google.protobuf.Duration{seconds: -9223372036, nanos: -854775808} <"
+    DURATION_STRUCT_MIN_VALID(
+        "google.protobuf.Duration{seconds: -315576000000, nanos: -999999999} <"
             + " google.protobuf.Duration{}",
+        "true"),
+    TIMESTAMP_SUBTRACT_MAX_RANGE_VALID(
+        "(timestamp(253402300799) - timestamp(-62135596800)) =="
+            + " google.protobuf.Duration{seconds: 315537897599}",
         "true"),
     TIMESTAMP_STRUCT_MIN_VALID(
         "google.protobuf.Timestamp{seconds: -62135596800, nanos: 0}", "timestamp(-62135596800)"),
@@ -2577,16 +2599,15 @@ public final class CelVerifierZ3ImplTest {
         "false"),
     TIMESTAMP_STRUCT_ABOVE_MAX_FAILS(
         "google.protobuf.Timestamp{seconds: 253402300800, nanos: 0} == timestamp(0)", "false"),
-    DURATION_STRUCT_EXCEEDS_MAX_GO_DURATION_FAILS(
-        "google.protobuf.Duration{seconds: 9223372036, nanos: 854775808} =="
-            + " google.protobuf.Duration{}",
+    DURATION_STRUCT_SECONDS_UNDERFLOW_FAILS(
+        "google.protobuf.Duration{seconds: -315576000001} == google.protobuf.Duration{}", "false"),
+    DURATION_ADD_EXCEEDS_MAX_FAILS(
+        "(google.protobuf.Duration{seconds: 315576000000, nanos: 999999999} +"
+            + " google.protobuf.Duration{nanos: 1}) == google.protobuf.Duration{}",
         "false"),
-    DURATION_STRUCT_EXCEEDS_MIN_GO_DURATION_FAILS(
-        "google.protobuf.Duration{seconds: -9223372036, nanos: -854775809} =="
-            + " google.protobuf.Duration{}",
-        "false"),
-    TIMESTAMP_SUBTRACT_EXCEEDS_GO_DURATION_FAILS(
-        "(timestamp(253402300799) - timestamp(-62135596800)) == google.protobuf.Duration{}",
+    DURATION_SUBTRACT_EXCEEDS_MIN_FAILS(
+        "(google.protobuf.Duration{seconds: -315576000000, nanos: -999999999} -"
+            + " google.protobuf.Duration{nanos: 1}) == google.protobuf.Duration{}",
         "false");
 
     final String exprA;

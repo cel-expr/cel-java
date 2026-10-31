@@ -137,30 +137,7 @@ _ALL_TESTS = [
     "@cel_spec//tests/simple:testdata/wrappers.textproto",
 ]
 
-_TESTS_TO_SKIP_SPEC_IMPORT = [
-    # Skip until duration/timestamp range and proto wrapper validation are updated for spec parity.
-    "timestamps/duration_conversions/from_string_max",
-    "timestamps/duration_conversions/from_string_min",
-    "timestamps/duration_conversions/toString_duration_max",
-    "timestamps/duration_conversions/toString_duration_min",
-    "timestamps/timestamp_arithmetic/add_duration_to_duration_max",
-    "timestamps/timestamp_arithmetic/subtract_duration_from_duration_min",
-    "timestamps/timestamp_range/sub_time_duration_over",
-    "timestamps/timestamp_range/sub_time_duration_under",
-    "wrappers/duration/nanos_over",
-    "wrappers/duration/nanos_under",
-    "wrappers/duration/negative_seconds_positive_nanos",
-    "wrappers/duration/positive_seconds_negative_nanos",
-    "wrappers/duration/seconds_over",
-    "wrappers/duration/seconds_under",
-    "wrappers/timestamp/nanos_over",
-    "wrappers/timestamp/nanos_under",
-    "wrappers/timestamp/negative_seconds_negative_nanos",
-    "wrappers/timestamp/seconds_over",
-    "wrappers/timestamp/seconds_under",
-]
-
-_TESTS_TO_SKIP_LEGACY = _TESTS_TO_SKIP_SPEC_IMPORT + [
+_TESTS_TO_SKIP_LEGACY = [
 
     # Broken test cases which should be supported.
     # TODO: Support setting / getting enum values out of the defined enum value range.
@@ -197,7 +174,7 @@ _TESTS_TO_SKIP_LEGACY = _TESTS_TO_SKIP_SPEC_IMPORT + [
     "type_deductions/type_decay",
 ]
 
-_TESTS_TO_SKIP_PLANNER = _TESTS_TO_SKIP_SPEC_IMPORT + [
+_TESTS_TO_SKIP_PLANNER = [
     # TODO: This is actually a user experience degradation.
     # Not worth fixing until we see a concrete need.
     "basic/functions/unbound_is_runtime_error",

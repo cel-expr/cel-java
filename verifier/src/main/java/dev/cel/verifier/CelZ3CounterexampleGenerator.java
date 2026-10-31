@@ -117,10 +117,15 @@ final class CelZ3CounterexampleGenerator {
           + Instant.ofEpochSecond(seconds.longValue(), nanoAdjustment.longValue())
           + "\")";
     } else if (decl.equals(typeSystem.durationCons().ConstructorDecl())) {
-      BigInteger nanos = ((IntNum) args[0]).getBigInteger();
-      return nanos.remainder(NANOS_PER_SECOND).signum() == 0
-          ? "duration(\"" + nanos.divide(NANOS_PER_SECOND) + "s\")"
-          : "duration(\"" + nanos + "ns\")";
+      BigInteger[] parts = ((IntNum) args[0]).getBigInteger().divideAndRemainder(NANOS_PER_SECOND);
+      if (!isInRange(
+          parts[0], ProtoTimeUtils.DURATION_SECONDS_MIN, ProtoTimeUtils.DURATION_SECONDS_MAX)) {
+        // No CEL duration is out of range, so no literal exists; show the seconds.
+        return "duration(\"" + parts[0] + "s\")";
+      }
+      return "duration(\""
+          + ProtoTimeUtils.formatDuration(parts[0].longValue(), parts[1].intValue())
+          + "\")";
     } else if (decl.equals(typeSystem.listCons().ConstructorDecl())) {
       return formatList(args[0]);
     } else if (decl.equals(typeSystem.mapCons().ConstructorDecl())) {
