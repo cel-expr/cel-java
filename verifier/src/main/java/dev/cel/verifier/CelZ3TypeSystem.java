@@ -56,21 +56,14 @@ public final class CelZ3TypeSystem {
   /** Number of nanoseconds per second. */
   public static final long NANOS_PER_SECOND = 1_000_000_000L;
 
-  /** Minimum valid nanosecond component for a protobuf Duration. */
-  public static final int MIN_DURATION_NANOS = -999_999_999;
-
-  private static final long MAX_TIMESTAMP_NANOS_PART = 999_999_999L;
-
   private static final String MIN_TIMESTAMP_NANOS =
-      BigInteger.valueOf(ProtoTimeUtils.TIMESTAMP_SECONDS_MIN)
-          .multiply(BigInteger.valueOf(NANOS_PER_SECOND))
-          .toString();
-
+      totalNanosString(ProtoTimeUtils.TIMESTAMP_SECONDS_MIN, 0);
   private static final String MAX_TIMESTAMP_NANOS =
-      BigInteger.valueOf(ProtoTimeUtils.TIMESTAMP_SECONDS_MAX)
-          .multiply(BigInteger.valueOf(NANOS_PER_SECOND))
-          .add(BigInteger.valueOf(MAX_TIMESTAMP_NANOS_PART))
-          .toString();
+      totalNanosString(ProtoTimeUtils.TIMESTAMP_SECONDS_MAX, ProtoTimeUtils.MAX_NANOS);
+  private static final String MIN_TOTAL_DURATION_NANOS =
+      totalNanosString(ProtoTimeUtils.DURATION_SECONDS_MIN, -ProtoTimeUtils.MAX_NANOS);
+  private static final String MAX_TOTAL_DURATION_NANOS =
+      totalNanosString(ProtoTimeUtils.DURATION_SECONDS_MAX, ProtoTimeUtils.MAX_NANOS);
 
   private static final String TYPE_CEL_VALUE = "CelValue";
   private static final String CONS_BOOL = "Bool";
@@ -775,11 +768,13 @@ public final class CelZ3TypeSystem {
   }
 
   /**
-   * Checks if the given nanosecond arithmetic expression overflows CEL Duration bounds, which are
-   * confined to a signed 64-bit integer of nanoseconds (matching Go's {@code time.Duration}).
+   * Checks if the given nanosecond arithmetic expression overflows CEL Duration bounds ({@code
+   * [-315576000000.999999999s, 315576000000.999999999s]}).
    */
   public BoolExpr checkDurationOverflow(ArithExpr result) {
-    return checkIntOverflow(result);
+    return ctx.mkOr(
+        ctx.mkGt(result, ctx.mkInt(MAX_TOTAL_DURATION_NANOS)),
+        ctx.mkLt(result, ctx.mkInt(MIN_TOTAL_DURATION_NANOS)));
   }
 
   /** Checks if the given arithmetic expression overflows a 64-bit unsigned integer. */
@@ -792,6 +787,13 @@ public final class CelZ3TypeSystem {
   @SuppressWarnings("unchecked") // Callers verify arguments are SeqExprs.
   public <R extends Sort> SeqExpr<R> mkConcatSafe(Expr<?> arg1, Expr<?> arg2) {
     return ctx.mkConcat((Expr<SeqSort<R>>) arg1, (Expr<SeqSort<R>>) arg2);
+  }
+
+  private static String totalNanosString(long seconds, int nanos) {
+    return BigInteger.valueOf(seconds)
+        .multiply(BigInteger.valueOf(NANOS_PER_SECOND))
+        .add(BigInteger.valueOf(nanos))
+        .toString();
   }
 
   @AutoValue

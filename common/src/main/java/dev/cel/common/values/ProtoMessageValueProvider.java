@@ -23,6 +23,7 @@ import dev.cel.common.annotations.Internal;
 import dev.cel.common.internal.DynamicProto;
 import dev.cel.common.internal.ProtoAdapter;
 import dev.cel.common.internal.ProtoMessageFactory;
+import dev.cel.common.internal.ProtoTimeUtils;
 import java.util.Map;
 import java.util.Optional;
 
@@ -61,7 +62,9 @@ public class ProtoMessageValueProvider implements CelValueProvider {
         fieldValue.ifPresent(o -> builder.setField(fieldDescriptor, o));
       }
 
-      return Optional.of(protoCelValueConverter.toRuntimeValue(builder.build()));
+      return Optional.of(
+          protoCelValueConverter.toRuntimeValue(
+              ProtoTimeUtils.validateWellKnownProto(builder.build())));
     } catch (ArrayIndexOutOfBoundsException e) {
       throw new IllegalArgumentException(e.getMessage());
     }

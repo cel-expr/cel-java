@@ -16,6 +16,7 @@ package dev.cel.runtime;
 
 import static com.google.common.truth.Truth.assertThat;
 import static com.google.common.truth.extensions.proto.ProtoTruth.assertThat;
+import static org.junit.Assert.assertThrows;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -27,6 +28,7 @@ import com.google.protobuf.Message;
 import com.google.protobuf.NullValue;
 import com.google.testing.junit.testparameterinjector.TestParameter;
 import com.google.testing.junit.testparameterinjector.TestParameterInjector;
+import com.google.testing.junit.testparameterinjector.TestParameters;
 import dev.cel.common.CelDescriptorUtil;
 import dev.cel.common.CelDescriptors;
 import dev.cel.common.CelErrorCode;
@@ -42,12 +44,16 @@ import dev.cel.expr.conformance.proto2.TestAllTypes;
 import dev.cel.expr.conformance.proto2.TestAllTypes.NestedGroup;
 import dev.cel.expr.conformance.proto2.TestAllTypesExtensions;
 import dev.cel.expr.conformance.proto2.TestAllTypesProto;
+import java.time.Duration;
+import java.time.Instant;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
 @RunWith(TestParameterInjector.class)
+// Tests construct Duration/Instant boundaries and parameterized bounds from raw seconds and nanos.
+@SuppressWarnings("GoodTime-ApiWithNumericTimeUnit")
 public final class DescriptorMessageProviderTest {
 
   private RuntimeTypeProvider provider;
@@ -251,5 +257,32 @@ public final class DescriptorMessageProviderTest {
         (double) messageProvider.createMessage("google.protobuf.DoubleValue", ImmutableMap.of());
 
     assertThat(value).isEqualTo(0.0d);
+  }
+
+  @Test
+  public void createMessage_durationAndTimestamp_atBounds() {
+    assertThat(
+            provider.createMessage(
+                WellKnownProto.DURATION.typeName(),
+                ImmutableMap.of("seconds", 315576000000L, "nanos", 999999999L)))
+        .isEqualTo(Duration.ofSeconds(315576000000L, 999999999L));
+    assertThat(
+            provider.createMessage(
+                WellKnownProto.TIMESTAMP.typeName(),
+                ImmutableMap.of("seconds", 253402300799L, "nanos", 999999999L)))
+        .isEqualTo(Instant.ofEpochSecond(253402300799L, 999999999L));
+  }
+
+  @Test
+  @TestParameters("{typeName: 'google.protobuf.Duration', seconds: 315576000001, nanos: 0}")
+  @TestParameters("{typeName: 'google.protobuf.Duration', seconds: 1, nanos: -1}")
+  @TestParameters("{typeName: 'google.protobuf.Timestamp', seconds: 253402300800, nanos: 0}")
+  @TestParameters("{typeName: 'google.protobuf.Timestamp', seconds: 0, nanos: -1}")
+  public void createMessage_durationAndTimestamp_outOfRangeThrows(
+      String typeName, long seconds, long nanos) {
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            provider.createMessage(typeName, ImmutableMap.of("seconds", seconds, "nanos", nanos)));
   }
 }

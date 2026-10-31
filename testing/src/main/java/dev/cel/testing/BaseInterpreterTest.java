@@ -2154,10 +2154,20 @@ public abstract class BaseInterpreterTest extends CelBaselineTestCase {
             .buildOrThrow());
 
     clearAllDeclarations();
-    // Currently allowed, but will be an error
-    // See https://github.com/google/cel-spec/pull/501
     source = "google.protobuf.Timestamp{ seconds: 253402300800 }";
     runTest();
+
+    source = "google.protobuf.Duration{ seconds: 315576000001 }";
+    runTest();
+
+    declareVariable("x", StructTypeReference.create(TestAllTypes.getDescriptor().getFullName()));
+    source = "x.single_timestamp";
+    runTest(
+        ImmutableMap.of(
+            "x",
+            TestAllTypes.newBuilder()
+                .setSingleTimestamp(Timestamp.newBuilder().setSeconds(253402300800L))
+                .build()));
   }
 
   @Test

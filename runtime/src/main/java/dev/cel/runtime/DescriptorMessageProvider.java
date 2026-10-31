@@ -27,6 +27,7 @@ import dev.cel.common.exceptions.CelAttributeNotFoundException;
 import dev.cel.common.internal.DynamicProto;
 import dev.cel.common.internal.ProtoAdapter;
 import dev.cel.common.internal.ProtoMessageFactory;
+import dev.cel.common.internal.ProtoTimeUtils;
 import dev.cel.common.types.CelTypes;
 import dev.cel.common.values.CelByteString;
 import java.util.Map;
@@ -89,7 +90,7 @@ public final class DescriptorMessageProvider implements RuntimeTypeProvider {
             protoAdapter.adaptValueToFieldType(fieldDescriptor, entry.getValue());
         fieldValue.ifPresent(o -> builder.setField(fieldDescriptor, o));
       }
-      return protoAdapter.adaptProtoToValue(builder.build());
+      return protoAdapter.adaptProtoToValue(ProtoTimeUtils.validateWellKnownProto(builder.build()));
     } catch (ArrayIndexOutOfBoundsException e) {
       throw new IllegalArgumentException(e.getMessage());
     }

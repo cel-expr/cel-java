@@ -25,6 +25,7 @@ import com.microsoft.z3.FPExpr;
 import com.microsoft.z3.IntExpr;
 import dev.cel.common.CelAbstractSyntaxTree;
 import dev.cel.common.ast.CelExpr;
+import dev.cel.common.internal.ProtoTimeUtils;
 import dev.cel.common.types.CelKind;
 import dev.cel.common.types.CelType;
 import dev.cel.common.types.CelTypeProvider;
@@ -293,7 +294,7 @@ final class CelZ3StructTranslator {
         celExpr,
         createStruct,
         ast,
-        CelZ3TypeSystem.MIN_DURATION_NANOS,
+        -ProtoTimeUtils.MAX_NANOS,
         (seconds, nanos, totalNanos) -> {
           BoolExpr signMismatch =
               ctx.mkOr(

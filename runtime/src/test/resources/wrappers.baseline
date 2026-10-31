@@ -198,4 +198,22 @@ result:   true
 Source: google.protobuf.Timestamp{ seconds: 253402300800 }
 =====>
 bindings: {}
+error:    evaluation error at test_location:25: Timestamp is not valid. See proto definition for valid values. Seconds (253402300800) must be in range [-62,135,596,800, +253,402,300,799]. Nanos (0) must be in range [0, +999,999,999].
+error_code:    INTERNAL_ERROR
+
+Source: google.protobuf.Duration{ seconds: 315576000001 }
+=====>
+bindings: {}
+error:    evaluation error at test_location:24: Duration is not valid. See proto definition for valid values. Seconds (315576000001) must be in range [-315,576,000,000, +315,576,000,000]. Nanos (0) must be in range [-999,999,999, +999,999,999]. Nanos must have the same sign as seconds
+error_code:    INTERNAL_ERROR
+
+Source: x.single_timestamp
+declare x {
+  value cel.expr.conformance.proto3.TestAllTypes
+}
+=====>
+bindings: {x=single_timestamp {
+  seconds: 253402300800
+}
+}
 result:   +10000-01-01T00:00:00Z
