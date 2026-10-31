@@ -39,7 +39,7 @@ public abstract class SelectField {
   private static final int MAX_FIELD_NUMBER = 536870911;
 
   /** CEL-specific type code used to encode CEL maps on the wire. */
-  public static final int CEL_MAP_TYPE_CODE = -1;
+  public static final int CEL_MAP_TYPE_CODE = -10;
 
   /** Sentinel for a presence-test qualifier, whose 2-tuple carries no type code. */
   static final int NO_TYPE_CODE = 0;

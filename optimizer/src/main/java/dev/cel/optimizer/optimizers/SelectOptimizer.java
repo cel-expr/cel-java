@@ -97,7 +97,7 @@ import java.util.Optional;
  *   <li>Scalar, repeated, and message fields are represented as 3-tuples: {@code [field_num,
  *       field_name, type_code]}.
  *   <li>Map fields are represented as 4-tuples with a 2-element field type code spec: {@code
- *       [field_num, field_name, -1, [key_type_code, val_type_code]]}.
+ *       [field_num, field_name, -10, [key_type_code, val_type_code]]}.
  * </ul>
  *
  * <p>The 3rd argument of {@code cel.@attribute} is a typed expression that binds the result type
@@ -158,7 +158,7 @@ public final class SelectOptimizer implements CelAstOptimizer {
    * <p>Protobuf wire format encodes maps as repeated message entries ({@code MapEntry}). To avoid
    * wire-decoding ambiguities with singular submessages, maps use this dedicated type code.
    */
-  private static final long CEL_MAP_TYPE_CODE = -1L;
+  private static final long CEL_MAP_TYPE_CODE = -10L;
 
   private static final TypeParamType TYPE_PARAM_T = TypeParamType.create("T");
 

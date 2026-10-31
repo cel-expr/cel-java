@@ -227,7 +227,7 @@ public final class SelectFieldTest {
   @Test
   public void mapEntrySpec_invalidKeyTypeCode_throwsIllegalArgumentException(
       @TestParameter({
-            "-1", // CEL_MAP_TYPE_CODE
+            "-10", // CEL_MAP_TYPE_CODE
             "0", // NO_TYPE_CODE
             "1", // DOUBLE
             "2", // FLOAT
@@ -245,7 +245,7 @@ public final class SelectFieldTest {
   @Test
   public void mapEntrySpec_invalidValueTypeCode_throwsIllegalArgumentException(
       @TestParameter({
-            "-1", // CEL_MAP_TYPE_CODE
+            "-10", // CEL_MAP_TYPE_CODE
             "0", // NO_TYPE_CODE
             "10", // GROUP
             "19" // OUT_OF_BOUNDS

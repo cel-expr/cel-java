@@ -611,7 +611,7 @@ public final class OptimizedSelectPlannerTest {
                                     CelExpr.ofConstant(5L, CelConstant.ofValue(1L)),
                                     CelExpr.ofConstant(
                                         6L, CelConstant.ofValue("map_string_string")),
-                                    CelExpr.ofConstant(7L, CelConstant.ofValue(-1L))),
+                                    CelExpr.ofConstant(7L, CelConstant.ofValue(-10L))),
                                 ImmutableList.of())),
                         ImmutableList.of()),
                     CelExpr.ofMap(
@@ -648,7 +648,7 @@ public final class OptimizedSelectPlannerTest {
                                     CelExpr.ofConstant(5L, CelConstant.ofValue(1L)),
                                     CelExpr.ofConstant(
                                         6L, CelConstant.ofValue("map_string_string")),
-                                    CelExpr.ofConstant(7L, CelConstant.ofValue(-1L)),
+                                    CelExpr.ofConstant(7L, CelConstant.ofValue(-10L)),
                                     CelExpr.ofList(
                                         8L,
                                         ImmutableList.of(
@@ -715,7 +715,7 @@ public final class OptimizedSelectPlannerTest {
         ImmutableList.of(
             CelExpr.ofConstant(5L, CelConstant.ofValue(1L)),
             CelExpr.ofConstant(6L, CelConstant.ofValue("map_string_string")),
-            CelExpr.ofConstant(7L, CelConstant.ofValue(-1L)),
+            CelExpr.ofConstant(7L, CelConstant.ofValue(-10L)),
             mapEntrySpec(9L, 9L)),
         CelExpr.ofMap(
             20L,
@@ -729,7 +729,7 @@ public final class OptimizedSelectPlannerTest {
         ImmutableList.of(
             CelExpr.ofConstant(5L, CelConstant.ofValue(1L)),
             CelExpr.ofConstant(6L, CelConstant.ofValue("map_string_string")),
-            CelExpr.ofConstant(7L, CelConstant.ofValue(-1L)),
+            CelExpr.ofConstant(7L, CelConstant.ofValue(-10L)),
             mapEntrySpec(9L, 9L)),
         CelExpr.ofMap(
             20L,
@@ -800,7 +800,7 @@ public final class OptimizedSelectPlannerTest {
                                     CelExpr.ofConstant(5L, CelConstant.ofValue(1L)),
                                     CelExpr.ofConstant(
                                         6L, CelConstant.ofValue("map_string_string")),
-                                    CelExpr.ofConstant(7L, CelConstant.ofValue(-1L)),
+                                    CelExpr.ofConstant(7L, CelConstant.ofValue(-10L)),
                                     CelExpr.ofList(
                                         8L,
                                         ImmutableList.of(
@@ -934,7 +934,7 @@ public final class OptimizedSelectPlannerTest {
         ImmutableList.of(
             CelExpr.ofConstant(0L, CelConstant.ofValue(fieldNumber)),
             CelExpr.ofConstant(0L, CelConstant.ofValue(fieldName)),
-            CelExpr.ofConstant(0L, CelConstant.ofValue(-1L)),
+            CelExpr.ofConstant(0L, CelConstant.ofValue(-10L)),
             mapEntrySpec(keyTypeCode, valueTypeCode)),
         ImmutableList.of());
   }

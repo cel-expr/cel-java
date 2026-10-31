@@ -325,49 +325,49 @@ public final class SelectOptimizerTest {
     // Map selects
     MAP_STRING_STRING(
         "msg.map_string_string",
-        "cel.@attribute(msg, [[61, \"map_string_string\", -1, [9, 9]]], {\"\": \"\"})"),
+        "cel.@attribute(msg, [[61, \"map_string_string\", -10, [9, 9]]], {\"\": \"\"})"),
     MAP_BOOL_STRING(
         "msg.map_bool_string",
-        "cel.@attribute(msg, [[64, \"map_bool_string\", -1, [8, 9]]], {false: \"\"})"),
+        "cel.@attribute(msg, [[64, \"map_bool_string\", -10, [8, 9]]], {false: \"\"})"),
     MAP_UINT32_DOUBLE(
         "msg.map_uint32_double",
-        "cel.@attribute(msg, [[204, \"map_uint32_double\", -1, [13, 1]]], {0u: 0.0})"),
+        "cel.@attribute(msg, [[204, \"map_uint32_double\", -10, [13, 1]]], {0u: 0.0})"),
     MAP_INT64_ENUM(
         "msg.map_int64_enum",
-        "cel.@attribute(msg, [[94, \"map_int64_enum\", -1, [3, 14]]], {0: 0})"),
+        "cel.@attribute(msg, [[94, \"map_int64_enum\", -10, [3, 14]]], {0: 0})"),
     MAP_STRING_DURATION(
         "msg.map_string_duration",
-        "cel.@attribute(msg, [[243, \"map_string_duration\", -1, [9, 11]]],"
+        "cel.@attribute(msg, [[243, \"map_string_duration\", -10, [9, 11]]],"
             + " {\"\": google.protobuf.Duration{}})"),
     MAP_FIELD_INDEXING(
         "msg.map_int64_message[1].bb",
-        "cel.@attribute(msg, [[95, \"map_int64_message\", -1, [3, 11]], 1, [1, \"bb\", 5]], 0)"),
+        "cel.@attribute(msg, [[95, \"map_int64_message\", -10, [3, 11]], 1, [1, \"bb\", 5]], 0)"),
     REPEATED_FIELD_INDEXING(
         "msg.repeated_nested_message[0].bb",
         "cel.@attribute(msg, [[51, \"repeated_nested_message\", 11], 0, [1, \"bb\", 5]], 0)"),
     MAP_AND_REPEATED_FIELD_INDEXING(
         "msg.map_int64_nested_type[1].child.payload.repeated_nested_message[0].bb",
-        "cel.@attribute(msg, [[62, \"map_int64_nested_type\", -1, [3, 11]], 1, "
+        "cel.@attribute(msg, [[62, \"map_int64_nested_type\", -10, [3, 11]], 1, "
             + "[1, \"child\", 11], [2, \"payload\", 11], "
             + "[51, \"repeated_nested_message\", 11], 0, [1, \"bb\", 5]], 0)"),
     MAP_FIELD_UINT_KEY_INDEXING(
         "msg.map_uint64_message[1u].bb",
-        "cel.@attribute(msg, [[217, \"map_uint64_message\", -1, [4, 11]], 1u, "
+        "cel.@attribute(msg, [[217, \"map_uint64_message\", -10, [4, 11]], 1u, "
             + "[1, \"bb\", 5]], 0)"),
     MAP_FIELD_BOOL_KEY_INDEXING(
         "msg.map_bool_message[true].bb",
-        "cel.@attribute(msg, [[73, \"map_bool_message\", -1, [8, 11]], true, "
+        "cel.@attribute(msg, [[73, \"map_bool_message\", -10, [8, 11]], true, "
             + "[1, \"bb\", 5]], 0)"),
     REPEATED_FIELD_HAS_THROUGH_INDEX(
         "has(msg.repeated_nested_message[0].bb)",
         "cel.@hasField(msg, [[51, \"repeated_nested_message\", 11], 0, [1, \"bb\"]])"),
     MAP_FIELD_HAS_THROUGH_INDEX(
         "has(msg.map_int64_nested_type[1].child.payload.single_int64)",
-        "cel.@hasField(msg, [[62, \"map_int64_nested_type\", -1, [3, 11]], 1, "
+        "cel.@hasField(msg, [[62, \"map_int64_nested_type\", -10, [3, 11]], 1, "
             + "[1, \"child\"], [2, \"payload\"], [2, \"single_int64\"]])"),
     HAS_THROUGH_TWO_INDICES(
         "has(msg.map_int64_nested_type[1].child.payload.repeated_nested_message[0].bb)",
-        "cel.@hasField(msg, [[62, \"map_int64_nested_type\", -1, [3, 11]], 1, "
+        "cel.@hasField(msg, [[62, \"map_int64_nested_type\", -10, [3, 11]], 1, "
             + "[1, \"child\", 11], [2, \"payload\", 11], "
             + "[51, \"repeated_nested_message\", 11], 0, [1, \"bb\"]])"),
     REPEATED_FIELD_DYNAMIC_INDEX_STOPS_AT_INDEX(
@@ -404,18 +404,18 @@ public final class SelectOptimizerTest {
     PROTO_MAP_FIELD_SELECT_STOPS_AT_MAP_BOUNDARY(
         "msg.map_string_message.key.bb",
         "cel.@attribute("
-            + "cel.@attribute(msg, [[227, \"map_string_message\", -1, [9, 11]]],"
+            + "cel.@attribute(msg, [[227, \"map_string_message\", -10, [9, 11]]],"
             + " {\"\": cel.expr.conformance.proto3.TestAllTypes.NestedMessage{}}).key, "
             + "[[1, \"bb\", 5]], 0)"),
     PROTO_MAP_FIELD_HAS_STOPS_AT_MAP_BOUNDARY(
         "has(msg.map_string_message.key.bb)",
         "cel.@hasField("
-            + "cel.@attribute(msg, [[227, \"map_string_message\", -1, [9, 11]]],"
+            + "cel.@attribute(msg, [[227, \"map_string_message\", -10, [9, 11]]],"
             + " {\"\": cel.expr.conformance.proto3.TestAllTypes.NestedMessage{}}).key, "
             + "[[1, \"bb\"]])"),
     PROTO_MAP_FIELD_SELECT_STOPS_AT_ANY_BOUNDARY(
         "msg.map_string_any['k'].value",
-        "cel.@attribute(msg, [[311, \"map_string_any\", -1, [9, 11]]],"
+        "cel.@attribute(msg, [[311, \"map_string_any\", -10, [9, 11]]],"
             + " {\"\": google.protobuf.Any{}})[\"k\"].value"),
     ANY_FIELD(
         "msg.single_any",
@@ -561,7 +561,7 @@ public final class SelectOptimizerTest {
         + " cel.@attribute(msg, [[51, \"repeated_nested_message\", 11]],"
         + " [.cel.expr.conformance.proto3.TestAllTypes.NestedMessage{}]))'}",
     "{expression: '[[1]].map(cel, msg.map_int64_message)', expected: '[[1]].map(cel,"
-        + " cel.@attribute(msg, [[95, \"map_int64_message\", -1, [3, 11]]],"
+        + " cel.@attribute(msg, [[95, \"map_int64_message\", -10, [3, 11]]],"
         + " {0: .cel.expr.conformance.proto3.TestAllTypes.NestedMessage{}}))'}"
   })
   public void optimize_messageNameUnderShadowingComprehensionVar_rewrites(
@@ -681,7 +681,7 @@ public final class SelectOptimizerTest {
         + " cel.@attribute(msg, [[102, \"single_timestamp\", 11]],"
         + " .google.protobuf.Timestamp{}))'}",
     "{expression: '[1].map(duration, msg.map_string_duration)', expected: '[1].map(duration,"
-        + " cel.@attribute(msg, [[243, \"map_string_duration\", -1, [9, 11]]],"
+        + " cel.@attribute(msg, [[243, \"map_string_duration\", -10, [9, 11]]],"
         + " {\"\": .google.protobuf.Duration{}}))'}"
   })
   public void optimize_durationOrTimestampUnderShadowingComprehensionVar_rewrites(
@@ -1724,7 +1724,7 @@ public final class SelectOptimizerTest {
 
     assertThat(CEL_UNPARSER.unparse(optimizedAst))
         .isEqualTo(
-            "cel.@attribute(msg, [[61, \"map_string_string\", -1, [9, 9]]], {\"\": \"\"}).?key");
+            "cel.@attribute(msg, [[61, \"map_string_string\", -10, [9, 9]]], {\"\": \"\"}).?key");
   }
 
   @Test
