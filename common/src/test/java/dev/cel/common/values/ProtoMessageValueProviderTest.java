@@ -21,6 +21,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.primitives.UnsignedLong;
 import com.google.testing.junit.testparameterinjector.TestParameterInjector;
+import com.google.testing.junit.testparameterinjector.TestParameters;
 import dev.cel.common.CelDescriptorUtil;
 import dev.cel.common.CelOptions;
 import dev.cel.common.internal.CelDescriptorPool;
@@ -37,6 +38,8 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 
 @RunWith(TestParameterInjector.class)
+// Tests construct Duration/Instant boundaries and parameterized bounds from raw seconds and nanos.
+@SuppressWarnings("GoodTime-ApiWithNumericTimeUnit")
 public class ProtoMessageValueProviderTest {
 
   private static final CelDescriptorPool DESCRIPTOR_POOL =
@@ -47,6 +50,8 @@ public class ProtoMessageValueProviderTest {
   private static final ProtoMessageFactory MESSAGE_FACTORY =
       DefaultMessageFactory.create(DESCRIPTOR_POOL);
   private static final DynamicProto DYNAMIC_PROTO = DynamicProto.create(MESSAGE_FACTORY);
+  private static final ProtoMessageValueProvider VALUE_PROVIDER =
+      ProtoMessageValueProvider.newInstance(CelOptions.DEFAULT, DYNAMIC_PROTO);
 
   @Test
   public void newValue_createEmptyProtoMessage() {
@@ -225,5 +230,32 @@ public class ProtoMessageValueProviderTest {
 
     assertThat(protoMessageValue.isZeroValue()).isFalse();
     assertThat(protoMessageValue.select("single_int32")).isEqualTo(1L);
+  }
+
+  @Test
+  public void newValue_durationAndTimestamp_atBounds() {
+    assertThat(
+            VALUE_PROVIDER.newValue(
+                "google.protobuf.Duration",
+                ImmutableMap.of("seconds", 315576000000L, "nanos", 999999999L)))
+        .hasValue(Duration.ofSeconds(315576000000L, 999999999L));
+    assertThat(
+            VALUE_PROVIDER.newValue(
+                "google.protobuf.Timestamp",
+                ImmutableMap.of("seconds", 253402300799L, "nanos", 999999999L)))
+        .hasValue(Instant.ofEpochSecond(253402300799L, 999999999L));
+  }
+
+  @Test
+  @TestParameters("{typeName: 'google.protobuf.Duration', seconds: 315576000001, nanos: 0}")
+  @TestParameters("{typeName: 'google.protobuf.Duration', seconds: 1, nanos: -1}")
+  @TestParameters("{typeName: 'google.protobuf.Timestamp', seconds: 253402300800, nanos: 0}")
+  @TestParameters("{typeName: 'google.protobuf.Timestamp', seconds: 0, nanos: -1}")
+  public void newValue_durationAndTimestamp_outOfRangeThrows(
+      String typeName, long seconds, long nanos) {
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            VALUE_PROVIDER.newValue(typeName, ImmutableMap.of("seconds", seconds, "nanos", nanos)));
   }
 }
