@@ -14,6 +14,7 @@
 
 package dev.cel.common.internal;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.math.LongMath.checkedAdd;
 import static com.google.common.math.LongMath.checkedMultiply;
 import static com.google.common.math.LongMath.checkedSubtract;
@@ -54,10 +55,10 @@ public final class ProtoTimeUtils {
   public static final long TIMESTAMP_SECONDS_MAX = 253402300799L;
   public static final long DURATION_SECONDS_MIN = -315576000000L;
   public static final long DURATION_SECONDS_MAX = 315576000000L;
+  static final int NANOS_PER_SECOND = 1000000000;
+  public static final int MAX_NANOS = NANOS_PER_SECOND - 1;
 
   private static final int MILLIS_PER_SECOND = 1000;
-
-  private static final int NANOS_PER_SECOND = 1000000000;
   private static final int NANOS_PER_MILLISECOND = 1000000;
   private static final int NANOS_PER_MICROSECOND = 1000;
 
@@ -180,7 +181,7 @@ public final class ProtoTimeUtils {
 
   /** Create a Timestamp from the number of seconds elapsed from the epoch. */
   public static Timestamp fromSecondsToTimestamp(long seconds) {
-    return normalizedTimestamp(seconds, 0);
+    return checkValid(normalizedTimestamp(seconds, 0));
   }
 
   /** Create a Timestamp from the number of seconds elapsed from the epoch. */
@@ -198,17 +199,7 @@ public final class ProtoTimeUtils {
   /** Throws an {@link IllegalArgumentException} if the given {@link Duration} is not valid. */
   @CanIgnoreReturnValue
   private static Duration checkValid(Duration duration) {
-    long seconds = duration.getSeconds();
-    int nanos = duration.getNanos();
-    if (!isDurationValid(seconds, nanos)) {
-      throw new IllegalArgumentException(
-          Strings.lenientFormat(
-              "Duration is not valid. See proto definition for valid values. "
-                  + "Seconds (%s) must be in range [-315,576,000,000, +315,576,000,000]. "
-                  + "Nanos (%s) must be in range [-999,999,999, +999,999,999]. "
-                  + "Nanos must have the same sign as seconds",
-              seconds, nanos));
-    }
+    checkDurationValid(duration.getSeconds(), duration.getNanos());
     return duration;
   }
 
@@ -226,6 +217,17 @@ public final class ProtoTimeUtils {
               seconds, nanos));
     }
     return timestamp;
+  }
+
+  private static void checkDurationValid(long seconds, int nanos) {
+    checkArgument(
+        isDurationValid(seconds, nanos),
+        "Duration is not valid. See proto definition for valid values. "
+            + "Seconds (%s) must be in range [-315,576,000,000, +315,576,000,000]. "
+            + "Nanos (%s) must be in range [-999,999,999, +999,999,999]. "
+            + "Nanos must have the same sign as seconds",
+        seconds,
+        nanos);
   }
 
   /**
@@ -268,11 +270,12 @@ public final class ProtoTimeUtils {
    * @throws IllegalArgumentException if the given duration is not in the valid range.
    */
   public static String toString(Duration duration) {
-    checkValid(duration);
+    return formatDuration(duration.getSeconds(), duration.getNanos());
+  }
 
-    long seconds = duration.getSeconds();
-    int nanos = duration.getNanos();
-
+  /** Formats normalized duration components (same sign) as a seconds string (e.g. "-0.500s"). */
+  public static String formatDuration(long seconds, int nanos) {
+    checkDurationValid(seconds, nanos);
     StringBuilder result = new StringBuilder();
     if (seconds < 0 || nanos < 0) {
       result.append("-");
@@ -355,60 +358,34 @@ public final class ProtoTimeUtils {
     }
   }
 
-  /** Adds two durations */
+  /** Adds two durations. */
   public static Duration add(Duration d1, Duration d2) {
-    java.time.Duration javaDuration1 = ProtoTimeUtils.toJavaDuration(checkValid(d1));
-    java.time.Duration javaDuration2 = ProtoTimeUtils.toJavaDuration(checkValid(d2));
-
-    java.time.Duration sum = javaDuration1.plus(javaDuration2);
-
-    return ProtoTimeUtils.toProtoDuration(sum);
+    return checkValid(
+        toProtoDuration(toJavaDuration(checkValid(d1)).plus(toJavaDuration(checkValid(d2)))));
   }
 
-  /** Adds two timestamps. */
+  /** Adds a duration to a timestamp. */
   public static Timestamp add(Timestamp ts, Duration dur) {
-    Instant javaInstant = ProtoTimeUtils.toJavaInstant(checkValid(ts));
-    java.time.Duration javaDuration = ProtoTimeUtils.toJavaDuration(checkValid(dur));
-
-    Instant newInstant = javaInstant.plus(javaDuration);
-
-    return ProtoTimeUtils.toProtoTimestamp(newInstant);
+    return checkValid(
+        toProtoTimestamp(toJavaInstant(checkValid(ts)).plus(toJavaDuration(checkValid(dur)))));
   }
 
-  /** Subtract a duration from another. */
+  /** Subtracts a duration from another. */
   public static Duration subtract(Duration d1, Duration d2) {
-    java.time.Duration javaDuration1 = ProtoTimeUtils.toJavaDuration(checkValid(d1));
-    java.time.Duration javaDuration2 = ProtoTimeUtils.toJavaDuration(checkValid(d2));
-
-    java.time.Duration sum = javaDuration1.minus(javaDuration2);
-
-    return ProtoTimeUtils.toProtoDuration(sum);
+    return checkValid(
+        toProtoDuration(toJavaDuration(checkValid(d1)).minus(toJavaDuration(checkValid(d2)))));
   }
 
-  /** Subtracts two timestamps */
+  /** Subtracts a duration from a timestamp. */
   public static Timestamp subtract(Timestamp ts, Duration dur) {
-    Instant javaInstant = ProtoTimeUtils.toJavaInstant(checkValid(ts));
-    java.time.Duration javaDuration = ProtoTimeUtils.toJavaDuration(checkValid(dur));
-
-    Instant newInstant = javaInstant.minus(javaDuration);
-
-    return ProtoTimeUtils.toProtoTimestamp(newInstant);
+    return checkValid(
+        toProtoTimestamp(toJavaInstant(checkValid(ts)).minus(toJavaDuration(checkValid(dur)))));
   }
 
-  /** Calculate the difference between two timestamps. */
-  public static Duration between(Timestamp from, Timestamp to, boolean validateOverflow) {
-    Instant javaFrom = ProtoTimeUtils.toJavaInstant(checkValid(from));
-    Instant javaTo = ProtoTimeUtils.toJavaInstant(checkValid(to));
-
-    java.time.Duration between = java.time.Duration.between(javaFrom, javaTo);
-    if (validateOverflow) {
-      // Call toNanos() to validate 64-bit nanosecond overflow (throws ArithmeticException).
-      // Suppress unused variable warning as the duration object itself is returned.
-      @SuppressWarnings("unused")
-      long unused = between.toNanos();
-    }
-
-    return ProtoTimeUtils.toProtoDuration(between);
+  /** Calculates the difference between two timestamps. */
+  public static Duration between(Timestamp from, Timestamp to) {
+    return toProtoDuration(
+        java.time.Duration.between(toJavaInstant(checkValid(from)), toJavaInstant(checkValid(to))));
   }
 
   /**

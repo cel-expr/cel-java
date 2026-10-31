@@ -15,6 +15,7 @@
 package dev.cel.runtime;
 
 import static com.google.common.truth.Truth.assertThat;
+import static com.google.common.truth.extensions.proto.ProtoTruth.assertThat;
 import static org.junit.Assert.assertThrows;
 
 import com.google.common.collect.ImmutableList;
@@ -35,6 +36,8 @@ import com.google.protobuf.Struct;
 import com.google.protobuf.UInt32Value;
 import com.google.protobuf.UInt64Value;
 import com.google.protobuf.Value;
+import com.google.testing.junit.testparameterinjector.TestParameterInjector;
+import com.google.testing.junit.testparameterinjector.TestParameters;
 import dev.cel.common.CelOptions;
 import dev.cel.common.exceptions.CelNumericOverflowException;
 import dev.cel.common.exceptions.CelRuntimeException;
@@ -47,9 +50,8 @@ import java.util.Optional;
 import org.junit.Assert;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-import org.junit.runners.JUnit4;
 
-@RunWith(JUnit4.class)
+@RunWith(TestParameterInjector.class)
 public final class ProtoMessageRuntimeHelpersTest {
   private static final DynamicProto DYNAMIC_PROTO =
       DynamicProto.create(DefaultMessageFactory.INSTANCE);
@@ -57,16 +59,29 @@ public final class ProtoMessageRuntimeHelpersTest {
       ProtoMessageRuntimeHelpers.create(DYNAMIC_PROTO, CelOptions.DEFAULT);
 
   @Test
-  public void createDurationFromString() throws Exception {
-    assertThat(ProtoMessageRuntimeHelpers.createDurationFromString("15.11s"))
-        .isEqualTo(Duration.newBuilder().setSeconds(15).setNanos(110000000).build());
+  @TestParameters("{text: '15.11s', expectedSeconds: 15, expectedNanos: 110000000}")
+  @TestParameters(
+      "{text: '315576000000s999999999ns',"
+          + " expectedSeconds: 315576000000, expectedNanos: 999999999}")
+  @TestParameters(
+      "{text: '-315576000000s999999999ns',"
+          + " expectedSeconds: -315576000000, expectedNanos: -999999999}")
+  // Testing protobuf Duration seconds and nanos fields.
+  @SuppressWarnings("GoodTime-ApiWithNumericTimeUnit")
+  public void createDurationFromString_valid(String text, long expectedSeconds, int expectedNanos) {
+    assertThat(ProtoMessageRuntimeHelpers.createDurationFromString(text))
+        .isEqualTo(
+            Duration.newBuilder().setSeconds(expectedSeconds).setNanos(expectedNanos).build());
   }
 
   @Test
-  public void createDurationFromString_outOfRange() throws Exception {
+  @TestParameters("{text: '-315576000000s1000000000ns'}")
+  @TestParameters("{text: '315576000000s1000000000ns'}")
+  @TestParameters("{text: 'bad'}")
+  public void createDurationFromString_invalidOrOutOfRangeThrows(String text) {
     assertThrows(
         IllegalArgumentException.class,
-        () -> ProtoMessageRuntimeHelpers.createDurationFromString("-320000000000s"));
+        () -> ProtoMessageRuntimeHelpers.createDurationFromString(text));
   }
 
   @Test
