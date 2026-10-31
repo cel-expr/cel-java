@@ -68,33 +68,13 @@ public final class SubtractOperator extends CelStandardFunction {
                 "subtract_timestamp_timestamp",
                 Instant.class,
                 Instant.class,
-                (Instant i1, Instant i2) -> {
-                  java.time.Duration between = java.time.Duration.between(i2, i1);
-                  if (celOptions.enableTimestampOverflowCheck()) {
-                    try {
-                      // Call toNanos() to validate 64-bit nanosecond overflow (throws
-                      // ArithmeticException).
-                      @SuppressWarnings("unused")
-                      long unused = between.toNanos();
-                    } catch (ArithmeticException e) {
-                      throw new CelNumericOverflowException(e);
-                    }
-                  }
-                  return between;
-                });
+                (Instant i1, Instant i2) -> DateTimeHelpers.between(i2, i1));
           } else {
             return CelFunctionBinding.from(
                 "subtract_timestamp_timestamp",
                 Timestamp.class,
                 Timestamp.class,
-                (Timestamp t1, Timestamp t2) -> {
-                  try {
-                    return ProtoTimeUtils.between(
-                        t2, t1, celOptions.enableTimestampOverflowCheck());
-                  } catch (ArithmeticException e) {
-                    throw new CelNumericOverflowException(e);
-                  }
-                });
+                (Timestamp t1, Timestamp t2) -> ProtoTimeUtils.between(t2, t1));
           }
         }),
     SUBTRACT_TIMESTAMP_DURATION(

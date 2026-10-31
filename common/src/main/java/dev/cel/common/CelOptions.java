@@ -520,12 +520,10 @@ public abstract class CelOptions {
     public abstract Builder enableJsonFieldNames(boolean value);
 
     /**
-     * Enable or disable validating that duration values resulting from timestamp arithmetic do not
-     * overflow 64-bit nanoseconds. Defaults to enabled.
-     *
-     * <p>Disabling this option is an out-of-conformance behavior that suppresses nanosecond
-     * overflow validation when subtracting timestamps.
+     * @deprecated No-op. CEL durations now support the full protobuf duration range, so subtracting
+     *     valid timestamps never overflows.
      */
+    @Deprecated
     public abstract Builder enableTimestampOverflowCheck(boolean value);
 
     /**

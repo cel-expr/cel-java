@@ -426,7 +426,6 @@ cel_android_library(
     deps = [
         "//common/annotations",
         "@maven//:com_google_errorprone_error_prone_annotations",
-        "@maven//:com_google_guava_guava",
         "@maven_android//:com_google_guava_guava",
         "@maven_android//:com_google_protobuf_protobuf_javalite",
     ],
@@ -438,8 +437,10 @@ java_library(
     tags = [
     ],
     deps = [
+        ":proto_time_utils",
         "//common/annotations",
         "//common/exceptions:bad_format",
+        "@maven//:com_google_errorprone_error_prone_annotations",
         "@maven//:com_google_guava_guava",
         "@maven//:com_google_protobuf_protobuf_java",
     ],
@@ -451,8 +452,10 @@ cel_android_library(
     tags = [
     ],
     deps = [
+        ":proto_time_utils_android",
         "//common/annotations",
         "//common/exceptions:bad_format",
+        "@maven//:com_google_errorprone_error_prone_annotations",
         "@maven_android//:com_google_guava_guava",
         "@maven_android//:com_google_protobuf_protobuf_javalite",
     ],
