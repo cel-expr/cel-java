@@ -15,8 +15,10 @@
 package dev.cel.common.internal;
 
 import static com.google.common.truth.Truth.assertThat;
+import static org.junit.Assert.assertThrows;
 
 import com.google.common.collect.ImmutableList;
+import com.google.protobuf.Descriptors.Descriptor;
 import com.google.protobuf.Descriptors.FieldDescriptor;
 import com.google.protobuf.ExtensionRegistry;
 import com.google.protobuf.Value;
@@ -24,6 +26,7 @@ import dev.cel.common.CelDescriptorUtil;
 import dev.cel.expr.conformance.proto2.TestAllTypes;
 import dev.cel.expr.conformance.proto2.TestAllTypesExtensions;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
@@ -97,11 +100,71 @@ public class CombinedDescriptorPoolTest {
   }
 
   @Test
+  public void create_nullDescriptorPools_throwsNullPointerException() {
+    assertThrows(NullPointerException.class, () -> CombinedDescriptorPool.create(null));
+  }
+
+  @Test
   public void getExtensionRegistry_onDefaultPool_returnsEmptyRegistry() {
     CombinedDescriptorPool combinedDescriptorPool =
         CombinedDescriptorPool.create(ImmutableList.of(DefaultDescriptorPool.INSTANCE));
 
     assertThat(combinedDescriptorPool.getExtensionRegistry())
         .isEqualTo(ExtensionRegistry.getEmptyRegistry());
+  }
+
+  @Test
+  public void findDescriptor_doesNotResolveExtensionRegistry() {
+    AtomicInteger getExtensionRegistryCalls = new AtomicInteger();
+    CombinedDescriptorPool combinedDescriptorPool =
+        CombinedDescriptorPool.create(
+            ImmutableList.of(createTrackingPool(getExtensionRegistryCalls)));
+
+    Optional<Descriptor> descriptor = combinedDescriptorPool.findDescriptor("bogus");
+
+    assertThat(descriptor).isEmpty();
+    assertThat(getExtensionRegistryCalls.get()).isEqualTo(0);
+  }
+
+  @Test
+  public void getExtensionRegistry_memoizesResolvedRegistry() {
+    AtomicInteger getExtensionRegistryCalls = new AtomicInteger();
+    CombinedDescriptorPool combinedDescriptorPool =
+        CombinedDescriptorPool.create(
+            ImmutableList.of(createTrackingPool(getExtensionRegistryCalls)));
+
+    ExtensionRegistry first = combinedDescriptorPool.getExtensionRegistry();
+    ExtensionRegistry second = combinedDescriptorPool.getExtensionRegistry();
+
+    assertThat(first).isNotEqualTo(ExtensionRegistry.getEmptyRegistry());
+    assertThat(first).isSameInstanceAs(second);
+    assertThat(getExtensionRegistryCalls.get()).isEqualTo(1);
+  }
+
+  private static CelDescriptorPool createTrackingPool(AtomicInteger getExtensionRegistryCalls) {
+    // Test-only counter for verifying lazy evaluation on a single thread.
+    @SuppressWarnings("Immutable")
+    CelDescriptorPool trackingPool =
+        new CelDescriptorPool() {
+          @Override
+          public Optional<Descriptor> findDescriptor(String name) {
+            return Optional.empty();
+          }
+
+          @Override
+          public Optional<FieldDescriptor> findExtensionDescriptor(
+              Descriptor containingDescriptor, String fieldName) {
+            return Optional.empty();
+          }
+
+          @Override
+          public ExtensionRegistry getExtensionRegistry() {
+            getExtensionRegistryCalls.incrementAndGet();
+            ExtensionRegistry registry = ExtensionRegistry.newInstance();
+            TestAllTypesExtensions.registerAllExtensions(registry);
+            return registry;
+          }
+        };
+    return trackingPool;
   }
 }
