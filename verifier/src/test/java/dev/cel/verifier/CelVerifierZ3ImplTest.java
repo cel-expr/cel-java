@@ -25,10 +25,14 @@ import com.google.common.collect.ImmutableSet;
 import com.google.testing.junit.testparameterinjector.TestParameter;
 import com.google.testing.junit.testparameterinjector.TestParameterInjector;
 // import com.google.testing.testsize.MediumTest;
+import com.microsoft.z3.ArrayExpr;
 import com.microsoft.z3.BoolExpr;
 import com.microsoft.z3.Context;
 import com.microsoft.z3.Expr;
 import com.microsoft.z3.IntExpr;
+import com.microsoft.z3.SeqExpr;
+import com.microsoft.z3.Solver;
+import com.microsoft.z3.Status;
 import dev.cel.bundle.Cel;
 import dev.cel.bundle.CelFactory;
 import dev.cel.common.CelAbstractSyntaxTree;
@@ -82,6 +86,7 @@ public final class CelVerifierZ3ImplTest {
           .setContainer(CelContainer.ofName("cel.expr.conformance.proto3"))
           .addCompilerLibraries(
               CelExtensions.bindings(), CelOptionalLibrary.INSTANCE, CelExtensions.comprehensions())
+          .addRuntimeLibraries(CelOptionalLibrary.INSTANCE)
           .addMessageTypes(TestAllTypes.getDescriptor(), TestAllTypes.NestedMessage.getDescriptor())
           .addVar("x", SimpleType.INT)
           .addVar("u", SimpleType.UINT)
@@ -295,15 +300,121 @@ public final class CelVerifierZ3ImplTest {
   }
 
   @Test
-  public void isSatisfiable_witnessDisplayedAsCelLiteral(@TestParameter WitnessTestCase testCase)
-      throws Exception {
+  public void isSatisfiable_witnessValueSatisfiesExpressionAndDisplayRoundTrips(
+      @TestParameter WitnessTestCase testCase) throws Exception {
     CelAbstractSyntaxTree ast = CEL.compile(testCase.expr).getAst();
 
     CelVerificationResult result = VERIFIER.isSatisfiable(ast);
 
-    assertThat(result.message().split("\n"))
-        .asList()
-        .contains("  " + testCase.variableName + " = " + testCase.expectedDisplayValue);
+    CelWitness.Variable variable = result.witness().get().variables().get(testCase.variableName);
+    assertThat(variable.displayValue()).isEqualTo(testCase.expectedDisplayValue);
+    ImmutableMap<String, Object> input =
+        ImmutableMap.of(testCase.variableName, variable.value().get());
+    assertThat(CEL.createProgram(ast).eval(input)).isEqualTo(true);
+    CelAbstractSyntaxTree displayRoundTrip =
+        CEL.compile(testCase.variableName + " == " + variable.displayValue()).getAst();
+    assertThat(CEL.createProgram(displayRoundTrip).eval(input)).isEqualTo(true);
+  }
+
+  private enum InexactWitnessTestCase {
+    INT_OUT_OF_RANGE("type(dyn_var) == int && dyn_var > 9223372036854775807", "dyn_var"),
+    UINT_OUT_OF_RANGE("type(dyn_var) == uint && dyn_var > 18446744073709551615u", "dyn_var"),
+    NEGATIVE_UINT("type(dyn_var) == uint && dyn_var < 0u", "dyn_var"),
+    TIMESTAMP_OUT_OF_RANGE(
+        "type(dyn_var) == google.protobuf.Timestamp"
+            + " && dyn_var > google.protobuf.Timestamp{seconds: 253402300799, nanos: 999999999}",
+        "dyn_var"),
+    SURROGATE_STRING(
+        "size(string_var) == 1 && string_var > '\\ud7ff' && string_var < '\\ue000'", "string_var"),
+    NON_ASCII_BYTES("by == b'\\xc3\\xa9'", "by"),
+    LIST_PAST_UNROLL_LIMIT("size(int_list) == 6", "int_list"),
+    MAP_PAST_UNROLL_LIMIT("size(string_int_map) == 6", "string_int_map"),
+    LIST_WITH_INEXACT_ELEMENT(
+        "size(dyn_list) == 1 && type(dyn_list[0]) == int && dyn_list[0] > 9223372036854775807",
+        "dyn_list"),
+    MAP_WITH_INEXACT_KEY(
+        "size(dyn_int_map) == 1"
+            + " && dyn_int_map.exists(k, type(k) == int && k > 9223372036854775807)",
+        "dyn_int_map"),
+    MAP_WITH_INEXACT_VALUE(
+        "size(string_dyn_map) == 1 && type(string_dyn_map['a']) == int"
+            + " && string_dyn_map['a'] > 9223372036854775807",
+        "string_dyn_map"),
+    OPTIONAL_WITH_INEXACT_VALUE(
+        "opt_dyn_var.hasValue() && type(opt_dyn_var.value()) == int"
+            + " && opt_dyn_var.value() > 9223372036854775807",
+        "opt_dyn_var");
+
+    private final String expr;
+    private final String variableName;
+
+    InexactWitnessTestCase(String expr, String variableName) {
+      this.expr = expr;
+      this.variableName = variableName;
+    }
+  }
+
+  @Test
+  public void isSatisfiable_noExactRuntimeValue_witnessValueEmpty(
+      @TestParameter InexactWitnessTestCase testCase) throws Exception {
+    CelAbstractSyntaxTree ast = CEL.compile(testCase.expr).getAst();
+
+    CelVerificationResult result = VERIFIER.isSatisfiable(ast);
+
+    assertThat(result.witness().get().variables().get(testCase.variableName).value()).isEmpty();
+  }
+
+  // A map value in the model, as its key sequence and its present keys.
+  private enum InexactMapTestCase {
+    DUPLICATE_KEY(ImmutableList.of("a", "a"), ImmutableList.of("a")),
+    ABSENT_KEY(ImmutableList.of("a", "b"), ImmutableList.of("a")),
+    PRESENT_KEY_NOT_IN_SEQUENCE(ImmutableList.of(), ImmutableList.of("a")),
+    // Entries past the unroll limit (5) may violate the declared type.
+    PAST_UNROLL_LIMIT(
+        ImmutableList.of("a", "b", "c", "d", "e", "f"),
+        ImmutableList.of("a", "b", "c", "d", "e", "f"));
+
+    private final ImmutableList<String> keySequence;
+    private final ImmutableList<String> presentKeys;
+
+    InexactMapTestCase(ImmutableList<String> keySequence, ImmutableList<String> presentKeys) {
+      this.keySequence = keySequence;
+      this.presentKeys = presentKeys;
+    }
+  }
+
+  @Test
+  @SuppressWarnings({"unchecked", "rawtypes"}) // Z3 Java API uses raw types.
+  public void generateWitness_mapWithoutExactValue_valueEmpty(
+      @TestParameter InexactMapTestCase testCase) {
+    try (Context ctx = new Context()) {
+      CelZ3TypeSystem typeSystem = new CelZ3TypeSystem(ctx, /* parameterizeUnknowns= */ false);
+      Expr<?> map = ctx.mkConst("map", typeSystem.celValueSort());
+      Expr<?> mapRef = typeSystem.getMapRef(map);
+      SeqExpr keys = ctx.mkEmptySeq(ctx.mkSeqSort(typeSystem.celValueSort()));
+      for (String key : testCase.keySequence) {
+        keys = ctx.mkConcat(keys, ctx.mkUnit(typeSystem.mkString(key)));
+      }
+      ArrayExpr presence = ctx.mkConstArray(typeSystem.celValueSort(), ctx.mkFalse());
+      for (String key : testCase.presentKeys) {
+        presence = ctx.mkStore(presence, (Expr) typeSystem.mkString(key), ctx.mkTrue());
+      }
+      Solver solver = ctx.mkSolver();
+      solver.add(typeSystem.isMap(map));
+      solver.add(ctx.mkEq(typeSystem.getMapKeys(mapRef), keys));
+      solver.add(ctx.mkEq(typeSystem.getMapPresence(mapRef), presence));
+      assertThat(solver.check()).isEqualTo(Status.SATISFIABLE);
+
+      CelWitness witness =
+          CelZ3CounterexampleGenerator.generate(
+              ctx,
+              typeSystem,
+              solver.getModel(),
+              /* comprehensionUnrollLimit= */ 5,
+              ImmutableSet.of(map));
+
+      assertThat(witness.variables().get("map").value()).isEmpty();
+    }
   }
 
   @Test
@@ -319,10 +430,13 @@ public final class CelVerifierZ3ImplTest {
 
   @Test
   public void isSatisfiable_listPastDisplayLimit_elidesRemainingElements() throws Exception {
+    // Within the unroll limit the whole list is extracted, so the display must still elide it.
+    CelVerifier verifier =
+        CelVerifierFactory.newVerifier(CEL).setComprehensionUnrollLimit(16).build();
     CelAbstractSyntaxTree ast =
         CEL.compile("int_list == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]").getAst();
 
-    CelVerificationResult result = VERIFIER.isSatisfiable(ast);
+    CelVerificationResult result = verifier.isSatisfiable(ast);
 
     assertThat(result.message())
         .endsWith(
@@ -1160,6 +1274,7 @@ public final class CelVerifierZ3ImplTest {
 
     assertThat(result.status()).isEqualTo(VerificationStatus.VIOLATED);
     assertThat(result.message()).contains("x = Unknown");
+    assertThat(result.witness().get().variables().get("x").value()).isEmpty();
   }
 
   @Test

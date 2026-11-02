@@ -16,6 +16,9 @@ package dev.cel.verifier;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.primitives.UnsignedLong;
 import com.microsoft.z3.ArrayExpr;
 import com.microsoft.z3.BitVecNum;
 import com.microsoft.z3.Context;
@@ -25,16 +28,21 @@ import com.microsoft.z3.FuncDecl;
 import com.microsoft.z3.IntNum;
 import com.microsoft.z3.Model;
 import dev.cel.common.internal.ProtoTimeUtils;
+import dev.cel.common.values.CelByteString;
+import dev.cel.common.values.NullValue;
 import java.math.BigInteger;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.IntStream;
 
-/** Generates human-readable counterexample strings from Z3 models. */
+/** Extracts {@link CelWitness}es from Z3 models. */
 @SuppressWarnings({"unchecked", "rawtypes"}) // Z3 Java API uses raw types.
 final class CelZ3CounterexampleGenerator {
 
@@ -45,65 +53,79 @@ final class CelZ3CounterexampleGenerator {
   private final Context ctx;
   private final CelZ3TypeSystem typeSystem;
   private final Model model;
+  private final int comprehensionUnrollLimit;
   private final Set<Expr<?>> valuesOnPath;
 
-  static String generate(
+  static CelWitness generate(
       Context ctx,
       CelZ3TypeSystem typeSystem,
       Model model,
-      Set<Expr<?>> inputs,
-      boolean isApproximate,
-      boolean isCounterexample) {
-    if (inputs.isEmpty()) {
-      return isCounterexample
-          ? " (The expression fails unconditionally, regardless of input state)"
-          : " (The expression is satisfiable unconditionally, regardless of input state)";
-    }
-
+      int comprehensionUnrollLimit,
+      Set<Expr<?>> inputs) {
     CelZ3CounterexampleGenerator generator =
-        new CelZ3CounterexampleGenerator(ctx, typeSystem, model);
-    StringBuilder sb = new StringBuilder();
-    if (isCounterexample) {
-      sb.append(isApproximate ? " Potential counterexample input:" : " Counterexample input:");
-    } else {
-      sb.append(isApproximate ? " Potential satisfying input:" : " Satisfying input:");
-    }
+        new CelZ3CounterexampleGenerator(ctx, typeSystem, model, comprehensionUnrollLimit);
+    ImmutableMap.Builder<String, CelWitness.Variable> variables = ImmutableMap.builder();
     for (Expr<?> input : inputs) {
-      sb.append("\n  ")
-          .append(input.getFuncDecl().getName())
-          .append(" = ")
-          .append(generator.format(generator.evaluate(input)));
+      Value value = generator.extract(generator.evaluate(input));
+      variables.put(
+          input.getFuncDecl().getName().toString(),
+          CelWitness.Variable.create(value.runtimeValue, value.display));
     }
-    return sb.toString();
+    return CelWitness.create(variables.buildOrThrow());
   }
 
-  // Formats a model value as a CEL literal where one exists.
-  private String format(Expr<?> expr) {
+  // A model value's CEL runtime representation, if it has an exact one, and its display.
+  private static final class Value {
+    private final Optional<Object> runtimeValue;
+    private final String display;
+
+    private static Value exact(Object runtimeValue, String display) {
+      return new Value(Optional.of(runtimeValue), display);
+    }
+
+    private static Value inexact(String display) {
+      return new Value(Optional.empty(), display);
+    }
+
+    private Value(Optional<Object> runtimeValue, String display) {
+      this.runtimeValue = runtimeValue;
+      this.display = display;
+    }
+  }
+
+  private Value extract(Expr<?> expr) {
     // Refs are uninterpreted, so Z3 may return a cyclic model (e.g. a map containing itself).
     if (!valuesOnPath.add(expr)) {
-      return "<cycle>";
+      return Value.inexact("<cycle>");
     }
-    String formatted = formatValue(expr);
+    Value value = extractValue(expr);
     valuesOnPath.remove(expr);
-    return formatted;
+    return value;
   }
 
-  private String formatValue(Expr<?> expr) {
+  private Value extractValue(Expr<?> expr) {
     FuncDecl decl = expr.getFuncDecl();
     Expr<?>[] args = expr.getArgs();
 
     if (decl.equals(typeSystem.intCons().ConstructorDecl())) {
-      return ((IntNum) args[0]).getBigInteger().toString();
+      BigInteger val = ((IntNum) args[0]).getBigInteger();
+      return isInRange(val, Long.MIN_VALUE, Long.MAX_VALUE)
+          ? Value.exact(val.longValue(), val.toString())
+          : Value.inexact(val.toString());
     } else if (decl.equals(typeSystem.uintCons().ConstructorDecl())) {
-      return ((IntNum) args[0]).getBigInteger() + "u";
+      BigInteger val = ((IntNum) args[0]).getBigInteger();
+      String display = val + "u";
+      return val.signum() >= 0 && val.bitLength() <= 64
+          ? Value.exact(UnsignedLong.valueOf(val), display)
+          : Value.inexact(display);
     } else if (decl.equals(typeSystem.boolCons().ConstructorDecl())) {
-      return args[0].toString();
+      return Value.exact(args[0].isTrue(), args[0].toString());
     } else if (decl.equals(typeSystem.doubleCons().ConstructorDecl())) {
-      return formatDouble((FPNum) args[0]);
+      return extractDouble((FPNum) args[0]);
     } else if (decl.equals(typeSystem.stringCons().ConstructorDecl())) {
-      return formatString(args[0], /* isBytes= */ false);
+      return extractString(args[0], /* isBytes= */ false);
     } else if (decl.equals(typeSystem.bytesCons().ConstructorDecl())) {
-      return formatString(args[0], /* isBytes= */ true);
+      return extractString(args[0], /* isBytes= */ true);
     } else if (decl.equals(typeSystem.timestampCons().ConstructorDecl())) {
       BigInteger nanos = ((IntNum) args[0]).getBigInteger();
       BigInteger nanoAdjustment = nanos.mod(NANOS_PER_SECOND);
@@ -111,35 +133,40 @@ final class CelZ3CounterexampleGenerator {
       if (!isInRange(
           seconds, ProtoTimeUtils.TIMESTAMP_SECONDS_MIN, ProtoTimeUtils.TIMESTAMP_SECONDS_MAX)) {
         // No CEL timestamp is out of range, so no literal exists; show the seconds.
-        return "timestamp(" + seconds + ")";
+        return Value.inexact("timestamp(" + seconds + ")");
       }
-      return "timestamp(\""
-          + Instant.ofEpochSecond(seconds.longValue(), nanoAdjustment.longValue())
-          + "\")";
+      Instant instant = Instant.ofEpochSecond(seconds.longValue(), nanoAdjustment.longValue());
+      return Value.exact(instant, "timestamp(\"" + instant + "\")");
     } else if (decl.equals(typeSystem.durationCons().ConstructorDecl())) {
       BigInteger nanos = ((IntNum) args[0]).getBigInteger();
-      return nanos.remainder(NANOS_PER_SECOND).signum() == 0
-          ? "duration(\"" + nanos.divide(NANOS_PER_SECOND) + "s\")"
-          : "duration(\"" + nanos + "ns\")";
+      String display =
+          nanos.remainder(NANOS_PER_SECOND).signum() == 0
+              ? "duration(\"" + nanos.divide(NANOS_PER_SECOND) + "s\")"
+              : "duration(\"" + nanos + "ns\")";
+      return isInRange(nanos, Long.MIN_VALUE, Long.MAX_VALUE)
+          ? Value.exact(Duration.ofNanos(nanos.longValue()), display)
+          : Value.inexact(display);
     } else if (decl.equals(typeSystem.listCons().ConstructorDecl())) {
-      return formatList(args[0]);
+      return extractList(args[0]);
     } else if (decl.equals(typeSystem.mapCons().ConstructorDecl())) {
-      return formatMap(args[0]);
+      return extractMap(args[0]);
     } else if (decl.equals(typeSystem.messageCons().ConstructorDecl())) {
-      return formatMessage(args[0]);
+      return extractMessage(args[0]);
     } else if (decl.equals(typeSystem.errorCons().ConstructorDecl())) {
-      return "Error";
+      return Value.inexact("Error");
     } else if (decl.equals(typeSystem.unknownCons().ConstructorDecl())) {
-      return "Unknown";
+      return Value.inexact("Unknown");
     } else if (decl.equals(typeSystem.nullCons().ConstructorDecl())) {
-      return "null";
+      return Value.exact(NullValue.NULL_VALUE, "null");
     }
 
     // Optional is the only remaining constructor.
     if (!evaluate(typeSystem.optHasValue(args[0])).isTrue()) {
-      return "optional.none()";
+      return Value.exact(Optional.empty(), "optional.none()");
     }
-    return "optional.of(" + format(evaluate(typeSystem.getOptionalValue(args[0]))) + ")";
+    Value value = extract(evaluate(typeSystem.getOptionalValue(args[0])));
+    return new Value(
+        value.runtimeValue.<Object>map(Optional::of), "optional.of(" + value.display + ")");
   }
 
   private static boolean isInRange(BigInteger val, long min, long max) {
@@ -147,19 +174,34 @@ final class CelZ3CounterexampleGenerator {
         && val.compareTo(BigInteger.valueOf(max)) <= 0;
   }
 
-  private String formatDouble(FPNum fpNum) {
+  private Value extractDouble(FPNum fpNum) {
     if (fpNum.isNaN()) {
-      return "double(\"NaN\")";
+      return Value.exact(Double.NaN, "double(\"NaN\")");
     }
     // Z3 doubles are IEEE 754 binary64, so their bits convert exactly.
     double value =
         Double.longBitsToDouble(
             ((BitVecNum) ctx.mkFPToIEEEBV(fpNum).simplify()).getBigInteger().longValue());
-    return Double.isInfinite(value) ? "double(\"" + value + "\")" : Double.toString(value);
+    return Value.exact(
+        value, Double.isInfinite(value) ? "double(\"" + value + "\")" : Double.toString(value));
   }
 
-  private static String formatString(Expr<?> arg, boolean isBytes) {
-    return quote(decodeZ3String(arg.getString()), isBytes);
+  private static Value extractString(Expr<?> arg, boolean isBytes) {
+    int[] codePoints = decodeZ3String(arg.getString());
+    // Bytes are modeled as their UTF-8 decoding, which is lossy for non-ASCII bytes. Java merges
+    // adjacent surrogates into one code point, which would change the string's size.
+    boolean isExact =
+        Arrays.stream(codePoints)
+            .allMatch(
+                isBytes
+                    ? c -> c < 0x80
+                    : c -> c < Character.MIN_SURROGATE || c > Character.MAX_SURROGATE);
+    String str = new String(codePoints, 0, codePoints.length);
+    String display = quote(codePoints, isBytes);
+    if (!isExact) {
+      return Value.inexact(display);
+    }
+    return Value.exact(isBytes ? CelByteString.copyFromUtf8(str) : str, display);
   }
 
   // Z3 escapes characters outside printable ASCII, and a backslash before 'u', as \\u{hex}.
@@ -199,40 +241,75 @@ final class CelZ3CounterexampleGenerator {
     return sb.append('"').toString();
   }
 
-  private String formatList(Expr<?> listRef) {
+  private Value extractList(Expr<?> listRef) {
     long length = evaluateLength(ctx.mkLength(typeSystem.getSeq(listRef)));
+    // Elements past the unroll limit are unconstrained, so they may violate the declared type.
+    boolean isExact = length <= comprehensionUnrollLimit;
+    long limit = isExact ? length : Math.min(length, MAX_ELEMENTS_TO_PRINT);
+    ImmutableList.Builder<Object> values = ImmutableList.builder();
     List<String> elements = new ArrayList<>();
-    for (long i = 0; i < Math.min(length, MAX_ELEMENTS_TO_PRINT); i++) {
-      elements.add(format(evaluate(ctx.mkNth(typeSystem.getSeq(listRef), ctx.mkInt(i)))));
+    for (long i = 0; i < limit; i++) {
+      Value elem = extract(evaluate(ctx.mkNth(typeSystem.getSeq(listRef), ctx.mkInt(i))));
+      if (elem.runtimeValue.isPresent()) {
+        values.add(elem.runtimeValue.get());
+      } else {
+        isExact = false;
+      }
+      elements.add(elem.display);
     }
-    return join("[", elements, length, "elements", "]");
+    String display = join("[", elements, length, "elements", "]");
+    return isExact ? Value.exact(values.build(), display) : Value.inexact(display);
   }
 
-  private String formatMap(Expr<?> mapRef) {
+  private Value extractMap(Expr<?> mapRef) {
     long length = evaluateLength(ctx.mkLength(typeSystem.getMapKeys(mapRef)));
+    // Entries past the unroll limit are unconstrained, so they may violate the declared type.
+    boolean isExact = length <= comprehensionUnrollLimit;
+    long limit = isExact ? length : Math.min(length, MAX_ELEMENTS_TO_PRINT);
+    ImmutableMap.Builder<Object, Object> values = ImmutableMap.builder();
     List<String> entries = new ArrayList<>();
     Set<Expr<?>> seenKeys = new HashSet<>();
-    for (long i = 0; i < Math.min(length, MAX_ELEMENTS_TO_PRINT); i++) {
+    ArrayExpr keySet = ctx.mkConstArray(typeSystem.celValueSort(), ctx.mkFalse());
+    for (long i = 0; i < limit; i++) {
       Expr<?> key = evaluate(ctx.mkNth(typeSystem.getMapKeys(mapRef), ctx.mkInt(i)));
+      keySet = ctx.mkStore(keySet, key, ctx.mkTrue());
       if (!seenKeys.add(key)
           || !evaluate(ctx.mkSelect((ArrayExpr) typeSystem.getMapPresence(mapRef), key)).isTrue()) {
         continue;
       }
-      Expr<?> value = evaluate(ctx.mkSelect((ArrayExpr) typeSystem.getMapValues(mapRef), key));
-      entries.add(format(key) + ": " + format(value));
+      Value keyValue = extract(key);
+      Value value =
+          extract(evaluate(ctx.mkSelect((ArrayExpr) typeSystem.getMapValues(mapRef), key)));
+      if (keyValue.runtimeValue.isPresent() && value.runtimeValue.isPresent()) {
+        values.put(keyValue.runtimeValue.get(), value.runtimeValue.get());
+      } else {
+        isExact = false;
+      }
+      entries.add(keyValue.display + ": " + value.display);
     }
-    return join("{", entries, length, "entries", "}");
+    // Maps nested in dyn values aren't constrained to be well formed: the size comes from the key
+    // sequence and membership from the presence array, so they must agree.
+    isExact =
+        isExact
+            && seenKeys.size() == length
+            && evaluate(ctx.mkEq(typeSystem.getMapPresence(mapRef), keySet)).isTrue();
+
+    String display = join("{", entries, length, "entries", "}");
+    return isExact ? Value.exact(values.buildOrThrow(), display) : Value.inexact(display);
   }
 
   private static String join(
       String prefix, List<String> displayed, long length, String noun, String suffix) {
+    List<String> shown =
+        new ArrayList<>(displayed.subList(0, Math.min(displayed.size(), MAX_ELEMENTS_TO_PRINT)));
     if (length > MAX_ELEMENTS_TO_PRINT) {
-      displayed.add("... (" + (length - MAX_ELEMENTS_TO_PRINT) + " more " + noun + ")");
+      shown.add("... (" + (length - MAX_ELEMENTS_TO_PRINT) + " more " + noun + ")");
     }
-    return prefix + String.join(", ", displayed) + suffix;
+    return prefix + String.join(", ", shown) + suffix;
   }
 
-  private String formatMessage(Expr<?> msgRef) {
+  // TODO: Build message values.
+  private Value extractMessage(Expr<?> msgRef) {
     Expr<?> presenceArray = evaluate(typeSystem.getMsgPresence(msgRef));
     String typeName = evaluate(typeSystem.getMsgTypeName(msgRef)).getString();
 
@@ -243,11 +320,11 @@ final class CelZ3CounterexampleGenerator {
     for (Expr<?> key : keys) {
       if (evaluate(ctx.mkSelect((ArrayExpr) typeSystem.getMsgPresence(msgRef), key)).isTrue()) {
         Expr<?> value = evaluate(ctx.mkSelect((ArrayExpr) typeSystem.getMsgValues(msgRef), key));
-        entries.add(key.getString() + ": " + format(value));
+        entries.add(key.getString() + ": " + extract(value).display);
       }
     }
 
-    return typeName + "{" + String.join(", ", entries) + "}";
+    return Value.inexact(typeName + "{" + String.join(", ", entries) + "}");
   }
 
   private static void extractKeys(Expr<?> arrayExpr, Set<Expr<?>> keys) {
@@ -281,10 +358,12 @@ final class CelZ3CounterexampleGenerator {
     return model.evaluate(expr, /* completion= */ true);
   }
 
-  private CelZ3CounterexampleGenerator(Context ctx, CelZ3TypeSystem typeSystem, Model model) {
+  private CelZ3CounterexampleGenerator(
+      Context ctx, CelZ3TypeSystem typeSystem, Model model, int comprehensionUnrollLimit) {
     this.ctx = ctx;
     this.typeSystem = typeSystem;
     this.model = model;
+    this.comprehensionUnrollLimit = comprehensionUnrollLimit;
     this.valuesOnPath = new HashSet<>();
   }
 }
