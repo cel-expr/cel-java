@@ -18,6 +18,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.primitives.UnsignedLong;
 import com.google.errorprone.annotations.Immutable;
@@ -28,6 +29,7 @@ import dev.cel.common.ast.CelExpr.ExprKind.Kind;
 import dev.cel.common.types.CelTypes;
 import dev.cel.common.values.CelByteString;
 import dev.cel.common.values.CelValueConverter;
+import dev.cel.common.values.ErrorValue;
 import dev.cel.common.values.OptimizedSelectTraversal;
 import dev.cel.common.values.OptionalValue;
 import dev.cel.common.values.SelectField;
@@ -41,15 +43,21 @@ import java.util.Optional;
 import org.jspecify.annotations.Nullable;
 
 /**
- * Plans optimizer-rewritten select chains ({@code cel.@attribute}) and presence tests ({@code
- * cel.@hasField}) into {@link EvalAttribute} instances decorated with {@code
- * OptimizedSelectQualifier}.
+ * Plans optimizer-rewritten select chains ({@code cel.@attribute}, {@code cel.@optionalAttribute})
+ * and presence tests ({@code cel.@hasField}) into {@link EvalAttribute} instances decorated with
+ * {@code OptimizedSelectQualifier}.
  */
 @Immutable
 final class OptimizedSelectPlanner {
 
   static final String CEL_ATTRIBUTE_FUNCTION_NAME = "cel.@attribute";
+  static final String CEL_OPTIONAL_ATTRIBUTE_FUNCTION_NAME = "cel.@optionalAttribute";
   static final String CEL_HAS_FIELD_FUNCTION_NAME = "cel.@hasField";
+  static final ImmutableSet<String> FUNCTION_NAMES =
+      ImmutableSet.of(
+          CEL_ATTRIBUTE_FUNCTION_NAME,
+          CEL_OPTIONAL_ATTRIBUTE_FUNCTION_NAME,
+          CEL_HAS_FIELD_FUNCTION_NAME);
 
   // A list index is an int, as typed by an INT64 (3) map key.
   private static final long LIST_INDEX_TYPE_CODE = 3;
@@ -68,7 +76,12 @@ final class OptimizedSelectPlanner {
   PlannedInterpretable plan(CelExpr expr, String functionName, OperandPlanner operandPlanner) {
     ImmutableList<CelExpr> args = expr.call().args();
     boolean isPresenceTest = functionName.equals(CEL_HAS_FIELD_FUNCTION_NAME);
-    int expectedArgCount = isPresenceTest ? 2 : 3;
+    // Optional chains carry the index of their first optional qualifier as the 3rd argument, or -1
+    // if their operand is optional.
+    boolean isOptional =
+        functionName.equals(CEL_OPTIONAL_ATTRIBUTE_FUNCTION_NAME)
+            || (isPresenceTest && args.size() == 3);
+    int expectedArgCount = (isPresenceTest ? 2 : 3) + (isOptional ? 1 : 0);
     checkArgument(
         args.size() == expectedArgCount,
         "Expected %s arguments for %s, found %s",
@@ -76,9 +89,15 @@ final class OptimizedSelectPlanner {
         functionName,
         args.size());
 
+    ImmutableList<CelExpr> hops = unpackQualifierHops(args.get(1));
+    // A presence test's last hop is the field it tests, which can't be optionally selected.
+    int optIndex =
+        isOptional
+            ? parseOptIndex(args.get(2), isPresenceTest ? hops.size() - 1 : hops.size())
+            : hops.size();
+
     // Constant index hops split the qualifiers into field segments, each but the last ending at the
     // repeated or map field that the following index selects from.
-    ImmutableList<CelExpr> hops = unpackQualifierHops(args.get(1));
     ImmutableList.Builder<Qualifier> qualifiers = ImmutableList.builder();
     int segmentStart = 0;
     for (int i = 0; i < hops.size(); i++) {
@@ -92,20 +111,26 @@ final class OptimizedSelectPlanner {
           hop);
       ImmutableList<SelectField> fields =
           unpackAttributeFields(hops.subList(segmentStart, i), /* dummyOrDefExpr= */ null);
-      addSegmentQualifiers(qualifiers, fields, /* isPresenceTest= */ false);
+      addFieldQualifiers(qualifiers, fields, segmentStart, optIndex, /* isPresenceTest= */ false);
       SelectField.MapEntrySpec mapEntrySpec = Iterables.getLast(fields).mapEntrySpec();
       long keyTypeCode = mapEntrySpec != null ? mapEntrySpec.keyTypeCode() : LIST_INDEX_TYPE_CODE;
       qualifiers.add(
           new IndexQualifier(
-              resolveScalarDefaultValue(keyTypeCode, hop), runtimeEquality, celValueConverter));
+              resolveScalarDefaultValue(keyTypeCode, hop),
+              /* isOptional= */ i >= optIndex,
+              /* expectsOptionalOperand= */ i > optIndex,
+              runtimeEquality,
+              celValueConverter));
       segmentStart = i + 1;
     }
     ImmutableList<CelExpr> leafSegment = hops.subList(segmentStart, hops.size());
-    addSegmentQualifiers(
+    addFieldQualifiers(
         qualifiers,
         isPresenceTest
             ? unpackHasFieldFields(leafSegment)
-            : unpackAttributeFields(leafSegment, args.get(2)),
+            : unpackAttributeFields(leafSegment, Iterables.getLast(args)),
+        segmentStart,
+        optIndex,
         isPresenceTest);
 
     PlannedInterpretable operand = operandPlanner.plan(args.get(0));
@@ -116,14 +141,46 @@ final class OptimizedSelectPlanner {
     return EvalAttribute.create(expr, qualified);
   }
 
+  // Adds the field hops from qualifier index `start` on: those before optIndex strictly, the rest
+  // optionally.
+  private void addFieldQualifiers(
+      ImmutableList.Builder<Qualifier> qualifiers,
+      ImmutableList<SelectField> fields,
+      int start,
+      int optIndex,
+      boolean isPresenceTest) {
+    int strictCount = optIndex - start;
+    // Presence tests needn't split: an unset message has no fields set, as an absent one doesn't.
+    if (!isPresenceTest && strictCount > 0 && strictCount < fields.size()) {
+      addSegmentQualifiers(
+          qualifiers,
+          fields.subList(0, strictCount),
+          /* isPresenceTest= */ false,
+          /* isOptional= */ false,
+          /* expectsOptionalOperand= */ false);
+      fields = fields.subList(strictCount, fields.size());
+      start = optIndex;
+    }
+    addSegmentQualifiers(
+        qualifiers,
+        fields,
+        isPresenceTest,
+        /* isOptional= */ start >= optIndex,
+        /* expectsOptionalOperand= */ start > optIndex);
+  }
+
   private void addSegmentQualifiers(
       ImmutableList.Builder<Qualifier> qualifiers,
       ImmutableList<SelectField> fields,
-      boolean isPresenceTest) {
+      boolean isPresenceTest,
+      boolean isOptional,
+      boolean expectsOptionalOperand) {
     for (int i = 0; i < fields.size() - 1; i++) {
       qualifiers.add(new PassthroughQualifier(fields.get(i).fieldName()));
     }
-    qualifiers.add(new OptimizedSelectQualifier(fields, celValueConverter, isPresenceTest));
+    qualifiers.add(
+        new OptimizedSelectQualifier(
+            fields, celValueConverter, isPresenceTest, isOptional, expectsOptionalOperand));
   }
 
   /**
@@ -289,12 +346,7 @@ final class OptimizedSelectPlanner {
   }
 
   private static long parseFieldNumber(CelExpr expr) {
-    checkArgument(
-        expr.getKind() == Kind.CONSTANT
-            && expr.constant().getKind() == CelConstant.Kind.INT64_VALUE,
-        "Expected qualifier hop field number to be an int64 constant, found: %s",
-        expr);
-    return expr.constant().int64Value();
+    return parseInt64Constant(expr, "qualifier hop field number");
   }
 
   private static String parseFieldName(CelExpr expr) {
@@ -307,10 +359,25 @@ final class OptimizedSelectPlanner {
   }
 
   private static long parseTypeCode(CelExpr expr) {
+    return parseInt64Constant(expr, "qualifier hop type code");
+  }
+
+  private static int parseOptIndex(CelExpr expr, int exclusiveMax) {
+    long optIndex = parseInt64Constant(expr, "optional qualifier index");
+    checkArgument(
+        optIndex >= -1 && optIndex < exclusiveMax,
+        "Optional qualifier index %s is out of range [-1, %s)",
+        optIndex,
+        exclusiveMax);
+    return (int) optIndex;
+  }
+
+  private static long parseInt64Constant(CelExpr expr, String description) {
     checkArgument(
         expr.getKind() == Kind.CONSTANT
             && expr.constant().getKind() == CelConstant.Kind.INT64_VALUE,
-        "Expected qualifier hop type code to be an int64 constant, found: %s",
+        "Expected %s to be an int64 constant, found: %s",
+        description,
         expr);
     return expr.constant().int64Value();
   }
@@ -335,6 +402,10 @@ final class OptimizedSelectPlanner {
     checkArgument(
         expr.getKind() == Kind.STRUCT, "Expected struct for message type, found: %s", expr);
     String protoTypeName = expr.struct().messageName();
+    // Un-rechecked optimizer dummies carry a leading dot to resist container shadowing.
+    if (protoTypeName.startsWith(".")) {
+      protoTypeName = protoTypeName.substring(1);
+    }
     checkArgument(!protoTypeName.isEmpty(), "Protobuf message type name must not be empty");
     return protoTypeName;
   }
@@ -357,13 +428,6 @@ final class OptimizedSelectPlanner {
 
   private static void validateScalarDummy(long typeCode, CelExpr dummyExpr) {
     resolveScalarDefaultValue(typeCode, dummyExpr);
-  }
-
-  private static void validateTarget(Object target) {
-    if (target instanceof OptionalValue || target instanceof Optional) {
-      throw new UnsupportedOperationException(
-          "Optional operands are not yet supported by the select-optimized runtime");
-    }
   }
 
   /**
@@ -443,9 +507,54 @@ final class OptimizedSelectPlanner {
   }
 
   @Immutable
-  private static final class OptimizedSelectQualifier implements Qualifier {
+  private abstract static class ChainQualifier implements Qualifier {
+    final CelValueConverter celValueConverter;
+    final boolean isOptional;
+    private final boolean expectsOptionalOperand;
+
+    @Override
+    public final Object qualify(Object operand) {
+      if (operand instanceof ErrorValue) {
+        return operand;
+      }
+      // Fails closed on an operand whose binding contradicts the optionality it was typed with.
+      if (operand instanceof OptionalValue != expectsOptionalOperand) {
+        throw new IllegalArgumentException(
+            (expectsOptionalOperand
+                    ? "Expected an optional operand for the optional select chain at: "
+                    : "Unexpected optional operand for the select chain at: ")
+                + value());
+      }
+      if (expectsOptionalOperand) {
+        OptionalValue<?, ?> optional = (OptionalValue<?, ?>) operand;
+        return optional.isZeroValue() ? absent() : qualifyValue(optional.value());
+      }
+      return qualifyValue(operand);
+    }
+
+    abstract Object qualifyValue(Object operand);
+
+    Object absent() {
+      return OptionalValue.EMPTY;
+    }
+
+    Object toOptional(Optional<?> value) {
+      return value.isPresent()
+          ? OptionalValue.create(celValueConverter.toTraversalTarget(value.get()))
+          : OptionalValue.EMPTY;
+    }
+
+    private ChainQualifier(
+        CelValueConverter celValueConverter, boolean isOptional, boolean expectsOptionalOperand) {
+      this.celValueConverter = checkNotNull(celValueConverter);
+      this.isOptional = isOptional;
+      this.expectsOptionalOperand = expectsOptionalOperand;
+    }
+  }
+
+  @Immutable
+  private static final class OptimizedSelectQualifier extends ChainQualifier {
     private final ImmutableList<SelectField> fields;
-    private final CelValueConverter celValueConverter;
     private final boolean isPresenceTest;
 
     @Override
@@ -454,33 +563,41 @@ final class OptimizedSelectPlanner {
     }
 
     @Override
-    public Object qualify(Object operand) {
-      validateTarget(operand);
+    Object qualifyValue(Object operand) {
       if (isPresenceTest) {
         // A boolean is already a valid traversal target.
         return OptimizedSelectTraversal.hasField(operand, fields);
       }
+      if (isOptional) {
+        return toOptional(OptimizedSelectTraversal.find(operand, fields));
+      }
       return celValueConverter.toTraversalTarget(OptimizedSelectTraversal.qualify(operand, fields));
+    }
+
+    @Override
+    Object absent() {
+      return isPresenceTest ? false : OptionalValue.EMPTY;
     }
 
     private OptimizedSelectQualifier(
         ImmutableList<SelectField> fields,
         CelValueConverter celValueConverter,
-        boolean isPresenceTest) {
+        boolean isPresenceTest,
+        boolean isOptional,
+        boolean expectsOptionalOperand) {
+      super(celValueConverter, isOptional, expectsOptionalOperand);
       this.fields = checkNotNull(fields);
-      this.celValueConverter = checkNotNull(celValueConverter);
       this.isPresenceTest = isPresenceTest;
     }
   }
 
   /** Indexes a repeated or map field's value by a constant list index or map key. */
   @Immutable
-  private static final class IndexQualifier implements Qualifier {
+  private static final class IndexQualifier extends ChainQualifier {
     @SuppressWarnings("Immutable") // Immutable CEL constant.
     private final Object index;
 
     private final RuntimeEquality runtimeEquality;
-    private final CelValueConverter celValueConverter;
 
     @Override
     public Object value() {
@@ -491,7 +608,13 @@ final class OptimizedSelectPlanner {
     // in place rather than unwrapped first as the generic index operator's arguments are.
     @Override
     @SuppressWarnings("unchecked") // Map keys are compared as CEL values.
-    public Object qualify(Object operand) {
+    Object qualifyValue(Object operand) {
+      if (isOptional) {
+        return toOptional(
+            operand instanceof Map
+                ? runtimeEquality.findInMap((Map<?, ?>) operand, index)
+                : RuntimeHelpers.optIndexList((List<?>) operand, (Long) index));
+      }
       Object element =
           operand instanceof Map
               ? runtimeEquality.indexMap((Map<Object, Object>) operand, index)
@@ -500,10 +623,14 @@ final class OptimizedSelectPlanner {
     }
 
     private IndexQualifier(
-        Object index, RuntimeEquality runtimeEquality, CelValueConverter celValueConverter) {
+        Object index,
+        boolean isOptional,
+        boolean expectsOptionalOperand,
+        RuntimeEquality runtimeEquality,
+        CelValueConverter celValueConverter) {
+      super(celValueConverter, isOptional, expectsOptionalOperand);
       this.index = checkNotNull(index);
       this.runtimeEquality = checkNotNull(runtimeEquality);
-      this.celValueConverter = checkNotNull(celValueConverter);
     }
   }
 

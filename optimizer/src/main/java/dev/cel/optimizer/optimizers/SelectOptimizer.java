@@ -19,6 +19,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static dev.cel.optimizer.optimizers.DefaultOptimizerConstants.CEL_ATTRIBUTE_FUNCTION_NAME;
 import static dev.cel.optimizer.optimizers.DefaultOptimizerConstants.CEL_HAS_FIELD_FUNCTION_NAME;
+import static dev.cel.optimizer.optimizers.DefaultOptimizerConstants.CEL_OPTIONAL_ATTRIBUTE_FUNCTION_NAME;
 import static java.lang.Math.max;
 
 import com.google.auto.value.AutoValue;
@@ -52,7 +53,6 @@ import dev.cel.common.ast.CelMutableExpr;
 import dev.cel.common.ast.CelMutableExpr.CelMutableCall;
 import dev.cel.common.ast.CelMutableExpr.CelMutableList;
 import dev.cel.common.ast.CelMutableExpr.CelMutableMap;
-import dev.cel.common.ast.CelMutableExpr.CelMutableSelect;
 import dev.cel.common.ast.CelMutableExpr.CelMutableStruct;
 import dev.cel.common.internal.CelDescriptorPool;
 import dev.cel.common.internal.CombinedDescriptorPool;
@@ -75,6 +75,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalInt;
 
 /**
  * Performs field selection optimization on protobuf message select chains.
@@ -85,10 +86,10 @@ import java.util.Optional;
  * provides resilience against protobuf field renames.
  *
  * <p><b>WARNING:</b> Evaluating optimized ASTs requires explicit runtime support for {@code
- * cel.@attribute} and {@code cel.@hasField}. Ensure that the target evaluation environment (in
- * Java, C++, Go, or other language runtimes) supports these select optimization functions before
- * applying this optimizer. Evaluating an optimized AST in an unsupported runtime will result in an
- * evaluation error due to missing function overloads.
+ * cel.@attribute}, {@code cel.@optionalAttribute} and {@code cel.@hasField}. Ensure that the target
+ * evaluation environment (in Java, C++, Go, or other language runtimes) supports these select
+ * optimization functions before applying this optimizer. Evaluating an optimized AST in an
+ * unsupported runtime will result in an evaluation error due to missing function overloads.
  *
  * <p><b>Metadata Tuples:</b> In {@code cel.@attribute}, each step in the qualification path is
  * represented as a metadata tuple:
@@ -126,6 +127,12 @@ import java.util.Optional;
  *   // Constant list indices and map keys between fields are inlined as bare constants
  *   request.users[0].age -&gt; cel.@attribute(request,
  *       [[users_num, "users", 11], 0, [age_num, "age", type_code]], 0)
+ *
+ *   // Optional chains pass the first '?' hop index (or -1 for an optional operand)
+ *   request.?user.age -&gt; cel.@optionalAttribute(request,
+ *       [[user_num, "user", type_code], [age_num, "age", type_code]], 0, 0)
+ *   has(request.user.?address.city) -&gt; cel.@hasField(request,
+ *       [[user_num, "user"], [address_num, "address"], [city_num, "city"]], 1)
  * </pre>
  *
  * <p>Dynamic or trailing indices and non-protobuf selects pass through untouched.
@@ -146,8 +153,6 @@ import java.util.Optional;
  *   <li><b>Oneofs:</b> The lite runtime reads fields from the wire, so it reports every serialized
  *       member of a oneof as present. Protobuf serializes at most one, unless an older-schema
  *       binary merges or mutates the message, or the bytes are concatenated or altered by hand.
- *   <li><b>Optionals:</b> Optional field selection on a message ({@code msg.?field}, or a field of
- *       an optional message) is not yet supported and throws during optimization.
  * </ul>
  */
 public final class SelectOptimizer implements CelAstOptimizer {
@@ -162,8 +167,16 @@ public final class SelectOptimizer implements CelAstOptimizer {
 
   private static final TypeParamType TYPE_PARAM_T = TypeParamType.create("T");
 
-  private static final ImmutableSet<ImmutableList<String>> STANDARD_INDEX_OVERLOADS =
-      ImmutableSet.of(ImmutableList.of("index_list"), ImmutableList.of("index_map"));
+  private static final ImmutableSet<ImmutableList<String>> INLINED_INDEX_OVERLOADS =
+      ImmutableSet.of(
+          ImmutableList.of("index_list"),
+          ImmutableList.of("index_map"),
+          ImmutableList.of("optional_list_index_int"),
+          ImmutableList.of("optional_map_index_value"),
+          ImmutableList.of("list_optindex_optional_int"),
+          ImmutableList.of("optional_list_optindex_optional_int"),
+          ImmutableList.of("map_optindex_optional_value"),
+          ImmutableList.of("optional_map_optindex_optional_value"));
 
   /**
    * Declaration for {@code cel.@attribute(operand, qualifiers, dummyOrDefVal) -> T}.
@@ -183,6 +196,22 @@ public final class SelectOptimizer implements CelAstOptimizer {
               ListType.create(SimpleType.DYN),
               TYPE_PARAM_T));
 
+  /**
+   * Declaration for {@code cel.@optionalAttribute(operand, qualifiers, opt_index, dummy) ->
+   * optional_type(T)}.
+   */
+  @VisibleForTesting
+  static final CelFunctionDecl CEL_OPTIONAL_ATTRIBUTE_FUNCTION_DECL =
+      CelFunctionDecl.newFunctionDeclaration(
+          CEL_OPTIONAL_ATTRIBUTE_FUNCTION_NAME,
+          CelOverloadDecl.newGlobalOverload(
+              "cel_optional_attribute_list_int",
+              OptionalType.create(TYPE_PARAM_T),
+              SimpleType.DYN,
+              ListType.create(SimpleType.DYN),
+              SimpleType.INT,
+              TYPE_PARAM_T));
+
   @VisibleForTesting
   static final CelFunctionDecl CEL_HAS_FIELD_FUNCTION_DECL =
       CelFunctionDecl.newFunctionDeclaration(
@@ -191,7 +220,13 @@ public final class SelectOptimizer implements CelAstOptimizer {
               "cel_has_field_list",
               SimpleType.BOOL,
               SimpleType.DYN,
-              ListType.create(SimpleType.DYN)));
+              ListType.create(SimpleType.DYN)),
+          CelOverloadDecl.newGlobalOverload(
+              "cel_has_field_list_int",
+              SimpleType.BOOL,
+              SimpleType.DYN,
+              ListType.create(SimpleType.DYN),
+              SimpleType.INT));
 
   @VisibleForTesting
   static final Extension SELECT_OPTIMIZATION_AST_EXTENSION_TAG =
@@ -233,7 +268,6 @@ public final class SelectOptimizer implements CelAstOptimizer {
 
     CelMutableAst astToModify = CelMutableAst.fromCelAst(ast);
     CelNavigableMutableAst navAst = CelNavigableMutableAst.fromAst(astToModify);
-    navAst.getRoot().allNodes().forEach(node -> checkNotOptionalFieldSelection(navAst, node));
     ImmutableList<CelNavigableMutableExpr> topOfChainSelects =
         navAst
             .getRoot()
@@ -267,7 +301,10 @@ public final class SelectOptimizer implements CelAstOptimizer {
     return OptimizationResult.create(
         optimizedAst,
         ImmutableList.of(),
-        ImmutableList.of(CEL_ATTRIBUTE_FUNCTION_DECL, CEL_HAS_FIELD_FUNCTION_DECL));
+        ImmutableList.of(
+            CEL_ATTRIBUTE_FUNCTION_DECL,
+            CEL_OPTIONAL_ATTRIBUTE_FUNCTION_DECL,
+            CEL_HAS_FIELD_FUNCTION_DECL));
   }
 
   private void rewriteSelectChain(
@@ -275,29 +312,28 @@ public final class SelectOptimizer implements CelAstOptimizer {
       CelNavigableMutableAst navAst,
       CelNavigableMutableExpr topNode,
       MonotonicIdGenerator idGenerator) {
-    boolean isHasField = topNode.expr().select().testOnly();
-    astToModify.source().getMacroCalls().remove(topNode.expr().id());
+    CelMutableExpr topExpr = topNode.expr();
+    boolean isHasField = topExpr.getKind() == Kind.SELECT && topExpr.select().testOnly();
+    astToModify.source().getMacroCalls().remove(topExpr.id());
 
     FieldDescriptor topField =
-        getOptimizableField(navAst, topNode)
-            .orElseThrow(
-                () -> new IllegalStateException("Expected optimizable field on select node"));
+        getOptimizableField(navAst, topExpr).orElseThrow(IllegalStateException::new);
     // Walks from the leaf. Fields before an index are selected by value, so they carry their type
     // codes even in presence tests.
     boolean isSelectedByValue = !isHasField;
     List<CelMutableExpr> qualifierLists = new ArrayList<>();
-    qualifierLists.add(newFieldQualifier(topField, isSelectedByValue, idGenerator));
-
-    CelMutableExpr currentExpr = topNode.expr().select().operand();
+    // Counted from the leaf; an optional root operand records qualifierLists.size(), yielding -1.
+    OptionalInt optionalHopFromLeaf = OptionalInt.empty();
+    CelMutableExpr currentExpr = topExpr;
     while (true) {
-      if (currentExpr.getKind() == Kind.SELECT) {
-        FieldDescriptor field =
-            getOptimizableFieldForExpr(navAst, currentExpr.select()).orElse(null);
-        if (field != null) {
-          qualifierLists.add(newFieldQualifier(field, isSelectedByValue, idGenerator));
-          currentExpr = currentExpr.select().operand();
-          continue;
-        }
+      if (navAst.getType(currentExpr.id()).filter(OptionalType.class::isInstance).isPresent()) {
+        optionalHopFromLeaf = OptionalInt.of(qualifierLists.size());
+      }
+      FieldDescriptor field = getOptimizableField(navAst, currentExpr).orElse(null);
+      if (field != null) {
+        qualifierLists.add(newFieldQualifier(field, isSelectedByValue, idGenerator));
+        currentExpr = fieldOperand(currentExpr);
+        continue;
       }
       CelMutableExpr indexedField = getIndexedField(navAst, currentExpr).orElse(null);
       if (indexedField == null) {
@@ -309,23 +345,25 @@ public final class SelectOptimizer implements CelAstOptimizer {
     }
 
     Collections.reverse(qualifierLists);
-    CelMutableExpr qualifiersExpr =
-        CelMutableExpr.ofList(idGenerator.nextExprId(), CelMutableList.create(qualifierLists));
-    if (isHasField) {
-      topNode
-          .expr()
-          .setCall(CelMutableCall.create(CEL_HAS_FIELD_FUNCTION_NAME, currentExpr, qualifiersExpr));
-    } else {
-      CelMutableExpr dummyOrDefExpr = resolveDummyOrDefExpr(topField, idGenerator);
-      topNode
-          .expr()
-          .setCall(
-              CelMutableCall.create(
-                  CEL_ATTRIBUTE_FUNCTION_NAME, currentExpr, qualifiersExpr, dummyOrDefExpr));
+    List<CelMutableExpr> args = new ArrayList<>();
+    args.add(currentExpr);
+    args.add(
+        CelMutableExpr.ofList(idGenerator.nextExprId(), CelMutableList.create(qualifierLists)));
+    boolean isOptional = optionalHopFromLeaf.isPresent();
+    if (isOptional) {
+      long optIndex = qualifierLists.size() - 1L - optionalHopFromLeaf.getAsInt();
+      args.add(CelMutableExpr.ofConstant(idGenerator.nextExprId(), CelConstant.ofValue(optIndex)));
     }
+    if (!isHasField) {
+      args.add(resolveDummyOrDefExpr(topField, idGenerator));
+    }
+    String function =
+        isHasField
+            ? CEL_HAS_FIELD_FUNCTION_NAME
+            : isOptional ? CEL_OPTIONAL_ATTRIBUTE_FUNCTION_NAME : CEL_ATTRIBUTE_FUNCTION_NAME;
+    topExpr.setCall(CelMutableCall.create(function, args));
   }
 
-  /** Returns the qualifier hop for {@code field}, with its type codes if {@code withTypeCode}. */
   private static CelMutableExpr newFieldQualifier(
       FieldDescriptor field, boolean withTypeCode, MonotonicIdGenerator idGenerator) {
     if (field.getType() == FieldDescriptor.Type.GROUP) {
@@ -374,7 +412,7 @@ public final class SelectOptimizer implements CelAstOptimizer {
   }
 
   private boolean isTopOfSelectChain(CelNavigableMutableAst navAst, CelNavigableMutableExpr node) {
-    if (!getOptimizableField(navAst, node).isPresent()) {
+    if (!getOptimizableField(navAst, node.expr()).isPresent()) {
       return false;
     }
     Optional<CelNavigableMutableExpr> parent = node.parent();
@@ -382,80 +420,54 @@ public final class SelectOptimizer implements CelAstOptimizer {
     if (parent.isPresent() && getIndexedField(navAst, parent.get().expr()).isPresent()) {
       parent = parent.get().parent();
     }
-    return !parent.flatMap(p -> getOptimizableField(navAst, p)).isPresent();
+    return !parent.flatMap(p -> getOptimizableField(navAst, p.expr())).isPresent();
   }
 
-  /**
-   * Returns the protobuf field select that {@code expr} indexes by a constant through a standard
-   * {@code _[_]} overload, if the field is optimizable.
-   */
   private Optional<CelMutableExpr> getIndexedField(
       CelNavigableMutableAst navAst, CelMutableExpr expr) {
     // `field.key` on a map isn't inlined: its missing-key error differs from `field['key']`'s.
-    boolean isStandardIndex =
+    boolean isInlinedIndex =
         navAst
             .getAst()
             .getReference(expr.id())
-            .map(reference -> STANDARD_INDEX_OVERLOADS.contains(reference.overloadIds()))
+            .map(reference -> INLINED_INDEX_OVERLOADS.contains(reference.overloadIds()))
             .orElse(false);
-    if (!isStandardIndex || expr.call().args().get(1).getKind() != Kind.CONSTANT) {
+    if (!isInlinedIndex || expr.call().args().get(1).getKind() != Kind.CONSTANT) {
       return Optional.empty();
     }
     CelMutableExpr fieldExpr = expr.call().args().get(0);
-    if (fieldExpr.getKind() != Kind.SELECT
-        || !getOptimizableFieldForExpr(navAst, fieldExpr.select()).isPresent()) {
-      return Optional.empty();
-    }
-    return Optional.of(fieldExpr);
+    return getOptimizableField(navAst, fieldExpr).map(unused -> fieldExpr);
   }
 
   private Optional<FieldDescriptor> getOptimizableField(
-      CelNavigableMutableAst navAst, CelNavigableMutableExpr node) {
-    if (node.getKind() != Kind.SELECT) {
+      CelNavigableMutableAst navAst, CelMutableExpr expr) {
+    String field;
+    if (expr.getKind() == Kind.SELECT) {
+      field = expr.select().field();
+    } else if (expr.getKind() == Kind.CALL
+        && expr.call().function().equals(Operator.OPTIONAL_SELECT.getFunction())) {
+      field = expr.call().args().get(1).constant().stringValue();
+    } else {
       return Optional.empty();
     }
-    return getOptimizableFieldForExpr(navAst, node.expr().select());
-  }
-
-  private Optional<FieldDescriptor> getOptimizableFieldForExpr(
-      CelNavigableMutableAst navAst, CelMutableSelect select) {
-    return navAst.getType(select.operand().id()).flatMap(type -> findField(type, select.field()));
+    return navAst.getType(fieldOperand(expr).id()).flatMap(type -> findField(type, field));
   }
 
   private Optional<FieldDescriptor> findField(CelType type, String field) {
-    if (type.kind() != CelKind.STRUCT) {
+    // A field of an optional message is selected from the message, if present.
+    CelType structType = type instanceof OptionalType ? type.parameters().get(0) : type;
+    if (structType.kind() != CelKind.STRUCT) {
       return Optional.empty();
     }
-    return descriptorPool.findDescriptor(type.name()).map(desc -> desc.findFieldByName(field));
+    return descriptorPool
+        .findDescriptor(structType.name())
+        .map(desc -> desc.findFieldByName(field));
   }
 
-  // TODO: Support optional field selection once integrated with lite runtime.
-  private void checkNotOptionalFieldSelection(
-      CelNavigableMutableAst navAst, CelNavigableMutableExpr node) {
-    Optional<FieldDescriptor> field = Optional.empty();
-    if (node.getKind() == Kind.SELECT) {
-      // A field of an optional message, e.g. `.bb` in `msg.repeated_nested_message[?0].bb`
-      CelMutableSelect select = node.expr().select();
-      field =
-          navAst
-              .getType(select.operand().id())
-              .filter(OptionalType.class::isInstance)
-              .flatMap(type -> findField(type.parameters().get(0), select.field()));
-    } else if (node.getKind() == Kind.CALL
-        && node.expr().call().function().equals(Operator.OPTIONAL_SELECT.getFunction())) {
-      // `msg.?field`, where `msg` may itself be optional
-      List<CelMutableExpr> args = node.expr().call().args();
-      field =
-          navAst
-              .getType(args.get(0).id())
-              .map(type -> type instanceof OptionalType ? type.parameters().get(0) : type)
-              .flatMap(type -> findField(type, args.get(1).constant().stringValue()));
-    }
-    if (field.isPresent()) {
-      throw new UnsupportedOperationException(
-          "Optimization of optional field selection is currently unimplemented: "
-              + field.get().getFullName());
-    }
+  private static CelMutableExpr fieldOperand(CelMutableExpr fieldExpr) {
+    return fieldExpr.getKind() == Kind.SELECT
+        ? fieldExpr.select().operand()
+        : fieldExpr.call().args().get(0);
   }
 
   private static CelMutableExpr resolveDummyOrDefExpr(

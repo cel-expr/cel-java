@@ -840,7 +840,11 @@ public class SubexpressionOptimizerTest {
 
   @Test
   public void optimize_afterSelectOptimizer_throwsException(
-      @TestParameter({"msg.single_int64 == 1 && msg.single_int64 == 1", "has(msg.single_int64)"})
+      @TestParameter({
+            "msg.single_int64 == 1 && msg.single_int64 == 1",
+            "has(msg.single_int64)",
+            "msg.?single_int64"
+          })
           String expression)
       throws Exception {
     CelOptimizer selectThenCseOptimizer =

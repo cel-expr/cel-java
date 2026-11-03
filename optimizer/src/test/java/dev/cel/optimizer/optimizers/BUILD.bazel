@@ -22,6 +22,7 @@ java_library(
         "//common/ast",
         "//common/navigation:mutable_navigation",
         "//common/types",
+        "//common/types:cel_types",
         "//common/values",
         "//common/values:cel_byte_string",
         "//extensions",

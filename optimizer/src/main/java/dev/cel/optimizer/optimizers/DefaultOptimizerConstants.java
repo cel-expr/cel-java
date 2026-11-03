@@ -47,7 +47,13 @@ final class DefaultOptimizerConstants {
           .build();
 
   static final String CEL_ATTRIBUTE_FUNCTION_NAME = "cel.@attribute";
+  static final String CEL_OPTIONAL_ATTRIBUTE_FUNCTION_NAME = "cel.@optionalAttribute";
   static final String CEL_HAS_FIELD_FUNCTION_NAME = "cel.@hasField";
+  static final ImmutableSet<String> SELECT_OPTIMIZED_FUNCTION_NAMES =
+      ImmutableSet.of(
+          CEL_ATTRIBUTE_FUNCTION_NAME,
+          CEL_OPTIONAL_ATTRIBUTE_FUNCTION_NAME,
+          CEL_HAS_FIELD_FUNCTION_NAME);
 
   private DefaultOptimizerConstants() {}
 }
