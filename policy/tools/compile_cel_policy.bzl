@@ -28,6 +28,7 @@ def compile_cel_policy(
         optimize_field_selection = False,
         simple_variables = False,
         iteration_limit = None,
+        decisions = {},
         visibility = None):
     """Compiles a CEL policy into a CheckedExpr binarypb or textpb with optional select optimization.
 
@@ -54,6 +55,9 @@ def compile_cel_policy(
         `- var_name: expr` instead of `- name: var_name` / `expression: expr`) in the policy (default False)
       iteration_limit: (optional) int maximum iteration limit for composing and optimizing the policy
         (default None, which uses the compiler default of 1000)
+      decisions: (optional) dict mapping an identifier referenced by the policy (e.g.
+        "decisions.channel") to a binarypb compile_cel_policy target to statically link. Linked
+        targets must not set optimize_field_selection.
       visibility: (optional) visibility to use on the genrule macro (default None)
     """
     if output_format not in ("binarypb", "textpb", "textproto"):
@@ -68,11 +72,11 @@ def compile_cel_policy(
     args = []
     srcs = [policy, config]
 
-    args.append("--policy=$(location %s)" % policy)
-    args.append("--config=$(location %s)" % config)
+    args.append("--policy=$(execpath %s)" % policy)
+    args.append("--config=$(execpath %s)" % config)
 
     if base_config != None:
-        args.append("--base_config=$(location %s)" % base_config)
+        args.append("--base_config=$(execpath %s)" % base_config)
         srcs.append(base_config)
 
     if len(proto_srcs) > 0 and file_descriptor_set != None:
@@ -87,10 +91,10 @@ def compile_cel_policy(
         file_descriptor_set = transitive_descriptor_set_name
 
     if file_descriptor_set != None:
-        args.append("--file_descriptor_set=$(location %s)" % file_descriptor_set)
+        args.append("--file_descriptor_set=$(execpath %s)" % file_descriptor_set)
         srcs.append(file_descriptor_set)
 
-    args.append("--output=$(location %s)" % output)
+    args.append("--output=$(execpath %s)" % output)
     args.append("--output_format=" + output_format)
     args.append("--output_version=" + output_version)
 
@@ -103,8 +107,12 @@ def compile_cel_policy(
     if iteration_limit != None:
         args.append("--iteration_limit=%d" % iteration_limit)
 
+    for identifier, decision in decisions.items():
+        args.append("--decision=%s=$(execpath %s)" % (identifier, decision))
+        srcs.append(decision)
+
     cmd = (
-        "$(location //policy/tools:cel_policy_compiler_tool) " +
+        "$(execpath //policy/tools:cel_policy_compiler_tool) " +
         " ".join(args)
     )
 

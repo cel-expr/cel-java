@@ -14,10 +14,13 @@
 
 package dev.cel.policy;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.collect.ImmutableList.toImmutableList;
+import static java.util.stream.Collectors.partitioningBy;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import dev.cel.bundle.Cel;
 import dev.cel.common.CelAbstractSyntaxTree;
@@ -39,6 +42,7 @@ import dev.cel.optimizer.CelOptimizer;
 import dev.cel.optimizer.CelOptimizerFactory;
 import dev.cel.optimizer.optimizers.ConstantFoldingOptimizer;
 import dev.cel.optimizer.optimizers.ConstantFoldingOptimizer.ConstantFoldingOptions;
+import dev.cel.optimizer.optimizers.SelectOptimizer;
 import dev.cel.optimizer.optimizers.SubexpressionOptimizer;
 import dev.cel.optimizer.optimizers.SubexpressionOptimizer.SubexpressionOptimizerOptions;
 import dev.cel.policy.CelCompiledRule.CelCompiledMatch;
@@ -57,6 +61,7 @@ import dev.cel.validator.validators.AstDepthLimitValidator;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /** Package-private implementation for policy compiler. */
@@ -68,6 +73,7 @@ final class CelPolicyCompilerImpl implements CelPolicyCompiler {
   private final int iterationLimit;
   private final ImmutableList<CelAstOptimizer> optimizers;
   private final Optional<CelAstValidator> astDepthValidator;
+  private final ImmutableMap<String, CelAbstractSyntaxTree> decisions;
 
   @Override
   public CelCompiledRule compileRule(CelPolicy policy) throws CelPolicyValidationException {
@@ -144,14 +150,35 @@ final class CelPolicyCompilerImpl implements CelPolicyCompiler {
       throw new CelPolicyValidationException("Unexpected error while composing rules.", e);
     }
 
+    // Linking runs in a fresh environment after CSE, as it renumbers the cel.@block indices that
+    // CSE has already declared. SelectOptimizer must observe the linked AST.
+    Map<Boolean, List<CelAstOptimizer>> isPostLinkOptimizer =
+        optimizers.stream()
+            .collect(partitioningBy(o -> !decisions.isEmpty() && o instanceof SelectOptimizer));
     CelOptimizer astOptimizer =
-        CelOptimizerFactory.standardCelOptimizerBuilder(cel).addAstOptimizers(optimizers).build();
+        CelOptimizerFactory.standardCelOptimizerBuilder(cel)
+            .addAstOptimizers(isPostLinkOptimizer.get(false))
+            .build();
     try {
       // Optimize the composed graph using const fold and CSE
       ast = astOptimizer.optimize(ast);
     } catch (CelOptimizationException e) {
       throw new CelPolicyValidationException(
           "Failed to optimize the composed policy. Reason: " + e.getMessage(), e);
+    }
+
+    if (!decisions.isEmpty()) {
+      CelOptimizer linkingOptimizer =
+          CelOptimizerFactory.standardCelOptimizerBuilder(cel)
+              .addAstOptimizers(PolicyDecisionLinker.newInstance(decisions, iterationLimit))
+              .addAstOptimizers(isPostLinkOptimizer.get(true))
+              .build();
+      try {
+        ast = linkingOptimizer.optimize(ast);
+      } catch (CelOptimizationException e) {
+        throw new CelPolicyValidationException(
+            "Failed to link policy decisions. Reason: " + e.getMessage(), e);
+      }
     }
 
     assertAstDepthIsSafe(ast, cel);
@@ -370,10 +397,12 @@ final class CelPolicyCompilerImpl implements CelPolicyCompiler {
     private int iterationLimit;
     private ImmutableList<CelAstOptimizer> optimizers;
     private Optional<CelAstValidator> astDepthLimitValidator;
+    private final ImmutableMap.Builder<String, CelAbstractSyntaxTree> decisions;
 
     private Builder(Cel cel) {
       this.cel = cel;
       this.astDepthLimitValidator = Optional.of(AstDepthLimitValidator.DEFAULT);
+      this.decisions = ImmutableMap.builder();
     }
 
     @Override
@@ -402,15 +431,47 @@ final class CelPolicyCompilerImpl implements CelPolicyCompiler {
     }
 
     @Override
+    @CanIgnoreReturnValue
     public Builder setOptimizers(List<CelAstOptimizer> optimizers) {
       this.optimizers = ImmutableList.copyOf(optimizers);
       return this;
     }
 
     @Override
+    @CanIgnoreReturnValue
+    public Builder addDecisions(Map<String, CelAbstractSyntaxTree> decisions) {
+      this.decisions.putAll(checkNotNull(decisions));
+      return this;
+    }
+
+    @Override
     public CelPolicyCompiler build() {
+      ImmutableMap<String, CelAbstractSyntaxTree> decisions = this.decisions.buildOrThrow();
+      ImmutableList.Builder<CelVarDecl> decisionDecls = ImmutableList.builder();
+      for (Map.Entry<String, CelAbstractSyntaxTree> decision : decisions.entrySet()) {
+        String name = decision.getKey();
+        // Qualified names cannot be captured by comprehension variables, and '@' is reserved for
+        // optimizer generated identifiers (e.g. @index0).
+        checkArgument(
+            name.contains(".") && !name.startsWith("@") && !name.startsWith(variablesPrefix),
+            "Invalid decision name: '%s'. Decision names must be qualified (e.g. decisions.foo).",
+            name);
+        checkArgument(decision.getValue().isChecked(), "Decision '%s' must be type-checked.", name);
+        decisionDecls.add(CelVarDecl.newVarDeclaration(name, decision.getValue().getResultType()));
+      }
+      // Without namespaced declarations, qualified decision references remain unlinked selects.
+      checkArgument(
+          decisions.isEmpty() || cel.toCheckerBuilder().options().enableNamespacedDeclarations(),
+          "Linking decisions requires enableNamespacedDeclarations.");
       return new CelPolicyCompilerImpl(
-          cel, this.variablesPrefix, this.iterationLimit, this.optimizers, astDepthLimitValidator);
+          decisions.isEmpty()
+              ? cel
+              : cel.toCelBuilder().addVarDeclarations(decisionDecls.build()).build(),
+          this.variablesPrefix,
+          this.iterationLimit,
+          this.optimizers,
+          astDepthLimitValidator,
+          decisions);
     }
   }
 
@@ -436,11 +497,13 @@ final class CelPolicyCompilerImpl implements CelPolicyCompiler {
       String variablesPrefix,
       int iterationLimit,
       ImmutableList<CelAstOptimizer> optimizers,
-      Optional<CelAstValidator> astDepthValidator) {
+      Optional<CelAstValidator> astDepthValidator,
+      ImmutableMap<String, CelAbstractSyntaxTree> decisions) {
     this.cel = checkNotNull(cel);
     this.variablesPrefix = checkNotNull(variablesPrefix);
     this.iterationLimit = iterationLimit;
     this.optimizers = optimizers;
     this.astDepthValidator = astDepthValidator;
+    this.decisions = decisions;
   }
 }
