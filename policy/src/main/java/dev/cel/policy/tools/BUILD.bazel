@@ -36,6 +36,7 @@ java_library(
         "//policy:compiler_factory",
         "//policy:parser",
         "//policy:parser_factory",
+        "@cel_spec//proto/cel/expr:checked_java_proto",
         "@maven//:com_google_guava_guava",
         "@maven//:com_google_protobuf_protobuf_java",
         "@maven//:info_picocli_picocli",

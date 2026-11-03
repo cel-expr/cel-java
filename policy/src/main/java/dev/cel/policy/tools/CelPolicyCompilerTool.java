@@ -16,8 +16,10 @@ package dev.cel.policy.tools;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 
+import dev.cel.expr.CheckedExpr;
 import com.google.common.base.Ascii;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.protobuf.DescriptorProtos.FileDescriptorSet;
 import com.google.protobuf.Descriptors.FileDescriptor;
@@ -58,6 +60,8 @@ import java.io.PrintWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.concurrent.Callable;
 import picocli.CommandLine;
 import picocli.CommandLine.Model.CommandSpec;
@@ -126,6 +130,14 @@ public final class CelPolicyCompilerTool implements Callable<Integer> {
       names = {"--simple_variables"},
       description = "Enable inline variable definitions (e.g., '- var_name: expr') in the policy")
   private boolean simpleVariables = false;
+
+  @SuppressWarnings("FieldCanBeFinal") // Populated reflectively by picocli
+  @Option(
+      names = {"--decision"},
+      description =
+          "Separately compiled policy (canonical CheckedExpr binarypb) to link, as"
+              + " <identifier>=<path>. e.g. decisions.channel=channel.binarypb")
+  private Map<String, String> decisionPaths = new LinkedHashMap<>();
 
   @Option(
       names = {"--iteration_limit"},
@@ -244,6 +256,11 @@ public final class CelPolicyCompilerTool implements Callable<Integer> {
           CelPolicyCompilerFactory.newPolicyCompiler(cel)
               .setIterationLimit(iterationLimit)
               .setOptimizers(optimizersBuilder.build());
+      ImmutableMap.Builder<String, CelAbstractSyntaxTree> decisions = ImmutableMap.builder();
+      for (Map.Entry<String, String> decision : decisionPaths.entrySet()) {
+        decisions.put(decision.getKey(), loadCheckedExpr(decision.getValue()));
+      }
+      policyCompilerBuilder.addDecisions(decisions.buildOrThrow());
 
       CelPolicyCompiler policyCompiler = policyCompilerBuilder.build();
       CelAbstractSyntaxTree ast = policyCompiler.compile(policy);
@@ -314,6 +331,12 @@ public final class CelPolicyCompilerTool implements Callable<Integer> {
       throw new IllegalArgumentException(
           String.format("Only YAML format is supported for %s. Got: %s", description, path));
     }
+  }
+
+  private static CelAbstractSyntaxTree loadCheckedExpr(String path) throws IOException {
+    return CelProtoAbstractSyntaxTree.fromCheckedExpr(
+            CheckedExpr.parseFrom(readFileBytes(path), ExtensionRegistry.getEmptyRegistry()))
+        .getAst();
   }
 
   private static FileDescriptorSet load(String descriptorSetPath) {

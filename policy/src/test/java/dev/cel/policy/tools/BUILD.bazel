@@ -22,6 +22,30 @@ compile_cel_policy(
     simple_variables = True,
 )
 
+# Example of module based evaluation: each sub-policy is compiled and owned separately, then
+# statically linked into the deployable workflow as `decisions.*` identifiers.
+compile_cel_policy(
+    name = "channel_decision",
+    config = "decisions/environment.yaml",
+    policy = "decisions/channel.celpolicy",
+)
+
+compile_cel_policy(
+    name = "text_risk_decision",
+    config = "decisions/environment.yaml",
+    policy = "decisions/text_risk.celpolicy",
+)
+
+compile_cel_policy(
+    name = "workflow",
+    config = "decisions/environment.yaml",
+    decisions = {
+        "decisions.channel": ":channel_decision",
+        "decisions.text_risk": ":text_risk_decision",
+    },
+    policy = "decisions/workflow.celpolicy",
+)
+
 java_library(
     name = "tests",
     testonly = True,
@@ -29,6 +53,7 @@ java_library(
     data = [
         ":compiled_test_policy.binarypb",
         ":test_all_types_fds",
+        ":workflow.binarypb",
         "//testing/environment:proto3_message_variables",
     ],
     deps = [
@@ -39,6 +64,7 @@ java_library(
         "//extensions:optional_library",
         "//policy/tools",
         "//runtime",
+        "//runtime:function_binding",
         "@bazel_tools//tools/java/runfiles",
         "@cel_spec//proto/cel/expr:checked_java_proto",
         "@cel_spec//proto/cel/expr/conformance/proto3:test_all_types_java_proto",

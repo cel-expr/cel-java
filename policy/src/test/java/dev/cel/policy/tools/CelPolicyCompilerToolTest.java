@@ -18,6 +18,7 @@ import static com.google.common.truth.Truth.assertThat;
 import static java.nio.charset.StandardCharsets.UTF_8;
 
 import dev.cel.expr.CheckedExpr;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.io.Files;
 import com.google.devtools.build.runfiles.AutoBazelRepository;
@@ -29,6 +30,7 @@ import dev.cel.common.CelProtoAbstractSyntaxTree;
 import dev.cel.common.CelSource;
 import dev.cel.expr.conformance.proto3.TestAllTypes;
 import dev.cel.extensions.CelOptionalLibrary;
+import dev.cel.runtime.CelFunctionBinding;
 import dev.cel.runtime.CelRuntime;
 import dev.cel.runtime.CelRuntimeFactory;
 import java.io.ByteArrayOutputStream;
@@ -548,6 +550,75 @@ public final class CelPolicyCompilerToolTest {
     TestAllTypes nonMatchingProto = TestAllTypes.newBuilder().setSingleInt32(100).build();
     assertThat(celRuntime.createProgram(ast).eval(ImmutableMap.of("proto3", nonMatchingProto)))
         .isEqualTo("DENY");
+  }
+
+  @Test
+  public void compileCelPolicyMacro_linkedDecisions_success() throws Exception {
+    String rlocation =
+        "cel_java/policy/src/test/java/dev/cel/policy/tools/workflow.binarypb";
+    CheckedExpr checkedExpr =
+        CheckedExpr.parseFrom(
+            Files.toByteArray(new File(resolveRunfile(rlocation))),
+            ExtensionRegistry.getEmptyRegistry());
+    CelAbstractSyntaxTree ast = CelProtoAbstractSyntaxTree.fromCheckedExpr(checkedExpr).getAst();
+    CelRuntime runtime =
+        CelRuntimeFactory.plannerRuntimeBuilder()
+            .addFunctionBindings(
+                CelFunctionBinding.from(
+                    "RunTextModel_string", String.class, text -> ImmutableList.of(0.95, 0.1)))
+            .build();
+
+    Object result =
+        runtime.createProgram(ast).eval(ImmutableMap.of("channel", "sms", "text", "hi"));
+
+    assertThat(result).isEqualTo("BLOCK");
+  }
+
+  @Test
+  public void compile_withDecision_success() throws Exception {
+    String configPath =
+        createFile("config.yaml", "name: test-env\nvariables:\n  - name: age\n    type: int\n");
+    String decisionPolicyPath =
+        createFile("adult.yaml", "name: adult\nrule:\n  match:\n    - output: age >= 18\n");
+    File decisionFile = tempFolder.newFile("adult.binarypb");
+    new CommandLine(new CelPolicyCompilerTool())
+        .execute(
+            "--policy",
+            decisionPolicyPath,
+            "--config",
+            configPath,
+            "--output",
+            decisionFile.getAbsolutePath());
+    String policyPath =
+        createFile(
+            "policy.yaml",
+            "name: workflow\n"
+                + "rule:\n"
+                + "  match:\n"
+                + "    - condition: decisions.adult\n"
+                + "      output: '\"allow\"'\n"
+                + "    - output: '\"deny\"'\n");
+    File outputFile = tempFolder.newFile("output.binarypb");
+
+    int exitCode =
+        new CommandLine(new CelPolicyCompilerTool())
+            .execute(
+                "--policy",
+                policyPath,
+                "--config",
+                configPath,
+                "--decision",
+                "decisions.adult=" + decisionFile.getAbsolutePath(),
+                "--output",
+                outputFile.getAbsolutePath());
+
+    assertThat(exitCode).isEqualTo(0);
+    CelAbstractSyntaxTree ast =
+        CelProtoAbstractSyntaxTree.fromCheckedExpr(
+                CheckedExpr.parseFrom(
+                    Files.toByteArray(outputFile), ExtensionRegistry.getEmptyRegistry()))
+            .getAst();
+    assertThat(celRuntime.createProgram(ast).eval(ImmutableMap.of("age", 25L))).isEqualTo("allow");
   }
 
   @Test
