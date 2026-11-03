@@ -183,6 +183,7 @@ public abstract class CelOptions {
         .enableUnsignedLongs(true)
         .enableRegexPartialMatch(true)
         .enableTimestampEpoch(true)
+        .enableHeterogeneousNumericComparisons(true)
         .errorOnDuplicateMapKeys(true)
         .evaluateCanonicalTypesToNativeValues(true)
         .errorOnIntWrap(true)
@@ -323,8 +324,7 @@ public abstract class CelOptions {
      * Enable the {@code less_equals_double_int64} and other cross-type numeric comparisons for
      * {@code double}, {@code int64}, and {@code uint64} values.
      *
-     * <p>This feature adds the declarations for these overloads to the CEL standard environment,
-     * but the runtime functions are enabled by default.
+     * <p>This option is enabled by default in {@link CelOptions#current}.
      *
      * <p>TODO: Remove this feature once it has been auto-enabled.
      */
