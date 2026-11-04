@@ -21,6 +21,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.primitives.UnsignedLong;
 import com.google.testing.junit.testparameterinjector.TestParameterInjector;
+import com.google.testing.junit.testparameterinjector.TestParameters;
 import dev.cel.common.CelDescriptorUtil;
 import dev.cel.common.CelOptions;
 import dev.cel.common.internal.CelDescriptorPool;
@@ -37,6 +38,7 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 
 @RunWith(TestParameterInjector.class)
+@SuppressWarnings("GoodTime-ApiWithNumericTimeUnit") // Raw seconds/nanos boundary tests
 public class ProtoMessageValueProviderTest {
 
   private static final CelDescriptorPool DESCRIPTOR_POOL =
@@ -47,15 +49,14 @@ public class ProtoMessageValueProviderTest {
   private static final ProtoMessageFactory MESSAGE_FACTORY =
       DefaultMessageFactory.create(DESCRIPTOR_POOL);
   private static final DynamicProto DYNAMIC_PROTO = DynamicProto.create(MESSAGE_FACTORY);
+  private static final ProtoMessageValueProvider VALUE_PROVIDER =
+      ProtoMessageValueProvider.newInstance(CelOptions.DEFAULT, DYNAMIC_PROTO);
 
   @Test
   public void newValue_createEmptyProtoMessage() {
-    ProtoMessageValueProvider protoMessageValueProvider =
-        ProtoMessageValueProvider.newInstance(CelOptions.DEFAULT, DYNAMIC_PROTO);
-
     ProtoMessageValue protoMessageValue =
         (ProtoMessageValue)
-            protoMessageValueProvider
+            VALUE_PROVIDER
                 .newValue(TestAllTypes.getDescriptor().getFullName(), ImmutableMap.of())
                 .get();
 
@@ -107,12 +108,9 @@ public class ProtoMessageValueProviderTest {
 
   @Test
   public void newValue_createProtoMessage_unsignedLongFieldsPopulated() {
-    ProtoMessageValueProvider protoMessageValueProvider =
-        ProtoMessageValueProvider.newInstance(CelOptions.DEFAULT, DYNAMIC_PROTO);
-
     ProtoMessageValue protoMessageValue =
         (ProtoMessageValue)
-            protoMessageValueProvider
+            VALUE_PROVIDER
                 .newValue(
                     TestAllTypes.getDescriptor().getFullName(),
                     ImmutableMap.of(
@@ -126,12 +124,9 @@ public class ProtoMessageValueProviderTest {
 
   @Test
   public void newValue_createProtoMessage_wrappersPopulated() {
-    ProtoMessageValueProvider protoMessageValueProvider =
-        ProtoMessageValueProvider.newInstance(CelOptions.DEFAULT, DYNAMIC_PROTO);
-
     ProtoMessageValue protoMessageValue =
         (ProtoMessageValue)
-            protoMessageValueProvider
+            VALUE_PROVIDER
                 .newValue(
                     TestAllTypes.getDescriptor().getFullName(),
                     ImmutableMap.of(
@@ -166,12 +161,9 @@ public class ProtoMessageValueProviderTest {
 
   @Test
   public void newValue_createProtoMessage_extensionFieldsPopulated() {
-    ProtoMessageValueProvider protoMessageValueProvider =
-        ProtoMessageValueProvider.newInstance(CelOptions.DEFAULT, DYNAMIC_PROTO);
-
     ProtoMessageValue protoMessageValue =
         (ProtoMessageValue)
-            protoMessageValueProvider
+            VALUE_PROVIDER
                 .newValue(
                     TestAllTypes.getDescriptor().getFullName(),
                     ImmutableMap.of("cel.expr.conformance.proto2.int32_ext", 1))
@@ -183,22 +175,16 @@ public class ProtoMessageValueProviderTest {
 
   @Test
   public void newValue_invalidMessageName_returnsEmpty() {
-    ProtoMessageValueProvider protoMessageValueProvider =
-        ProtoMessageValueProvider.newInstance(CelOptions.DEFAULT, DYNAMIC_PROTO);
-
-    assertThat(protoMessageValueProvider.newValue("bogus", ImmutableMap.of())).isEmpty();
+    assertThat(VALUE_PROVIDER.newValue("bogus", ImmutableMap.of())).isEmpty();
   }
 
   @Test
   public void newValue_invalidField_throws() {
-    ProtoMessageValueProvider protoMessageValueProvider =
-        ProtoMessageValueProvider.newInstance(CelOptions.DEFAULT, DYNAMIC_PROTO);
-
     IllegalArgumentException e =
         assertThrows(
             IllegalArgumentException.class,
             () ->
-                protoMessageValueProvider.newValue(
+                VALUE_PROVIDER.newValue(
                     TestAllTypes.getDescriptor().getFullName(), ImmutableMap.of("bogus", 1)));
 
     assertThat(e)
@@ -211,10 +197,8 @@ public class ProtoMessageValueProviderTest {
   @Test
   public void newValue_onCombinedProvider() {
     CelValueProvider celValueProvider = (structType, fields) -> Optional.empty();
-    ProtoMessageValueProvider protoMessageValueProvider =
-        ProtoMessageValueProvider.newInstance(CelOptions.DEFAULT, DYNAMIC_PROTO);
     CelValueProvider combinedProvider =
-        CombinedCelValueProvider.combine(celValueProvider, protoMessageValueProvider);
+        CombinedCelValueProvider.combine(celValueProvider, VALUE_PROVIDER);
 
     ProtoMessageValue protoMessageValue =
         (ProtoMessageValue)
@@ -225,5 +209,54 @@ public class ProtoMessageValueProviderTest {
 
     assertThat(protoMessageValue.isZeroValue()).isFalse();
     assertThat(protoMessageValue.select("single_int32")).isEqualTo(1L);
+  }
+
+  @Test
+  @TestParameters("{seconds: 315576000000, nanos: 999999999}")
+  @TestParameters("{seconds: -315576000000, nanos: -999999999}")
+  @TestParameters("{seconds: -315576000000, nanos: 0}")
+  @TestParameters("{seconds: 0, nanos: -999999999}")
+  public void newValue_durationAtBounds(long seconds, long nanos) {
+    ImmutableMap<String, Object> fields = ImmutableMap.of("seconds", seconds, "nanos", nanos);
+
+    Optional<Object> result = VALUE_PROVIDER.newValue("google.protobuf.Duration", fields);
+
+    assertThat(result).hasValue(Duration.ofSeconds(seconds, nanos));
+  }
+
+  @Test
+  @TestParameters("{seconds: 253402300799, nanos: 999999999}")
+  @TestParameters("{seconds: -62135596800, nanos: 0}")
+  @TestParameters("{seconds: -62135596800, nanos: 999999999}")
+  @TestParameters("{seconds: -1, nanos: 999999999}")
+  public void newValue_timestampAtBounds(long seconds, long nanos) {
+    ImmutableMap<String, Object> fields = ImmutableMap.of("seconds", seconds, "nanos", nanos);
+
+    Optional<Object> result = VALUE_PROVIDER.newValue("google.protobuf.Timestamp", fields);
+
+    assertThat(result).hasValue(Instant.ofEpochSecond(seconds, nanos));
+  }
+
+  @Test
+  @TestParameters("{typeName: 'google.protobuf.Duration', seconds: 315576000001, nanos: 0}")
+  @TestParameters("{typeName: 'google.protobuf.Duration', seconds: -315576000001, nanos: 0}")
+  @TestParameters("{typeName: 'google.protobuf.Duration', seconds: 0, nanos: 1000000000}")
+  @TestParameters("{typeName: 'google.protobuf.Duration', seconds: 0, nanos: -1000000000}")
+  @TestParameters("{typeName: 'google.protobuf.Duration', seconds: 1, nanos: -1}")
+  @TestParameters("{typeName: 'google.protobuf.Duration', seconds: -1, nanos: 1}")
+  @TestParameters("{typeName: 'google.protobuf.Timestamp', seconds: 253402300800, nanos: 0}")
+  @TestParameters("{typeName: 'google.protobuf.Timestamp', seconds: -62135596801, nanos: 0}")
+  @TestParameters("{typeName: 'google.protobuf.Timestamp', seconds: 0, nanos: 1000000000}")
+  @TestParameters("{typeName: 'google.protobuf.Timestamp', seconds: 0, nanos: -1}")
+  @TestParameters("{typeName: 'google.protobuf.Timestamp', seconds: -1, nanos: -1}")
+  public void newValue_durationAndTimestamp_outOfRangeThrows(
+      String typeName, long seconds, long nanos) {
+    ImmutableMap<String, Object> fields = ImmutableMap.of("seconds", seconds, "nanos", nanos);
+
+    IllegalArgumentException thrown =
+        assertThrows(
+            IllegalArgumentException.class, () -> VALUE_PROVIDER.newValue(typeName, fields));
+
+    assertThat(thrown).hasMessageThat().contains("is not valid");
   }
 }

@@ -310,6 +310,7 @@ java_library(
         "//common/annotations",
         "//common/internal:dynamic_proto",
         "//common/internal:proto_message_factory",
+        "//common/internal:proto_time_utils",
         "//common/values",
         "//common/values:cel_value_provider",
         "@maven//:com_google_errorprone_error_prone_annotations",

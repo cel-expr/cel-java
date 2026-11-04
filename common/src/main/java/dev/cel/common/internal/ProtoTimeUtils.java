@@ -196,6 +196,15 @@ public final class ProtoTimeUtils {
         (int) (milliseconds % MILLIS_PER_SECOND * NANOS_PER_MILLISECOND));
   }
 
+  /** Validates {@link Duration} and {@link Timestamp} bounds; ignores all other values. */
+  public static void validateWellKnownProto(Object message) {
+    if (message instanceof Duration) {
+      checkValid((Duration) message);
+    } else if (message instanceof Timestamp) {
+      checkValid((Timestamp) message);
+    }
+  }
+
   /** Throws an {@link IllegalArgumentException} if the given {@link Duration} is not valid. */
   @CanIgnoreReturnValue
   private static Duration checkValid(Duration duration) {

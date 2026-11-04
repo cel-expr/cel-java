@@ -255,4 +255,35 @@ public class ProtoTimeUtilsTest {
 
     assertThrows(IllegalArgumentException.class, () -> ProtoTimeUtils.between(from, to));
   }
+
+  @Test
+  public void validateWellKnownProto_validValues_succeeds() {
+    ProtoTimeUtils.validateWellKnownProto(
+        Duration.newBuilder().setSeconds(DURATION_SECONDS_MAX).setNanos(MAX_NANOS).build());
+    ProtoTimeUtils.validateWellKnownProto(
+        Timestamp.newBuilder().setSeconds(TIMESTAMP_SECONDS_MIN).build());
+    ProtoTimeUtils.validateWellKnownProto("not a proto");
+  }
+
+  @Test
+  public void validateWellKnownProto_invalidDuration_throws() {
+    Duration invalid = Duration.newBuilder().setSeconds(DURATION_SECONDS_MAX + 1).build();
+
+    IllegalArgumentException thrown =
+        assertThrows(
+            IllegalArgumentException.class, () -> ProtoTimeUtils.validateWellKnownProto(invalid));
+
+    assertThat(thrown).hasMessageThat().contains("Duration is not valid");
+  }
+
+  @Test
+  public void validateWellKnownProto_invalidTimestamp_throws() {
+    Timestamp invalid = Timestamp.newBuilder().setSeconds(TIMESTAMP_SECONDS_MAX + 1).build();
+
+    IllegalArgumentException thrown =
+        assertThrows(
+            IllegalArgumentException.class, () -> ProtoTimeUtils.validateWellKnownProto(invalid));
+
+    assertThat(thrown).hasMessageThat().contains("Timestamp is not valid");
+  }
 }

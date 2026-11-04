@@ -195,7 +195,13 @@ bindings: {int32_list=[value: 1
 ]}
 result:   true
 
-Source: google.protobuf.Timestamp{ seconds: 253402300800 }
+Source: x.single_timestamp
+declare x {
+  value cel.expr.conformance.proto3.TestAllTypes
+}
 =====>
-bindings: {}
+bindings: {x=single_timestamp {
+  seconds: 253402300800
+}
+}
 result:   +10000-01-01T00:00:00Z
