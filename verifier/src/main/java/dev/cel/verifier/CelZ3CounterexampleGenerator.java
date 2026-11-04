@@ -138,14 +138,17 @@ final class CelZ3CounterexampleGenerator {
       Instant instant = Instant.ofEpochSecond(seconds.longValue(), nanoAdjustment.longValue());
       return Value.exact(instant, "timestamp(\"" + instant + "\")");
     } else if (decl.equals(typeSystem.durationCons().ConstructorDecl())) {
-      BigInteger nanos = ((IntNum) args[0]).getBigInteger();
-      String display =
-          nanos.remainder(NANOS_PER_SECOND).signum() == 0
-              ? "duration(\"" + nanos.divide(NANOS_PER_SECOND) + "s\")"
-              : "duration(\"" + nanos + "ns\")";
-      return isInRange(nanos, Long.MIN_VALUE, Long.MAX_VALUE)
-          ? Value.exact(Duration.ofNanos(nanos.longValue()), display)
-          : Value.inexact(display);
+      BigInteger[] parts = ((IntNum) args[0]).getBigInteger().divideAndRemainder(NANOS_PER_SECOND);
+      if (!isInRange(
+          parts[0], ProtoTimeUtils.DURATION_SECONDS_MIN, ProtoTimeUtils.DURATION_SECONDS_MAX)) {
+        // No CEL duration is out of range, so no literal exists; show the seconds.
+        return Value.inexact("duration(\"" + parts[0] + "s\")");
+      }
+      long seconds = parts[0].longValue();
+      int nanos = parts[1].intValue();
+      return Value.exact(
+          Duration.ofSeconds(seconds, nanos),
+          "duration(\"" + ProtoTimeUtils.formatDuration(seconds, nanos) + "\")");
     } else if (decl.equals(typeSystem.listCons().ConstructorDecl())) {
       return extractList(args[0]);
     } else if (decl.equals(typeSystem.mapCons().ConstructorDecl())) {
