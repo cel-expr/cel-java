@@ -54,8 +54,7 @@ import org.junit.runner.RunWith;
 @RunWith(TestParameterInjector.class)
 public final class CelEnvironmentYamlParserTest {
 
-  private static final CelOptions CEL_OPTIONS =
-      CelOptions.current().enableHeterogeneousNumericComparisons(true).build();
+  private static final CelOptions CEL_OPTIONS = CelOptions.DEFAULT;
 
   private static final Cel CEL_WITH_MESSAGE_TYPES =
       CelFactory.plannerCelBuilder()

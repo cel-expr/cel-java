@@ -59,7 +59,6 @@ public class ConstantFoldingOptimizerTest {
   private static final CelOptions CEL_OPTIONS =
       CelOptions.current()
           .populateMacroCalls(true)
-          .enableHeterogeneousNumericComparisons(true)
           .build();
 
   private static final CelUnparser CEL_UNPARSER = CelUnparserFactory.newUnparser();
@@ -529,7 +528,6 @@ public class ConstantFoldingOptimizerTest {
             .setStandardMacros(CelStandardMacro.STANDARD_MACROS)
             .setOptions(
                 CelOptions.current()
-                    .enableHeterogeneousNumericComparisons(true)
                     .populateMacroCalls(false)
                     .build())
             .addCompilerLibraries(CelExtensions.bindings(), CelOptionalLibrary.INSTANCE)
@@ -921,11 +919,7 @@ public class ConstantFoldingOptimizerTest {
 
   @Test
   public void iterationLimitReached_throws() throws Exception {
-    Cel cel =
-        runtimeFlavor
-            .builder()
-            .setOptions(CelOptions.current().enableHeterogeneousNumericComparisons(true).build())
-            .build();
+    Cel cel = runtimeFlavor.builder().build();
     CelAbstractSyntaxTree ast = cel.compile("1 + 1").getAst();
     CelOptimizer optimizer =
         CelOptimizerFactory.standardCelOptimizerBuilder(cel)

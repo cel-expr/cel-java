@@ -41,19 +41,16 @@ Cel cel = CelFactory.plannerCelBuilder().build();
 > (`standardCelBuilder`, `legacyCelBuilder`, `standardCelRuntimeBuilder`,
 > `legacyCelRuntimeBuilder`) are deprecated.
 
-If you are overriding `CelOptions`, ensure
-`enableHeterogeneousNumericComparisons` is enabled, and remove any deprecated
-options:
+If you are overriding `CelOptions`, start from `CelOptions.current()` and remove
+any deprecated options:
 
 ```java
 CelOptions options = CelOptions.current()
-    // Ensure this is explicitly toggled on (enabled by default in planner
-    // builders)
-    .enableHeterogeneousNumericComparisons(true)
     // Remove the following deprecated options if you have them set:
     // .enableUnsignedLongs(...)
     // .unwrapWellKnownTypesOnFunctionDispatch(...)
     // .enableTimestampEpoch(...)
+    // .enableHeterogeneousNumericComparisons(...)
     .build();
 
 CelRuntime runtime = CelRuntimeFactory.plannerRuntimeBuilder()

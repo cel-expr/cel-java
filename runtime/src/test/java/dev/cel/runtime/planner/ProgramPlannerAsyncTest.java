@@ -454,7 +454,6 @@ public final class ProgramPlannerAsyncTest {
         plannerRuntimeBuilder()
             .setOptions(
                 CelOptions.current()
-                    .enableHeterogeneousNumericComparisons(true)
                     .enableShortCircuiting(false)
                     .build())
             .addFunctionBindings(
@@ -501,7 +500,6 @@ public final class ProgramPlannerAsyncTest {
         plannerRuntimeBuilder()
             .setOptions(
                 CelOptions.current()
-                    .enableHeterogeneousNumericComparisons(true)
                     .enableShortCircuiting(false)
                     .build())
             .build()
@@ -552,7 +550,6 @@ public final class ProgramPlannerAsyncTest {
         plannerRuntimeBuilder()
             .setOptions(
                 CelOptions.current()
-                    .enableHeterogeneousNumericComparisons(true)
                     .enableShortCircuiting(false)
                     .build())
             .addFunctionBindings(
@@ -1203,7 +1200,6 @@ public final class ProgramPlannerAsyncTest {
         plannerRuntimeBuilder()
             .setOptions(
                 CelOptions.current()
-                    .enableHeterogeneousNumericComparisons(true)
                     .enableProtoDifferencerEquality(true)
                     .build())
             .addMessageTypes(TestAllTypes.getDescriptor())

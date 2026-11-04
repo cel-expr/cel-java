@@ -77,7 +77,6 @@ public class SubexpressionOptimizerTest {
         .setOptions(
             CelOptions.current()
                 .populateMacroCalls(true)
-                .enableHeterogeneousNumericComparisons(true)
                 .build())
         .addCompilerLibraries(
             CelExtensions.bindings(), CelExtensions.strings(), CelExtensions.optional())
@@ -829,7 +828,6 @@ public class SubexpressionOptimizerTest {
             .setOptions(
                 CelOptions.current()
                     .populateMacroCalls(true)
-                    .enableHeterogeneousNumericComparisons(true)
                     .build())
             .addCompilerLibraries(CelExtensions.comprehensions())
             .addRuntimeLibraries(CelExtensions.comprehensions())
@@ -858,7 +856,6 @@ public class SubexpressionOptimizerTest {
             .setOptions(
                 CelOptions.current()
                     .populateMacroCalls(true)
-                    .enableHeterogeneousNumericComparisons(true)
                     .build())
             .addCompilerLibraries(CelExtensions.comprehensions())
             .addRuntimeLibraries(CelExtensions.comprehensions())

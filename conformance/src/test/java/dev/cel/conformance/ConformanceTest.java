@@ -92,7 +92,6 @@ public final class ConformanceTest extends Statement {
 
   private static final CelOptions OPTIONS =
       CelOptions.current()
-          .enableHeterogeneousNumericComparisons(true)
           .enableProtoDifferencerEquality(true)
           .enableOptionalSyntax(true)
           .enableQuotedIdentifierSyntax(true)

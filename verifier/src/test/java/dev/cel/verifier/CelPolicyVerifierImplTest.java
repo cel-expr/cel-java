@@ -65,7 +65,6 @@ public final class CelPolicyVerifierImplTest {
           .setOptions(
               CelOptions.current()
                   .populateMacroCalls(true)
-                  .enableHeterogeneousNumericComparisons(true)
                   .build())
           .setStandardMacros(CelStandardMacro.STANDARD_MACROS)
           .addCompilerLibraries(CelExtensions.bindings())
@@ -770,7 +769,6 @@ public final class CelPolicyVerifierImplTest {
     CelOptions options =
         CelOptions.current()
             .populateMacroCalls(true)
-            .enableHeterogeneousNumericComparisons(true)
             .build();
     Cel baseCel =
         CelFactory.plannerCelBuilder()

@@ -208,10 +208,6 @@ public abstract class CelEnvironmentExporter {
   private void addOptions(CelEnvironment.Builder envBuilder, CelOptions options) {
     // The set of features supported in the exported environment in Go is pretty limited right now.
     ImmutableSet.Builder<CelEnvironment.FeatureFlag> featureFlags = ImmutableSet.builder();
-    if (options.enableHeterogeneousNumericComparisons()) {
-      featureFlags.add(
-          CelEnvironment.FeatureFlag.create("cel.feature.cross_type_numeric_comparisons", true));
-    }
     if (options.enableQuotedIdentifierSyntax()) {
       featureFlags.add(
           CelEnvironment.FeatureFlag.create("cel.feature.backtick_escape_syntax", true));
