@@ -18,6 +18,7 @@ import static com.google.common.truth.Truth.assertThat;
 import static java.nio.charset.StandardCharsets.UTF_8;
 
 import dev.cel.expr.CheckedExpr;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.io.Files;
 import com.google.devtools.build.runfiles.AutoBazelRepository;
@@ -29,6 +30,8 @@ import dev.cel.common.CelProtoAbstractSyntaxTree;
 import dev.cel.common.CelSource;
 import dev.cel.expr.conformance.proto3.TestAllTypes;
 import dev.cel.extensions.CelOptionalLibrary;
+import dev.cel.parser.CelUnparser;
+import dev.cel.parser.CelUnparserFactory;
 import dev.cel.runtime.CelRuntime;
 import dev.cel.runtime.CelRuntimeFactory;
 import java.io.ByteArrayOutputStream;
@@ -49,6 +52,8 @@ import picocli.CommandLine;
 @RunWith(JUnit4.class)
 @AutoBazelRepository
 public final class CelPolicyCompilerToolTest {
+
+  private static final CelUnparser CEL_UNPARSER = CelUnparserFactory.newUnparser();
 
   @Rule public TemporaryFolder tempFolder = new TemporaryFolder();
 
@@ -325,6 +330,27 @@ public final class CelPolicyCompilerToolTest {
             "1");
 
     assertThat(stdErr).contains("Reason: Unexpected error while composing rules.");
+  }
+
+  @Test
+  public void compile_customFunction_eliminatedByDefault() throws Exception {
+    CelAbstractSyntaxTree ast = compileCustomFunctionPolicy();
+
+    assertThat(CEL_UNPARSER.unparse(ast))
+        .isEqualTo(
+            "cel.@block([expensive(\"x\")], (@index0 > 1 && @index0 < 10) ? optional.of(true) :"
+                + " optional.none())");
+  }
+
+  @Test
+  public void compile_withNonEliminableFunctions_retainsCalls() throws Exception {
+    CelAbstractSyntaxTree ast =
+        compileCustomFunctionPolicy("--non_eliminable_functions", "expensive,unused");
+
+    assertThat(CEL_UNPARSER.unparse(ast))
+        .isEqualTo(
+            "(expensive(\"x\") > 1 && expensive(\"x\") < 10) ? optional.of(true) :"
+                + " optional.none()");
   }
 
   @Test
@@ -921,6 +947,47 @@ public final class CelPolicyCompilerToolTest {
     File file = tempFolder.newFile(fileName);
     Files.asCharSink(file, UTF_8).write(content);
     return file.getAbsolutePath();
+  }
+
+  private CelAbstractSyntaxTree compileCustomFunctionPolicy(String... extraArgs) throws Exception {
+    String configPath =
+        createFile(
+            "config.yaml",
+            "name: test-env\n"
+                + "functions:\n"
+                + "  - name: expensive\n"
+                + "    overloads:\n"
+                + "      - id: expensive_string\n"
+                + "        args:\n"
+                + "          - type_name: string\n"
+                + "        return:\n"
+                + "          type_name: int\n");
+    String policyPath =
+        createFile(
+            "policy.yaml",
+            "name: p\n"
+                + "rule:\n"
+                + "  variables:\n"
+                + "    - name: score\n"
+                + "      expression: expensive('x')\n"
+                + "  match:\n"
+                + "    - condition: variables.score > 1 && variables.score < 10\n"
+                + "      output: 'true'\n");
+    File outputFile = tempFolder.newFile("output.binarypb");
+    ImmutableList<String> args =
+        ImmutableList.<String>builder()
+            .add("--policy", policyPath, "--config", configPath)
+            .add("--output", outputFile.getAbsolutePath())
+            .add(extraArgs)
+            .build();
+
+    int exitCode =
+        new CommandLine(new CelPolicyCompilerTool()).execute(args.toArray(new String[0]));
+
+    assertThat(exitCode).isEqualTo(0);
+    CheckedExpr checkedExpr =
+        CheckedExpr.parseFrom(Files.toByteArray(outputFile), ExtensionRegistry.getEmptyRegistry());
+    return CelProtoAbstractSyntaxTree.fromCheckedExpr(checkedExpr).getAst();
   }
 
   private static String executeExpectingError(String... args) {

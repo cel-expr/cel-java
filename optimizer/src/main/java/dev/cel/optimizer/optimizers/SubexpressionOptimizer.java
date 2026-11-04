@@ -562,7 +562,10 @@ public final class SubexpressionOptimizer implements CelAstOptimizer {
         .allMatch(
             node -> {
               if (node.getKind().equals(Kind.CALL)) {
-                return cseEliminableFunctions.contains(node.expr().call().function());
+                String function = node.expr().call().function();
+                return !cseOptions.nonEliminableFunctions().contains(function)
+                    && (cseOptions.eliminateAllFunctions()
+                        || cseEliminableFunctions.contains(function));
               }
 
               return true;
@@ -722,6 +725,10 @@ public final class SubexpressionOptimizer implements CelAstOptimizer {
 
     public abstract ImmutableSet<String> eliminableFunctions();
 
+    public abstract boolean eliminateAllFunctions();
+
+    public abstract ImmutableSet<String> nonEliminableFunctions();
+
     /** Builder for configuring the {@link SubexpressionOptimizerOptions}. */
     @AutoValue.Builder
     public abstract static class Builder {
@@ -751,7 +758,11 @@ public final class SubexpressionOptimizer implements CelAstOptimizer {
        * elimination. By default, standard functions are eliminable.
        *
        * <p>Note that the implementation of custom functions must be free of side effects.
+       *
+       * @deprecated Use {@code eliminateAllFunctions(true)} and {@link #addNonEliminableFunctions}
+       *     to exclude functions with side effects instead.
        */
+      @Deprecated
       @CanIgnoreReturnValue
       public Builder addEliminableFunctions(Iterable<String> functions) {
         checkNotNull(functions);
@@ -759,10 +770,30 @@ public final class SubexpressionOptimizer implements CelAstOptimizer {
         return this;
       }
 
-      /** See {@link #addEliminableFunctions(Iterable)}. */
+      /**
+       * @deprecated See {@link #addEliminableFunctions(Iterable)}.
+       */
+      @Deprecated
       @CanIgnoreReturnValue
       public Builder addEliminableFunctions(String... functions) {
         return addEliminableFunctions(Arrays.asList(functions));
+      }
+
+      /**
+       * Treats all functions, including custom ones, as candidates for common subexpression
+       * elimination. Functions with side effects must be excluded via {@link
+       * #addNonEliminableFunctions}.
+       */
+      public abstract Builder eliminateAllFunctions(boolean value);
+
+      abstract ImmutableSet.Builder<String> nonEliminableFunctionsBuilder();
+
+      /** Excludes functions (e.g. those with side effects) from elimination. */
+      @CanIgnoreReturnValue
+      public Builder addNonEliminableFunctions(Iterable<String> functions) {
+        checkNotNull(functions);
+        this.nonEliminableFunctionsBuilder().addAll(functions);
+        return this;
       }
 
       public abstract SubexpressionOptimizerOptions build();
@@ -775,7 +806,8 @@ public final class SubexpressionOptimizer implements CelAstOptimizer {
       return new AutoValue_SubexpressionOptimizer_SubexpressionOptimizerOptions.Builder()
           .iterationLimit(500)
           .enableCelBlock(true)
-          .populateMacroCalls(false);
+          .populateMacroCalls(false)
+          .eliminateAllFunctions(false);
     }
 
     SubexpressionOptimizerOptions() {}

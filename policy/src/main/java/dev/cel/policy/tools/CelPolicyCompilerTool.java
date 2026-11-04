@@ -133,6 +133,14 @@ public final class CelPolicyCompilerTool implements Callable<Integer> {
       description = "Maximum iteration limit for composing and optimizing the policy")
   private int iterationLimit = 1000;
 
+  @Option(
+      names = {"--non_eliminable_functions"},
+      split = ",",
+      description =
+          "Comma-separated functions with side effects to exclude from common subexpression"
+              + " elimination")
+  private String[] nonEliminableFunctions = {};
+
   private static final CelOptions CEL_OPTIONS =
       CelOptions.current()
           .populateMacroCalls(true)
@@ -233,6 +241,9 @@ public final class CelPolicyCompilerTool implements Callable<Integer> {
                       SubexpressionOptimizerOptions.newBuilder()
                           .iterationLimit(iterationLimit)
                           .populateMacroCalls(true)
+                          // CEL functions are assumed side-effect free unless opted out.
+                          .eliminateAllFunctions(true)
+                          .addNonEliminableFunctions(ImmutableList.copyOf(nonEliminableFunctions))
                           .build()));
       if (optimizeFieldSelection) {
         optimizersBuilder.add(

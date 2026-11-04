@@ -37,6 +37,7 @@ java_library(
         "//common:cel_source",
         "//common:proto_ast",
         "//extensions:optional_library",
+        "//parser:unparser",
         "//policy/tools",
         "//runtime",
         "@bazel_tools//tools/java/runfiles",

@@ -200,6 +200,18 @@ public class SubexpressionOptimizerTest {
     assertThat(result).isInstanceOf(CelUnknownSet.class);
   }
 
+  @Test
+  public void cse_defaultOptions_macroCallsNotPopulated() throws Exception {
+    CelAbstractSyntaxTree ast =
+        cel.compile("[1].exists(x, x > 0) == [1].exists(x, x > 0)").getAst();
+
+    CelAbstractSyntaxTree optimizedAst =
+        newCseOptimizer(SubexpressionOptimizerOptions.newBuilder().build()).optimize(ast);
+
+    assertThat(ast.getSource().getMacroCalls()).isNotEmpty();
+    assertThat(optimizedAst.getSource().getMacroCalls()).isEmpty();
+  }
+
   private enum CseNoOpTestCase {
     // Nothing to optimize
     NO_COMMON_SUBEXPR("size(\"hello\")"),
@@ -250,6 +262,39 @@ public class SubexpressionOptimizerTest {
 
     assertThat(ast.getExpr()).isEqualTo(optimizedAst.getExpr());
     assertThat(CEL_UNPARSER.unparse(optimizedAst)).isEqualTo(testCase.source);
+  }
+
+  @Test
+  public void cse_eliminateAllFunctions_customFunctionEliminated() throws Exception {
+    CelAbstractSyntaxTree ast =
+        cel.compile("non_pure_custom_func(1) + non_pure_custom_func(1)").getAst();
+
+    CelAbstractSyntaxTree optimizedAst =
+        newCseOptimizer(
+                SubexpressionOptimizerOptions.newBuilder().eliminateAllFunctions(true).build())
+            .optimize(ast);
+
+    assertThat(CEL_UNPARSER.unparse(optimizedAst))
+        .isEqualTo("cel.@block([non_pure_custom_func(1)], @index0 + @index0)");
+  }
+
+  @Test
+  public void cse_eliminateAllFunctions_nonEliminableFunctionRetained() throws Exception {
+    CelAbstractSyntaxTree ast =
+        cel.compile("non_pure_custom_func(size('a')) + non_pure_custom_func(size('a'))").getAst();
+
+    CelAbstractSyntaxTree optimizedAst =
+        newCseOptimizer(
+                SubexpressionOptimizerOptions.newBuilder()
+                    .eliminateAllFunctions(true)
+                    .addNonEliminableFunctions(ImmutableList.of("non_pure_custom_func"))
+                    .build())
+            .optimize(ast);
+
+    assertThat(CEL_UNPARSER.unparse(optimizedAst))
+        .isEqualTo(
+            "cel.@block([size(\"a\")], non_pure_custom_func(@index0) +"
+                + " non_pure_custom_func(@index0))");
   }
 
   @Test

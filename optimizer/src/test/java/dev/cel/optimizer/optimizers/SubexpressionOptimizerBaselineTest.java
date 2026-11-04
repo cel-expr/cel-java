@@ -115,7 +115,8 @@ public class SubexpressionOptimizerBaselineTest extends BaselineTestCase {
   private static final SubexpressionOptimizerOptions OPTIMIZER_COMMON_OPTIONS =
       SubexpressionOptimizerOptions.newBuilder()
           .populateMacroCalls(true)
-          .addEliminableFunctions("pure_custom_func")
+          .eliminateAllFunctions(true)
+          .addNonEliminableFunctions(ImmutableList.of("non_pure_custom_func"))
           .build();
 
   @Before
