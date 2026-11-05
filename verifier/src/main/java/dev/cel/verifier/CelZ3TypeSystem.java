@@ -295,7 +295,10 @@ public final class CelZ3TypeSystem {
 
   /** Wraps a Z3 double (floating-point) expression into a CelValue. */
   public Expr<?> wrapDouble(FPExpr expr) {
-    return ctx.mkApp(doubleCons.ConstructorDecl(), expr);
+    // CEL has a single NaN, but Z3 can model distinct NaN terms as distinct values.
+    return ctx.mkApp(
+        doubleCons.ConstructorDecl(),
+        ctx.mkITE(ctx.mkFPIsNaN(expr), ctx.mkFPNaN(ctx.mkFPSortDouble()), expr));
   }
 
   /** Wraps a Z3 bytes sequence expression into a CelValue. */

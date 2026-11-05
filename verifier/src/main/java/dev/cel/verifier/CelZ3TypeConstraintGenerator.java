@@ -80,7 +80,12 @@ final class CelZ3TypeConstraintGenerator {
       return ctx.mkAnd(typeSystem.isUint(val), ctx.mkNot(typeSystem.checkUintOverflow(unwrapped)));
     }
     if (type.equals(SimpleType.DOUBLE)) {
-      return typeSystem.isDouble(val);
+      // Inputs share wrapDouble's canonical NaN.
+      return ctx.mkAnd(
+          typeSystem.isDouble(val),
+          ctx.mkImplies(
+              ctx.mkFPIsNaN(typeSystem.getDouble(val)),
+              ctx.mkEq(val, typeSystem.wrapDouble(typeSystem.getDouble(val)))));
     }
     if (type.equals(SimpleType.STRING)) {
       return typeSystem.isString(val);

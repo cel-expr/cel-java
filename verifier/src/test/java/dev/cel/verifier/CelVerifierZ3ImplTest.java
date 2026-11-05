@@ -2449,6 +2449,10 @@ public final class CelVerifierZ3ImplTest {
         "google.protobuf.FloatValue{value: 0.1}", "0.10000000149011612"),
     WRAPPER_FLOAT_PRECISION_LOSS_NOT_EQUAL_ORIGINAL(
         "google.protobuf.FloatValue{value: 0.1} == 0.1", "false"),
+    WRAPPER_FLOAT_NAN("d != d ? google.protobuf.FloatValue{value: d} : 0.0", "d != d ? d : 0.0"),
+    DOUBLE_NAN_ARITHMETIC("d != d ? d + 1.0 : 0.0", "d != d ? d : 0.0"),
+    DOUBLE_NAN_INPUT_AND_LITERAL("d != d ? d : 0.0", "d != d ? 0.0 / 0.0 : 0.0"),
+    DOUBLE_NAN_IN_LIST("d != d ? [d] : []", "d != d ? [-d] : []"),
     WRAPPER_FLOAT_IDEMPOTENT_LITERAL(
         "google.protobuf.FloatValue{value: google.protobuf.FloatValue{value: 0.1}}",
         "google.protobuf.FloatValue{value: 0.1}"),
