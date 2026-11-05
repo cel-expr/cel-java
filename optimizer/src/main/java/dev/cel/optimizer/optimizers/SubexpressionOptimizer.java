@@ -755,12 +755,13 @@ public final class SubexpressionOptimizer implements CelAstOptimizer {
 
       /**
        * Adds a collection of custom functions that will be a candidate for common subexpression
-       * elimination. By default, standard functions are eliminable.
+       * elimination. Only takes effect with {@code eliminateAllFunctions(false)}, where standard
+       * functions are eliminable by default.
        *
        * <p>Note that the implementation of custom functions must be free of side effects.
        *
-       * @deprecated Use {@code eliminateAllFunctions(true)} and {@link #addNonEliminableFunctions}
-       *     to exclude functions with side effects instead.
+       * @deprecated Use {@link #addNonEliminableFunctions} to exclude functions with side effects
+       *     instead.
        */
       @Deprecated
       @CanIgnoreReturnValue
@@ -781,7 +782,7 @@ public final class SubexpressionOptimizer implements CelAstOptimizer {
 
       /**
        * Treats all functions, including custom ones, as candidates for common subexpression
-       * elimination. Functions with side effects must be excluded via {@link
+       * elimination (enabled by default). Functions with side effects must be excluded via {@link
        * #addNonEliminableFunctions}.
        */
       public abstract Builder eliminateAllFunctions(boolean value);
@@ -807,7 +808,7 @@ public final class SubexpressionOptimizer implements CelAstOptimizer {
           .iterationLimit(500)
           .enableCelBlock(true)
           .populateMacroCalls(false)
-          .eliminateAllFunctions(false);
+          .eliminateAllFunctions(true);
     }
 
     SubexpressionOptimizerOptions() {}

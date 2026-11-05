@@ -222,10 +222,6 @@ public class SubexpressionOptimizerTest {
     // Constants and identifiers within a function
     CONST_WITHIN_FUNCTION("size(\"hello\" + \"hello\" + \"hello\")"),
     IDENT_WITHIN_FUNCTION("string(x + x + x)"),
-    // Non-standard functions that have not been explicitly added as a candidate are not
-    // optimized.
-    NON_STANDARD_FUNCTION_1("non_pure_custom_func(1) + non_pure_custom_func(1)"),
-    NON_STANDARD_FUNCTION_2("1 + non_pure_custom_func(1) + 1 + non_pure_custom_func(1)"),
     // Duplicated but nested calls.
     NESTED_FUNCTION("int(timestamp(int(timestamp(1000000000))))"),
     // This cannot be optimized. Extracting the common subexpression would presence test
@@ -265,17 +261,33 @@ public class SubexpressionOptimizerTest {
   }
 
   @Test
-  public void cse_eliminateAllFunctions_customFunctionEliminated() throws Exception {
+  public void cse_customFunction_eliminatedByDefault() throws Exception {
     CelAbstractSyntaxTree ast =
         cel.compile("non_pure_custom_func(1) + non_pure_custom_func(1)").getAst();
 
     CelAbstractSyntaxTree optimizedAst =
-        newCseOptimizer(
-                SubexpressionOptimizerOptions.newBuilder().eliminateAllFunctions(true).build())
-            .optimize(ast);
+        newCseOptimizer(SubexpressionOptimizerOptions.newBuilder().build()).optimize(ast);
 
     assertThat(CEL_UNPARSER.unparse(optimizedAst))
         .isEqualTo("cel.@block([non_pure_custom_func(1)], @index0 + @index0)");
+  }
+
+  @Test
+  public void cse_eliminateAllFunctionsDisabled_customFunctionRetained(
+      @TestParameter({
+            "non_pure_custom_func(1) + non_pure_custom_func(1)",
+            "1 + non_pure_custom_func(1) + 1 + non_pure_custom_func(1)"
+          })
+          String source)
+      throws Exception {
+    CelAbstractSyntaxTree ast = cel.compile(source).getAst();
+
+    CelAbstractSyntaxTree optimizedAst =
+        newCseOptimizer(
+                SubexpressionOptimizerOptions.newBuilder().eliminateAllFunctions(false).build())
+            .optimize(ast);
+
+    assertThat(CEL_UNPARSER.unparse(optimizedAst)).isEqualTo(source);
   }
 
   @Test

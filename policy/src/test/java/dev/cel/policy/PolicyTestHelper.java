@@ -87,12 +87,11 @@ final class PolicyTestHelper {
     RESTRICTED_DESTINATIONS(
         "restricted_destinations",
         false,
-        "cel.@block([request.auth.claims, has(@index0.nationality), resource.labels.location in"
+        "cel.@block([request.auth.claims, has(@index0.nationality), locationCode(destination.ip) in"
+            + " spec.restricted_destinations || resource.labels.location in"
             + " spec.restricted_destinations], (@index1 && @index0.nationality == spec.origin &&"
-            + " (locationCode(destination.ip) in spec.restricted_destinations || @index2)) ? true :"
-            + " ((!@index1 && locationCode(origin.ip) == spec.origin &&"
-            + " (locationCode(destination.ip) in spec.restricted_destinations || @index2)) ? true :"
-            + " false))"),
+            + " @index2) ? true : ((!@index1 && locationCode(origin.ip) == spec.origin && @index2)"
+            + " ? true : false))"),
     K8S(
         "k8s",
         true,
