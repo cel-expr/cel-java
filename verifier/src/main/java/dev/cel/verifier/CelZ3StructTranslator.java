@@ -399,6 +399,14 @@ final class CelZ3StructTranslator {
     if (type.equals(SimpleType.DURATION)) {
       return typeSystem.wrapDuration(ctx.mkInt(0));
     }
+    // An unset google.protobuf.Value field reads as null.
+    if (type.equals(SimpleType.DYN)) {
+      return typeSystem.mkNull();
+    }
+    // An unset google.protobuf.Any field can't be unpacked.
+    if (type.equals(SimpleType.ANY)) {
+      return typeSystem.mkError();
+    }
     if (type instanceof ListType) {
       if (emptyListCache == null) {
         emptyListCache = typeSystem.mkListRefConst(EMPTY_LIST_PREFIX);
@@ -514,8 +522,10 @@ final class CelZ3StructTranslator {
               .addCase(isMap, mapAcc.presence)
               .build(ctx.mkFalse());
 
-      Expr<?> defaultVal = getDefaultValueForType(extractAstTypeOrDefault(ast, exprId));
-      Expr<?> msgRead = ctx.mkITE(msgAcc.presence, msgAcc.value, defaultVal);
+      // TODO: Unsound: an unset field reads as an unknown, which can make a
+      // satisfiable
+      // expression look unsatisfiable. Its default depends on the message's runtime type.
+      Expr<?> msgRead = ctx.mkITE(msgAcc.presence, msgAcc.value, typeSystem.mkUnknown());
       Expr<?> mapRead = ctx.mkITE(mapAcc.presence, mapAcc.value, typeSystem.mkError());
 
       valueResult =

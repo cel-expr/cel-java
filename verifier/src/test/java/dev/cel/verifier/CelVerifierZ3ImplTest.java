@@ -177,6 +177,8 @@ public final class CelVerifierZ3ImplTest {
     CROSS_NUMERIC_EQUALITY_INT_DYN_EXACT("1 == request", "request = 1"),
     MACRO_LIMIT("dyn_list.all(x, x == 1)", "Satisfying input:"),
     STRUCT_FIELD_MISSING_APPROXIMATE_SATISFIABLE("dyn_var.unknown_field", "dyn_var = "),
+    // An unset google.protobuf.Value field reads as null.
+    UNSET_VALUE_FIELD("TestAllTypes{}.single_value == null"),
     MAP_INDEX_SATISFIABLE("string_int_map['alice'] > 0", "\"alice\": [1-9]\\d*"),
     MAP_SIZE_GREATER_THAN_ONE_WITH_KEY(
         "string_int_map.size() > 1 && string_int_map['foo'] == 42",
@@ -2303,6 +2305,8 @@ public final class CelVerifierZ3ImplTest {
 
   private enum EquivalenceTestCase {
     STRUCT_UNSET_TIMESTAMP_DEFAULT("TestAllTypes{}.single_timestamp", "timestamp(0)"),
+    // Both are errors.
+    STRUCT_UNSET_ANY_DEFAULT("TestAllTypes{}.single_any == null", "1 / 0 == 1"),
     TRUNCATION_STRICT_PROPAGATION_EQUIVALENT(
         "size(int_list) == 6 ? size(int_list.filter(x, x > 2)) : 0",
         "size(int_list) == 6 ? size(int_list.filter(y, y > 2)) : 0"),
