@@ -905,6 +905,11 @@ public final class CelVerifierZ3ImplTest {
 
   private enum IsAlwaysTrueTestCase {
     LOGICAL_OR_CONSTANTS("true || false"),
+    // Elements of `dyn` inputs are never unknown.
+    DYN_LIST_ELEMENT_NOT_UNKNOWN(
+        "size(dyn_list) == 1 ? (dyn_list.exists(x, x == 1) || !dyn_list.exists(x, x == 1)) : true"),
+    DYN_OPTIONAL_VALUE_NOT_UNKNOWN(
+        "opt_dyn_var.hasValue() ? (opt_dyn_var.value() == 1 || opt_dyn_var.value() != 1) : true"),
     BOOL_ORDERING(
         "false < true && !(true < false) && false <= true && !(true <= false) && true > false"
             + " && !(false > true) && true >= false && !(false >= true)"),
@@ -1872,7 +1877,7 @@ public final class CelVerifierZ3ImplTest {
         "opt_dyn_var.hasValue() ? type(opt_dyn_var.value()) == int : true",
         "Condition is not always true\\.",
         "Counterexample input:",
-        "opt_dyn_var = optional\\.of\\(Unknown\\)"),
+        "opt_dyn_var = optional\\.of\\((?!Unknown|Error)"),
     OPTIONAL_ENTRY_DYN_VAR_TYPE_MISMATCH(
         "[?dyn_var] == [?dyn_var] ? true : true",
         "Condition is not always true\\.",

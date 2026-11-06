@@ -58,15 +58,15 @@ final class CelZ3TypeConstraintGenerator {
     if (type instanceof OptionalType) {
       BoolExpr isOpt = typeSystem.isOptional(val);
       CelType paramType = type.parameters().get(0);
-      if (!CelZ3OperatorTranslator.isStaticallyKnown(paramType)) {
-        return isOpt;
-      }
       Expr<?> optRef = typeSystem.getOptionalRef(val);
       BoolExpr hasValue = typeSystem.optHasValue(optRef);
       Expr<?> optVal = typeSystem.getOptionalValue(optRef);
-      BoolExpr optValNotError = ctx.mkNot(typeSystem.isError(optVal));
-      BoolExpr valConstraint = createTypeConstraintForType(optVal, paramType);
-      return ctx.mkAnd(isOpt, ctx.mkImplies(hasValue, ctx.mkAnd(optValNotError, valConstraint)));
+      // An input's value is never an error or unknown, even when its type is dyn.
+      BoolExpr valConstraint =
+          ctx.mkAnd(
+              ctx.mkNot(typeSystem.isErrorOrUnknown(optVal)),
+              createTypeConstraintForType(optVal, paramType));
+      return ctx.mkAnd(isOpt, ctx.mkImplies(hasValue, valConstraint));
     }
     if (type.equals(SimpleType.BOOL)) {
       return typeSystem.isBool(val);
@@ -107,7 +107,7 @@ final class CelZ3TypeConstraintGenerator {
     if (type instanceof ListType) {
       // Constrain list elements using bounded unrolling up to comprehensionUnrollLimit rather
       // than Z3 forall quantifiers to prevent MBQI quantifier instantiation loops.
-      // Assert: isList(val) ∧ for all unrolled 0 <= i < length: ¬isError(seq[i]) ∧
+      // Assert: isList(val) ∧ for all unrolled 0 <= i < length: ¬isErrorOrUnknown(seq[i]) ∧
       // typeConstraint(seq[i]).
       BoolExpr isList = typeSystem.isList(val);
       CelType elemType = ((ListType) type).elemType();
@@ -129,9 +129,8 @@ final class CelZ3TypeConstraintGenerator {
         IntExpr idx = ctx.mkInt(i);
         Expr elem = ctx.mkNth(seq, idx);
         BoolExpr validIndex = ctx.mkLt(idx, length);
-        // Assert ¬isError(elem) as a domain invariant so Z3 never synthesizes an Error element in
-        // list(dyn). For concrete types, this is already implied by createTypeConstraintForType.
-        boundsAndTypes.add(ctx.mkImplies(validIndex, ctx.mkNot(typeSystem.isError(elem))));
+        // Elements are never errors or unknowns, even in list(dyn).
+        boundsAndTypes.add(ctx.mkImplies(validIndex, ctx.mkNot(typeSystem.isErrorOrUnknown(elem))));
         BoolExpr elemConstraint = createTypeConstraintForType(elem, elemType);
         boundsAndTypes.add(ctx.mkImplies(validIndex, elemConstraint));
       }
@@ -143,7 +142,7 @@ final class CelZ3TypeConstraintGenerator {
       // Doing so forces MBQI into an infinite loop. Instead, constrain keys and values using
       // bounded unrolling over the key sequence up to comprehensionUnrollLimit.
       // Assert: isMap(val) ∧ for all unrolled 0 <= i < length: isPrimitiveKey(key) ∧ ¬isError(key)
-      //         ∧ (presence(key) ⇒ ¬isError(val) ∧ typeConstraint(val))
+      //         ∧ (presence(key) ⇒ ¬isErrorOrUnknown(val) ∧ typeConstraint(val))
       BoolExpr isMap = typeSystem.isMap(val);
       MapType mapType = (MapType) type;
       CelType keyType = mapType.keyType();
