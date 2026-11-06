@@ -29,6 +29,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -75,20 +76,25 @@ final class CelAstAlphaHasher {
   }
 
   private static void hashAst(CelExpr expr, @Nullable Scope scope, HasherContext context) {
-    CelConstant refValue =
-        context.ast.getReference(expr.id()).flatMap(CelReference::value).orElse(null);
+    Optional<CelReference> reference = context.ast.getReference(expr.id());
+    CelConstant refValue = reference.flatMap(CelReference::value).orElse(null);
     if (refValue != null) {
       context.hasher.putString(CelExpr.ExprKind.Kind.CONSTANT.name(), UTF_8);
       hashConstant(refValue, context);
       return;
     }
-    context.hasher.putString(expr.exprKind().getKind().name(), UTF_8);
-    switch (expr.exprKind().getKind()) {
+    CelExpr.ExprKind.Kind kind = expr.exprKind().getKind();
+    // Without namespaced declarations, a qualified variable stays a select with a reference.
+    if (kind == CelExpr.ExprKind.Kind.SELECT && reference.isPresent()) {
+      kind = CelExpr.ExprKind.Kind.IDENT;
+    }
+    context.hasher.putString(kind.name(), UTF_8);
+    switch (kind) {
       case CONSTANT:
         hashConstant(expr.constant(), context);
         break;
       case IDENT:
-        String name = expr.ident().name();
+        String name = context.ast.getReferenceOrThrow(expr.id()).name();
         int bIdx = scope == null ? -1 : scope.indexOf(name);
         if (bIdx >= 0) {
           context.hasher.putByte((byte) 0); // 0 = bound

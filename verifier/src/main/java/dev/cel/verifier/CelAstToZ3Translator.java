@@ -86,8 +86,8 @@ final class CelAstToZ3Translator {
     return context.constraints();
   }
 
-  BoolExpr hasTruncation() {
-    return context.hasTruncation();
+  BoolExpr hasUnmodeledResult() {
+    return context.hasUnmodeledResult();
   }
 
   ImmutableList<String> approximationSources(Model model, BoolExpr taint) {
@@ -183,6 +183,10 @@ final class CelAstToZ3Translator {
       case IDENT:
         return translateIdent(celExpr, ast);
       case SELECT:
+        // Without namespaced declarations, a qualified variable stays a select with a reference.
+        if (ast.getReference(celExpr.id()).isPresent()) {
+          return translateIdent(celExpr, ast);
+        }
         return structTranslator.translateSelect(celExpr, ast);
       case CALL:
         return translateCall(celExpr, ast);
@@ -231,13 +235,12 @@ final class CelAstToZ3Translator {
   }
 
   private TranslatedValue translateIdent(CelExpr celExpr, CelAbstractSyntaxTree ast) {
-    CelExpr.CelIdent ident = celExpr.ident();
     long exprId = celExpr.id();
     CelConstant refValue = ast.getReference(exprId).flatMap(CelReference::value).orElse(null);
     if (refValue != null) {
       return translateConstant(CelExpr.ofConstant(exprId, refValue));
     }
-    String name = ident.name();
+    String name = ast.getReferenceOrThrow(exprId).name();
     CelType type = ast.getTypeOrThrow(exprId);
     if (type instanceof TypeType) {
       TypeType typeType = (TypeType) type;
@@ -266,10 +269,7 @@ final class CelAstToZ3Translator {
               }
 
               return TranslatedValue.create(
-                  v,
-                  CelExpr.newBuilder().setIdent(ident).setId(exprId).build(),
-                  typeSystem,
-                  /* isApproximate= */ ctx.mkFalse());
+                  v, celExpr, typeSystem, /* isApproximate= */ ctx.mkFalse());
             });
 
     return TranslatedValue.create(tv.z3Expr(), celExpr, typeSystem, tv.isApproximate());
