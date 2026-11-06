@@ -28,7 +28,7 @@ public abstract class CelVerificationResult {
     VERIFIED,
     /** The property was disproven. A concrete counterexample was found. */
     VIOLATED,
-    /** The property could not be verified due to loop truncation or timeout. */
+    /** The property could not be verified because it depends on what the verifier doesn't model. */
     INCONCLUSIVE
   }
 

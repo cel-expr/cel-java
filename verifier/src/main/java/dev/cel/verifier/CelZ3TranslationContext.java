@@ -45,7 +45,7 @@ final class CelZ3TranslationContext {
   private final int comprehensionUnrollLimit;
   private final Set<BoolExpr> constraints;
   private final Map<Expr<?>, CelType> inputVariableTypes;
-  private final List<BoolExpr> truncationConditions;
+  private final List<BoolExpr> unmodeledResults;
   private final Map<String, List<BoolExpr>> approximationTerms;
   private final Map<String, TranslatedValue> symbolTable;
   private final Map<String, TranslatedValue> localScope;
@@ -160,12 +160,13 @@ final class CelZ3TranslationContext {
     return model.evaluate(condition, /* completion= */ true).isTrue();
   }
 
-  void addTruncationCondition(BoolExpr condition) {
-    truncationConditions.add(condition);
+  /** Records where a result is an unknown standing in for a value the verifier doesn't compute. */
+  void addUnmodeledResult(BoolExpr condition) {
+    unmodeledResults.add(condition);
   }
 
-  BoolExpr hasTruncation() {
-    return CelZ3Exprs.mkOrFlattened(ctx, truncationConditions);
+  BoolExpr hasUnmodeledResult() {
+    return CelZ3Exprs.mkOrFlattened(ctx, unmodeledResults);
   }
 
   void bindSymbol(String name, TranslatedValue value) {
@@ -207,7 +208,7 @@ final class CelZ3TranslationContext {
     this.comprehensionUnrollLimit = comprehensionUnrollLimit;
     this.constraints = new LinkedHashSet<>();
     this.inputVariableTypes = new LinkedHashMap<>();
-    this.truncationConditions = new ArrayList<>();
+    this.unmodeledResults = new ArrayList<>();
     this.approximationTerms = new LinkedHashMap<>();
     this.symbolTable = new HashMap<>();
     this.localScope = new HashMap<>();

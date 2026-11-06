@@ -45,10 +45,8 @@ import dev.cel.verifier.axioms.CelZ3FunctionAxiom;
 import dev.cel.verifier.axioms.CelZ3StandardAxioms;
 import java.time.Duration;
 import java.util.Arrays;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
-import org.jspecify.annotations.Nullable;
 
 /** Z3 implementation of the CelVerifier. */
 @Immutable
@@ -235,46 +233,17 @@ final class CelVerifierZ3Impl implements CelVerifier {
                   "unknown results, which are compared only by their origin",
                   ctx.mkAnd(tvA.isZ3Unknown(), tvB.isZ3Unknown())));
 
-      Solver solver = newSolver(ctx);
-      for (BoolExpr constraint : translator.getTypeConstraints()) {
-        solver.add(constraint);
-      }
-
-      // Divergent parameterized Unknowns are naturally caught by Pass 2 (A != B is SAT).
-      // Identical Unknowns mean the ASTs are alpha-equivalent, so we WANT them to pass.
-      // We no longer need Pass 3 to conservatively bail out of equivalence checks.
-      BoolExpr unknownCondition = ctx.mkFalse();
-
-      SolverRunResult result =
-          runThreePassVerification(
-              ctx,
-              solver,
-              divergenceCondition,
-              combinedTaint,
-              unknownCondition,
-              translator,
-              /* checkTruncation= */ false);
-
-      switch (result.outcome) {
-        case EXACT_MATCH:
-          return CelVerificationResult.failed(
-              "Equivalence violation detected.", extractWitness(ctx, translator, result.model));
-        case APPROXIMATE_MATCH:
-          return CelVerificationResult.inconclusive(
-              inconclusiveReason("a divergence", translator, result.model, combinedTaint),
-              extractWitness(ctx, translator, result.model),
-              /* isCounterexample= */ true);
-        case TRUNCATED:
-          return CelVerificationResult.inconclusive(
-              "Inconclusive: expressions are equivalent within the current loop unroll limit, but"
-                  + " may diverge for larger collections.");
-        case NO_MATCH:
-          return CelVerificationResult.verified();
-        case SOLVER_UNKNOWN:
-          return CelVerificationResult.inconclusive(
-              "Inconclusive: the solver returned unknown status (" + result.reason + ").");
-      }
-      throw new AssertionError("Unknown verification outcome: " + result.outcome);
+      // Divergent parameterized unknowns are caught by Pass 2; identical ones mean the ASTs are
+      // alpha-equivalent, so there's no unmodeled result to look for.
+      return search(
+          ctx,
+          translator,
+          divergenceCondition,
+          combinedTaint,
+          /* unknownCondition= */ ctx.mkFalse(),
+          /* isCounterexample= */ true,
+          /* candidate= */ "a divergence",
+          /* exactMatchMessage= */ "Equivalence violation detected.");
     }
   }
 
@@ -310,49 +279,23 @@ final class CelVerifierZ3Impl implements CelVerifier {
 
       BoolExpr combinedTaint =
           CelZ3Exprs.mkOrFlattened(ctx, assumeTv.isApproximate(), assertTv.isApproximate());
+      // An unknown assertion under a true assumption is already a Pass 2 candidate; an unknown
+      // assumption may hide a violation unless the assertion holds exactly.
       BoolExpr unknownCondition =
-          ctx.mkOr(
-              translator.getTypeSystem().isUnknown(assumeTv.z3Expr()),
-              translator.getTypeSystem().isUnknown(assertTv.z3Expr()));
+          ctx.mkAnd(
+              assumeTv.isZ3Unknown(),
+              assumeTv.isApproximate(),
+              ctx.mkNot(ctx.mkAnd(assertCondition, ctx.mkNot(assertTv.isApproximate()))));
 
-      Solver solver = newSolver(ctx);
-      for (BoolExpr constraint : translator.getTypeConstraints()) {
-        solver.add(constraint);
-      }
-
-      SolverRunResult result =
-          runThreePassVerification(
-              ctx,
-              solver,
-              violationCondition,
-              combinedTaint,
-              unknownCondition,
-              translator,
-              /* checkTruncation= */ true);
-
-      switch (result.outcome) {
-        case EXACT_MATCH:
-          return CelVerificationResult.failed(
-              String.format("%s violation detected.", subjectName),
-              extractWitness(ctx, translator, result.model));
-        case APPROXIMATE_MATCH:
-          return CelVerificationResult.inconclusive(
-              inconclusiveReason("a counterexample", translator, result.model, combinedTaint),
-              extractWitness(ctx, translator, result.model),
-              /* isCounterexample= */ true);
-        case TRUNCATED:
-          return CelVerificationResult.inconclusive(
-              String.format(
-                  "Inconclusive: %s holds within the current loop unroll limit, but"
-                      + " may be violated for larger collections.",
-                  subjectName.toLowerCase(Locale.US)));
-        case NO_MATCH:
-          return CelVerificationResult.verified();
-        case SOLVER_UNKNOWN:
-          return CelVerificationResult.inconclusive(
-              "Inconclusive: the solver returned unknown status (" + result.reason + ").");
-      }
-      throw new AssertionError("Unknown verification outcome: " + result.outcome);
+      return search(
+          ctx,
+          translator,
+          violationCondition,
+          combinedTaint,
+          unknownCondition,
+          /* isCounterexample= */ true,
+          /* candidate= */ "a counterexample",
+          /* exactMatchMessage= */ String.format("%s violation detected.", subjectName));
     }
   }
 
@@ -362,124 +305,110 @@ final class CelVerifierZ3Impl implements CelVerifier {
       CelAstToZ3Translator translator = newTranslator(ctx, /* parameterizeUnknowns= */ false);
 
       TranslatedValue tv = translator.translate(ast);
-      BoolExpr condition = translator.isTrue(tv.z3Expr());
+      BoolExpr isTrue = translator.isTrue(tv.z3Expr());
       if (searchForCounterexample) {
-        condition = ctx.mkNot(condition);
+        return search(
+            ctx,
+            translator,
+            ctx.mkNot(isTrue),
+            tv.isApproximate(),
+            // An unknown result is never true, so it's already a Pass 2 counterexample.
+            /* unknownCondition= */ ctx.mkFalse(),
+            /* isCounterexample= */ true,
+            /* candidate= */ "a counterexample",
+            /* exactMatchMessage= */ "Condition is not always true.");
       }
-
-      Solver solver = newSolver(ctx);
-      for (BoolExpr constraint : translator.getTypeConstraints()) {
-        solver.add(constraint);
-      }
-
-      SolverRunResult result =
-          runThreePassVerification(
-              ctx,
-              solver,
-              condition,
-              tv.isApproximate(),
-              translator.getTypeSystem().isUnknown(tv.z3Expr()),
-              translator,
-              /* checkTruncation= */ true);
-
-      switch (result.outcome) {
-        case EXACT_MATCH:
-          CelWitness witness = extractWitness(ctx, translator, result.model);
-          return searchForCounterexample
-              ? CelVerificationResult.failed("Condition is not always true.", witness)
-              : CelVerificationResult.verified("Condition is satisfiable.", witness);
-
-        case APPROXIMATE_MATCH:
-          return CelVerificationResult.inconclusive(
-              inconclusiveReason(
-                  searchForCounterexample ? "a counterexample" : "a satisfying input",
-                  translator,
-                  result.model,
-                  tv.isApproximate()),
-              extractWitness(ctx, translator, result.model),
-              /* isCounterexample= */ searchForCounterexample);
-
-        case TRUNCATED:
-          return CelVerificationResult.inconclusive(
-              searchForCounterexample
-                  ? "Inconclusive: a counterexample may exist beyond the loop unroll limit."
-                  : "Inconclusive: expression is not satisfiable within the current loop unroll"
-                      + " limit, but may be satisfiable for larger collections.");
-
-        case NO_MATCH:
-          return searchForCounterexample
-              ? CelVerificationResult.verified()
-              : CelVerificationResult.failed("Condition is not satisfiable.");
-
-        case SOLVER_UNKNOWN:
-          return CelVerificationResult.inconclusive(
-              "Inconclusive: the solver returned unknown status (" + result.reason + ").");
-      }
-      throw new AssertionError("Unknown verification outcome: " + result.outcome);
+      BoolExpr isUnmodeledUnknown = ctx.mkAnd(tv.isZ3Unknown(), tv.isApproximate());
+      return search(
+          ctx,
+          translator,
+          isTrue,
+          tv.isApproximate(),
+          isUnmodeledUnknown,
+          /* isCounterexample= */ false,
+          /* candidate= */ "a satisfying input",
+          /* exactMatchMessage= */ "Condition is satisfiable.");
     }
   }
 
-  private SolverRunResult runThreePassVerification(
+  /**
+   * Searches for a {@code condition} match: first an exact one, then an approximate one, then an
+   * unmodeled result satisfying {@code unknownCondition} that may stand in for one.
+   */
+  private CelVerificationResult search(
       Context ctx,
-      Solver solver,
+      CelAstToZ3Translator translator,
       BoolExpr condition,
       BoolExpr taint,
       BoolExpr unknownCondition,
-      CelAstToZ3Translator translator,
-      boolean checkTruncation)
+      boolean isCounterexample,
+      String candidate,
+      String exactMatchMessage)
       throws CelVerificationException {
+    Solver solver = newSolver(ctx);
+    solver.add(translator.getTypeConstraints().toArray(new BoolExpr[0]));
 
-    // Pass 1: Search for an exact match/counterexample
-    solver.push();
-    solver.add(condition);
-    solver.add(ctx.mkNot(taint));
-    Status status = solver.check();
-
+    // Pass 1: Search for an exact match.
+    Status status = checkSat(solver, condition, ctx.mkNot(taint));
     if (status == Status.SATISFIABLE) {
-      return SolverRunResult.exactMatch(solver.getModel());
+      CelWitness witness = extractWitness(ctx, translator, solver.getModel());
+      return isCounterexample
+          ? CelVerificationResult.failed(exactMatchMessage, witness)
+          : CelVerificationResult.verified(exactMatchMessage, witness);
     } else if (status == Status.UNKNOWN) {
-      return SolverRunResult.solverUnknown(checkTimeoutOrGetReason(solver));
+      // Depends on solver internals; not deterministically testable.
+      return solverGaveUp(solver);
     }
 
-    // Pass 2: Search for any tainted match/counterexample
-    solver.pop();
-    solver.push();
-    solver.add(condition);
-    Status approxStatus = solver.check();
-
-    if (approxStatus == Status.SATISFIABLE) {
-      return SolverRunResult.approximateMatch(solver.getModel());
-    } else if (approxStatus == Status.UNKNOWN) {
-      return SolverRunResult.solverUnknown(checkTimeoutOrGetReason(solver));
+    // Pass 2: Search for an approximate match.
+    status = checkSat(solver, condition);
+    if (status == Status.SATISFIABLE) {
+      Model model = solver.getModel();
+      return CelVerificationResult.inconclusive(
+          inconclusiveReason(candidate, translator, model, taint),
+          extractWitness(ctx, translator, model),
+          isCounterexample);
+    } else if (status == Status.UNKNOWN) {
+      // Depends on solver internals; not deterministically testable.
+      return solverGaveUp(solver);
     }
 
-    // If we don't need to check truncation (e.g. for equivalence checks),
-    // we can pop the solver and return noMatch immediately.
-    if (!checkTruncation) {
-      solver.pop();
-      return SolverRunResult.noMatch();
+    // Pass 3: Search for an unmodeled result.
+    status = checkSat(solver, unknownCondition, translator.hasUnmodeledResult());
+    if (status == Status.SATISFIABLE) {
+      return CelVerificationResult.inconclusive(
+          inconclusiveReason(candidate, translator, solver.getModel(), taint));
+    } else if (status == Status.UNKNOWN) {
+      // Depends on solver internals; not deterministically testable.
+      return solverGaveUp(solver);
     }
 
-    // Pass 3: Check BMC truncation
-    solver.pop();
-    solver.add(unknownCondition);
-    solver.add(translator.hasTruncation());
-    Status truncationStatus = solver.check();
-    if (truncationStatus == Status.SATISFIABLE) {
-      return SolverRunResult.truncated();
-    } else if (truncationStatus == Status.UNKNOWN) {
-      return SolverRunResult.solverUnknown(checkTimeoutOrGetReason(solver));
-    }
-
-    return SolverRunResult.noMatch();
+    return isCounterexample
+        ? CelVerificationResult.verified()
+        : CelVerificationResult.failed("Condition is not satisfiable.");
   }
 
-  private static String checkTimeoutOrGetReason(Solver solver) throws CelVerificationException {
-    String reason = solver.getReasonUnknown();
-    if (reason.equals("timeout") || reason.equals("canceled")) {
-      throw new CelVerificationException("Verification timed out: " + reason);
+  // Throws on a timeout. Leaves the assertions in place unless they're unsatisfiable, so the model
+  // or the reason the solver gave up can be read.
+  private static Status checkSat(Solver solver, BoolExpr... assertions)
+      throws CelVerificationException {
+    solver.push();
+    solver.add(assertions);
+    Status status = solver.check();
+    if (status == Status.UNSATISFIABLE) {
+      solver.pop();
+    } else if (status == Status.UNKNOWN) {
+      String reason = solver.getReasonUnknown();
+      if (reason.equals("timeout") || reason.equals("canceled")) {
+        throw new CelVerificationException("Verification timed out: " + reason);
+      }
     }
-    return reason;
+    return status;
+  }
+
+  private static CelVerificationResult solverGaveUp(Solver solver) {
+    return CelVerificationResult.inconclusive(
+        "Inconclusive: the solver returned unknown status (" + solver.getReasonUnknown() + ").");
   }
 
   private Solver newSolver(Context ctx) {
@@ -516,46 +445,6 @@ final class CelVerifierZ3Impl implements CelVerifier {
         model,
         comprehensionUnrollLimit,
         translator.getInputVariables());
-  }
-
-  private enum SolverOutcome {
-    EXACT_MATCH,
-    APPROXIMATE_MATCH,
-    TRUNCATED,
-    NO_MATCH,
-    SOLVER_UNKNOWN
-  }
-
-  private static final class SolverRunResult {
-    private final SolverOutcome outcome;
-    private final @Nullable Model model;
-    private final @Nullable String reason;
-
-    static SolverRunResult exactMatch(Model model) {
-      return new SolverRunResult(SolverOutcome.EXACT_MATCH, model, null);
-    }
-
-    static SolverRunResult approximateMatch(Model model) {
-      return new SolverRunResult(SolverOutcome.APPROXIMATE_MATCH, model, null);
-    }
-
-    static SolverRunResult truncated() {
-      return new SolverRunResult(SolverOutcome.TRUNCATED, null, null);
-    }
-
-    static SolverRunResult noMatch() {
-      return new SolverRunResult(SolverOutcome.NO_MATCH, null, null);
-    }
-
-    static SolverRunResult solverUnknown(String reason) {
-      return new SolverRunResult(SolverOutcome.SOLVER_UNKNOWN, null, reason);
-    }
-
-    private SolverRunResult(SolverOutcome outcome, @Nullable Model model, @Nullable String reason) {
-      this.outcome = outcome;
-      this.model = model;
-      this.reason = reason;
-    }
   }
 
   private CelVerifierZ3Impl(

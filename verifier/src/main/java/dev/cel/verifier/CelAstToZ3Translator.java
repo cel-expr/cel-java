@@ -86,8 +86,8 @@ final class CelAstToZ3Translator {
     return context.constraints();
   }
 
-  BoolExpr hasTruncation() {
-    return context.hasTruncation();
+  BoolExpr hasUnmodeledResult() {
+    return context.hasUnmodeledResult();
   }
 
   ImmutableList<String> approximationSources(Model model, BoolExpr taint) {

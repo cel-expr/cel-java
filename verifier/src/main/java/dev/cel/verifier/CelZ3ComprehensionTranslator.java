@@ -157,9 +157,18 @@ final class CelZ3ComprehensionTranslator {
           context.recordApproximation(
               "comprehensions over `dyn` values",
               ctx.mkOr(typeSystem.isList(iterRange), typeSystem.isMap(iterRange)));
+      context.addUnmodeledResult(isRuntimeListOrMap);
+      // An unknown range (e.g. another unmodeled comprehension) yields an unknown, not an error.
       Expr<?> result =
-          ctx.mkITE(isRuntimeListOrMap, mkParameterizedUnknown(celExpr, ast), typeSystem.mkError());
-      return TranslatedValue.create(result, celExpr, typeSystem, isRuntimeListOrMap);
+          ctx.mkITE(
+              ctx.mkOr(iterRangeTv.isZ3Unknown(), isRuntimeListOrMap),
+              mkParameterizedUnknown(celExpr, ast),
+              typeSystem.mkError());
+      return TranslatedValue.create(
+          result,
+          celExpr,
+          typeSystem,
+          CelZ3Exprs.mkOrFlattened(ctx, iterRangeTv.isApproximate(), isRuntimeListOrMap));
     }
 
     SeqExpr<?> seq =
@@ -175,7 +184,7 @@ final class CelZ3ComprehensionTranslator {
     BoolExpr isTruncated =
         context.recordUnrollLimitApproximation(
             ctx.mkAnd(isValidRange, ctx.mkGt(lengthExpr, ctx.mkInt(comprehensionUnrollLimit))));
-    context.addTruncationCondition(isTruncated);
+    context.addUnmodeledResult(isTruncated);
 
     if (isAllMacro(comp) || isExistsMacro(comp)) {
       return unrollAllAndExists(
@@ -341,10 +350,12 @@ final class CelZ3ComprehensionTranslator {
 
     // TODO: Model the loop condition for custom macros; until then, abstract the
     // result of any non-true condition, since the unrolled value ignores early exits.
-    BoolExpr isConditionUnmodeled =
-        context.recordApproximation(
-            "comprehensions with a loop condition",
-            ctx.mkBool(!isLiteralTrue(comp.loopCondition())));
+    BoolExpr isConditionUnmodeled = ctx.mkFalse();
+    if (!isLiteralTrue(comp.loopCondition())) {
+      isConditionUnmodeled =
+          context.recordApproximation("comprehensions with a loop condition", ctx.mkTrue());
+      context.addUnmodeledResult(isConditionUnmodeled);
+    }
     BoolExpr isAbstracted =
         CelZ3Exprs.mkOrFlattened(ctx, rangeIsUnknown, isTruncated, isConditionUnmodeled);
     // An error is not final when truncated: an unknown from a later iteration overrides it.

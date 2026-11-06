@@ -84,6 +84,7 @@ public final class CelVerifierZ3ImplTest {
       CelFactory.plannerCelBuilder()
           .setOptions(CelOptions.current().enableHeterogeneousNumericComparisons(true).build())
           .setStandardMacros(CelStandardMacro.STANDARD_MACROS)
+          .addMacros(firstElemMacro())
           .setContainer(CelContainer.ofName("cel.expr.conformance.proto3"))
           .addCompilerLibraries(
               CelExtensions.bindings(), CelOptionalLibrary.INSTANCE, CelExtensions.comprehensions())
@@ -141,7 +142,7 @@ public final class CelVerifierZ3ImplTest {
 
   private static final CelVerifier VERIFIER = withRuntimeOracle(CEL, b -> b);
 
-  // For ASTs with functions the runtime can't plan.
+  // For ASTs with functions the runtime can't plan, and for verifyImplication.
   private static final CelVerifier VERIFIER_WITHOUT_ORACLE =
       CelVerifierFactory.newVerifier(CEL).build();
 
@@ -605,6 +606,18 @@ public final class CelVerifierZ3ImplTest {
     UNTAKEN_BRANCH(
         "size(int_list) == 7 && (b ? int_list[6] == 1 : int(string_var) == 5) && !b",
         "calls to `int`"),
+    DYN_RANGE_EXISTS("dyn_var.exists(e, e == 1)", "comprehensions over `dyn` values"),
+    DYN_RANGE_ALL("dyn_var.all(e, e > 0)", "comprehensions over `dyn` values"),
+    DYN_RANGE_MAP("dyn_var.map(e, e) == [1]", "comprehensions over `dyn` values"),
+    DYN_LIST_RANGE("dyn(int_list).exists(e, e == 1)", "comprehensions over `dyn` values"),
+    DYN_MAP_RANGE("dyn(string_int_map).exists(k, k == 'a')", "comprehensions over `dyn` values"),
+    SHORT_CIRCUITED_LOOP_CONDITION(
+        "(false && int_list.first_elem() == 1) || dyn_var.exists(e, e == 1)",
+        "comprehensions over `dyn` values"),
+    CHAINED_DYN_RANGE(
+        "dyn(dyn_var.map(e, e)).exists(x, x == 1)", "comprehensions over `dyn` values"),
+    CUSTOM_COMPREHENSION_LOOP_CONDITION(
+        "int_list == [1, 2] && int_list.first_elem() == 1", "comprehensions with a loop condition"),
     OPTIONAL_SELECT_WITH_AXIOM(
         "(false && string_int_map.?k.hasValue()) || int(string_var) == 5", "calls to `int`");
 
@@ -802,6 +815,7 @@ public final class CelVerifierZ3ImplTest {
 
   private enum IsUnsatisfiableTestCase {
     UNSATISFIABLE("x > 5 && x < 3"),
+    DYN_RANGE_COMPREHENSION_MASKED_BY_FALSE("dyn_var.exists(e, e == 1) && false"),
     CONTRADICTORY_TYPES_FOR_DYNAMIC_VARIABLE("unknown_var + 1 == 2 && unknown_var[0] == 1"),
     TYPE_CONVERSION_UNSATISFIABLE_STRING_TO_INT("type(int('1')) == string"),
     TYPE_CONVERSION_UNSATISFIABLE_DOUBLE_TO_STRING("type(string(1.5)) == int"),
@@ -2076,6 +2090,8 @@ public final class CelVerifierZ3ImplTest {
   }
 
   private enum IsInconclusiveTestCase {
+    // nested_list[5] is past the unroll limit, so it may not be a list.
+    APPROXIMATE_DYN_RANGE("size(nested_list) == 6 ? dyn(nested_list)[5].all(e, e == e) : true"),
     // TODO: Implement RFC 3339 spec in conversion
     TIMESTAMP_STRING_CONVERSION_VALID(
         "timestamp('2023-01-01T00:00:00Z') == timestamp('2023-01-01T00:00:00Z')"),
@@ -3813,36 +3829,124 @@ public final class CelVerifierZ3ImplTest {
     // first_elem() stops folding once the accumulator is set, so it returns 1 for [1, 2]. The loop
     // condition over a non-literal range is not modeled, so the verifier must not claim that the
     // result is the last element.
-    Cel cel =
-        CelFactory.plannerCelBuilder()
-            .addVar("int_list", ListType.create(SimpleType.INT))
-            .addMacros(
-                CelMacro.newReceiverMacro(
-                    "first_elem",
-                    0,
-                    (exprFactory, target, arguments) ->
-                        Optional.of(
-                            exprFactory.fold(
-                                "x",
-                                target,
-                                "accu",
-                                exprFactory.newIntLiteral(-1),
-                                exprFactory.newGlobalCall(
-                                    Operator.EQUALS.getFunction(),
-                                    exprFactory.newIdentifier("accu"),
-                                    exprFactory.newIntLiteral(-1)),
-                                exprFactory.newIdentifier("x"),
-                                exprFactory.newIdentifier("accu")))))
-            .build();
     CelAbstractSyntaxTree ast =
-        cel.compile("int_list == [1, 2] ? int_list.first_elem() == 2 : true").getAst();
-    CelVerifier verifier = withRuntimeOracle(cel, b -> b);
+        CEL.compile("int_list == [1, 2] ? int_list.first_elem() == 2 : true").getAst();
 
-    CelVerificationResult result = verifier.isAlwaysTrue(ast);
+    CelVerificationResult result = VERIFIER.isAlwaysTrue(ast);
+
+    assertThat(result.reason())
+        .isEqualTo(
+            "Inconclusive: a counterexample may exist, but it depends on what the verifier doesn't"
+                + " model exactly: comprehensions with a loop condition.");
+  }
+
+  @Test
+  public void verifyImplication_dynRangeComprehensionInAssumption_inconclusive() throws Exception {
+    CelVerificationResult result = verifyImplication(CEL, "dyn_var.exists(e, e == 1)", "x > 0");
 
     assertThat(result.status()).isEqualTo(VerificationStatus.INCONCLUSIVE);
-    assertThat(result.message())
-        .contains("doesn't model exactly: comprehensions with a loop condition.");
+    assertThat(result.reason())
+        .isEqualTo(
+            "Inconclusive: a counterexample may exist, but it depends on what the verifier doesn't"
+                + " model exactly: comprehensions over `dyn` values.");
+  }
+
+  @Test
+  public void verifyImplication_approximateAssertionUnderDynRangeComprehension_inconclusive()
+      throws Exception {
+    // f(x) == f(x) holds for the uninterpreted f, but the real f may error once the assumption
+    // holds.
+    CelCompiler celCompiler =
+        CEL.toCompilerBuilder()
+            .addFunctionDeclarations(
+                CelFunctionDecl.newFunctionDeclaration(
+                    "f",
+                    CelOverloadDecl.newGlobalOverload("f_int", SimpleType.INT, SimpleType.INT)))
+            .build();
+
+    CelVerificationResult result =
+        verifyImplication(celCompiler, "dyn_var.exists(e, e == 1)", "f(x) == f(x)");
+
+    assertThat(result.status()).isEqualTo(VerificationStatus.INCONCLUSIVE);
+    assertThat(result.reason())
+        .isEqualTo(
+            "Inconclusive: a counterexample may exist, but it depends on what the verifier doesn't"
+                + " model exactly: comprehensions over `dyn` values, calls to `f`.");
+  }
+
+  @Test
+  public void verifyImplication_loopExceedsLimit_inconclusive() throws Exception {
+    CelAbstractSyntaxTree assumeAst = CEL.compile("int_list.all(x, x > 0)").getAst();
+    CelAbstractSyntaxTree assertAst = CEL.compile("size(int_list) < 3 || int_list[2] > 0").getAst();
+    CelVerifier verifier =
+        CelVerifierFactory.newVerifier(CEL).setComprehensionUnrollLimit(2).build();
+
+    CelVerificationResult result =
+        ((CelVerifierZ3Impl) verifier)
+            .verifyImplication(assumeAst, assertAst, ImmutableMap.of(), "Implication");
+
+    assertThat(result.status()).isEqualTo(VerificationStatus.INCONCLUSIVE);
+    assertThat(result.reason())
+        .isEqualTo(
+            "Inconclusive: a counterexample may exist, but it depends on what the verifier doesn't"
+                + " model exactly: lists and maps longer than the unroll limit (2).");
+  }
+
+  @Test
+  public void verifyImplication_exactUnknownAssumption_verified() throws Exception {
+    // b && !b is never true; with b unknown it is an exact unknown, not an unmodeled result.
+    CelVerifierZ3Impl verifier =
+        (CelVerifierZ3Impl) CelVerifierFactory.newVerifier(CEL).addUnknownIdentifier("b").build();
+
+    CelVerificationResult result =
+        verifier.verifyImplication(
+            CEL.compile("b && !b").getAst(),
+            CEL.compile("dyn_var.exists(e, e == 1)").getAst(),
+            ImmutableMap.of(),
+            "Implication");
+
+    assertWithMessage(result.message())
+        .that(result.status())
+        .isEqualTo(VerificationStatus.VERIFIED);
+  }
+
+  @Test
+  public void isSatisfiable_exactUnknownBesideUnmodeledComprehension_violated() throws Exception {
+    CelAbstractSyntaxTree ast =
+        CEL.compile("(false && int_list.first_elem() == 1) || (b && !b)").getAst();
+    CelVerifier verifier = withRuntimeOracle(CEL, b -> b.addUnknownIdentifier("b"));
+
+    CelVerificationResult result = verifier.isSatisfiable(ast);
+
+    assertWithMessage(result.message())
+        .that(result.status())
+        .isEqualTo(VerificationStatus.VIOLATED);
+  }
+
+  private enum HoldingImplicationTestCase {
+    ASSERTION_ALWAYS_TRUE("dyn_var.exists(e, e == 1)", "true"),
+    ASSUMPTION_NEVER_TRUE("x > 0 && x < 0", "dyn_var.exists(e, e == 1)"),
+    ASSERTION_IMPLIED_BY_REST_OF_ASSUMPTION("dyn_var.exists(e, e == 1) && x > 0", "x > 0"),
+    // x < d is false when d is NaN.
+    SYMBOLIC_NAN_CROSS_NUMERIC_COMPARISON("d != d", "!(x < d)");
+
+    private final String assume;
+    private final String assertion;
+
+    HoldingImplicationTestCase(String assume, String assertion) {
+      this.assume = assume;
+      this.assertion = assertion;
+    }
+  }
+
+  @Test
+  public void verifyImplication_verified(@TestParameter HoldingImplicationTestCase testCase)
+      throws Exception {
+    CelVerificationResult result = verifyImplication(CEL, testCase.assume, testCase.assertion);
+
+    assertWithMessage(result.message())
+        .that(result.status())
+        .isEqualTo(VerificationStatus.VERIFIED);
   }
 
   @Test
@@ -4056,38 +4160,6 @@ public final class CelVerifierZ3ImplTest {
   }
 
   @Test
-  public void verifyImplication_loopExceedsLimit_returnsTruncatedInconclusive() throws Exception {
-    CelAbstractSyntaxTree assumeAst =
-        CEL.compile("size(int_list) <= 2 && int_list[0] > 0 && int_list[1] > 0").getAst();
-    CelAbstractSyntaxTree assertAst = CEL.compile("int_list.all(x, x > 0)").getAst();
-    CelVerifier verifier =
-        CelVerifierFactory.newVerifier(CEL).setComprehensionUnrollLimit(2).build();
-
-    CelVerificationResult result =
-        ((CelVerifierZ3Impl) verifier)
-            .verifyImplication(assumeAst, assertAst, ImmutableMap.of(), "Implication");
-
-    assertThat(result.status()).isEqualTo(VerificationStatus.INCONCLUSIVE);
-    assertThat(result.message())
-        .contains("implication holds within the current loop unroll limit");
-  }
-
-  @Test
-  public void verifyImplication_symbolicNan_crossNumericComparisonReturnsFalse() throws Exception {
-    // Assumption: d is NaN (d != d)
-    CelAbstractSyntaxTree assumeAst = CEL.compile("d != d").getAst();
-    // Assertion: x < d is false when d is NaN
-    CelAbstractSyntaxTree assertAst = CEL.compile("!(x < d)").getAst();
-    CelVerifier verifier = CelVerifierFactory.newVerifier(CEL).build();
-
-    CelVerificationResult result =
-        ((CelVerifierZ3Impl) verifier)
-            .verifyImplication(assumeAst, assertAst, ImmutableMap.of(), "Implication");
-
-    assertThat(result.status()).isEqualTo(VerificationStatus.VERIFIED);
-  }
-
-  @Test
   public void isAlwaysTrue_constantVarDecl_verified() throws Exception {
     Cel celWithConstVar =
         CelFactory.plannerCelBuilder()
@@ -4111,5 +4183,35 @@ public final class CelVerifierZ3ImplTest {
         .that(result.status())
         .isEqualTo(VerificationStatus.VERIFIED);
   }
-}
 
+  // `list.first_elem()` folds with a loop condition that stops once the accumulator is set.
+  private static CelMacro firstElemMacro() {
+    return CelMacro.newReceiverMacro(
+        "first_elem",
+        0,
+        (exprFactory, target, arguments) ->
+            Optional.of(
+                exprFactory.fold(
+                    "x",
+                    target,
+                    "accu",
+                    exprFactory.newIntLiteral(-1),
+                    exprFactory.newGlobalCall(
+                        Operator.EQUALS.getFunction(),
+                        exprFactory.newIdentifier("accu"),
+                        exprFactory.newIntLiteral(-1)),
+                    exprFactory.newIdentifier("x"),
+                    exprFactory.newIdentifier("accu"))));
+  }
+
+  // verifyImplication isn't part of CelVerifier, so it can't go through the runtime oracle.
+  private static CelVerificationResult verifyImplication(
+      CelCompiler compiler, String assume, String assertion) throws Exception {
+    return ((CelVerifierZ3Impl) VERIFIER_WITHOUT_ORACLE)
+        .verifyImplication(
+            compiler.compile(assume).getAst(),
+            compiler.compile(assertion).getAst(),
+            ImmutableMap.of(),
+            "Implication");
+  }
+}
