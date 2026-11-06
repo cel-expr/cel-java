@@ -403,8 +403,6 @@ final class CelZ3ComprehensionTranslator {
     List<BoolExpr> hasUnknownList = new ArrayList<>();
 
     List<BoolExpr> hasSafeMatchList = new ArrayList<>();
-    List<BoolExpr> hasSafeErrorList = new ArrayList<>();
-    List<BoolExpr> hasSafeUnknownList = new ArrayList<>();
     List<BoolExpr> activeTaints = new ArrayList<>();
 
     for (BoundedIteration iter : iterations) {
@@ -430,12 +428,6 @@ final class CelZ3ComprehensionTranslator {
       hasSafeMatchList.add(
           CelZ3Exprs.mkAndFlattened(
               ctx, isActive, isMatch, CelZ3Exprs.mkNotFlattened(ctx, stepTv.isApproximate())));
-      hasSafeErrorList.add(
-          CelZ3Exprs.mkAndFlattened(
-              ctx, isActive, isE, CelZ3Exprs.mkNotFlattened(ctx, stepTv.isApproximate())));
-      hasSafeUnknownList.add(
-          CelZ3Exprs.mkAndFlattened(
-              ctx, isActive, isU, CelZ3Exprs.mkNotFlattened(ctx, stepTv.isApproximate())));
       activeTaints.add(CelZ3Exprs.mkAndFlattened(ctx, isActive, stepTv.isApproximate()));
     }
 
@@ -446,8 +438,6 @@ final class CelZ3ComprehensionTranslator {
     BoolExpr rangeIsUnknown = typeSystem.isUnknown(iterRangeTv.z3Expr());
 
     BoolExpr hasSafeMatch = CelZ3Exprs.mkOrFlattened(ctx, hasSafeMatchList);
-    BoolExpr hasSafeError = CelZ3Exprs.mkOrFlattened(ctx, hasSafeErrorList);
-    BoolExpr hasSafeUnknown = CelZ3Exprs.mkOrFlattened(ctx, hasSafeUnknownList);
     BoolExpr anyActiveTaint = CelZ3Exprs.mkOrFlattened(ctx, activeTaints);
 
     Expr<?> comprehensionUnknown = mkParameterizedUnknown(compExpr, ast);
@@ -460,9 +450,9 @@ final class CelZ3ComprehensionTranslator {
             .addCase(hasError, typeSystem.mkError())
             .build(typeSystem.mkBool(isAll));
 
-    BoolExpr baseTaint = CelZ3Exprs.mkOrFlattened(ctx, anyActiveTaint, iterRangeTv.isApproximate());
-
-    // Taint identically shadows the value flow's short-circuit control structure
+    // Only an exact match short-circuits; without one, any approximate step may match at runtime.
+    // The cases mirror the result's to keep the formula easy for Z3 (some versions give up on maps
+    // with fewer, equivalent cases).
     BoolExpr resultTaint =
         (BoolExpr)
             CelZ3Exprs.SwitchBuilder.newBuilder(ctx)
@@ -470,9 +460,9 @@ final class CelZ3ComprehensionTranslator {
                 .addCase(hasMatch, ctx.mkOr(iterRangeTv.isApproximate(), ctx.mkNot(hasSafeMatch)))
                 .addCase(
                     ctx.mkOr(hasUnknown, isTruncated),
-                    ctx.mkOr(iterRangeTv.isApproximate(), isTruncated, ctx.mkNot(hasSafeUnknown)))
-                .addCase(hasError, ctx.mkOr(iterRangeTv.isApproximate(), ctx.mkNot(hasSafeError)))
-                .build(baseTaint);
+                    ctx.mkOr(iterRangeTv.isApproximate(), isTruncated, anyActiveTaint))
+                .addCase(hasError, ctx.mkOr(iterRangeTv.isApproximate(), anyActiveTaint))
+                .build(CelZ3Exprs.mkOrFlattened(ctx, anyActiveTaint, iterRangeTv.isApproximate()));
 
     return TranslatedValue.create(result, compExpr, typeSystem, resultTaint);
   }

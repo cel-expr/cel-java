@@ -1416,18 +1416,36 @@ public final class CelVerifierZ3ImplTest {
     assertThat(result.witness().get().variables().get("x").value()).isEmpty();
   }
 
-  @Test
-  public void isAlwaysTrue_approximateOperandWithUnknown_inconclusive() throws Exception {
+  private enum ApproximateBesideUnknownTestCase {
     // The truncated `all` may really be false, which absorbs the unknown, so this is always true.
-    CelAbstractSyntaxTree ast =
-        CEL.compile("!(int_list.all(x, x > 0) && unknown_var) || int_list.all(x, x > 0)").getAst();
+    APPROXIMATE_OPERAND(
+        "!(int_list.all(x, x > 0) && unknown_var) || int_list.all(x, x > 0)",
+        "lists and maps longer than the unroll limit (5)"),
+    // int('5') == 5 may really be true, which absorbs the unknown in `exists`.
+    APPROXIMATE_MATCH(
+        "int_list == [1, 0] ? int_list.exists(x, x == 1 ? int('5') == 5 : unknown_var == 1) : true",
+        "calls to `int`");
+
+    private final String expr;
+    private final String expectedSources;
+
+    ApproximateBesideUnknownTestCase(String expr, String expectedSources) {
+      this.expr = expr;
+      this.expectedSources = expectedSources;
+    }
+  }
+
+  @Test
+  public void isAlwaysTrue_approximateBesideUnknown_inconclusive(
+      @TestParameter ApproximateBesideUnknownTestCase testCase) throws Exception {
+    CelAbstractSyntaxTree ast = CEL.compile(testCase.expr).getAst();
     CelVerifier verifier = withRuntimeOracle(CEL, b -> b.addUnknownIdentifier("unknown_var"));
 
     CelVerificationResult result = verifier.isAlwaysTrue(ast);
 
     assertThat(result.status()).isEqualTo(VerificationStatus.INCONCLUSIVE);
     assertThat(result.message())
-        .contains("doesn't model exactly: lists and maps longer than the unroll limit (5).");
+        .contains("doesn't model exactly: " + testCase.expectedSources + ".");
   }
 
   @Test
@@ -2090,6 +2108,9 @@ public final class CelVerifierZ3ImplTest {
   }
 
   private enum IsInconclusiveTestCase {
+    // int('5') == 5 is approximate and may really be true, which absorbs the 1 / 0 error.
+    APPROXIMATE_MATCH_BEFORE_ERROR(
+        "int_list == [1, 0] ? int_list.exists(x, x == 1 ? int('5') == 5 : 1 / x == 1) : true"),
     // nested_list[5] is past the unroll limit, so it may not be a list.
     APPROXIMATE_DYN_RANGE("size(nested_list) == 6 ? dyn(nested_list)[5].all(e, e == e) : true"),
     // TODO: Implement RFC 3339 spec in conversion
