@@ -14,12 +14,17 @@
 
 package dev.cel.verifier;
 
+import static com.google.common.collect.ImmutableList.toImmutableList;
+
+import com.google.common.collect.ImmutableList;
 import com.microsoft.z3.BoolExpr;
 import com.microsoft.z3.Context;
 import com.microsoft.z3.Expr;
+import com.microsoft.z3.Model;
 import dev.cel.common.types.CelType;
 import dev.cel.common.types.SimpleType;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -41,6 +46,7 @@ final class CelZ3TranslationContext {
   private final Set<BoolExpr> constraints;
   private final Map<Expr<?>, CelType> inputVariableTypes;
   private final List<BoolExpr> truncationConditions;
+  private final Map<String, List<BoolExpr>> approximationTerms;
   private final Map<String, TranslatedValue> symbolTable;
   private final Map<String, TranslatedValue> localScope;
 
@@ -93,11 +99,65 @@ final class CelZ3TranslationContext {
    * not linked to its keys.
    */
   BoolExpr isTruncatedMap(Expr<?> val) {
-    return ctx.mkAnd(
-        typeSystem.isMap(val),
-        ctx.mkGt(
-            ctx.mkLength(typeSystem.getMapKeys(typeSystem.getMapRef(val))),
-            ctx.mkInt(comprehensionUnrollLimit)));
+    return recordUnrollLimitApproximation(
+        ctx.mkAnd(
+            typeSystem.isMap(val),
+            ctx.mkGt(
+                ctx.mkLength(typeSystem.getMapKeys(typeSystem.getMapRef(val))),
+                ctx.mkInt(comprehensionUnrollLimit))));
+  }
+
+  /**
+   * Records {@code description} as a reason results are approximate where {@code condition} holds,
+   * and returns the term to use for {@code condition}, so that it can be told apart in a taint.
+   */
+  BoolExpr recordApproximation(String description, BoolExpr condition) {
+    BoolExpr term = condition;
+    if (condition.isTrue()) {
+      // A literal `true` is shared by every other unconditional approximation.
+      term = (BoolExpr) ctx.mkFreshConst("!approx", ctx.getBoolSort());
+      constraints.add(term);
+    }
+    approximationTerms.computeIfAbsent(description, k -> new ArrayList<>()).add(term);
+    return term;
+  }
+
+  BoolExpr recordUnrollLimitApproximation(BoolExpr condition) {
+    return recordApproximation(
+        "lists and maps longer than the unroll limit (" + comprehensionUnrollLimit + ")",
+        condition);
+  }
+
+  BoolExpr recordCallApproximation(String functionName, BoolExpr condition) {
+    return recordApproximation("calls to `" + functionName + "`", condition);
+  }
+
+  /**
+   * Returns the descriptions of the approximations that are enough on their own to make {@code
+   * taint} hold in {@code model}, which leaves out those in short-circuited operands or untaken
+   * branches.
+   */
+  ImmutableList<String> approximationSources(Model model, BoolExpr taint) {
+    return approximationTerms.keySet().stream()
+        .filter(description -> holds(model, withoutApproximation(taint, termsExcept(description))))
+        .collect(toImmutableList());
+  }
+
+  private ImmutableList<BoolExpr> termsExcept(String description) {
+    return approximationTerms.entrySet().stream()
+        .filter(source -> !source.getKey().equals(description))
+        .flatMap(source -> source.getValue().stream())
+        .collect(toImmutableList());
+  }
+
+  BoolExpr withoutApproximation(BoolExpr expr, List<BoolExpr> terms) {
+    BoolExpr[] falses = new BoolExpr[terms.size()];
+    Arrays.fill(falses, ctx.mkFalse());
+    return (BoolExpr) expr.substitute(terms.toArray(new BoolExpr[0]), falses);
+  }
+
+  private static boolean holds(Model model, BoolExpr condition) {
+    return model.evaluate(condition, /* completion= */ true).isTrue();
   }
 
   void addTruncationCondition(BoolExpr condition) {
@@ -148,6 +208,7 @@ final class CelZ3TranslationContext {
     this.constraints = new LinkedHashSet<>();
     this.inputVariableTypes = new LinkedHashMap<>();
     this.truncationConditions = new ArrayList<>();
+    this.approximationTerms = new LinkedHashMap<>();
     this.symbolTable = new HashMap<>();
     this.localScope = new HashMap<>();
   }

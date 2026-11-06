@@ -23,6 +23,7 @@ import com.microsoft.z3.BoolExpr;
 import com.microsoft.z3.Context;
 import com.microsoft.z3.Expr;
 import com.microsoft.z3.FuncDecl;
+import com.microsoft.z3.Model;
 import com.microsoft.z3.Quantifier;
 import com.microsoft.z3.SeqExpr;
 import com.microsoft.z3.Sort;
@@ -87,6 +88,14 @@ final class CelAstToZ3Translator {
 
   BoolExpr hasTruncation() {
     return context.hasTruncation();
+  }
+
+  ImmutableList<String> approximationSources(Model model, BoolExpr taint) {
+    return context.approximationSources(model, taint);
+  }
+
+  BoolExpr recordApproximation(String description, BoolExpr condition) {
+    return context.recordApproximation(description, condition);
   }
 
   CelZ3TypeSystem getTypeSystem() {
@@ -450,7 +459,7 @@ final class CelAstToZ3Translator {
                   functionName,
                   callRes,
                   Optional.of(expr),
-                  /* baseTaint= */ ctx.mkTrue(),
+                  /* baseTaint= */ context.recordCallApproximation(functionName, ctx.mkTrue()),
                   args);
             });
   }

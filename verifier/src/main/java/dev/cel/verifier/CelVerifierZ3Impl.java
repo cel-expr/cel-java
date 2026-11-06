@@ -231,7 +231,9 @@ final class CelVerifierZ3Impl implements CelVerifier {
               ctx,
               tvA.isApproximate(),
               tvB.isApproximate(),
-              ctx.mkAnd(tvA.isZ3Unknown(), tvB.isZ3Unknown()));
+              translator.recordApproximation(
+                  "unknown results, which are compared only by their origin",
+                  ctx.mkAnd(tvA.isZ3Unknown(), tvB.isZ3Unknown())));
 
       Solver solver = newSolver(ctx);
       for (BoolExpr constraint : translator.getTypeConstraints()) {
@@ -259,8 +261,7 @@ final class CelVerifierZ3Impl implements CelVerifier {
               "Equivalence violation detected.", extractWitness(ctx, translator, result.model));
         case APPROXIMATE_MATCH:
           return CelVerificationResult.inconclusive(
-              "Inconclusive: a divergence may exist, but it depends on approximations, missing"
-                  + " theories, or loop bounds.",
+              inconclusiveReason("a divergence", translator, result.model, combinedTaint),
               extractWitness(ctx, translator, result.model),
               /* isCounterexample= */ true);
         case TRUNCATED:
@@ -336,8 +337,7 @@ final class CelVerifierZ3Impl implements CelVerifier {
               extractWitness(ctx, translator, result.model));
         case APPROXIMATE_MATCH:
           return CelVerificationResult.inconclusive(
-              "Inconclusive: a counterexample may exist, but it depends on approximations, missing"
-                  + " theories, or loop bounds.",
+              inconclusiveReason("a counterexample", translator, result.model, combinedTaint),
               extractWitness(ctx, translator, result.model),
               /* isCounterexample= */ true);
         case TRUNCATED:
@@ -390,14 +390,12 @@ final class CelVerifierZ3Impl implements CelVerifier {
               : CelVerificationResult.verified("Condition is satisfiable.", witness);
 
         case APPROXIMATE_MATCH:
-          String prefix =
-              searchForCounterexample
-                  ? "Inconclusive: a counterexample may exist, but it depends on approximations,"
-                      + " missing theories, or loop bounds."
-                  : "Inconclusive: a satisfying model may exist, but it depends on"
-                      + " approximations, missing theories, or loop bounds.";
           return CelVerificationResult.inconclusive(
-              prefix,
+              inconclusiveReason(
+                  searchForCounterexample ? "a counterexample" : "a satisfying input",
+                  translator,
+                  result.model,
+                  tv.isApproximate()),
               extractWitness(ctx, translator, result.model),
               /* isCounterexample= */ searchForCounterexample);
 
@@ -500,6 +498,15 @@ final class CelVerifierZ3Impl implements CelVerifier {
         functionRegistry,
         typeProvider,
         parameterizeUnknowns);
+  }
+
+  private static String inconclusiveReason(
+      String candidate, CelAstToZ3Translator translator, Model model, BoolExpr taint) {
+    ImmutableList<String> sources = translator.approximationSources(model, taint);
+    return "Inconclusive: "
+        + candidate
+        + " may exist, but it depends on what the verifier doesn't model exactly"
+        + (sources.isEmpty() ? "." : ": " + String.join(", ", sources) + ".");
   }
 
   private CelWitness extractWitness(Context ctx, CelAstToZ3Translator translator, Model model) {

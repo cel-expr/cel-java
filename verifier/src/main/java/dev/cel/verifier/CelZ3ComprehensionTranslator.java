@@ -154,7 +154,9 @@ final class CelZ3ComprehensionTranslator {
     boolean isMap = rangeType instanceof MapType;
     if (!isList && !isMap) {
       BoolExpr isRuntimeListOrMap =
-          ctx.mkOr(typeSystem.isList(iterRange), typeSystem.isMap(iterRange));
+          context.recordApproximation(
+              "comprehensions over `dyn` values",
+              ctx.mkOr(typeSystem.isList(iterRange), typeSystem.isMap(iterRange)));
       Expr<?> result =
           ctx.mkITE(isRuntimeListOrMap, mkParameterizedUnknown(celExpr, ast), typeSystem.mkError());
       return TranslatedValue.create(result, celExpr, typeSystem, isRuntimeListOrMap);
@@ -171,7 +173,8 @@ final class CelZ3ComprehensionTranslator {
 
     BoolExpr isValidRange = isMap ? typeSystem.isMap(iterRange) : typeSystem.isList(iterRange);
     BoolExpr isTruncated =
-        ctx.mkAnd(isValidRange, ctx.mkGt(lengthExpr, ctx.mkInt(comprehensionUnrollLimit)));
+        context.recordUnrollLimitApproximation(
+            ctx.mkAnd(isValidRange, ctx.mkGt(lengthExpr, ctx.mkInt(comprehensionUnrollLimit))));
     context.addTruncationCondition(isTruncated);
 
     if (isAllMacro(comp) || isExistsMacro(comp)) {
@@ -338,7 +341,10 @@ final class CelZ3ComprehensionTranslator {
 
     // TODO: Model the loop condition for custom macros; until then, abstract the
     // result of any non-true condition, since the unrolled value ignores early exits.
-    BoolExpr isConditionUnmodeled = ctx.mkBool(!isLiteralTrue(comp.loopCondition()));
+    BoolExpr isConditionUnmodeled =
+        context.recordApproximation(
+            "comprehensions with a loop condition",
+            ctx.mkBool(!isLiteralTrue(comp.loopCondition())));
     BoolExpr isAbstracted =
         CelZ3Exprs.mkOrFlattened(ctx, rangeIsUnknown, isTruncated, isConditionUnmodeled);
     // An error is not final when truncated: an unknown from a later iteration overrides it.

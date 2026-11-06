@@ -130,7 +130,12 @@ final class CelZ3OperatorTranslator {
       BoolExpr typeGuard = CelZ3Exprs.mkAndFlattened(ctx, typeGuards);
       currentZ3Result = ctx.mkITE(typeGuard, evaluatedResult.z3Expr(), currentZ3Result);
       currentApprox =
-          (BoolExpr) ctx.mkITE(typeGuard, evaluatedResult.isApproximate(), currentApprox);
+          (BoolExpr)
+              ctx.mkITE(
+                  typeGuard,
+                  attributeApproximation(
+                      functionName, evaluatedResult.isApproximate(), argApproximations),
+                  currentApprox);
     }
 
     if (!matchedAny) {
@@ -158,6 +163,24 @@ final class CelZ3OperatorTranslator {
             typeSystem.propagateErrorAndUnknown(functionName, currentZ3Result, z3Args, z3Args),
             typeSystem,
             currentApprox));
+  }
+
+  // Returns an overload's approximation with the part it adds itself recorded as a call
+  // approximation.
+  private BoolExpr attributeApproximation(
+      String functionName, BoolExpr approx, ImmutableList<BoolExpr> argApproximations) {
+    // A literal `true` can't be substituted without also replacing the overload's own `true`.
+    ImmutableList<BoolExpr> substitutable =
+        argApproximations.stream().filter(a -> !a.isTrue()).collect(toImmutableList());
+    // Approximations only grow with their arguments', so approx is equivalent to the overload's own
+    // part (its value with exact arguments) or approx under some approximate argument.
+    BoolExpr own =
+        context.recordCallApproximation(
+            functionName,
+            (BoolExpr) context.withoutApproximation(approx, substitutable).simplify());
+    BoolExpr inherited =
+        CelZ3Exprs.mkAndFlattened(ctx, approx, CelZ3Exprs.mkOrFlattened(ctx, argApproximations));
+    return CelZ3Exprs.mkOrFlattened(ctx, own, inherited);
   }
 
   /**
@@ -339,7 +362,7 @@ final class CelZ3OperatorTranslator {
         // For operators we haven't implemented cleanly, just wrap uninterpreted for now.
         return TranslatedValue.propagateStrict(
                 ctx, typeSystem, op.getFunction(), typeSystem.mkUnknown(), args)
-            .withApproximation(ctx.mkTrue());
+            .withApproximation(context.recordCallApproximation(op.getFunction(), ctx.mkTrue()));
     }
   }
 
@@ -977,14 +1000,15 @@ final class CelZ3OperatorTranslator {
     String opName =
         isOptional ? Operator.OPTIONAL_INDEX.getFunction() : Operator.INDEX.getFunction();
     BoolExpr isListIndexTruncated =
-        ctx.mkAnd(
-            shouldEvaluate,
-            typeSystem.isList(lhsTrans),
-            typeSystem.isInt(rhsTrans),
-            ctx.mkGe(typeSystem.getInt(rhsTrans), ctx.mkInt(comprehensionUnrollLimit)),
-            ctx.mkLt(
-                typeSystem.getInt(rhsTrans),
-                ctx.mkLength(typeSystem.getSeq(typeSystem.getListRef(lhsTrans)))));
+        context.recordUnrollLimitApproximation(
+            ctx.mkAnd(
+                shouldEvaluate,
+                typeSystem.isList(lhsTrans),
+                typeSystem.isInt(rhsTrans),
+                ctx.mkGe(typeSystem.getInt(rhsTrans), ctx.mkInt(comprehensionUnrollLimit)),
+                ctx.mkLt(
+                    typeSystem.getInt(rhsTrans),
+                    ctx.mkLength(typeSystem.getSeq(typeSystem.getListRef(lhsTrans))))));
     BoolExpr isMapIndexTruncated = ctx.mkAnd(shouldEvaluate, context.isTruncatedMap(lhsTrans));
     return TranslatedValue.propagateStrict(ctx, typeSystem, opName, actualValue, args)
         .withApproximation(
@@ -1148,11 +1172,12 @@ final class CelZ3OperatorTranslator {
     if (Arrays.stream(args).allMatch(arg -> isConcrete(extractAstTypeOrDefault(arg, ast)))) {
       return ctx.mkFalse();
     }
-    return CelZ3Exprs.mkOrFlattened(
-        ctx,
-        Arrays.stream(args)
-            .map(arg -> typeSystem.hasTruncatedTypeConstraint(arg.z3Expr()))
-            .collect(toImmutableList()));
+    return context.recordUnrollLimitApproximation(
+        CelZ3Exprs.mkOrFlattened(
+            ctx,
+            Arrays.stream(args)
+                .map(arg -> typeSystem.hasTruncatedTypeConstraint(arg.z3Expr()))
+                .collect(toImmutableList())));
   }
 
   CelZ3OperatorTranslator(CelZ3TranslationContext context, CelZ3FunctionRegistry functionRegistry) {

@@ -579,6 +579,100 @@ public final class CelVerifierZ3ImplTest {
                 + " of input state)");
   }
 
+  private enum ApproximationSourceTestCase {
+    PARTIALLY_MODELED_FUNCTION("int(string_var) == 5", "calls to `int`"),
+    // `type` is exact; only its argument is approximate.
+    APPROXIMATE_ARGUMENT("type(int(string_var)) == int", "calls to `int`"),
+    APPROXIMATE_ARGUMENT_OF_UNCONDITIONAL_SOURCE(
+        "type(string_var.matches('a')) == bool", "calls to `matches`"),
+    UNROLL_LIMIT(
+        "size(int_list) == 7 && int_list[6] == 1",
+        "lists and maps longer than the unroll limit (5)"),
+    MULTIPLE_SOURCES(
+        "int(string_var) == 5 && size(int_list) == 7 && int_list[6] == 1",
+        "calls to `int`, lists and maps longer than the unroll limit (5)"),
+    // Still approximate within the unroll limit, so `int` is a source of its own.
+    APPROXIMATE_FUNCTION_OF_APPROXIMATE_ARGUMENT(
+        "size(dyn_list) == 7 && type(dyn_list[6]) == string && int(dyn_list[6]) == 5",
+        "lists and maps longer than the unroll limit (5), calls to `int`"),
+    SHORT_CIRCUITED_CALL(
+        "(false && string_var.matches('a')) || (size(int_list) == 7 && int_list[6] == 1)",
+        "lists and maps longer than the unroll limit (5)"),
+    SHORT_CIRCUITED_CALL_AMONG_SOURCES(
+        "(false && string_var.matches('a'))"
+            + " || (size(int_list) == 7 && int_list[6] == 1 && int(string_var) == 5)",
+        "lists and maps longer than the unroll limit (5), calls to `int`"),
+    UNTAKEN_BRANCH(
+        "size(int_list) == 7 && (b ? int_list[6] == 1 : int(string_var) == 5) && !b",
+        "calls to `int`"),
+    OPTIONAL_SELECT_WITH_AXIOM(
+        "(false && string_int_map.?k.hasValue()) || int(string_var) == 5", "calls to `int`");
+
+    private final String expr;
+    private final String expectedSources;
+
+    ApproximationSourceTestCase(String expr, String expectedSources) {
+      this.expr = expr;
+      this.expectedSources = expectedSources;
+    }
+  }
+
+  @Test
+  public void isSatisfiable_approximate_listsApproximationSources(
+      @TestParameter ApproximationSourceTestCase testCase) throws Exception {
+    CelAbstractSyntaxTree ast = CEL.compile(testCase.expr).getAst();
+
+    CelVerificationResult result = VERIFIER.isSatisfiable(ast);
+
+    assertThat(result.status()).isEqualTo(VerificationStatus.INCONCLUSIVE);
+    assertThat(result.reason())
+        .isEqualTo(
+            "Inconclusive: a satisfying input may exist, but it depends on what the verifier"
+                + " doesn't model exactly: "
+                + testCase.expectedSources
+                + ".");
+  }
+
+  private enum UninterpretedFunctionSourceTestCase {
+    TWO_FUNCTIONS("f(x) == 1 && g(y) == 2", "calls to `f`, calls to `g`"),
+    SHORT_CIRCUITED_FUNCTION("(false && f(x) == 1) || g(y) == 2", "calls to `g`"),
+    SAME_FUNCTION_TWICE("f(x) == 1 && f(y) == 2", "calls to `f`");
+
+    private final String expr;
+    private final String expectedSources;
+
+    UninterpretedFunctionSourceTestCase(String expr, String expectedSources) {
+      this.expr = expr;
+      this.expectedSources = expectedSources;
+    }
+  }
+
+  @Test
+  public void isSatisfiable_uninterpretedFunctions_listsApproximationSources(
+      @TestParameter UninterpretedFunctionSourceTestCase testCase) throws Exception {
+    CelCompiler celCompiler =
+        CEL.toCompilerBuilder()
+            .addFunctionDeclarations(
+                CelFunctionDecl.newFunctionDeclaration(
+                    "f",
+                    CelOverloadDecl.newGlobalOverload("f_int", SimpleType.INT, SimpleType.INT)),
+                CelFunctionDecl.newFunctionDeclaration(
+                    "g",
+                    CelOverloadDecl.newGlobalOverload("g_int", SimpleType.INT, SimpleType.INT)))
+            .build();
+    CelAbstractSyntaxTree ast = celCompiler.compile(testCase.expr).getAst();
+
+    CelVerificationResult result = VERIFIER_WITHOUT_ORACLE.isSatisfiable(ast);
+
+    assertThat(result.status()).isEqualTo(VerificationStatus.INCONCLUSIVE);
+    assertThat(result.reason())
+        .isEqualTo(
+            "Inconclusive: a satisfying input may exist, but it depends on what the verifier"
+                + " doesn't model exactly: "
+                + testCase.expectedSources
+                + ".");
+  }
+
   @Test
   public void isSatisfiable_approximate_returnsPotentialSatisfyingInput() throws Exception {
     CelAbstractSyntaxTree ast = CEL.compile("int('123') == 123 ? x > 5 : false").getAst();
@@ -586,7 +680,7 @@ public final class CelVerifierZ3ImplTest {
     CelVerificationResult result = VERIFIER.isSatisfiable(ast);
 
     assertThat(result.status()).isEqualTo(VerificationStatus.INCONCLUSIVE);
-    assertThat(result.message()).contains("Inconclusive: a satisfying model may exist");
+    assertThat(result.message()).contains("Inconclusive: a satisfying input may exist");
     assertThat(result.message()).contains("Potential satisfying input:");
     assertThat(result.message()).containsMatch("x = (?:[6-9]|[1-9]\\d+)");
   }
@@ -1318,7 +1412,8 @@ public final class CelVerifierZ3ImplTest {
     CelVerificationResult result = verifier.isAlwaysTrue(ast);
 
     assertThat(result.status()).isEqualTo(VerificationStatus.INCONCLUSIVE);
-    assertThat(result.message()).contains("depends on approximations");
+    assertThat(result.message())
+        .contains("doesn't model exactly: lists and maps longer than the unroll limit (5).");
   }
 
   @Test
@@ -2128,6 +2223,34 @@ public final class CelVerifierZ3ImplTest {
       this.exprA = exprA;
       this.exprB = exprB;
     }
+  }
+
+  @Test
+  public void verifyEquivalence_dynComprehensionRange_listedAsApproximationSource()
+      throws Exception {
+    CelAbstractSyntaxTree astA = CEL.compile("dyn_var.all(e, e > 0)").getAst();
+    CelAbstractSyntaxTree astB = CEL.compile("dyn_var.all(e, e < 0)").getAst();
+
+    CelVerificationResult result = VERIFIER.verifyEquivalence(astA, astB);
+
+    assertThat(result.reason())
+        .isEqualTo(
+            "Inconclusive: a divergence may exist, but it depends on what the verifier doesn't"
+                + " model exactly: comprehensions over `dyn` values.");
+  }
+
+  @Test
+  public void verifyEquivalence_unknownResults_listedAsApproximationSource() throws Exception {
+    CelAbstractSyntaxTree astA = CEL.compile("unknown_var * 1").getAst();
+    CelAbstractSyntaxTree astB = CEL.compile("unknown_var + 0").getAst();
+    CelVerifier verifier = withRuntimeOracle(CEL, b -> b.addUnknownIdentifier("unknown_var"));
+
+    CelVerificationResult result = verifier.verifyEquivalence(astA, astB);
+
+    assertThat(result.reason())
+        .isEqualTo(
+            "Inconclusive: a divergence may exist, but it depends on what the verifier doesn't"
+                + " model exactly: unknown results, which are compared only by their origin.");
   }
 
   @Test
@@ -3020,7 +3143,7 @@ public final class CelVerifierZ3ImplTest {
     CelVerificationResult result = VERIFIER.isAlwaysTrue(ast);
 
     assertThat(result.status()).isEqualTo(VerificationStatus.INCONCLUSIVE);
-    assertThat(result.message()).contains("depends on approximations");
+    assertThat(result.message()).contains("doesn't model exactly: calls to `request`.");
   }
 
   @Test
@@ -3718,7 +3841,8 @@ public final class CelVerifierZ3ImplTest {
     CelVerificationResult result = verifier.isAlwaysTrue(ast);
 
     assertThat(result.status()).isEqualTo(VerificationStatus.INCONCLUSIVE);
-    assertThat(result.message()).contains("depends on approximations");
+    assertThat(result.message())
+        .contains("doesn't model exactly: comprehensions with a loop condition.");
   }
 
   @Test
