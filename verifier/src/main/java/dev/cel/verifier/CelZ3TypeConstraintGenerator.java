@@ -103,6 +103,19 @@ final class CelZ3TypeConstraintGenerator {
       return ctx.mkAnd(
           typeSystem.isDuration(val), ctx.mkNot(typeSystem.checkDurationOverflow(nanos)));
     }
+    if (type.equals(SimpleType.DYN)) {
+      // Whatever a dyn value holds satisfies its kind's constraint (range, canonical NaN).
+      return CelZ3Exprs.mkAndFlattened(
+          ctx,
+          ctx.mkImplies(typeSystem.isInt(val), createTypeConstraintForType(val, SimpleType.INT)),
+          ctx.mkImplies(typeSystem.isUint(val), createTypeConstraintForType(val, SimpleType.UINT)),
+          ctx.mkImplies(
+              typeSystem.isDouble(val), createTypeConstraintForType(val, SimpleType.DOUBLE)),
+          ctx.mkImplies(
+              typeSystem.isTimestamp(val), createTypeConstraintForType(val, SimpleType.TIMESTAMP)),
+          ctx.mkImplies(
+              typeSystem.isDuration(val), createTypeConstraintForType(val, SimpleType.DURATION)));
+    }
 
     if (type instanceof ListType) {
       // Constrain list elements using bounded unrolling up to comprehensionUnrollLimit rather
@@ -118,7 +131,8 @@ final class CelZ3TypeConstraintGenerator {
 
       List<BoolExpr> boundsAndTypes = new ArrayList<>();
       boundsAndTypes.add(isList);
-      // Elements beyond the limit are unconstrained, which only matters if elemType is known.
+      // Elements beyond the limit are unconstrained. That only matters if elemType is known: dyn
+      // elements past it are treated like values nested in a dyn value.
       if (CelZ3OperatorTranslator.isStaticallyKnown(elemType)) {
         boundsAndTypes.add(
             ctx.mkImplies(
@@ -157,7 +171,8 @@ final class CelZ3TypeConstraintGenerator {
       List<BoolExpr> boundsAndTypes = new ArrayList<>();
       boundsAndTypes.add(isMap);
       boundsAndTypes.add(getBoundedMapBijection(mapPresence, seq, (ArithExpr) length));
-      // Entries beyond the limit are unconstrained, which matters if keyType or valType is known.
+      // Entries beyond the limit are unconstrained, which matters if keyType or valType is known
+      // (dyn entries past it are treated like values nested in a dyn value).
       if (CelZ3OperatorTranslator.isStaticallyKnown(keyType)
           || CelZ3OperatorTranslator.isStaticallyKnown(valType)) {
         boundsAndTypes.add(

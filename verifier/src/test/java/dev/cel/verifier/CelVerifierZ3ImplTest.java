@@ -222,23 +222,24 @@ public final class CelVerifierZ3ImplTest {
     DURATION_SUBSECOND_SATISFIABLE(
         "dur == google.protobuf.Duration{seconds: 1, nanos: 500}",
         "dur = duration\\(\"1\\.000000500s\"\\)"),
-    // Timestamps and durations nested in dyn aren't range constrained.
+    INTEGRAL_DOUBLE_MAP_KEY("d > 1.0 && dyn_int_map[d] == 1", "d = [1-9]"),
+    // Values reached by indexing into a dyn value aren't range constrained.
     TIMESTAMP_ABOVE_RANGE_SATISFIABLE(
-        "type(dyn_var) == google.protobuf.Timestamp"
-            + " && dyn_var > google.protobuf.Timestamp{seconds: 253402300799, nanos: 999999999}",
-        "dyn_var = timestamp\\(\\d+\\)"),
+        "type(dyn_var[0]) == google.protobuf.Timestamp"
+            + " && dyn_var[0] > google.protobuf.Timestamp{seconds: 253402300799, nanos: 999999999}",
+        "dyn_var = .*timestamp\\(\\d+\\)"),
     TIMESTAMP_BELOW_RANGE_SATISFIABLE(
-        "type(dyn_var) == google.protobuf.Timestamp"
-            + " && dyn_var < google.protobuf.Timestamp{seconds: -62135596800}",
-        "dyn_var = timestamp\\(-\\d+\\)"),
+        "type(dyn_var[0]) == google.protobuf.Timestamp"
+            + " && dyn_var[0] < google.protobuf.Timestamp{seconds: -62135596800}",
+        "dyn_var = .*timestamp\\(-\\d+\\)"),
     DURATION_ABOVE_RANGE_SATISFIABLE(
-        "type(dyn_var) == google.protobuf.Duration"
-            + " && dyn_var > google.protobuf.Duration{seconds: 315576000000, nanos: 999999999}",
-        "dyn_var = duration\\(\"\\d+s\"\\)"),
+        "type(dyn_var[0]) == google.protobuf.Duration"
+            + " && dyn_var[0] > google.protobuf.Duration{seconds: 315576000000, nanos: 999999999}",
+        "dyn_var = .*duration\\(\"\\d+s\"\\)"),
     DURATION_BELOW_RANGE_SATISFIABLE(
-        "type(dyn_var) == google.protobuf.Duration"
-            + " && dyn_var < google.protobuf.Duration{seconds: -315576000000, nanos: -999999999}",
-        "dyn_var = duration\\(\"-\\d+s\"\\)"),
+        "type(dyn_var[0]) == google.protobuf.Duration && dyn_var[0] <"
+            + " google.protobuf.Duration{seconds: -315576000000, nanos: -999999999}",
+        "dyn_var = .*duration\\(\"-\\d+s\"\\)"),
     ;
 
     private final String expr;
@@ -348,41 +349,29 @@ public final class CelVerifierZ3ImplTest {
   }
 
   private enum InexactWitnessTestCase {
-    INT_OUT_OF_RANGE("type(dyn_var) == int && dyn_var > 9223372036854775807", "dyn_var"),
-    UINT_OUT_OF_RANGE("type(dyn_var) == uint && dyn_var > 18446744073709551615u", "dyn_var"),
-    NEGATIVE_UINT("type(dyn_var) == uint && dyn_var < 0u", "dyn_var"),
+    INT_OUT_OF_RANGE("type(dyn_var[0]) == int && dyn_var[0] > 9223372036854775807", "dyn_var"),
+    UINT_OUT_OF_RANGE("type(dyn_var[0]) == uint && dyn_var[0] > 18446744073709551615u", "dyn_var"),
+    NEGATIVE_UINT("type(dyn_var[0]) == uint && dyn_var[0] < 0u", "dyn_var"),
     TIMESTAMP_OUT_OF_RANGE(
-        "type(dyn_var) == google.protobuf.Timestamp"
-            + " && dyn_var > google.protobuf.Timestamp{seconds: 253402300799, nanos: 999999999}",
+        "type(dyn_var[0]) == google.protobuf.Timestamp"
+            + " && dyn_var[0] > google.protobuf.Timestamp{seconds: 253402300799, nanos: 999999999}",
         "dyn_var"),
     DURATION_ABOVE_MAX(
-        "type(dyn_var) == google.protobuf.Duration"
-            + " && dyn_var > google.protobuf.Duration{seconds: 315576000000, nanos: 999999999}",
+        "type(dyn_var[0]) == google.protobuf.Duration"
+            + " && dyn_var[0] > google.protobuf.Duration{seconds: 315576000000, nanos: 999999999}",
         "dyn_var"),
     DURATION_BELOW_MIN(
-        "type(dyn_var) == google.protobuf.Duration"
-            + " && dyn_var < google.protobuf.Duration{seconds: -315576000000, nanos: -999999999}",
+        "type(dyn_var[0]) == google.protobuf.Duration && dyn_var[0] <"
+            + " google.protobuf.Duration{seconds: -315576000000, nanos: -999999999}",
         "dyn_var"),
     SURROGATE_STRING(
         "size(string_var) == 1 && string_var > '\\ud7ff' && string_var < '\\ue000'", "string_var"),
     NON_ASCII_BYTES("by == b'\\xc3\\xa9'", "by"),
     LIST_PAST_UNROLL_LIMIT("size(int_list) == 6", "int_list"),
     MAP_PAST_UNROLL_LIMIT("size(string_int_map) == 6", "string_int_map"),
-    LIST_WITH_INEXACT_ELEMENT(
-        "size(dyn_list) == 1 && type(dyn_list[0]) == int && dyn_list[0] > 9223372036854775807",
-        "dyn_list"),
-    MAP_WITH_INEXACT_KEY(
-        "size(dyn_int_map) == 1"
-            + " && dyn_int_map.exists(k, type(k) == int && k > 9223372036854775807)",
-        "dyn_int_map"),
-    MAP_WITH_INEXACT_VALUE(
-        "size(string_dyn_map) == 1 && type(string_dyn_map['a']) == int"
-            + " && string_dyn_map['a'] > 9223372036854775807",
-        "string_dyn_map"),
-    OPTIONAL_WITH_INEXACT_VALUE(
-        "opt_dyn_var.hasValue() && type(opt_dyn_var.value()) == int"
-            + " && opt_dyn_var.value() > 9223372036854775807",
-        "opt_dyn_var");
+    MAP_WITH_INEXACT_KEY("dyn_int_map == {b'\\xc3\\xa9': 1}", "dyn_int_map"),
+    MAP_WITH_INEXACT_VALUE("string_dyn_map == {'a': b'\\xc3\\xa9'}", "string_dyn_map"),
+    OPTIONAL_WITH_INEXACT_VALUE("opt_dyn_var == optional.of(b'\\xc3\\xa9')", "opt_dyn_var");
 
     private final String expr;
     private final String variableName;
@@ -713,6 +702,11 @@ public final class CelVerifierZ3ImplTest {
     APPROXIMATED_INT_TO_STRING("string(123) == '123'"),
     APPROXIMATED_RANGE("int('123') > 100 && int('123') < 200"),
     APPROXIMATED_BRANCHING("int('123') == 123 ? x > 5 : false"),
+    // An element indexed out of a dyn value may be out of range, unlike the literal list holding
+    // it.
+    OUT_OF_RANGE_NESTED_DYN_ELEMENT("type([dyn_var[0]][0]) == uint && [dyn_var[0]][0] < 0u"),
+    // The exact pass refines its candidate away; its assertions mustn't leak into the next pass.
+    APPROXIMATED_AFTER_REFINEMENT("(dyn(x) == d && d == 1.5) || int(string_var) == 5"),
     APPROXIMATED_STRING_TO_INT_CONSTRAINED("string_var == 'abc' && int(string_var) == 5"),
     APPROXIMATED_STRING_TO_DOUBLE_NAN("double('NaN') != double('NaN')"),
     // int('x') errors at runtime, so type() of an approximate argument is approximate too.
@@ -872,6 +866,24 @@ public final class CelVerifierZ3ImplTest {
     NON_BOOL_LOGICAL_OPERAND("dyn(1) && true"),
     ENUM_CONSTANTS_DISTINCT("TestAllTypes.NestedEnum.FOO == TestAllTypes.NestedEnum.BAR"),
     LEADING_DOT_GLOBAL_DISAMBIGUATION_CONTRADICTION("x == 5 && [1, 2].all(x, x > .x)"),
+    CROSS_TYPE_EQUAL_AND_LESS("dyn(x) == d && x < d"),
+    CROSS_TYPE_LESS_BOTH_WAYS("x < d && d < x"),
+    CROSS_TYPE_LESS_EQUALS_AND_GREATER("x <= d && d < x"),
+    CROSS_TYPE_INTEGRAL_BETWEEN_CONSECUTIVE_INTS("x < d && d < x + 1 && dyn(y) == d"),
+    CROSS_TYPE_EQUALITY_TRANSITIVE("dyn(x) == d && d == dyn(u) && dyn(x) != dyn(u)"),
+    CROSS_TYPE_FRACTIONAL_MAP_KEY(
+        "size(dyn_int_map) == 1 && d > 1.0 && d < 2.0 && dyn_int_map[d] == 1"),
+    DYN_INT_OUT_OF_RANGE("type(dyn_var) == int && dyn_var > 9223372036854775807"),
+    DYN_UINT_OUT_OF_RANGE("type(dyn_var) == uint && dyn_var > 18446744073709551615u"),
+    DYN_NEGATIVE_UINT("type(dyn_var) == uint && dyn_var < 0u"),
+    DYN_TIMESTAMP_OUT_OF_RANGE(
+        "type(dyn_var) == google.protobuf.Timestamp"
+            + " && dyn_var < google.protobuf.Timestamp{seconds: -62135596800}"),
+    DYN_DURATION_OUT_OF_RANGE(
+        "type(dyn_var) == google.protobuf.Duration"
+            + " && dyn_var > google.protobuf.Duration{seconds: 315576000000, nanos: 999999999}"),
+    DYN_LIST_ELEMENT_OUT_OF_RANGE(
+        "size(dyn_list) == 1 && type(dyn_list[0]) == int && dyn_list[0] > 9223372036854775807"),
     ;
 
     private final String expr;
@@ -1185,6 +1197,12 @@ public final class CelVerifierZ3ImplTest {
         "unknown_var == 9223372036854775807 ? unknown_var != 1e100 : true"),
     HETEROGENEOUS_MAX_EXACT_INT("dyn(9007199254740992) == 9007199254740992.0"),
     HETEROGENEOUS_MIN_EXACT_INT("dyn(-9007199254740992) == -9007199254740992.0"),
+    HETEROGENEOUS_INT_BELOW_TWO_TO_63("x < 9223372036854775808.0"),
+    HETEROGENEOUS_INT_AT_LEAST_MIN("x >= -9223372036854775808.0"),
+    HETEROGENEOUS_INT_ABOVE_MINUS_TWO_TO_64("x > -18446744073709551616.0"),
+    HETEROGENEOUS_UINT_BELOW_TWO_TO_64("u < 18446744073709551616.0"),
+    HETEROGENEOUS_ZERO_ORDERING("(x < 0.0) == (x < 0) && (x < -0.0) == (x < 0)"),
+    HETEROGENEOUS_SUBNORMAL_ORDERING("x > 0 ? dyn(x) > 4.9e-324 : dyn(x) < 4.9e-324"),
     HETEROGENEOUS_INT_PRECISION_LOSS_POS("dyn(9007199254740993) == 9007199254740992.0"),
     HETEROGENEOUS_INT_PRECISION_LOSS_NEG("dyn(-9007199254740993) == -9007199254740992.0"),
     HETEROGENEOUS_UINT_PRECISION_LOSS("dyn(9007199254740993u) == 9007199254740992.0"),
@@ -2090,6 +2108,10 @@ public final class CelVerifierZ3ImplTest {
         "Condition is not always true\\.",
         "Counterexample input:",
         "dyn_int_map = \\{1: 1\\}"),
+    CROSS_TYPE_POSITIVE_INT_EQUALS_DOUBLE("!(dyn(x) == d && x > 0)", "x = [1-9]\\d*", "d = [1-9]"),
+    CROSS_TYPE_NEGATIVE_DOUBLE_BETWEEN_INTS(
+        "!(x < 0 && x < d && d < x + 1)", "d = -\\d+\\.\\d*[1-9]"),
+    CROSS_TYPE_NAN_UNORDERED("dyn(x) < d || dyn(x) >= d", "d = double\\(\"NaN\"\\)"),
     ;
 
     private final String expr;
@@ -2621,6 +2643,7 @@ public final class CelVerifierZ3ImplTest {
     WRAPPER_FLOAT_NAN("d != d ? google.protobuf.FloatValue{value: d} : 0.0", "d != d ? d : 0.0"),
     DOUBLE_NAN_ARITHMETIC("d != d ? d + 1.0 : 0.0", "d != d ? d : 0.0"),
     DOUBLE_NAN_INPUT_AND_LITERAL("d != d ? d : 0.0", "d != d ? 0.0 / 0.0 : 0.0"),
+    DYN_NAN_INPUT_AND_LITERAL("dyn_var != dyn_var ? 0.0 / 0.0 : dyn_var", "dyn_var"),
     DOUBLE_NAN_IN_LIST("d != d ? [d] : []", "d != d ? [-d] : []"),
     WRAPPER_FLOAT_IDEMPOTENT_LITERAL(
         "google.protobuf.FloatValue{value: google.protobuf.FloatValue{value: 0.1}}",
