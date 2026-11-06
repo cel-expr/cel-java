@@ -61,7 +61,6 @@ public class InliningOptimizerTest {
           .setOptions(
               CelOptions.current()
                   .populateMacroCalls(true)
-                  .enableHeterogeneousNumericComparisons(true)
                   .build())
           .build();
 

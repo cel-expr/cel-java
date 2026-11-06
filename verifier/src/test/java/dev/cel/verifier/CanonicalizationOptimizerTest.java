@@ -57,7 +57,6 @@ public class CanonicalizationOptimizerTest {
           .setOptions(
               CelOptions.current()
                   .populateMacroCalls(true)
-                  .enableHeterogeneousNumericComparisons(true)
                   .build())
           .addMessageTypes(TestAllTypes.getDescriptor())
           .addCompilerLibraries(

@@ -43,7 +43,6 @@ public class CelOptimizerImplTest {
           .setOptions(
               CelOptions.current()
                   .populateMacroCalls(true)
-                  .enableHeterogeneousNumericComparisons(true)
                   .build())
           .setStandardMacros(CelStandardMacro.STANDARD_MACROS)
           .build();

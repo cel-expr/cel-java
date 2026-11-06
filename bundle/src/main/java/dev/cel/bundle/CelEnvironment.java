@@ -103,7 +103,12 @@ public abstract class CelEnvironment {
           "cel.feature.backtick_escape_syntax",
           CelOptions.Builder::enableQuotedIdentifierSyntax,
           "cel.feature.cross_type_numeric_comparisons",
-          CelOptions.Builder::enableHeterogeneousNumericComparisons);
+          // Always enabled (mirroring cel-go); the name is still accepted for existing configs.
+          (unused, enabled) ->
+              checkArgument(
+                  enabled,
+                  "cel.feature.cross_type_numeric_comparisons cannot be disabled. Subset the"
+                      + " standard library instead."));
 
   /** Environment source in textual format (ex: textproto, YAML). */
   public abstract Optional<Source> source();

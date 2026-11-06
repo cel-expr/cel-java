@@ -26,7 +26,6 @@ import com.google.testing.junit.testparameterinjector.TestParameters;
 import dev.cel.bundle.Cel;
 import dev.cel.common.CelAbstractSyntaxTree;
 import dev.cel.common.CelFunctionDecl;
-import dev.cel.common.CelOptions;
 import dev.cel.common.CelOverloadDecl;
 import dev.cel.common.CelValidationException;
 import dev.cel.common.types.ListType;
@@ -60,11 +59,6 @@ public class CelMathExtensionsTest {
     this.cel =
         runtimeFlavor
             .builder()
-            .setOptions(
-                CelOptions.current()
-                    .enableHeterogeneousNumericComparisons(
-                        runtimeFlavor.equals(CelRuntimeFlavor.PLANNER))
-                    .build())
             .addCompilerLibraries(CelExtensions.math())
             .addRuntimeLibraries(CelExtensions.math())
             .build();

@@ -38,7 +38,6 @@ import dev.cel.bundle.CelFactory;
 import dev.cel.common.CelAbstractSyntaxTree;
 import dev.cel.common.CelContainer;
 import dev.cel.common.CelFunctionDecl;
-import dev.cel.common.CelOptions;
 import dev.cel.common.CelOverloadDecl;
 import dev.cel.common.CelVarDecl;
 import dev.cel.common.Operator;
@@ -82,7 +81,6 @@ public final class CelVerifierZ3ImplTest {
 
   private static final Cel CEL =
       CelFactory.plannerCelBuilder()
-          .setOptions(CelOptions.current().enableHeterogeneousNumericComparisons(true).build())
           .setStandardMacros(CelStandardMacro.STANDARD_MACROS)
           .setContainer(CelContainer.ofName("cel.expr.conformance.proto3"))
           .addCompilerLibraries(

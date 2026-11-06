@@ -62,7 +62,6 @@ public class SubexpressionOptimizerBaselineTest extends BaselineTestCase {
         .setOptions(
             CelOptions.current()
                 .populateMacroCalls(true)
-                .enableHeterogeneousNumericComparisons(true)
                 .build())
         .addCompilerLibraries(
             CelExtensions.optional(), CelExtensions.bindings(), CelExtensions.comprehensions())

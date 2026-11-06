@@ -43,8 +43,7 @@ import org.junit.runner.RunWith;
 
 @RunWith(TestParameterInjector.class)
 public class CelEncoderExtensionsTest extends CelExtensionTestBase {
-  private static final CelOptions CEL_OPTIONS =
-      CelOptions.current().enableHeterogeneousNumericComparisons(true).build();
+  private static final CelOptions CEL_OPTIONS = CelOptions.DEFAULT;
 
   @Override
   protected Cel newCelEnv() {
@@ -275,7 +274,8 @@ public class CelEncoderExtensionsTest extends CelExtensionTestBase {
   }
 
   @Test
-  @SuppressWarnings("deprecation") // Test only - verifying deprecated evaluateCanonicalTypesToNativeValues option
+  @SuppressWarnings(
+      "deprecation") // Test only - verifying deprecated evaluateCanonicalTypesToNativeValues option
   public void encoders_evaluateCanonicalTypesToNativeValuesDisabled_producesAndConsumesByteString()
       throws Exception {
     CelOptions options = CelOptions.current().evaluateCanonicalTypesToNativeValues(false).build();

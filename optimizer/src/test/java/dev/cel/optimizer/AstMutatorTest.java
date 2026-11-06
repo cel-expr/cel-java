@@ -64,7 +64,6 @@ public class AstMutatorTest {
           .setOptions(
               CelOptions.current()
                   .populateMacroCalls(true)
-                  .enableHeterogeneousNumericComparisons(true)
                   .build())
           .addMessageTypes(TestAllTypes.getDescriptor())
           .addCompilerLibraries(
@@ -872,7 +871,6 @@ public class AstMutatorTest {
             .setOptions(
                 CelOptions.current()
                     .populateMacroCalls(false)
-                    .enableHeterogeneousNumericComparisons(true)
                     .build())
             .build();
     CelAbstractSyntaxTree ast = cel.compile("[false].exists(i, i)").getAst();

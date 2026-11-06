@@ -48,7 +48,6 @@ public final class CelBindingsExtensionsTest extends CelExtensionTestBase {
   protected Cel newCelEnv() {
     return runtimeFlavor
         .builder()
-        .setOptions(CelOptions.current().enableHeterogeneousNumericComparisons(true).build())
         .setStandardMacros(CelStandardMacro.STANDARD_MACROS)
         .addCompilerLibraries(CelOptionalLibrary.INSTANCE, CelExtensions.bindings())
         .addRuntimeLibraries(CelOptionalLibrary.INSTANCE)
@@ -102,7 +101,6 @@ public final class CelBindingsExtensionsTest extends CelExtensionTestBase {
     Cel customCel =
         runtimeFlavor
             .builder()
-            .setOptions(CelOptions.current().enableHeterogeneousNumericComparisons(true).build())
             .addCompilerLibraries(CelExtensions.bindings())
             .addFunctionDeclarations(
                 CelFunctionDecl.newFunctionDeclaration(
@@ -144,7 +142,6 @@ public final class CelBindingsExtensionsTest extends CelExtensionTestBase {
     Cel customCel =
         runtimeFlavor
             .builder()
-            .setOptions(CelOptions.current().enableHeterogeneousNumericComparisons(true).build())
             .setStandardMacros(CelStandardMacro.HAS)
             .addMessageTypes(TestAllTypes.getDescriptor())
             .addVar("msg", StructTypeReference.create(TestAllTypes.getDescriptor().getFullName()))
@@ -191,7 +188,6 @@ public final class CelBindingsExtensionsTest extends CelExtensionTestBase {
     Cel customCel =
         runtimeFlavor
             .builder()
-            .setOptions(CelOptions.current().enableHeterogeneousNumericComparisons(true).build())
             .addCompilerLibraries(CelExtensions.bindings())
             .addFunctionDeclarations(
                 CelFunctionDecl.newFunctionDeclaration(
@@ -221,7 +217,6 @@ public final class CelBindingsExtensionsTest extends CelExtensionTestBase {
     Cel customCel =
         runtimeFlavor
             .builder()
-            .setOptions(CelOptions.current().enableHeterogeneousNumericComparisons(true).build())
             .addCompilerLibraries(CelExtensions.bindings())
             .addFunctionDeclarations(
                 CelFunctionDecl.newFunctionDeclaration(
@@ -255,7 +250,6 @@ public final class CelBindingsExtensionsTest extends CelExtensionTestBase {
     Cel customCel =
         runtimeFlavor
             .builder()
-            .setOptions(CelOptions.current().enableHeterogeneousNumericComparisons(true).build())
             .setStandardMacros(CelStandardMacro.MAP)
             .addCompilerLibraries(CelExtensions.bindings())
             .addFunctionDeclarations(
@@ -288,7 +282,6 @@ public final class CelBindingsExtensionsTest extends CelExtensionTestBase {
     Cel customCel =
         runtimeFlavor
             .builder()
-            .setOptions(CelOptions.current().enableHeterogeneousNumericComparisons(true).build())
             .setStandardMacros(CelStandardMacro.EXISTS)
             .addCompilerLibraries(CelExtensions.bindings())
             .addFunctionDeclarations(

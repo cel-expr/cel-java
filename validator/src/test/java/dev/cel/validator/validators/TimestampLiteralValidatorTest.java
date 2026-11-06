@@ -43,8 +43,7 @@ import org.junit.runner.RunWith;
 
 @RunWith(TestParameterInjector.class)
 public class TimestampLiteralValidatorTest {
-  private static final CelOptions CEL_OPTIONS =
-      CelOptions.current().enableHeterogeneousNumericComparisons(true).build();
+  private static final CelOptions CEL_OPTIONS = CelOptions.DEFAULT;
 
   private static final Cel CEL = CelFactory.plannerCelBuilder().setOptions(CEL_OPTIONS).build();
 
