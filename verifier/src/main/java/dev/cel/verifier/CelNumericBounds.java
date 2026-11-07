@@ -36,7 +36,7 @@ public final class CelNumericBounds {
   public static final String MAX_UINT64 = "18446744073709551615";
 
   private static final double TWO_TO_63 = Math.scalb(1.0, 63);
-  private static final double TWO_TO_64 = Math.scalb(1.0, 64);
+  static final double TWO_TO_64 = Math.scalb(1.0, 64);
 
   @AutoValue
   abstract static class IntRange {
