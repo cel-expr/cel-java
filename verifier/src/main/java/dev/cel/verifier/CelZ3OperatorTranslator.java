@@ -581,13 +581,6 @@ final class CelZ3OperatorTranslator {
     }
   }
 
-  private BoolExpr mkIsFiniteDouble(Expr<?> z3Expr) {
-    FPExpr fpVal = typeSystem.getDouble(z3Expr);
-    return ctx.mkAnd(
-        typeSystem.isDouble(z3Expr),
-        ctx.mkNot(ctx.mkOr(ctx.mkFPIsNaN(fpVal), ctx.mkFPIsInfinite(fpVal))));
-  }
-
   private BoolExpr getDynamicNumericEquality(Expr<?> z3Expr0, Expr<?> z3Expr1) {
     BoolExpr isIntOrUint0 = ctx.mkOr(typeSystem.isInt(z3Expr0), typeSystem.isUint(z3Expr0));
     BoolExpr isIntOrUint1 = ctx.mkOr(typeSystem.isInt(z3Expr1), typeSystem.isUint(z3Expr1));
@@ -614,21 +607,9 @@ final class CelZ3OperatorTranslator {
     BoolExpr isIntOrUintAndDouble = ctx.mkAnd(isIntOrUint0, typeSystem.isDouble(z3Expr1));
     BoolExpr isDoubleAndIntOrUint = ctx.mkAnd(typeSystem.isDouble(z3Expr0), isIntOrUint1);
 
-    FPExpr fpVal1 = typeSystem.getDouble(z3Expr1);
-    ArithExpr<?> realVal0 = ctx.mkInt2Real(val0);
-    BoolExpr intDoubleEq =
-        ctx.mkAnd(
-            mkIsFiniteDouble(z3Expr1),
-            ctx.mkLe(realVal0, ctx.mkFPToReal(fpVal1)),
-            ctx.mkLe(ctx.mkFPToReal(fpVal1), realVal0));
-
-    FPExpr fpVal0 = typeSystem.getDouble(z3Expr0);
-    ArithExpr<?> realVal1 = ctx.mkInt2Real(val1);
-    BoolExpr doubleIntEq =
-        ctx.mkAnd(
-            mkIsFiniteDouble(z3Expr0),
-            ctx.mkLe(realVal1, ctx.mkFPToReal(fpVal0)),
-            ctx.mkLe(ctx.mkFPToReal(fpVal0), realVal1));
+    // Likewise fall back to 0.0, which the int/double comparisons never need to define.
+    FPExpr fpVal0 = guardedDouble(z3Expr0);
+    FPExpr fpVal1 = guardedDouble(z3Expr1);
 
     return (BoolExpr)
         CelZ3Exprs.SwitchBuilder.newBuilder(ctx)
@@ -636,9 +617,18 @@ final class CelZ3OperatorTranslator {
             .addCase(
                 bothDouble,
                 ctx.mkFPEq(typeSystem.getDouble(z3Expr0), typeSystem.getDouble(z3Expr1)))
-            .addCase(isIntOrUintAndDouble, intDoubleEq)
-            .addCase(isDoubleAndIntOrUint, doubleIntEq)
+            .addCase(isIntOrUintAndDouble, typeSystem.intEqDouble(val0, fpVal1))
+            .addCase(isDoubleAndIntOrUint, typeSystem.intEqDouble(val1, fpVal0))
             .build(ctx.mkFalse());
+  }
+
+  private FPExpr guardedDouble(Expr<?> z3Expr) {
+    return (FPExpr)
+        (Expr)
+            ctx.mkITE(
+                typeSystem.isDouble(z3Expr),
+                typeSystem.getDouble(z3Expr),
+                typeSystem.mkFpDouble(0.0));
   }
 
   private boolean hasOptionalElements(TranslatedValue arg) {
@@ -906,15 +896,9 @@ final class CelZ3OperatorTranslator {
             mapValues);
 
     // Double probes
-    FPExpr dVal =
-        (FPExpr)
-            (Expr) ctx.mkITE(isDouble, typeSystem.getDouble(rhsTrans), typeSystem.mkFpDouble(0.0));
-    IntExpr dInt = ctx.mkReal2Int(ctx.mkFPToReal(dVal));
-    BoolExpr doubleIsExact =
-        ctx.mkAnd(
-            isDouble,
-            ctx.mkNot(ctx.mkOr(ctx.mkFPIsNaN(dVal), ctx.mkFPIsInfinite(dVal))),
-            ctx.mkEq(ctx.mkInt2Real(dInt), ctx.mkFPToReal(dVal)));
+    FPExpr dVal = guardedDouble(rhsTrans);
+    IntExpr dInt = typeSystem.truncateDouble(dVal);
+    BoolExpr doubleIsExact = ctx.mkAnd(isDouble, typeSystem.isIntegral(dVal));
     Expr<?> doubleIntKey = typeSystem.wrapInt(dInt);
     Expr<?> doubleUintKey = typeSystem.wrapUint(dInt);
     BoolExpr doubleHasUint = ctx.mkAnd(doubleIsExact, ctx.mkGe(dInt, ctx.mkInt(0)));
