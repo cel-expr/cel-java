@@ -23,7 +23,7 @@ java_library(
         "//testing/testrunner:cel_test_suite_text_proto_parser",
         "//testing/testrunner:cel_test_suite_yaml_parser",
         "//testing/testrunner:test_runner_library",
-        "@cel_spec//proto/cel/expr/conformance/proto3:test_all_types_java_proto",
+        "@cel_conformance//proto/cel/expr/conformance/proto3:test_all_types_java_proto",
         "@maven//:com_google_guava_guava",
         "@maven//:com_google_protobuf_protobuf_java",
         "@maven//:junit_junit",

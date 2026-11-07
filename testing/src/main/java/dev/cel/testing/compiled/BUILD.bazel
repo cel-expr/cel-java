@@ -103,7 +103,7 @@ compile_cel(
 compile_cel(
     name = "compiled_proto_message",
     expression = "cel.expr.conformance.proto3.TestAllTypes{single_int32: 1}",
-    proto_srcs = ["@cel_spec//proto/cel/expr/conformance/proto3:test_all_types_proto"],
+    proto_srcs = ["@cel_conformance//proto/cel/expr/conformance/proto3:test_all_types_proto"],
 )
 
 compile_cel(
@@ -164,7 +164,7 @@ compile_cel(
     name = "compiled_extended_env",
     environment = "//testing/environment:extended_env",
     expression = "msg.single_string_wrapper.isEmpty() == false",
-    proto_srcs = ["@cel_spec//proto/cel/expr/conformance/proto3:test_all_types_proto"],
+    proto_srcs = ["@cel_conformance//proto/cel/expr/conformance/proto3:test_all_types_proto"],
 )
 
 compile_cel(
@@ -186,7 +186,7 @@ compile_cel(
                  "proto2.single_sint32 == 5 || proto2.single_sint64 == 6 || proto2.single_fixed32 == 7u || proto2.single_fixed64 == 8u ||" +
                  "proto2.single_sfixed32 == 9 || proto2.single_sfixed64 == 10 || proto2.single_float == 1.5 || proto2.single_double == 2.5 ||" +
                  "proto2.single_bool || proto2.single_string == 'hello world' || proto2.single_bytes == b\'abc\'",
-    proto_srcs = ["@cel_spec//proto/cel/expr/conformance/proto2:test_all_types_proto"],
+    proto_srcs = ["@cel_conformance//proto/cel/expr/conformance/proto2:test_all_types_proto"],
 )
 
 compile_cel(
@@ -196,7 +196,7 @@ compile_cel(
                  "proto2.single_sint32 == 5 && proto2.single_sint64 == 6 && proto2.single_fixed32 == 7u && proto2.single_fixed64 == 8u &&" +
                  "proto2.single_sfixed32 == 9 && proto2.single_sfixed64 == 10 && proto2.single_float == 1.5 && proto2.single_double == 2.5 &&" +
                  "proto2.single_bool && proto2.single_string == 'hello world' && proto2.single_bytes == b\'abc\'",
-    proto_srcs = ["@cel_spec//proto/cel/expr/conformance/proto2:test_all_types_proto"],
+    proto_srcs = ["@cel_conformance//proto/cel/expr/conformance/proto2:test_all_types_proto"],
 )
 
 compile_cel(
@@ -205,7 +205,7 @@ compile_cel(
     expression = "proto2.single_int32_wrapper == 1 && proto2.single_int64_wrapper == 2 && proto2.single_float_wrapper == 1.5 &&" +
                  "proto2.single_double_wrapper == 2.5 && proto2.single_uint32_wrapper == 3u && proto2.single_uint64_wrapper == 4u &&" +
                  "proto2.single_string_wrapper == 'hello world' && proto2.single_bool_wrapper && proto2.single_bytes_wrapper == b\'abc\'",
-    proto_srcs = ["@cel_spec//proto/cel/expr/conformance/proto2:test_all_types_proto"],
+    proto_srcs = ["@cel_conformance//proto/cel/expr/conformance/proto2:test_all_types_proto"],
 )
 
 compile_cel(
@@ -215,7 +215,7 @@ compile_cel(
                  "proto3.single_sint32 == 5 || proto3.single_sint64 == 6 || proto3.single_fixed32 == 7u || proto3.single_fixed64 == 8u ||" +
                  "proto3.single_sfixed32 == 9 || proto3.single_sfixed64 == 10 || proto3.single_float == 1.5 || proto3.single_double == 2.5 ||" +
                  "proto3.single_bool || proto3.single_string == 'hello world' || proto3.single_bytes == b\'abc\'",
-    proto_srcs = ["@cel_spec//proto/cel/expr/conformance/proto3:test_all_types_proto"],
+    proto_srcs = ["@cel_conformance//proto/cel/expr/conformance/proto3:test_all_types_proto"],
 )
 
 compile_cel(
@@ -225,7 +225,7 @@ compile_cel(
                  "proto3.single_sint32 == 5 && proto3.single_sint64 == 6 && proto3.single_fixed32 == 7u && proto3.single_fixed64 == 8u &&" +
                  "proto3.single_sfixed32 == 9 && proto3.single_sfixed64 == 10 && proto3.single_float == 1.5 && proto3.single_double == 2.5 &&" +
                  "proto3.single_bool && proto3.single_string == 'hello world' && proto3.single_bytes == b\'abc\'",
-    proto_srcs = ["@cel_spec//proto/cel/expr/conformance/proto3:test_all_types_proto"],
+    proto_srcs = ["@cel_conformance//proto/cel/expr/conformance/proto3:test_all_types_proto"],
 )
 
 compile_cel(
@@ -234,21 +234,21 @@ compile_cel(
     expression = "proto3.single_int32_wrapper == 1 && proto3.single_int64_wrapper == 2 && proto3.single_float_wrapper == 1.5 &&" +
                  "proto3.single_double_wrapper == 2.5 && proto3.single_uint32_wrapper == 3u && proto3.single_uint64_wrapper == 4u &&" +
                  "proto3.single_string_wrapper == 'hello world' && proto3.single_bool_wrapper && proto3.single_bytes_wrapper == b\'abc\'",
-    proto_srcs = ["@cel_spec//proto/cel/expr/conformance/proto3:test_all_types_proto"],
+    proto_srcs = ["@cel_conformance//proto/cel/expr/conformance/proto3:test_all_types_proto"],
 )
 
 compile_cel(
     name = "compiled_proto2_deep_traversal",
     environment = "//testing/environment:proto2_message_variables",
     expression = "proto2.oneof_type.payload.repeated_string",
-    proto_srcs = ["@cel_spec//proto/cel/expr/conformance/proto2:test_all_types_proto"],
+    proto_srcs = ["@cel_conformance//proto/cel/expr/conformance/proto2:test_all_types_proto"],
 )
 
 compile_cel(
     name = "compiled_proto3_deep_traversal",
     environment = "//testing/environment:proto3_message_variables",
     expression = "proto3.oneof_type.payload.repeated_string",
-    proto_srcs = ["@cel_spec//proto/cel/expr/conformance/proto3:test_all_types_proto"],
+    proto_srcs = ["@cel_conformance//proto/cel/expr/conformance/proto3:test_all_types_proto"],
 )
 
 compile_cel(
@@ -257,7 +257,7 @@ compile_cel(
     expression = "[proto2.repeated_int32, proto2.repeated_int64, proto2.repeated_uint32, proto2.repeated_uint64, proto2.repeated_sint32, proto2.repeated_sint64, " +
                  "proto2.repeated_fixed32, proto2.repeated_fixed64, proto2.repeated_sfixed32, proto2.repeated_sfixed64, proto2.repeated_float, proto2.repeated_double, " +
                  "proto2.repeated_bool, proto2.repeated_string, proto2.repeated_bytes]",
-    proto_srcs = ["@cel_spec//proto/cel/expr/conformance/proto2:test_all_types_proto"],
+    proto_srcs = ["@cel_conformance//proto/cel/expr/conformance/proto2:test_all_types_proto"],
 )
 
 compile_cel(
@@ -266,7 +266,7 @@ compile_cel(
     expression = "[proto3.repeated_int32, proto3.repeated_int64, proto3.repeated_uint32, proto3.repeated_uint64, proto3.repeated_sint32, proto3.repeated_sint64, " +
                  "proto3.repeated_fixed32, proto3.repeated_fixed64, proto3.repeated_sfixed32, proto3.repeated_sfixed64, proto3.repeated_float, proto3.repeated_double, " +
                  "proto3.repeated_bool, proto3.repeated_string, proto3.repeated_bytes]",
-    proto_srcs = ["@cel_spec//proto/cel/expr/conformance/proto3:test_all_types_proto"],
+    proto_srcs = ["@cel_conformance//proto/cel/expr/conformance/proto3:test_all_types_proto"],
 )
 
 compile_cel(
@@ -275,7 +275,7 @@ compile_cel(
     expression = "[proto2.map_bool_bool, proto2.map_bool_string, proto2.map_bool_bytes, proto2.map_bool_int32, proto2.map_bool_int64, " +
                  "proto2.map_bool_uint32, proto2.map_bool_uint64, proto2.map_bool_float, proto2.map_bool_double, proto2.map_bool_enum, " +
                  "proto2.map_bool_duration, proto2.map_bool_timestamp]",
-    proto_srcs = ["@cel_spec//proto/cel/expr/conformance/proto2:test_all_types_proto"],
+    proto_srcs = ["@cel_conformance//proto/cel/expr/conformance/proto2:test_all_types_proto"],
 )
 
 compile_cel(
@@ -284,5 +284,5 @@ compile_cel(
     expression = "[proto3.map_bool_bool, proto3.map_bool_string, proto3.map_bool_bytes, proto3.map_bool_int32, proto3.map_bool_int64, " +
                  "proto3.map_bool_uint32, proto3.map_bool_uint64, proto3.map_bool_float, proto3.map_bool_double, proto3.map_bool_enum, " +
                  "proto3.map_bool_duration, proto3.map_bool_timestamp]",
-    proto_srcs = ["@cel_spec//proto/cel/expr/conformance/proto3:test_all_types_proto"],
+    proto_srcs = ["@cel_conformance//proto/cel/expr/conformance/proto3:test_all_types_proto"],
 )

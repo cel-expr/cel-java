@@ -1,4 +1,4 @@
-# proto-file: google3/third_party/cel/spec/proto/cel/expr/conformance/test/suite.proto
+# proto-file: google3/third_party/cel/conformance/proto/cel/expr/conformance/test/suite.proto
 # proto-message: cel.expr.conformance.test.TestSuite
 # This testcase is used to test the eval error output in the test runner which
 # fails because the function is declared in the compiler but not in the runtime.

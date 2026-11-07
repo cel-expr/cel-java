@@ -28,12 +28,20 @@ bazel_dep(name = "rules_android", version = "0.7.3")
 bazel_dep(name = "rules_shell", version = "0.8.0")
 bazel_dep(name = "googleapis-java", version = "1.1.5")
 bazel_dep(name = "cel-spec", version = "0.25.3", repo_name = "cel_spec")
+bazel_dep(name = "cel-conformance", version = "0.1.0", repo_name = "cel_conformance")
 
 # TODO: Remove git_override and bump cel-spec once a new release is cut on BCR.
 git_override(
     module_name = "cel-spec",
     commit = "21ec6f4e52e8d694687ff9ed7408d3eccbb955d7",
     remote = "https://github.com/cel-expr/cel-spec",
+)
+
+# TODO: Remove git_override once cel-conformance is published on BCR.
+git_override(
+    module_name = "cel-conformance",
+    commit = "8d64ec2a2938204e388fc02e8e5102dc8ca16e83",
+    remote = "https://github.com/cel-expr/cel-conformance",
 )
 
 bazel_dep(name = "rules_go", version = "0.65.0")
