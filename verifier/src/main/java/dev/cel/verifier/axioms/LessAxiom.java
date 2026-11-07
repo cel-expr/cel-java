@@ -86,37 +86,29 @@ final class LessAxiom {
               (ctx, typeSystem, constraintSink, lhs, rhs) ->
                   Optional.of(
                       typeSystem.wrapBool(
-                          AxiomHelpers.mkRealLtFp(
-                              ctx,
-                              ctx.mkInt2Real(typeSystem.getInt(lhs)),
-                              typeSystem.getDouble(rhs)))))
+                          typeSystem.intLtDouble(
+                              typeSystem.getInt(lhs), typeSystem.getDouble(rhs)))))
           .addBinaryOverloadTranslator(
               Comparison.LESS_UINT64_DOUBLE.celOverloadDecl(),
               (ctx, typeSystem, constraintSink, lhs, rhs) ->
                   Optional.of(
                       typeSystem.wrapBool(
-                          AxiomHelpers.mkRealLtFp(
-                              ctx,
-                              ctx.mkInt2Real(typeSystem.getUint(lhs)),
-                              typeSystem.getDouble(rhs)))))
+                          typeSystem.intLtDouble(
+                              typeSystem.getUint(lhs), typeSystem.getDouble(rhs)))))
           .addBinaryOverloadTranslator(
               Comparison.LESS_DOUBLE_INT64.celOverloadDecl(),
               (ctx, typeSystem, constraintSink, lhs, rhs) ->
                   Optional.of(
                       typeSystem.wrapBool(
-                          AxiomHelpers.mkFpLtReal(
-                              ctx,
-                              typeSystem.getDouble(lhs),
-                              ctx.mkInt2Real(typeSystem.getInt(rhs))))))
+                          typeSystem.doubleLtInt(
+                              typeSystem.getDouble(lhs), typeSystem.getInt(rhs)))))
           .addBinaryOverloadTranslator(
               Comparison.LESS_DOUBLE_UINT64.celOverloadDecl(),
               (ctx, typeSystem, constraintSink, lhs, rhs) ->
                   Optional.of(
                       typeSystem.wrapBool(
-                          AxiomHelpers.mkFpLtReal(
-                              ctx,
-                              typeSystem.getDouble(lhs),
-                              ctx.mkInt2Real(typeSystem.getUint(rhs))))))
+                          typeSystem.doubleLtInt(
+                              typeSystem.getDouble(lhs), typeSystem.getUint(rhs)))))
           .addBinaryOverloadTranslator(
               Comparison.LESS_INT64_UINT64.celOverloadDecl(),
               (ctx, typeSystem, constraintSink, lhs, rhs) ->

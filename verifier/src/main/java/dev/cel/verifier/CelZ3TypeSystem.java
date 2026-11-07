@@ -17,26 +17,36 @@ package dev.cel.verifier;
 import com.google.auto.value.AutoValue;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ObjectArrays;
+import com.google.common.math.DoubleMath;
 import com.google.common.primitives.UnsignedLongs;
 import com.microsoft.z3.ArithExpr;
 import com.microsoft.z3.ArrayExpr;
+import com.microsoft.z3.BitVecNum;
 import com.microsoft.z3.BoolExpr;
 import com.microsoft.z3.Constructor;
 import com.microsoft.z3.Context;
 import com.microsoft.z3.DatatypeSort;
 import com.microsoft.z3.Expr;
 import com.microsoft.z3.FPExpr;
+import com.microsoft.z3.FPNum;
 import com.microsoft.z3.FuncDecl;
 import com.microsoft.z3.IntExpr;
+import com.microsoft.z3.IntNum;
+import com.microsoft.z3.Model;
 import com.microsoft.z3.SeqExpr;
 import com.microsoft.z3.SeqSort;
 import com.microsoft.z3.Sort;
 import dev.cel.common.internal.ProtoTimeUtils;
 import java.math.BigInteger;
+import java.math.RoundingMode;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.Iterator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Type system for mapping CEL values to Z3 expressions.
@@ -141,6 +151,8 @@ public final class CelZ3TypeSystem {
   private static final String FUNC_MSG_PRESENCE = "msg_presence";
   private static final String FUNC_MSG_TYPE_NAME = "msg_type_name";
   private static final String FUNC_HAS_TRUNCATED_TYPE_CONSTRAINT = "!has_truncated_type_constraint";
+  private static final String FUNC_TRUNCATE_DOUBLE = "!truncate_double";
+  private static final String FUNC_HAS_FRACTION = "!has_fraction";
 
   private final Context ctx;
   private final Map<FuncDeclKey, FuncDecl<?>> funcDeclCache;
@@ -180,6 +192,10 @@ public final class CelZ3TypeSystem {
   private final FuncDecl msgPresenceFunc;
   private final FuncDecl msgTypeNameFunc;
   private final FuncDecl<?> hasTruncatedTypeConstraintFunc;
+  private final FuncDecl truncateDoubleFunc;
+  private final FuncDecl hasFractionFunc;
+  // Doubles whose truncation and fraction are still uninterpreted, in order of first use.
+  private final Set<FPExpr> undefinedDoubles;
 
   private final boolean parameterizeUnknowns;
 
@@ -786,6 +802,124 @@ public final class CelZ3TypeSystem {
         ctx.mkGt(result, ctx.mkInt(CelNumericBounds.MAX_UINT64)), ctx.mkLt(result, ctx.mkInt(0)));
   }
 
+  // Int/double comparisons are exact for |n| < 2^64. A double's truncation and fraction stay
+  // uninterpreted until defineDoublesContradictedBy refutes a model that gets them wrong.
+
+  /** Returns whether the integer {@code n} equals the double {@code d}. */
+  BoolExpr intEqDouble(IntExpr n, FPExpr d) {
+    return ctx.mkAnd(isIntegral(d), ctx.mkEq(n, truncateDouble(d)));
+  }
+
+  /** Returns whether the integer {@code n} is less than the double {@code d}. */
+  public BoolExpr intLtDouble(IntExpr n, FPExpr d) {
+    IntExpr t = truncateDouble(d);
+    return ctx.mkOr(
+        ctx.mkFPGEq(d, mkFpDouble(CelNumericBounds.TWO_TO_64)),
+        ctx.mkAnd(
+            isBelowTwoTo64(d),
+            ctx.mkOr(
+                ctx.mkLt(n, t),
+                ctx.mkAnd(ctx.mkEq(n, t), hasFraction(d), ctx.mkNot(ctx.mkFPIsNegative(d))))));
+  }
+
+  /** Returns whether the double {@code d} is less than the integer {@code n}. */
+  public BoolExpr doubleLtInt(FPExpr d, IntExpr n) {
+    IntExpr t = truncateDouble(d);
+    return ctx.mkOr(
+        ctx.mkFPLEq(d, mkFpDouble(-CelNumericBounds.TWO_TO_64)),
+        ctx.mkAnd(
+            isBelowTwoTo64(d),
+            ctx.mkOr(
+                ctx.mkLt(t, n), ctx.mkAnd(ctx.mkEq(n, t), hasFraction(d), ctx.mkFPIsNegative(d)))));
+  }
+
+  /** Returns whether the integer {@code n} is at most the double {@code d}. */
+  public BoolExpr intLeDouble(IntExpr n, FPExpr d) {
+    return ctx.mkAnd(ctx.mkNot(ctx.mkFPIsNaN(d)), ctx.mkNot(doubleLtInt(d, n)));
+  }
+
+  /** Returns whether the double {@code d} is at most the integer {@code n}. */
+  public BoolExpr doubleLeInt(FPExpr d, IntExpr n) {
+    return ctx.mkAnd(ctx.mkNot(ctx.mkFPIsNaN(d)), ctx.mkNot(intLtDouble(n, d)));
+  }
+
+  /** Returns whether {@code d} is an integer of magnitude below 2^64. */
+  BoolExpr isIntegral(FPExpr d) {
+    return ctx.mkAnd(isBelowTwoTo64(d), ctx.mkNot(hasFraction(d)));
+  }
+
+  /** Returns {@code d} truncated toward zero, if its magnitude is below 2^64. */
+  IntExpr truncateDouble(FPExpr d) {
+    return (IntExpr)
+        ctx.mkITE(ctx.mkFPIsZero(d), ctx.mkInt(0), (IntExpr) applyUndefined(truncateDoubleFunc, d));
+  }
+
+  /** Returns exact definitions for the tracked doubles whose values {@code model} gets wrong. */
+  List<BoolExpr> defineDoublesContradictedBy(Model model) {
+    List<BoolExpr> definitions = new ArrayList<>();
+    for (Iterator<FPExpr> it = undefinedDoubles.iterator(); it.hasNext(); ) {
+      FPExpr d = it.next();
+      FPNum fpNum = (FPNum) model.evaluate(d, /* completion= */ true);
+      if (fpNum.isNaN()) {
+        continue;
+      }
+      double value = toJavaDouble(fpNum);
+      // The comparisons don't read the functions at zero, infinities, or beyond 2^64.
+      if (value == 0 || Math.abs(value) >= CelNumericBounds.TWO_TO_64) {
+        continue;
+      }
+      BigInteger truncated =
+          ((IntNum) model.evaluate(ctx.mkApp(truncateDoubleFunc, d), /* completion= */ true))
+              .getBigInteger();
+      boolean hasFraction =
+          model.evaluate(ctx.mkApp(hasFractionFunc, d), /* completion= */ true).isTrue();
+      if (truncated.equals(DoubleMath.roundToBigInteger(value, RoundingMode.DOWN))
+          && hasFraction != DoubleMath.isMathematicalInteger(value)) {
+        continue;
+      }
+      it.remove();
+      definitions.add(defineDouble(d));
+    }
+    return definitions;
+  }
+
+  /** Converts a Z3 double to the Java double with the same IEEE 754 bits. */
+  double toJavaDouble(FPNum fpNum) {
+    return Double.longBitsToDouble(
+        ((BitVecNum) ctx.mkFPToIEEEBV(fpNum).simplify()).getBigInteger().longValue());
+  }
+
+  private BoolExpr hasFraction(FPExpr d) {
+    return ctx.mkAnd(ctx.mkNot(ctx.mkFPIsZero(d)), (BoolExpr) applyUndefined(hasFractionFunc, d));
+  }
+
+  // Tracks d so that defineDoublesContradictedBy checks the model's value of func at d.
+  private Expr<?> applyUndefined(FuncDecl func, FPExpr d) {
+    undefinedDoubles.add(d);
+    return ctx.mkApp(func, d);
+  }
+
+  private BoolExpr defineDouble(FPExpr d) {
+    // 65-bit two's complement holds every truncation below 2^64.
+    IntExpr truncated =
+        ctx.mkBV2Int(
+            ctx.mkFPToBV(ctx.mkFPRoundTowardZero(), d, 65, /* signed= */ true), /* signed= */ true);
+    BoolExpr hasFraction =
+        ctx.mkNot(ctx.mkFPEq(d, ctx.mkFPRoundToIntegral(ctx.mkFPRoundTowardZero(), d)));
+    return ctx.mkImplies(
+        isBelowTwoTo64(d),
+        ctx.mkAnd(
+            ctx.mkEq(ctx.mkApp(truncateDoubleFunc, d), truncated),
+            ctx.mkEq(ctx.mkApp(hasFractionFunc, d), hasFraction)));
+  }
+
+  // False for NaN and infinities.
+  private BoolExpr isBelowTwoTo64(FPExpr d) {
+    return ctx.mkAnd(
+        ctx.mkFPGt(d, mkFpDouble(-CelNumericBounds.TWO_TO_64)),
+        ctx.mkFPLt(d, mkFpDouble(CelNumericBounds.TWO_TO_64)));
+  }
+
   /** Safely concatenates two Z3 sequences. */
   @SuppressWarnings("unchecked") // Callers verify arguments are SeqExprs.
   public <R extends Sort> SeqExpr<R> mkConcatSafe(Expr<?> arg1, Expr<?> arg2) {
@@ -956,6 +1090,11 @@ public final class CelZ3TypeSystem {
     this.hasTruncatedTypeConstraintFunc =
         ctx.mkFuncDecl(
             FUNC_HAS_TRUNCATED_TYPE_CONSTRAINT, new Sort[] {this.celValueSort}, ctx.getBoolSort());
+    this.truncateDoubleFunc =
+        ctx.mkFuncDecl(FUNC_TRUNCATE_DOUBLE, new Sort[] {ctx.mkFPSortDouble()}, ctx.getIntSort());
+    this.hasFractionFunc =
+        ctx.mkFuncDecl(FUNC_HAS_FRACTION, new Sort[] {ctx.mkFPSortDouble()}, ctx.getBoolSort());
+    this.undefinedDoubles = new LinkedHashSet<>();
     this.parameterizeUnknowns = parameterizeUnknowns;
   }
 }
