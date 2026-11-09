@@ -87,6 +87,22 @@ java_library(
 )
 
 java_library(
+    name = "bind_nesting_limit_validator",
+    srcs = [
+        "BindNestingLimitValidator.java",
+    ],
+    tags = [
+    ],
+    deps = [
+        "//bundle:cel",
+        "//common/ast",
+        "//common/navigation",
+        "//validator:ast_validator",
+        "@maven//:com_google_guava_guava",
+    ],
+)
+
+java_library(
     name = "comprehension_nesting_limit_validator",
     srcs = [
         "ComprehensionNestingLimitValidator.java",

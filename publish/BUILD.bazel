@@ -75,6 +75,7 @@ VALIDATOR_TARGETS = [
     "//validator/src/main/java/dev/cel/validator:ast_validator",
     "//validator/src/main/java/dev/cel/validator:validator_builder",
     "//validator/src/main/java/dev/cel/validator:validator_impl",
+    "//validator/src/main/java/dev/cel/validator/validators:bind_nesting_limit_validator",
     "//validator/src/main/java/dev/cel/validator/validators:duration",
     "//validator/src/main/java/dev/cel/validator/validators:homogeneous_literal",
     "//validator/src/main/java/dev/cel/validator/validators:regex",
@@ -92,6 +93,7 @@ OPTIMIZER_TARGETS = [
     "//optimizer/src/main/java/dev/cel/optimizer/optimizers:common_subexpression_elimination",
     "//optimizer/src/main/java/dev/cel/optimizer/optimizers:constant_folding",
     "//optimizer/src/main/java/dev/cel/optimizer/optimizers:inlining",
+    "//optimizer/src/main/java/dev/cel/optimizer/optimizers:select_optimizer",
 ]
 
 # keep sorted
