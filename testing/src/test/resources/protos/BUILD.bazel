@@ -98,12 +98,12 @@ java_lite_proto_cel_library(
 
 java_lite_proto_cel_library(
     name = "test_all_types_cel_java_proto2_lite",
-    deps = ["@cel_spec//proto/cel/expr/conformance/proto2:test_all_types_proto"],
+    deps = ["@cel_conformance//proto/cel/expr/conformance/proto2:test_all_types_proto"],
 )
 
 java_lite_proto_cel_library(
     name = "test_all_types_cel_java_proto3_lite",
-    deps = ["@cel_spec//proto/cel/expr/conformance/proto3:test_all_types_proto"],
+    deps = ["@cel_conformance//proto/cel/expr/conformance/proto3:test_all_types_proto"],
 )
 
 # The below targets exist to exercise lite descriptor tests against the full protobuf runtime (thus the overridden java_proto_library_dep).
@@ -122,15 +122,15 @@ java_lite_proto_cel_library_impl(
 java_lite_proto_cel_library_impl(
     name = "test_all_types_cel_java_proto2",
     java_descriptor_class_suffix = "CelDescriptor",
-    java_proto_library_dep = "@cel_spec//proto/cel/expr/conformance/proto2:test_all_types_java_proto",
-    deps = ["@cel_spec//proto/cel/expr/conformance/proto2:test_all_types_proto"],
+    java_proto_library_dep = "@cel_conformance//proto/cel/expr/conformance/proto2:test_all_types_java_proto",
+    deps = ["@cel_conformance//proto/cel/expr/conformance/proto2:test_all_types_proto"],
 )
 
 java_lite_proto_cel_library_impl(
     name = "test_all_types_cel_java_proto3",
     java_descriptor_class_suffix = "CelDescriptor",
-    java_proto_library_dep = "@cel_spec//proto/cel/expr/conformance/proto3:test_all_types_java_proto",
-    deps = ["@cel_spec//proto/cel/expr/conformance/proto3:test_all_types_proto"],
+    java_proto_library_dep = "@cel_conformance//proto/cel/expr/conformance/proto3:test_all_types_java_proto",
+    deps = ["@cel_conformance//proto/cel/expr/conformance/proto3:test_all_types_proto"],
 )
 
 java_lite_proto_cel_library_impl(

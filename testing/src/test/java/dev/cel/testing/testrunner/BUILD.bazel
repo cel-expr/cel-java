@@ -55,7 +55,7 @@ java_library(
         "//bundle:cel",
         "//testing/testrunner:cel_test_context",
         "//testing/testrunner:cel_user_test_template",
-        "@cel_spec//proto/cel/expr/conformance/proto2:test_all_types_java_proto",
+        "@cel_conformance//proto/cel/expr/conformance/proto2:test_all_types_java_proto",
         "@maven//:com_google_guava_guava",
         "@maven//:com_google_protobuf_protobuf_java",
         "@maven//:junit_junit",
@@ -70,7 +70,7 @@ java_library(
         "//checker:proto_type_mask",
         "//testing/testrunner:cel_test_context",
         "//testing/testrunner:cel_user_test_template",
-        "@cel_spec//proto/cel/expr/conformance/proto3:test_all_types_java_proto",
+        "@cel_conformance//proto/cel/expr/conformance/proto3:test_all_types_java_proto",
         "@maven//:junit_junit",
     ],
 )
@@ -151,7 +151,7 @@ java_test(
         "//:java_truth",
         "//testing/testrunner:cel_test_suite_exception",
         "//testing/testrunner:cel_test_suite_text_proto_parser",
-        "@cel_spec//proto/cel/expr/conformance/test:suite_java_proto",
+        "@cel_conformance//proto/cel/expr/conformance/test:suite_java_proto",
         "@maven//:junit_junit",
     ],
 )
@@ -164,8 +164,8 @@ cel_java_test(
     test_src = ":custom_variable_binding_user_test",
     test_suite = "custom_variable_bindings/tests.yaml",
     deps = [
-        "@cel_spec//proto/cel/expr/conformance/proto2:test_all_types_java_proto",
-        "@cel_spec//proto/cel/expr/conformance/proto3:test_all_types_java_proto",
+        "@cel_conformance//proto/cel/expr/conformance/proto2:test_all_types_java_proto",
+        "@cel_conformance//proto/cel/expr/conformance/proto3:test_all_types_java_proto",
     ],
 )
 
@@ -174,8 +174,8 @@ cel_java_test(
     cel_expr = "nested_rule/eval_error_policy.yaml",
     config = "nested_rule/eval_error_config.yaml",
     proto_deps = [
-        "@cel_spec//proto/cel/expr/conformance/proto2:test_all_types_proto",
-        "@cel_spec//proto/cel/expr/conformance/proto3:test_all_types_proto",
+        "@cel_conformance//proto/cel/expr/conformance/proto2:test_all_types_proto",
+        "@cel_conformance//proto/cel/expr/conformance/proto3:test_all_types_proto",
     ],
     test_data_path = "//testing/src/test/resources/policy",
     test_src = ":env_config_user_test",
@@ -195,15 +195,15 @@ cel_java_test(
     cel_expr = "nested_rule/eval_error_policy.yaml",
     config = "nested_rule/eval_error_config.yaml",
     proto_deps = [
-        "@cel_spec//proto/cel/expr/conformance/proto2:test_all_types_proto",
-        "@cel_spec//proto/cel/expr/conformance/proto3:test_all_types_proto",
+        "@cel_conformance//proto/cel/expr/conformance/proto2:test_all_types_proto",
+        "@cel_conformance//proto/cel/expr/conformance/proto3:test_all_types_proto",
     ],
     test_data_path = "//testing/src/test/resources/policy",
     test_src = ":env_config_user_test",
     test_suite = "nested_rule/eval_error_tests.textproto",
     deps = [
-        "@cel_spec//proto/cel/expr/conformance/proto2:test_all_types_java_proto",
-        "@cel_spec//proto/cel/expr/conformance/proto3:test_all_types_java_proto",
+        "@cel_conformance//proto/cel/expr/conformance/proto2:test_all_types_java_proto",
+        "@cel_conformance//proto/cel/expr/conformance/proto3:test_all_types_java_proto",
     ],
 )
 
@@ -221,15 +221,15 @@ cel_java_test(
     cel_expr = "2 + 2 == 4",
     is_raw_expr = True,
     proto_deps = [
-        "@cel_spec//proto/cel/expr/conformance/proto2:test_all_types_proto",
-        "@cel_spec//proto/cel/expr/conformance/proto3:test_all_types_proto",
+        "@cel_conformance//proto/cel/expr/conformance/proto2:test_all_types_proto",
+        "@cel_conformance//proto/cel/expr/conformance/proto3:test_all_types_proto",
     ],
     test_data_path = "//testing/src/test/resources/policy",
     test_src = ":user_test",
     test_suite = "protoextension_value_as_input/tests.textproto",
     deps = [
-        "@cel_spec//proto/cel/expr/conformance/proto2:test_all_types_java_proto",
-        "@cel_spec//proto/cel/expr/conformance/proto3:test_all_types_java_proto",
+        "@cel_conformance//proto/cel/expr/conformance/proto2:test_all_types_java_proto",
+        "@cel_conformance//proto/cel/expr/conformance/proto3:test_all_types_java_proto",
     ],
 )
 

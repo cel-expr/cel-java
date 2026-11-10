@@ -10,7 +10,7 @@ package(
 
 proto_descriptor_set(
     name = "test_all_types_fds",
-    deps = ["@cel_spec//proto/cel/expr/conformance/proto3:test_all_types_proto"],
+    deps = ["@cel_conformance//proto/cel/expr/conformance/proto3:test_all_types_proto"],
 )
 
 compile_cel_policy(
@@ -18,7 +18,7 @@ compile_cel_policy(
     config = "//testing/environment:proto3_message_variables",
     optimize_field_selection = True,
     policy = ":test_policy.yaml",
-    proto_srcs = ["@cel_spec//proto/cel/expr/conformance/proto3:test_all_types_proto"],
+    proto_srcs = ["@cel_conformance//proto/cel/expr/conformance/proto3:test_all_types_proto"],
     simple_variables = True,
 )
 
@@ -41,8 +41,8 @@ java_library(
         "//policy/tools",
         "//runtime",
         "@bazel_tools//tools/java/runfiles",
+        "@cel_conformance//proto/cel/expr/conformance/proto3:test_all_types_java_proto",
         "@cel_spec//proto/cel/expr:checked_java_proto",
-        "@cel_spec//proto/cel/expr/conformance/proto3:test_all_types_java_proto",
         "@com_google_googleapis//google/api/expr/v1alpha1:expr_java_proto",
         "@maven//:com_google_guava_guava",
         "@maven//:com_google_protobuf_protobuf_java",

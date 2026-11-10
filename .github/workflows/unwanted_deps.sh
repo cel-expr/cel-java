@@ -31,6 +31,7 @@ function checkUnwantedDeps {
 
 # Do not include generated CEL protos in the jar
 checkUnwantedDeps '//publish:cel_runtime' '@cel_spec'
+checkUnwantedDeps '//publish:cel_runtime' '@cel_conformance'
 
 # cel_runtime does not support protolite
 checkUnwantedDeps '//publish:cel_runtime' 'protobuf_java_util'

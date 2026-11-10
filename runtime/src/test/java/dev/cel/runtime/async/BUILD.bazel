@@ -26,8 +26,8 @@ java_library(
         "@maven//:junit_junit",
         "@maven//:com_google_testparameterinjector_test_parameter_injector",
         "//:java_truth",
+        "@cel_conformance//proto/cel/expr/conformance/proto3:test_all_types_java_proto",
         "@cel_spec//proto/cel/expr:checked_java_proto",
-        "@cel_spec//proto/cel/expr/conformance/proto3:test_all_types_java_proto",
         "@maven//:com_google_guava_guava",
     ],
 )
