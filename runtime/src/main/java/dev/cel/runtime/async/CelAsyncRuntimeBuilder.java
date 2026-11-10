@@ -15,9 +15,17 @@ package dev.cel.runtime.async;
 
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import dev.cel.runtime.CelRuntime;
+import dev.cel.runtime.CelRuntimeFactory;
 import java.util.concurrent.ExecutorService;
 
-/** Builder interface for {@link CelAsyncRuntime}. */
+/**
+ * Builder interface for {@link CelAsyncRuntime}.
+ *
+ * @deprecated Migrate to the planner's asynchronous evaluation ({@link
+ *     CelRuntimeFactory#plannerRuntimeBuilder()}, {@code CelFunctionBinding.fromAsync}, and {@code
+ *     Program.evalAsync}).
+ */
+@Deprecated
 public interface CelAsyncRuntimeBuilder {
   int DEFAULT_MAX_EVALUATE_ITERATIONS = 10;
 
@@ -58,5 +66,6 @@ public interface CelAsyncRuntimeBuilder {
   @CanIgnoreReturnValue
   CelAsyncRuntimeBuilder setExecutorService(ExecutorService executorService);
 
+  @SuppressWarnings("deprecation") // Retained on deprecated CelAsyncRuntimeBuilder
   CelAsyncRuntime build();
 }

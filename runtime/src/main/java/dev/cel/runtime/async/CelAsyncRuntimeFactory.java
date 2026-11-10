@@ -14,8 +14,23 @@
 
 package dev.cel.runtime.async;
 
-/** Factory for default {@link CelAsyncRuntime}. */
+import dev.cel.runtime.CelRuntimeFactory;
+
+/**
+ * Factory for default {@link CelAsyncRuntime}.
+ *
+ * @deprecated Migrate to the planner's asynchronous evaluation ({@link
+ *     CelRuntimeFactory#plannerRuntimeBuilder()}, {@code CelFunctionBinding.fromAsync}, and {@code
+ *     Program.evalAsync}).
+ */
+@Deprecated
 public final class CelAsyncRuntimeFactory {
+
+  /**
+   * @deprecated See {@link CelAsyncRuntimeFactory}.
+   */
+  @Deprecated
+  @SuppressWarnings("deprecation") // Retained on deprecated CelAsyncRuntimeFactory
   public static CelAsyncRuntimeBuilder defaultAsyncRuntime() {
     return CelAsyncRuntimeImpl.newBuilder();
   }

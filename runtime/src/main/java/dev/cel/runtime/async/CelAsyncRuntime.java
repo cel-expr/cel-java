@@ -18,6 +18,7 @@ import com.google.common.util.concurrent.ListenableFuture;
 import javax.annotation.concurrent.ThreadSafe;
 import dev.cel.common.CelAbstractSyntaxTree;
 import dev.cel.runtime.CelEvaluationException;
+import dev.cel.runtime.CelRuntimeFactory;
 import dev.cel.runtime.UnknownContext;
 
 /**
@@ -32,11 +33,21 @@ import dev.cel.runtime.UnknownContext;
  *   <li>{@link AsyncProgram} provides an evaluation manager to automate evaluating and resolving
  *       unknown data
  * </ul>
+ *
+ * @deprecated Migrate to the planner's asynchronous evaluation ({@link
+ *     CelRuntimeFactory#plannerRuntimeBuilder()}, {@code CelFunctionBinding.fromAsync}, and {@code
+ *     Program.evalAsync}).
  */
+@Deprecated
 @ThreadSafe
 public interface CelAsyncRuntime {
 
-  /** AsyncProgram wraps a CEL Program with a driver to resolve unknowns as they are encountered. */
+  /**
+   * AsyncProgram wraps a CEL Program with a driver to resolve unknowns as they are encountered.
+   *
+   * @deprecated Migrate to {@code Program.evalAsync} (see {@link CelAsyncRuntime}).
+   */
+  @Deprecated
   interface AsyncProgram {
     ListenableFuture<Object> evaluateToCompletion(
         CelResolvableAttributePattern... resolvableAttributes);
