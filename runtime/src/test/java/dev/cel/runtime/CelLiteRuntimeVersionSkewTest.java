@@ -119,7 +119,6 @@ public final class CelLiteRuntimeVersionSkewTest {
   private static final CelOptions CEL_OPTIONS =
       CelOptions.current()
           .populateMacroCalls(true)
-          .enableHeterogeneousNumericComparisons(true)
           .build();
 
   private static final ImmutableSet<String> SERVER_ONLY_FIELD_NAMES =

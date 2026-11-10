@@ -50,8 +50,7 @@ import org.junit.runner.RunWith;
 @RunWith(TestParameterInjector.class)
 public class CelEnvironmentExporterTest {
 
-  private static final CelOptions CEL_OPTIONS =
-      CelOptions.current().enableHeterogeneousNumericComparisons(true).build();
+  private static final CelOptions CEL_OPTIONS = CelOptions.DEFAULT;
 
   @Test
   public void extensions_latest() {
@@ -350,7 +349,6 @@ public class CelEnvironmentExporterTest {
                     .maxParseRecursionDepth(10)
                     .maxParseExpressionNodeCount(500)
                     .enableQuotedIdentifierSyntax(true)
-                    .enableHeterogeneousNumericComparisons(true)
                     .populateMacroCalls(true)
                     .build())
             .build();
@@ -360,7 +358,6 @@ public class CelEnvironmentExporterTest {
     assertThat(celEnvironment.features())
         .containsExactly(
             CelEnvironment.FeatureFlag.create("cel.feature.backtick_escape_syntax", true),
-            CelEnvironment.FeatureFlag.create("cel.feature.cross_type_numeric_comparisons", true),
             CelEnvironment.FeatureFlag.create("cel.feature.macro_call_tracking", true));
     assertThat(celEnvironment.limits())
         .containsExactly(

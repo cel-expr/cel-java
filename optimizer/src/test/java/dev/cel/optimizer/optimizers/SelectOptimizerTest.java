@@ -90,7 +90,6 @@ public final class SelectOptimizerTest {
   private static final CelOptions CEL_OPTIONS =
       CelOptions.current()
           .populateMacroCalls(true)
-          .enableHeterogeneousNumericComparisons(true)
           .build();
 
   private static final CelUnparser CEL_UNPARSER = CelUnparserFactory.newUnparser();

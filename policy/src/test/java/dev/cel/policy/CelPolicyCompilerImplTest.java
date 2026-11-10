@@ -71,7 +71,6 @@ public final class CelPolicyCompilerImplTest {
   private static final CelOptions CEL_OPTIONS =
       CelOptions.current()
           .populateMacroCalls(true)
-          .enableHeterogeneousNumericComparisons(true)
           .build();
 
   @TestParameter private CelRuntimeFlavor runtimeFlavor;

@@ -146,7 +146,7 @@ public class CelOptionalLibraryTest {
   // Intentionally testing the deprecated legacy runtime in the test matrix.
   @SuppressWarnings("deprecation")
   private TestCelBuilder newCelBuilder(int version) {
-    CelOptions options = CelOptions.current().enableHeterogeneousNumericComparisons(true).build();
+    CelOptions options = CelOptions.DEFAULT;
     CelContainer container = CelContainer.ofName("cel.expr.conformance.proto3");
     if (testMode.isLite()) {
       CelCompilerBuilder compilerBuilder =

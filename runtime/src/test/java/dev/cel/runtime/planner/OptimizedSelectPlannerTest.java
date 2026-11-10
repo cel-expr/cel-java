@@ -88,8 +88,7 @@ import org.junit.runner.RunWith;
 
 @RunWith(TestParameterInjector.class)
 public final class OptimizedSelectPlannerTest {
-  private static final CelOptions CEL_OPTIONS =
-      CelOptions.current().enableHeterogeneousNumericComparisons(true).build();
+  private static final CelOptions CEL_OPTIONS = CelOptions.DEFAULT;
   private static final RuntimeEquality RUNTIME_EQUALITY =
       RuntimeEquality.create(RuntimeHelpers.create(), CEL_OPTIONS);
   private static final CelTypeProvider TYPE_PROVIDER =

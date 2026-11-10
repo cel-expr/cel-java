@@ -73,7 +73,6 @@ public class CelRuntimeTest {
             .builder()
             .setOptions(
                 CelOptions.current()
-                    .enableHeterogeneousNumericComparisons(true)
                     .enableProtoDifferencerEquality(true)
                     .build())
             .addVar("a", StructTypeReference.create(AttributeContext.getDescriptor().getFullName()))
@@ -153,7 +152,6 @@ public class CelRuntimeTest {
             .addVar("my_list", ListType.create(SimpleType.INT))
             .setOptions(
                 CelOptions.current()
-                    .enableHeterogeneousNumericComparisons(true)
                     .enableUnknownTracking(true)
                     .build())
             .build();
@@ -184,7 +182,6 @@ public class CelRuntimeTest {
             .builder()
             .setOptions(
                 CelOptions.current()
-                    .enableHeterogeneousNumericComparisons(true)
                     .enableUnknownTracking(true)
                     .build())
             .setContainer(CelContainer.ofName("com.google"))
@@ -211,7 +208,6 @@ public class CelRuntimeTest {
             .builder()
             .setOptions(
                 CelOptions.current()
-                    .enableHeterogeneousNumericComparisons(true)
                     .enableUnknownTracking(true)
                     .build())
             .setContainer(CelContainer.ofName("com.google"))
@@ -495,7 +491,6 @@ public class CelRuntimeTest {
             .setOptions(
                 CelOptions.current()
                     .enableShortCircuiting(true)
-                    .enableHeterogeneousNumericComparisons(true)
                     .build())
             .build();
     Cel cel =
@@ -504,7 +499,6 @@ public class CelRuntimeTest {
             .setOptions(
                 CelOptions.current()
                     .enableShortCircuiting(false)
-                    .enableHeterogeneousNumericComparisons(true)
                     .build())
             .build();
     CelAbstractSyntaxTree ast = cel.compile(expression).getAst();
@@ -545,7 +539,6 @@ public class CelRuntimeTest {
             .setOptions(
                 CelOptions.current()
                     .enableShortCircuiting(false)
-                    .enableHeterogeneousNumericComparisons(true)
                     .build())
             .build();
     CelAbstractSyntaxTree ast = cel.compile(source).getAst();
@@ -578,7 +571,6 @@ public class CelRuntimeTest {
             .setOptions(
                 CelOptions.current()
                     .enableShortCircuiting(false)
-                    .enableHeterogeneousNumericComparisons(true)
                     .build())
             .build();
     CelAbstractSyntaxTree ast = cel.compile(source).getAst();
@@ -608,7 +600,6 @@ public class CelRuntimeTest {
             .setOptions(
                 CelOptions.current()
                     .enableShortCircuiting(true)
-                    .enableHeterogeneousNumericComparisons(true)
                     .build())
             .build();
     Cel cel =
@@ -617,7 +608,6 @@ public class CelRuntimeTest {
             .setOptions(
                 CelOptions.current()
                     .enableShortCircuiting(false)
-                    .enableHeterogeneousNumericComparisons(true)
                     .build())
             .build();
     CelAbstractSyntaxTree ast = cel.compile(expression).getAst();
@@ -654,7 +644,6 @@ public class CelRuntimeTest {
             .setOptions(
                 CelOptions.current()
                     .enableShortCircuiting(false)
-                    .enableHeterogeneousNumericComparisons(true)
                     .build())
             .build();
     CelAbstractSyntaxTree ast = cel.compile(source).getAst();
@@ -691,7 +680,6 @@ public class CelRuntimeTest {
             .setOptions(
                 CelOptions.current()
                     .enableShortCircuiting(false)
-                    .enableHeterogeneousNumericComparisons(true)
                     .build())
             .build();
     CelAbstractSyntaxTree ast = cel.compile(source).getAst();
@@ -718,7 +706,6 @@ public class CelRuntimeTest {
             .setOptions(
                 CelOptions.current()
                     .enableShortCircuiting(false)
-                    .enableHeterogeneousNumericComparisons(true)
                     .build())
             .build();
     CelAbstractSyntaxTree ast = cel.compile("true ? false : true").getAst();
@@ -749,7 +736,6 @@ public class CelRuntimeTest {
             .setOptions(
                 CelOptions.current()
                     .enableShortCircuiting(false)
-                    .enableHeterogeneousNumericComparisons(true)
                     .build())
             .build();
     CelAbstractSyntaxTree ast = cel.compile(source).getAst();
@@ -785,7 +771,6 @@ public class CelRuntimeTest {
             .setOptions(
                 CelOptions.current()
                     .enableShortCircuiting(true)
-                    .enableHeterogeneousNumericComparisons(true)
                     .build())
             .build();
     Cel cel =
@@ -794,7 +779,6 @@ public class CelRuntimeTest {
             .setOptions(
                 CelOptions.current()
                     .enableShortCircuiting(false)
-                    .enableHeterogeneousNumericComparisons(true)
                     .build())
             .build();
     CelAbstractSyntaxTree ast = cel.compile(expression).getAst();
@@ -818,7 +802,6 @@ public class CelRuntimeTest {
             .setOptions(
                 CelOptions.current()
                     .enableShortCircuiting(false)
-                    .enableHeterogeneousNumericComparisons(true)
                     .build())
             .build();
     CelAbstractSyntaxTree ast = cel.compile("true ? (1 / 0) : 2").getAst();
@@ -849,7 +832,6 @@ public class CelRuntimeTest {
             .setOptions(
                 CelOptions.current()
                     .enableShortCircuiting(false)
-                    .enableHeterogeneousNumericComparisons(true)
                     .build())
             .build();
     CelAbstractSyntaxTree ast = cel.compile("true ? error_func() : false").getAst();
@@ -889,7 +871,6 @@ public class CelRuntimeTest {
             .setOptions(
                 CelOptions.current()
                     .enableShortCircuiting(false)
-                    .enableHeterogeneousNumericComparisons(true)
                     .build())
             .build();
     CelAbstractSyntaxTree ast = cel.compile("error_1() && error_2()").getAst();
@@ -929,7 +910,6 @@ public class CelRuntimeTest {
             .setOptions(
                 CelOptions.current()
                     .enableShortCircuiting(false)
-                    .enableHeterogeneousNumericComparisons(true)
                     .build())
             .build();
     CelAbstractSyntaxTree ast = cel.compile("error_1() || error_2()").getAst();

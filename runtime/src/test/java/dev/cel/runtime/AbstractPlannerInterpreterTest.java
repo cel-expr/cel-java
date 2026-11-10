@@ -148,7 +148,6 @@ public abstract class AbstractPlannerInterpreterTest extends BaseInterpreterTest
     celRuntime =
         newBaseRuntimeBuilder(
                 CelOptions.current()
-                    .enableHeterogeneousNumericComparisons(true)
                     .enableOptionalSyntax(true)
                     .comprehensionMaxIterations(1_000)
                     .build())

@@ -144,7 +144,6 @@ public final class CelPolicyCompilerTool implements Callable<Integer> {
   private static final CelOptions CEL_OPTIONS =
       CelOptions.current()
           .populateMacroCalls(true)
-          .enableHeterogeneousNumericComparisons(true)
           .build();
 
   private PrintWriter out() {

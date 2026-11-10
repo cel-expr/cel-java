@@ -132,7 +132,6 @@ public final class StructValueTest {
   public void evaluate_typeOfCustomStruct() throws Exception {
     Cel cel =
         CelFactory.plannerCelBuilder()
-            .setOptions(CelOptions.current().enableHeterogeneousNumericComparisons(true).build())
             .addVar("a", CUSTOM_STRUCT_TYPE)
             .setTypeProvider(CUSTOM_STRUCT_TYPE_PROVIDER)
             .setValueProvider(CUSTOM_STRUCT_VALUE_PROVIDER)
@@ -148,7 +147,6 @@ public final class StructValueTest {
   public void evaluate_usingCustomClass_createNewStruct() throws Exception {
     Cel cel =
         CelFactory.plannerCelBuilder()
-            .setOptions(CelOptions.current().enableHeterogeneousNumericComparisons(true).build())
             .setTypeProvider(CUSTOM_STRUCT_TYPE_PROVIDER)
             .setValueProvider(CUSTOM_STRUCT_VALUE_PROVIDER)
             .build();
@@ -163,7 +161,6 @@ public final class StructValueTest {
   public void evaluate_usingCustomClass_asVariable() throws Exception {
     Cel cel =
         CelFactory.plannerCelBuilder()
-            .setOptions(CelOptions.current().enableHeterogeneousNumericComparisons(true).build())
             .addVar("a", CUSTOM_STRUCT_TYPE)
             .setTypeProvider(CUSTOM_STRUCT_TYPE_PROVIDER)
             .setValueProvider(CUSTOM_STRUCT_VALUE_PROVIDER)
@@ -181,7 +178,6 @@ public final class StructValueTest {
   public void evaluate_usingCustomClass_asVariableSelectField() throws Exception {
     Cel cel =
         CelFactory.plannerCelBuilder()
-            .setOptions(CelOptions.current().enableHeterogeneousNumericComparisons(true).build())
             .addVar("a", CUSTOM_STRUCT_TYPE)
             .setTypeProvider(CUSTOM_STRUCT_TYPE_PROVIDER)
             .setValueProvider(CUSTOM_STRUCT_VALUE_PROVIDER)
@@ -196,7 +192,6 @@ public final class StructValueTest {
   public void evaluate_usingCustomClass_selectField() throws Exception {
     Cel cel =
         CelFactory.plannerCelBuilder()
-            .setOptions(CelOptions.current().enableHeterogeneousNumericComparisons(true).build())
             .setTypeProvider(CUSTOM_STRUCT_TYPE_PROVIDER)
             .setValueProvider(CUSTOM_STRUCT_VALUE_PROVIDER)
             .build();
@@ -211,7 +206,6 @@ public final class StructValueTest {
   public void evaluate_usingMultipleProviders_selectFieldFromCustomClass() throws Exception {
     Cel cel =
         CelFactory.plannerCelBuilder()
-            .setOptions(CelOptions.current().enableHeterogeneousNumericComparisons(true).build())
             .setTypeProvider(CUSTOM_STRUCT_TYPE_PROVIDER)
             .setValueProvider(
                 CombinedCelValueProvider.combine(

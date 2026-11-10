@@ -188,10 +188,7 @@ public class CelStandardFunctionsTest {
   @TestParameters("{expression: '2u <= 1.0'}")
   @TestParameters("{expression: '1.0 <= 2u'}")
   public void heterogeneousEqualityDisabled_mixedTypeComparisons_throws(String expression) {
-    CelCompiler celCompiler =
-        CelCompilerFactory.standardCelCompilerBuilder()
-            .setOptions(CelOptions.current().enableHeterogeneousNumericComparisons(true).build())
-            .build();
+    CelCompiler celCompiler = CelCompilerFactory.standardCelCompilerBuilder().build();
     CelRuntime celRuntime =
         CelRuntimeFactory.legacyCelRuntimeBuilder()
             .setOptions(CelOptions.current().enableHeterogeneousNumericComparisons(false).build())

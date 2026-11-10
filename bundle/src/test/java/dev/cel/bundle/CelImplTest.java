@@ -499,7 +499,6 @@ public final class CelImplTest {
         CelFactory.plannerCelBuilder()
             .setOptions(
                 CelOptions.current()
-                    .enableHeterogeneousNumericComparisons(true)
                     .enableOptionalSyntax(true)
                     .build())
             .addVar("a", OptionalType.create(SimpleType.STRING))
@@ -834,7 +833,6 @@ public final class CelImplTest {
             .addFileTypes(CheckedExpr.getDescriptor().getFile())
             // In this test 'ParsedExpr' is defined in syntax.proto, while the descriptor provided
             // is defined in checked.proto, which imports syntax.proto.
-            .setOptions(CelOptions.current().enableHeterogeneousNumericComparisons(true).build())
             .setContainer(CelContainer.ofName(packageName))
             .setResultType(StructTypeReference.create(packageName + ".ParsedExpr"))
             .build();
@@ -857,7 +855,6 @@ public final class CelImplTest {
     CelRuntime celRuntime =
         CelRuntimeFactory.plannerRuntimeBuilder()
             .addFileTypes(CheckedExpr.getDescriptor().getFile())
-            .setOptions(CelOptions.current().enableHeterogeneousNumericComparisons(true).build())
             // CEL-Internal-2
             .build();
     CelRuntime.Program program = celRuntime.createProgram(ast);
@@ -912,7 +909,6 @@ public final class CelImplTest {
     Cel cel =
         plannerCelBuilderWithMacros()
             .addFileTypes(StandaloneGlobalEnum.getDescriptor().getFile())
-            .setOptions(CelOptions.current().enableHeterogeneousNumericComparisons(true).build())
             .setContainer(
                 CelContainer.ofName("dev.cel.testing.testdata.proto3.StandaloneGlobalEnum"))
             .setResultType(SimpleType.BOOL)
@@ -929,7 +925,6 @@ public final class CelImplTest {
   public void program_enumTypeReferenceResolution() throws Exception {
     Cel cel =
         plannerCelBuilderWithMacros()
-            .setOptions(CelOptions.current().enableHeterogeneousNumericComparisons(true).build())
             .addMessageTypes(Struct.getDescriptor())
             .setResultType(StructTypeReference.create("google.protobuf.NullValue"))
             .setContainer(CelContainer.ofName("google.protobuf"))
@@ -945,7 +940,6 @@ public final class CelImplTest {
   public void program_enumTypeTransitiveResolution() throws Exception {
     Cel cel =
         plannerCelBuilderWithMacros()
-            .setOptions(CelOptions.current().enableHeterogeneousNumericComparisons(true).build())
             .addMessageTypes(Proto2ExtensionScopedMessage.getDescriptor())
             .setResultType(StructTypeReference.create("google.protobuf.NullValue"))
             .setContainer(CelContainer.ofName("google.protobuf"))
@@ -1079,7 +1073,6 @@ public final class CelImplTest {
         plannerCelBuilderWithMacros()
             .setOptions(
                 CelOptions.current()
-                    .enableHeterogeneousNumericComparisons(true)
                     .retainRepeatedUnaryOperators(true)
                     .build())
             .build();
@@ -1850,7 +1843,6 @@ public final class CelImplTest {
         plannerCelBuilderWithMacros()
             .setOptions(
                 CelOptions.current()
-                    .enableHeterogeneousNumericComparisons(true)
                     .enableComprehension(false)
                     .build())
             .build();
@@ -1868,7 +1860,6 @@ public final class CelImplTest {
         plannerCelBuilderWithMacros()
             .setOptions(
                 CelOptions.current()
-                    .enableHeterogeneousNumericComparisons(true)
                     .maxRegexProgramSize(7)
                     .build())
             .build();
@@ -1885,7 +1876,6 @@ public final class CelImplTest {
         plannerCelBuilderWithMacros()
             .setOptions(
                 CelOptions.current()
-                    .enableHeterogeneousNumericComparisons(true)
                     .maxRegexProgramSize(6)
                     .build())
             .build();
@@ -2103,7 +2093,6 @@ public final class CelImplTest {
             .addMessageTypes(SingleFile.getDescriptor())
             .setOptions(
                 CelOptions.current()
-                    .enableHeterogeneousNumericComparisons(true)
                     .enableJsonFieldNames(true)
                     .build())
             .build();
@@ -2112,7 +2101,6 @@ public final class CelImplTest {
             .addMessageTypes(SingleFile.getDescriptor())
             .setOptions(
                 CelOptions.current()
-                    .enableHeterogeneousNumericComparisons(true)
                     .enableJsonFieldNames(false)
                     .build())
             .build();
@@ -2134,7 +2122,6 @@ public final class CelImplTest {
             .addMessageTypes(SingleFile.getDescriptor())
             .setOptions(
                 CelOptions.current()
-                    .enableHeterogeneousNumericComparisons(true)
                     .enableJsonFieldNames(true)
                     .build())
             .build();
@@ -2154,7 +2141,6 @@ public final class CelImplTest {
             .addMessageTypes(SingleFile.getDescriptor())
             .setOptions(
                 CelOptions.current()
-                    .enableHeterogeneousNumericComparisons(true)
                     .enableJsonFieldNames(true)
                     .build())
             .build();
@@ -2213,7 +2199,6 @@ public final class CelImplTest {
         .setOptions(
             CelOptions.current()
                 .enableJsonFieldNames(true)
-                .enableHeterogeneousNumericComparisons(true)
                 .enableQuotedIdentifierSyntax(true)
                 .build())
         .build();

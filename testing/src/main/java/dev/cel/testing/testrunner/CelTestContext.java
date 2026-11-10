@@ -166,7 +166,7 @@ public abstract class CelTestContext {
   public static CelTestContext.Builder newBuilder() {
     return new AutoValue_CelTestContext.Builder()
         .setCel(DEFAULT_CEL)
-        .setCelOptions(CelOptions.current().enableHeterogeneousNumericComparisons(true).build())
+        .setCelOptions(CelOptions.DEFAULT)
         .setVariableBindings(ImmutableMap.of())
         .setResultMatcher(new DefaultResultMatcher());
   }

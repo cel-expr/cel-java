@@ -102,8 +102,7 @@ import org.junit.runner.RunWith;
 @RunWith(TestParameterInjector.class)
 public final class ProgramPlannerTest {
   // Note that the following deps will be built from top-level builder APIs
-  private static final CelOptions CEL_OPTIONS =
-      CelOptions.current().enableHeterogeneousNumericComparisons(true).build();
+  private static final CelOptions CEL_OPTIONS = CelOptions.DEFAULT;
   private static final CelTypeProvider TYPE_PROVIDER =
       new CombinedCelTypeProvider(
           DefaultTypeProvider.getInstance(),
@@ -2246,7 +2245,6 @@ public final class ProgramPlannerTest {
     ProgramPlanner planner =
         newPlannerWithOptions(
             CelOptions.current()
-                .enableHeterogeneousNumericComparisons(true)
                 .enableShortCircuiting(false)
                 .build());
     Program program = planner.plan(ast);
@@ -2264,7 +2262,6 @@ public final class ProgramPlannerTest {
     ProgramPlanner planner =
         newPlannerWithOptions(
             CelOptions.current()
-                .enableHeterogeneousNumericComparisons(true)
                 .enableShortCircuiting(false)
                 .build());
     Program program = planner.plan(ast);
@@ -2393,7 +2390,6 @@ public final class ProgramPlannerTest {
     ProgramPlanner planner =
         newPlannerWithOptions(
             CelOptions.current()
-                .enableHeterogeneousNumericComparisons(true)
                 .enableShortCircuiting(false)
                 .build());
     Program program = planner.plan(ast);

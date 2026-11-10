@@ -64,7 +64,6 @@ public class CelComprehensionsExtensionsTest extends CelExtensionTestBase {
 
   private static final CelOptions CEL_OPTIONS =
       CelOptions.current()
-          .enableHeterogeneousNumericComparisons(true)
           // Enable macro call population for unparsing
           .populateMacroCalls(true)
           .build();

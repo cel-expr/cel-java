@@ -307,8 +307,7 @@ public abstract class CelOptions {
      * Enable the {@code int64_to_timestamp} overload which creates a timestamp from Unix epoch
      * seconds.
      *
-     * <p>Historically used to opt-in to this feature, this option is now enabled by default across
-     * all runtimes.
+     * <p>This option is enabled by default in {@link CelOptions#current}.
      *
      * <p>TODO: Remove this feature once it has been auto-enabled.
      *
@@ -327,7 +326,13 @@ public abstract class CelOptions {
      * <p>This option is enabled by default in {@link CelOptions#current}.
      *
      * <p>TODO: Remove this feature once it has been auto-enabled.
+     *
+     * @deprecated This option is now enabled by default. If you are passing {@code true}, simply
+     *     remove this method call. If you are passing {@code false} to disable this feature, subset
+     *     the environment instead using {@code dev.cel.checker.CelStandardDeclarations} and {@code
+     *     dev.cel.runtime.CelStandardFunctions}.
      */
+    @Deprecated
     public abstract Builder enableHeterogeneousNumericComparisons(boolean value);
 
     /**

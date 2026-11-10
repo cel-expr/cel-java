@@ -49,8 +49,7 @@ import org.junit.runner.RunWith;
 @RunWith(TestParameterInjector.class)
 public class CelEnvironmentTest {
 
-  private static final CelOptions CEL_OPTIONS =
-      CelOptions.current().enableHeterogeneousNumericComparisons(true).build();
+  private static final CelOptions CEL_OPTIONS = CelOptions.DEFAULT;
 
   @Test
   public void newBuilder_defaults() {
@@ -136,6 +135,21 @@ public class CelEnvironmentTest {
     assertThat(ast.getSource().getMacroCalls()).hasSize(1);
     boolean result = (boolean) cel.createProgram(ast).eval();
     assertThat(result).isTrue();
+  }
+
+  @Test
+  public void extend_crossTypeNumericComparisonsDisabled_throws() {
+    CelEnvironment environment =
+        CelEnvironment.newBuilder()
+            .setFeatures(
+                CelEnvironment.FeatureFlag.create(
+                    "cel.feature.cross_type_numeric_comparisons", false))
+            .build();
+    Cel cel = CelFactory.plannerCelBuilder().build();
+
+    IllegalArgumentException e =
+        assertThrows(IllegalArgumentException.class, () -> environment.extend(cel, CEL_OPTIONS));
+    assertThat(e).hasMessageThat().contains("cannot be disabled");
   }
 
   @Test
