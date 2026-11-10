@@ -169,6 +169,8 @@ public final class CelVerifierZ3ImplTest {
     DYNAMIC_MAP_COMPREHENSION_EXISTS("string_int_map.exists(k, k == 'test')", "string_int_map = "),
     NULL_SATISFIABLE("unknown_var == null", "unknown_var = null"),
     DYNAMIC_VAR_NUMERIC_EQUALITY("dyn_var == 1 && dyn_var == 1.0", "dyn_var = 1"),
+    ANY_NUMERIC_EQUALITY(
+        "test_all_types.single_any == 1 && 1.0 == test_all_types.single_any", "test_all_types = "),
     DYNAMIC_VAR_NOT_IN_LIST(
         "dyn_var == 1.5 && !(dyn_var in dyn_list) && size(dyn_list) == 6", "dyn_var = 1\\.5"),
     DYNAMIC_LIST_EQUALITY_BEYOND_BMC_LIMIT("dyn_list == [1, 2, 3, 4, 5, 6]", "dyn_list = "),

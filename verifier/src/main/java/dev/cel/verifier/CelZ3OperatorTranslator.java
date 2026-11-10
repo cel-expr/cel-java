@@ -721,8 +721,8 @@ final class CelZ3OperatorTranslator {
     } else if (isStaticallyKnown(type0) && isStaticallyKnown(type1)) {
       equality = typeSystem.getStructuralEquality(z3Arg0, z3Arg1);
     } else {
-      boolean canBeNumeric0 = type0.kind() == CelKind.DYN || isNumericType(type0);
-      boolean canBeNumeric1 = type1.kind() == CelKind.DYN || isNumericType(type1);
+      boolean canBeNumeric0 = !isStaticallyKnown(type0) || isNumericType(type0);
+      boolean canBeNumeric1 = !isStaticallyKnown(type1) || isNumericType(type1);
 
       // Check if one side is an explicit LIST that we can unroll
       BoolExpr structuralEq = typeSystem.getStructuralEquality(z3Arg0, z3Arg1);
