@@ -797,6 +797,28 @@ public final class CelZ3TypeSystem {
         ctx.mkLt(result, ctx.mkInt(MIN_TOTAL_DURATION_NANOS)));
   }
 
+  /**
+   * Returns whether {@code val} holds a value CEL can produce for its kind:
+   *
+   * <ul>
+   *   <li>an int within int64, or a uint within uint64;
+   *   <li>a timestamp or duration within CEL's bounds;
+   *   <li>a double that, if NaN, is the canonical NaN.
+   * </ul>
+   *
+   * <p>Values of other kinds always qualify.
+   */
+  BoolExpr isValidScalar(Expr<?> val) {
+    FPExpr d = getDouble(val);
+    return CelZ3Exprs.mkAndFlattened(
+        ctx,
+        ctx.mkImplies(isInt(val), ctx.mkNot(checkIntOverflow(getInt(val)))),
+        ctx.mkImplies(isUint(val), ctx.mkNot(checkUintOverflow(getUint(val)))),
+        ctx.mkImplies(ctx.mkAnd(isDouble(val), ctx.mkFPIsNaN(d)), ctx.mkEq(val, wrapDouble(d))),
+        ctx.mkImplies(isTimestamp(val), ctx.mkNot(checkTimestampOverflow(getTimestamp(val)))),
+        ctx.mkImplies(isDuration(val), ctx.mkNot(checkDurationOverflow(getDuration(val)))));
+  }
+
   /** Checks if the given arithmetic expression overflows a 64-bit unsigned integer. */
   public BoolExpr checkUintOverflow(ArithExpr result) {
     return ctx.mkOr(
