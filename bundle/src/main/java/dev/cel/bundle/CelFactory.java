@@ -78,7 +78,7 @@ public final class CelFactory {
                 CelCheckerLegacyImpl.newBuilder().setStandardEnvironmentEnabled(true)),
             CelRuntimeImpl.newBuilder())
         // CEL-Internal-2
-        .setOptions(CelOptions.current().enableHeterogeneousNumericComparisons(true).build());
+        .setOptions(CelOptions.DEFAULT);
   }
 
   /** Combines a prebuilt {@link CelCompiler} and {@link CelRuntime} into {@link Cel}. */

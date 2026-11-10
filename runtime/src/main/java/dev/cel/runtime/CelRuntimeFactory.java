@@ -61,7 +61,7 @@ public final class CelRuntimeFactory {
   public static CelRuntimeBuilder plannerRuntimeBuilder() {
     return CelRuntimeImpl.newBuilder()
         // CEL-Internal-2
-        .setOptions(CelOptions.current().enableHeterogeneousNumericComparisons(true).build());
+        .setOptions(CelOptions.DEFAULT);
   }
 
   private CelRuntimeFactory() {}
