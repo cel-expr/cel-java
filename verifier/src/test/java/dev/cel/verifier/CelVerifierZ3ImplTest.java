@@ -220,6 +220,12 @@ public final class CelVerifierZ3ImplTest {
     DURATION_SUBSECOND_SATISFIABLE(
         "dur == google.protobuf.Duration{seconds: 1, nanos: 500}",
         "dur = duration\\(\"1\\.000000500s\"\\)"),
+    // TODO: Drop the bound once CEL-Java finds uint keys of 2^63 or more by a double.
+    INTEGRAL_DOUBLE_MAP_KEY(
+        "d > 1.0 && d < 9223372036854775808.0 && dyn_int_map[d] == 1", "d = [1-9]"),
+    // An infinite double has no truncation, and the comparisons never need one.
+    INFINITE_DOUBLE_ABOVE_INT(
+        "x < d && d > 1.7976931348623157e308", "d = double\\(\"Infinity\"\\)"),
     // Timestamps and durations nested in dyn aren't range constrained.
     TIMESTAMP_ABOVE_RANGE_SATISFIABLE(
         "type(dyn_var) == google.protobuf.Timestamp"
@@ -711,6 +717,8 @@ public final class CelVerifierZ3ImplTest {
     APPROXIMATED_INT_TO_STRING("string(123) == '123'"),
     APPROXIMATED_RANGE("int('123') > 100 && int('123') < 200"),
     APPROXIMATED_BRANCHING("int('123') == 123 ? x > 5 : false"),
+    // The exact pass refines its candidate away; its assertions mustn't leak into the next pass.
+    APPROXIMATED_AFTER_REFINEMENT("(dyn(x) == d && d == 1.5) || int(string_var) == 5"),
     APPROXIMATED_STRING_TO_INT_CONSTRAINED("string_var == 'abc' && int(string_var) == 5"),
     APPROXIMATED_STRING_TO_DOUBLE_NAN("double('NaN') != double('NaN')"),
     // int('x') errors at runtime, so type() of an approximate argument is approximate too.
@@ -870,6 +878,19 @@ public final class CelVerifierZ3ImplTest {
     NON_BOOL_LOGICAL_OPERAND("dyn(1) && true"),
     ENUM_CONSTANTS_DISTINCT("TestAllTypes.NestedEnum.FOO == TestAllTypes.NestedEnum.BAR"),
     LEADING_DOT_GLOBAL_DISAMBIGUATION_CONTRADICTION("x == 5 && [1, 2].all(x, x > .x)"),
+    CROSS_TYPE_EQUAL_AND_LESS("dyn(x) == d && x < d"),
+    CROSS_TYPE_LESS_BOTH_WAYS("x < d && d < x"),
+    CROSS_TYPE_LESS_EQUALS_AND_GREATER("x <= d && d < x"),
+    CROSS_TYPE_INTEGRAL_BETWEEN_CONSECUTIVE_INTS("x < d && d < x + 1 && dyn(y) == d"),
+    // Runtimes round ints and uints to doubles, so this only holds for those that convert exactly.
+    CROSS_TYPE_EQUALITY_TRANSITIVE(
+        "-9007199254740992 <= x && x <= 9007199254740992 && u <= 9007199254740992u"
+            + " && dyn(x) == d && d == dyn(u) && dyn(x) != dyn(u)"),
+    CROSS_TYPE_OUT_OF_INT64_RANGE_DOUBLE_MAP_KEY(
+        "size(dyn_int_map) == 1 && dyn_int_map.all(k, type(k) == int)"
+            + " && dyn_int_map[9223372036854775808.0] == 1"),
+    CROSS_TYPE_FRACTIONAL_MAP_KEY(
+        "size(dyn_int_map) == 1 && d > 1.0 && d < 2.0 && dyn_int_map[d] == 1"),
     ;
 
     private final String expr;
@@ -1183,6 +1204,14 @@ public final class CelVerifierZ3ImplTest {
         "unknown_var == 9223372036854775807 ? unknown_var != 1e100 : true"),
     HETEROGENEOUS_MAX_EXACT_INT("dyn(9007199254740992) == 9007199254740992.0"),
     HETEROGENEOUS_MIN_EXACT_INT("dyn(-9007199254740992) == -9007199254740992.0"),
+    HETEROGENEOUS_INT_BELOW_DOUBLE_ABOVE_TWO_TO_63("x < 9223372036854777856.0"),
+    HETEROGENEOUS_INT_AT_LEAST_MIN("x >= -9223372036854775808.0"),
+    HETEROGENEOUS_INT_ABOVE_MINUS_TWO_TO_64("x > -18446744073709551616.0"),
+    // Runtimes round u to a double, so this only holds for uints that convert exactly.
+    HETEROGENEOUS_UINT_BELOW_TWO_TO_64(
+        "u <= 9007199254740992u ? u < 18446744073709551616.0 : true"),
+    HETEROGENEOUS_ZERO_ORDERING("(x < 0.0) == (x < 0) && (x < -0.0) == (x < 0)"),
+    HETEROGENEOUS_SUBNORMAL_ORDERING("x > 0 ? dyn(x) > 4.9e-324 : dyn(x) < 4.9e-324"),
     HETEROGENEOUS_INT_PRECISION_LOSS_POS("dyn(9007199254740993) == 9007199254740992.0"),
     HETEROGENEOUS_INT_PRECISION_LOSS_NEG("dyn(-9007199254740993) == -9007199254740992.0"),
     HETEROGENEOUS_UINT_PRECISION_LOSS("dyn(9007199254740993u) == 9007199254740992.0"),
@@ -2088,6 +2117,10 @@ public final class CelVerifierZ3ImplTest {
         "Condition is not always true\\.",
         "Counterexample input:",
         "dyn_int_map = \\{1: 1\\}"),
+    CROSS_TYPE_POSITIVE_INT_EQUALS_DOUBLE("!(dyn(x) == d && x > 0)", "x = [1-9]\\d*", "d = [1-9]"),
+    CROSS_TYPE_NEGATIVE_DOUBLE_BETWEEN_INTS(
+        "!(x < 0 && x < d && d < x + 1)", "d = -\\d+\\.\\d*[1-9]"),
+    CROSS_TYPE_NAN_UNORDERED("dyn(x) < d || dyn(x) >= d", "d = double\\(\"NaN\"\\)"),
     ;
 
     private final String expr;

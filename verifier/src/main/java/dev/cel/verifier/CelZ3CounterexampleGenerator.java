@@ -20,7 +20,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.primitives.UnsignedLong;
 import com.microsoft.z3.ArrayExpr;
-import com.microsoft.z3.BitVecNum;
 import com.microsoft.z3.Context;
 import com.microsoft.z3.Expr;
 import com.microsoft.z3.FPNum;
@@ -178,15 +177,9 @@ final class CelZ3CounterexampleGenerator {
   }
 
   private Value extractDouble(FPNum fpNum) {
-    if (fpNum.isNaN()) {
-      return Value.exact(Double.NaN, "double(\"NaN\")");
-    }
-    // Z3 doubles are IEEE 754 binary64, so their bits convert exactly.
-    double value =
-        Double.longBitsToDouble(
-            ((BitVecNum) ctx.mkFPToIEEEBV(fpNum).simplify()).getBigInteger().longValue());
+    double value = typeSystem.toJavaDouble(fpNum);
     return Value.exact(
-        value, Double.isInfinite(value) ? "double(\"" + value + "\")" : Double.toString(value));
+        value, Double.isFinite(value) ? Double.toString(value) : "double(\"" + value + "\")");
   }
 
   private static Value extractString(Expr<?> arg, boolean isBytes) {

@@ -349,7 +349,8 @@ final class CelVerifierZ3Impl implements CelVerifier {
     solver.add(translator.getTypeConstraints().toArray(new BoolExpr[0]));
 
     // Pass 1: Search for an exact match.
-    Status status = checkSat(solver, condition, ctx.mkNot(taint));
+    CelZ3TypeSystem typeSystem = translator.getTypeSystem();
+    Status status = checkSat(solver, typeSystem, condition, ctx.mkNot(taint));
     if (status == Status.SATISFIABLE) {
       CelWitness witness = extractWitness(ctx, translator, solver.getModel());
       return isCounterexample
@@ -361,7 +362,7 @@ final class CelVerifierZ3Impl implements CelVerifier {
     }
 
     // Pass 2: Search for an approximate match.
-    status = checkSat(solver, condition);
+    status = checkSat(solver, typeSystem, condition);
     if (status == Status.SATISFIABLE) {
       Model model = solver.getModel();
       return CelVerificationResult.inconclusive(
@@ -374,7 +375,7 @@ final class CelVerifierZ3Impl implements CelVerifier {
     }
 
     // Pass 3: Search for an unmodeled result.
-    status = checkSat(solver, unknownCondition, translator.hasUnmodeledResult());
+    status = checkSat(solver, typeSystem, unknownCondition, translator.hasUnmodeledResult());
     if (status == Status.SATISFIABLE) {
       return CelVerificationResult.inconclusive(
           inconclusiveReason(candidate, translator, solver.getModel(), taint));
@@ -390,11 +391,25 @@ final class CelVerifierZ3Impl implements CelVerifier {
 
   // Throws on a timeout. Leaves the assertions in place unless they're unsatisfiable, so the model
   // or the reason the solver gave up can be read.
-  private static Status checkSat(Solver solver, BoolExpr... assertions)
+  private static Status checkSat(Solver solver, CelZ3TypeSystem typeSystem, BoolExpr... assertions)
       throws CelVerificationException {
     solver.push();
     solver.add(assertions);
     Status status = solver.check();
+    // Each round defines at least one more double, so this terminates. Each round gets the full
+    // timeout; the rounds are bounded by the doubles in int/double comparisons.
+    while (status == Status.SATISFIABLE) {
+      ImmutableList<BoolExpr> definitions =
+          typeSystem.defineDoublesContradictedBy(solver.getModel());
+      if (definitions.isEmpty()) {
+        break;
+      }
+      solver.pop();
+      solver.add(definitions.toArray(new BoolExpr[0]));
+      solver.push();
+      solver.add(assertions);
+      status = solver.check();
+    }
     if (status == Status.UNSATISFIABLE) {
       solver.pop();
     } else if (status == Status.UNKNOWN) {
