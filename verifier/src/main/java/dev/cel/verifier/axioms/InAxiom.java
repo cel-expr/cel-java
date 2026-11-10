@@ -76,8 +76,14 @@ public final class InAxiom {
 
                 BoolExpr containsIntOrUint =
                     ctx.mkOr(
-                        ctx.mkContains((Expr) seq, (Expr) ctx.mkUnit(typeSystem.wrapInt(intVal))),
-                        ctx.mkContains((Expr) seq, (Expr) ctx.mkUnit(typeSystem.wrapUint(intVal))));
+                        ctx.mkAnd(
+                            ctx.mkNot(typeSystem.checkIntOverflow(intVal)),
+                            ctx.mkContains(
+                                (Expr) seq, (Expr) ctx.mkUnit(typeSystem.wrapInt(intVal)))),
+                        ctx.mkAnd(
+                            ctx.mkNot(typeSystem.checkUintOverflow(intVal)),
+                            ctx.mkContains(
+                                (Expr) seq, (Expr) ctx.mkUnit(typeSystem.wrapUint(intVal)))));
 
                 BoolExpr intOrUintInList =
                     (BoolExpr) ctx.mkITE(isIntOrUintZero, containsAnyZero, containsIntOrUint);

@@ -24,7 +24,6 @@ import com.microsoft.z3.Context;
 import com.microsoft.z3.Expr;
 import com.microsoft.z3.FuncDecl;
 import com.microsoft.z3.Model;
-import com.microsoft.z3.Quantifier;
 import com.microsoft.z3.SeqExpr;
 import com.microsoft.z3.Sort;
 import dev.cel.common.CelAbstractSyntaxTree;
@@ -135,14 +134,21 @@ final class CelAstToZ3Translator {
     Set<Expr<?>> listRefs = new LinkedHashSet<>();
     Set<Expr<?>> mapRefs = new LinkedHashSet<>();
     Set<Expr<?>> msgRefs = new LinkedHashSet<>();
+    Set<Expr<?>> optRefs = new LinkedHashSet<>();
 
     for (Expr<?> constraint : context.constraints()) {
-      collectReferences(constraint, visited, listRefs, mapRefs, msgRefs);
+      collectReferences(constraint, visited, listRefs, mapRefs, msgRefs, optRefs);
     }
-    collectReferences(result.z3Expr(), visited, listRefs, mapRefs, msgRefs);
+    collectReferences(result.z3Expr(), visited, listRefs, mapRefs, msgRefs, optRefs);
 
     CelZ3ExtensionalityAxioms.generateAxioms(ctx, typeSystem, listRefs, mapRefs, msgRefs)
         .forEach(context::addConstraint);
+    // A present optional holds a CEL value, even when the optional is held by a dyn.
+    for (Expr<?> ref : optRefs) {
+      context.constrainValidValue(
+          ctx.mkAnd(typeSystem.isOptional(ref.getArgs()[0]), typeSystem.optHasValue(ref)),
+          typeSystem.getOptionalValue(ref));
+    }
 
     return result;
   }
@@ -152,7 +158,8 @@ final class CelAstToZ3Translator {
       Set<Expr<?>> visited,
       Set<Expr<?>> listRefs,
       Set<Expr<?>> mapRefs,
-      Set<Expr<?>> msgRefs) {
+      Set<Expr<?>> msgRefs,
+      Set<Expr<?>> optRefs) {
     if (!visited.add(expr)) {
       return;
     }
@@ -164,13 +171,14 @@ final class CelAstToZ3Translator {
     } else if (sort.equals(typeSystem.messageRefSort())) {
       msgRefs.add(expr);
     }
+    if (expr.isApp() && typeSystem.isOptionalRefAccessor(expr.getFuncDecl())) {
+      optRefs.add(expr);
+    }
 
     if (expr.isApp()) {
       for (Expr<?> arg : expr.getArgs()) {
-        collectReferences(arg, visited, listRefs, mapRefs, msgRefs);
+        collectReferences(arg, visited, listRefs, mapRefs, msgRefs, optRefs);
       }
-    } else if (expr.isQuantifier()) {
-      collectReferences(((Quantifier) expr).getBody(), visited, listRefs, mapRefs, msgRefs);
     }
   }
 

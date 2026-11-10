@@ -659,6 +659,10 @@ final class CelZ3OperatorTranslator {
       IntExpr idx = ctx.mkInt(i);
       Expr<?> elem0 = ctx.mkNth(seq0, idx);
       Expr<?> elem1 = ctx.mkNth(seq1, idx);
+      context.constrainValidValue(
+          ctx.mkAnd(typeSystem.isList(listA.z3Expr()), ctx.mkLt(idx, ctx.mkLength(seq0))), elem0);
+      context.constrainValidValue(
+          ctx.mkAnd(typeSystem.isList(listB.z3Expr()), ctx.mkLt(idx, ctx.mkLength(seq1))), elem1);
 
       if (i >= comprehensionUnrollLimit) {
         constrainListElement(seq0, idx, elem0, type0);

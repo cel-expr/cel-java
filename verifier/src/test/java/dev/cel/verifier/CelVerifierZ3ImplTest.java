@@ -226,23 +226,6 @@ public final class CelVerifierZ3ImplTest {
     // An infinite double has no truncation, and the comparisons never need one.
     INFINITE_DOUBLE_ABOVE_INT(
         "x < d && d > 1.7976931348623157e308", "d = double\\(\"Infinity\"\\)"),
-    // Values reached by indexing into a dyn value aren't range constrained.
-    TIMESTAMP_ABOVE_RANGE_SATISFIABLE(
-        "type(dyn_var[0]) == google.protobuf.Timestamp"
-            + " && dyn_var[0] > google.protobuf.Timestamp{seconds: 253402300799, nanos: 999999999}",
-        "dyn_var = .*timestamp\\(\\d+\\)"),
-    TIMESTAMP_BELOW_RANGE_SATISFIABLE(
-        "type(dyn_var[0]) == google.protobuf.Timestamp"
-            + " && dyn_var[0] < google.protobuf.Timestamp{seconds: -62135596800}",
-        "dyn_var = .*timestamp\\(-\\d+\\)"),
-    DURATION_ABOVE_RANGE_SATISFIABLE(
-        "type(dyn_var[0]) == google.protobuf.Duration"
-            + " && dyn_var[0] > google.protobuf.Duration{seconds: 315576000000, nanos: 999999999}",
-        "dyn_var = .*duration\\(\"\\d+s\"\\)"),
-    DURATION_BELOW_RANGE_SATISFIABLE(
-        "type(dyn_var[0]) == google.protobuf.Duration && dyn_var[0] <"
-            + " google.protobuf.Duration{seconds: -315576000000, nanos: -999999999}",
-        "dyn_var = .*duration\\(\"-\\d+s\"\\)"),
     ;
 
     private final String expr;
@@ -352,21 +335,6 @@ public final class CelVerifierZ3ImplTest {
   }
 
   private enum InexactWitnessTestCase {
-    INT_OUT_OF_RANGE("type(dyn_var[0]) == int && dyn_var[0] > 9223372036854775807", "dyn_var"),
-    UINT_OUT_OF_RANGE("type(dyn_var[0]) == uint && dyn_var[0] > 18446744073709551615u", "dyn_var"),
-    NEGATIVE_UINT("type(dyn_var[0]) == uint && dyn_var[0] < 0u", "dyn_var"),
-    TIMESTAMP_OUT_OF_RANGE(
-        "type(dyn_var[0]) == google.protobuf.Timestamp"
-            + " && dyn_var[0] > google.protobuf.Timestamp{seconds: 253402300799, nanos: 999999999}",
-        "dyn_var"),
-    DURATION_ABOVE_MAX(
-        "type(dyn_var[0]) == google.protobuf.Duration"
-            + " && dyn_var[0] > google.protobuf.Duration{seconds: 315576000000, nanos: 999999999}",
-        "dyn_var"),
-    DURATION_BELOW_MIN(
-        "type(dyn_var[0]) == google.protobuf.Duration && dyn_var[0] <"
-            + " google.protobuf.Duration{seconds: -315576000000, nanos: -999999999}",
-        "dyn_var"),
     SURROGATE_STRING(
         "size(string_var) == 1 && string_var > '\\ud7ff' && string_var < '\\ue000'", "string_var"),
     NON_ASCII_BYTES("by == b'\\xc3\\xa9'", "by"),
@@ -706,9 +674,6 @@ public final class CelVerifierZ3ImplTest {
     APPROXIMATED_INT_TO_STRING("string(123) == '123'"),
     APPROXIMATED_RANGE("int('123') > 100 && int('123') < 200"),
     APPROXIMATED_BRANCHING("int('123') == 123 ? x > 5 : false"),
-    // An element indexed out of a dyn value may be out of range, unlike the literal list holding
-    // it.
-    OUT_OF_RANGE_NESTED_DYN_ELEMENT("type([dyn_var[0]][0]) == uint && [dyn_var[0]][0] < 0u"),
     // The exact pass refines its candidate away; its assertions mustn't leak into the next pass.
     APPROXIMATED_AFTER_REFINEMENT("(dyn(x) == d && d == 1.5) || int(string_var) == 5"),
     APPROXIMATED_STRING_TO_INT_CONSTRAINED("string_var == 'abc' && int(string_var) == 5"),
@@ -886,6 +851,32 @@ public final class CelVerifierZ3ImplTest {
     DYN_INT_OUT_OF_RANGE("type(dyn_var) == int && dyn_var > 9223372036854775807"),
     DYN_UINT_OUT_OF_RANGE("type(dyn_var) == uint && dyn_var > 18446744073709551615u"),
     DYN_NEGATIVE_UINT("type(dyn_var) == uint && dyn_var < 0u"),
+    DYN_INDEXED_NEGATIVE_UINT("type(dyn_var[0]) == uint && dyn_var[0] < 0u"),
+    DYN_INDEXED_INT_OUT_OF_RANGE("type(dyn_var['k']) == int && dyn_var['k'] > 9223372036854775807"),
+    DYN_OPTIONAL_VALUE_OUT_OF_RANGE("type(dyn_var.value()) == uint && dyn_var.value() < 0u"),
+    DYN_LIST_COMPREHENSION_ELEMENT_OUT_OF_RANGE(
+        "size(dyn_list) == 0 && size(dyn_var) == 1"
+            + " && (dyn_list + dyn_var).exists(x, type(x) == uint && x < 0u)"),
+    DYN_LIST_FILTER_ELEMENT_OUT_OF_RANGE(
+        "size(dyn_list) == 0 && size(dyn_var) == 1"
+            + " && size((dyn_list + dyn_var).filter(x, type(x) == uint && x < 0u)) == 1"),
+    DYN_OPTIONAL_LIST_COMPREHENSION_ELEMENT_OUT_OF_RANGE(
+        "[?dyn_var].exists(x, type(x) == uint && x < 0u)"),
+    DYN_MAP_COMPREHENSION_VALUE_OUT_OF_RANGE(
+        "{?'a': dyn_var}.exists(k, v, type(v) == uint && v < 0u)"),
+    DYN_OPTIONAL_LIST_ELEMENT_OUT_OF_INT_RANGE(
+        "d == -9223372036854777856.0 && [?dyn_var.?f] != [d] && ([?dyn_var.?f] + []) == [d]"),
+    DYN_LIST_EQUALITY_OUT_OF_RANGE_LEFT_ELEMENT(
+        "d == -9223372036854777856.0 && dyn_var == [d] && !(d in dyn_var)"),
+    DYN_LIST_EQUALITY_OUT_OF_RANGE_RIGHT_ELEMENT(
+        "d == -9223372036854777856.0 && [d] == dyn_var && !(d in dyn_var)"),
+    DYN_IN_LIST_OUT_OF_RANGE_CROSS_TYPE_CANDIDATE(
+        "size(dyn_var + []) == 1"
+            + " && ((-1 in dyn_var && dyn_var != ([-1] + []))"
+            + " || (18446744073709551615u in dyn_var"
+            + " && dyn_var != ([18446744073709551615u] + [])))"),
+    DYN_OPTIONAL_OR_VALUE_OUT_OF_RANGE(
+        "type(dyn_var.orValue(1u)) == uint && dyn_var.orValue(1u) < 0u"),
     ANY_NEGATIVE_UINT("type(test_all_types.single_any) == uint && test_all_types.single_any < 0u"),
     DYN_TIMESTAMP_OUT_OF_RANGE(
         "type(dyn_var) == google.protobuf.Timestamp"
@@ -2657,6 +2648,13 @@ public final class CelVerifierZ3ImplTest {
     DOUBLE_NAN_ARITHMETIC("d != d ? d + 1.0 : 0.0", "d != d ? d : 0.0"),
     DOUBLE_NAN_INPUT_AND_LITERAL("d != d ? d : 0.0", "d != d ? 0.0 / 0.0 : 0.0"),
     DYN_NAN_INPUT_AND_LITERAL("dyn_var != dyn_var ? 0.0 / 0.0 : dyn_var", "dyn_var"),
+    DYN_INDEXED_NAN_AND_LITERAL("dyn_var[0] != dyn_var[0] ? 0.0 / 0.0 : dyn_var[0]", "dyn_var[0]"),
+    DYN_OPTIONAL_JSON_NAN_AND_LITERAL(
+        "google.protobuf.Value{?number_value: dyn_var} != google.protobuf.Value{?number_value:"
+            + " dyn_var} ? 0.0 / 0.0 : google.protobuf.Value{?number_value: dyn_var}",
+        "google.protobuf.Value{?number_value: dyn_var}"),
+    DYN_OPTIONAL_NAN_AND_LITERAL(
+        "dyn_var.value() != dyn_var.value() ? 0.0 / 0.0 : dyn_var.value()", "dyn_var.value()"),
     ANY_NAN_FIELD_AND_LITERAL(
         "test_all_types.single_any != test_all_types.single_any"
             + " ? 0.0 / 0.0 : test_all_types.single_any",

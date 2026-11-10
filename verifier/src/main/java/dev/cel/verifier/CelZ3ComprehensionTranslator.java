@@ -36,6 +36,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.function.BiFunction;
 import java.util.function.Supplier;
+import org.jspecify.annotations.Nullable;
 
 /** Translates CEL comprehensions to Z3, unrolling them up to the comprehension unroll limit. */
 @SuppressWarnings({"unchecked", "rawtypes"}) // Z3 Java API uses raw types.
@@ -273,7 +274,7 @@ final class CelZ3ComprehensionTranslator {
       BoolExpr inBounds = ctx.mkLt(idx, lengthExpr);
       Expr<?> xVal = ctx.mkNth(seq, idx);
 
-      constrainIterationElement(idx, lengthExpr, xVal, inBounds, mapPresence);
+      constrainIterationElement(idx, lengthExpr, xVal, inBounds, mapPresence, iterRangeTv.z3Expr());
 
       IterationElement iterElem =
           getIterationElement(xVal, idx, iterRangeTv.z3Expr(), isMap, isTwoVar);
@@ -318,7 +319,7 @@ final class CelZ3ComprehensionTranslator {
       BoolExpr inBounds = ctx.mkLt(idx, lengthExpr);
       Expr<?> xVal = ctx.mkNth(seq, idx);
 
-      constrainIterationElement(idx, lengthExpr, xVal, inBounds, mapPresence);
+      constrainIterationElement(idx, lengthExpr, xVal, inBounds, mapPresence, iterRangeTv.z3Expr());
 
       Expr<?> currentAccu = chainedAccu;
       IterationElement iterElem =
@@ -377,7 +378,12 @@ final class CelZ3ComprehensionTranslator {
   }
 
   private void constrainIterationElement(
-      IntExpr idx, ArithExpr lengthExpr, Expr<?> xVal, BoolExpr inBounds, ArrayExpr mapPresence) {
+      IntExpr idx,
+      ArithExpr lengthExpr,
+      Expr<?> xVal,
+      BoolExpr inBounds,
+      @Nullable ArrayExpr mapPresence,
+      Expr<?> iterRange) {
     // Constrain out-of-bounds elements to prevent MBQI from infinitely instantiating list/map
     // axioms
     BoolExpr outOfBounds = ctx.mkGe(idx, lengthExpr);
@@ -389,6 +395,13 @@ final class CelZ3ComprehensionTranslator {
       Expr<?> selectExpr = ctx.mkSelect(mapPresence, xVal);
       context.addConstraint(ctx.mkImplies(inBounds, (BoolExpr) selectExpr));
     }
+
+    // Elements of a list, and keys of a map, are CEL values.
+    context.constrainValidValue(
+        ctx.mkAnd(
+            mapPresence == null ? typeSystem.isList(iterRange) : typeSystem.isMap(iterRange),
+            inBounds),
+        xVal);
   }
 
   private TranslatedValue reduceAllOrExists(

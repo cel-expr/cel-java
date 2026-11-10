@@ -573,6 +573,11 @@ public final class CelZ3TypeSystem {
     return ctx.mkApp(optionalCons.getAccessorDecls()[0], val);
   }
 
+  /** Whether {@code func} is the accessor {@link #getOptionalRef} applies. */
+  boolean isOptionalRefAccessor(FuncDecl<?> func) {
+    return func.equals(optionalCons.getAccessorDecls()[0]);
+  }
+
   /** Checks if the given optional reference contains a value. */
   public BoolExpr optHasValue(Expr<?> optRef) {
     return ctx.mkNot(ctx.mkEq(optRef, mkNoneOptionalRef()));
@@ -817,6 +822,11 @@ public final class CelZ3TypeSystem {
         ctx.mkImplies(ctx.mkAnd(isDouble(val), ctx.mkFPIsNaN(d)), ctx.mkEq(val, wrapDouble(d))),
         ctx.mkImplies(isTimestamp(val), ctx.mkNot(checkTimestampOverflow(getTimestamp(val)))),
         ctx.mkImplies(isDuration(val), ctx.mkNot(checkDurationOverflow(getDuration(val)))));
+  }
+
+  /** Returns whether {@code val} is a CEL value: neither an error nor unknown, and in range. */
+  public BoolExpr isValidValue(Expr<?> val) {
+    return ctx.mkAnd(ctx.mkNot(isErrorOrUnknown(val)), isValidScalar(val));
   }
 
   /** Checks if the given arithmetic expression overflows a 64-bit unsigned integer. */

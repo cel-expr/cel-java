@@ -75,9 +75,9 @@ final class CelZ3TranslationContext {
     constraints.add(constraint);
   }
 
-  /** Constrains {@code value} to be neither an error nor unknown whenever {@code guard} holds. */
+  /** Constrains {@code value} to be a CEL value whenever {@code guard} holds. */
   void constrainValidValue(BoolExpr guard, Expr<?> value) {
-    addConstraint(ctx.mkImplies(guard, ctx.mkNot(typeSystem.isErrorOrUnknown(value))));
+    addConstraint(ctx.mkImplies(guard, typeSystem.isValidValue(value)));
   }
 
   void addInputVariable(Expr<?> variable, CelType declaredType) {
