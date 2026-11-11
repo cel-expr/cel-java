@@ -23,6 +23,7 @@ import com.microsoft.z3.Context;
 import com.microsoft.z3.Expr;
 import com.microsoft.z3.FPExpr;
 import com.microsoft.z3.IntExpr;
+import com.microsoft.z3.SeqExpr;
 import dev.cel.common.CelAbstractSyntaxTree;
 import dev.cel.common.ast.CelExpr;
 import dev.cel.common.internal.ProtoTimeUtils;
@@ -39,8 +40,11 @@ import dev.cel.common.types.StructType;
 import dev.cel.common.types.StructTypeReference;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import java.util.function.BiFunction;
 
 /** Translates CEL message construction and field selection to Z3. */
@@ -91,13 +95,16 @@ final class CelZ3StructTranslator {
 
     Expr<?> msgRef = typeSystem.mkMessageRefConst(MSG_REF_PREFIX);
 
-    // Initialize the values array with Unknown. Missing fields and explicit primitive defaults
-    // will both bypass the store and fall back to this Unknown base. However, their msgPresence
-    // will evaluate to false, allowing translateSelect to properly return the default value.
+    // Initialize the values array with Unknown. Missing fields, explicit primitive defaults and
+    // empty repeated or map fields all bypass the store and fall back to this Unknown base.
+    // However, their msgPresence will evaluate to false, allowing translateSelect to properly
+    // return the default value.
     ArrayExpr msgValues = ctx.mkConstArray(ctx.getStringSort(), typeSystem.mkUnknown());
     ArrayExpr msgPresence = ctx.mkConstArray(ctx.getStringSort(), ctx.mkFalse());
 
     List<TranslatedValue> elementsTv = new ArrayList<>();
+    List<BoolExpr> invalidFields = new ArrayList<>();
+    Set<String> fields = new HashSet<>();
 
     for (CelExpr.CelStruct.Entry entryAst : createStruct.entries()) {
       Expr<?> key = ctx.mkString(entryAst.fieldKey());
@@ -112,7 +119,6 @@ final class CelZ3StructTranslator {
               .flatMap(t -> t.findField(entryAst.fieldKey()))
               .map(StructType.Field::type)
               .orElseGet(() -> extractAstTypeOrDefault(ast, entryAst.value().id()));
-      Expr<?> defaultVal = getDefaultValueForType(fieldType);
 
       Expr<?> finalValue = value;
       BoolExpr optionalHasValue = ctx.mkTrue();
@@ -126,7 +132,6 @@ final class CelZ3StructTranslator {
         optionalHasValue = typeSystem.optHasValue(optRef);
         finalValue = typeSystem.getOptionalValue(optRef);
       }
-      elementsTv.add(valueTv);
 
       // Canonicalization Trick:
       //
@@ -136,17 +141,56 @@ final class CelZ3StructTranslator {
       // (`msg1 == msg2`) to work without using quantifiers (which avoids MBQI loops).
       // Because proto3 singular primitives do not have field presence, we also skip setting
       // `msgPresence`.
-      BoolExpr isDefaultPrimitive =
-          fieldType.kind().isPrimitive() ? ctx.mkEq(finalValue, defaultVal) : ctx.mkFalse();
+      BoolExpr isUnset = ctx.mkFalse();
+      if (fieldType.kind().isPrimitive()) {
+        isUnset = ctx.mkEq(finalValue, getDefaultValueForType(fieldType));
+      } else if (fieldType.kind() == CelKind.LIST || fieldType.kind() == CelKind.MAP) {
+        // Empty repeated and map fields are unset too. Other values can't initialize them.
+        boolean isList = fieldType.kind() == CelKind.LIST;
+        BoolExpr hasFieldKind =
+            isList ? typeSystem.isList(finalValue) : typeSystem.isMap(finalValue);
+        invalidFields.add(ctx.mkAnd(optionalHasValue, ctx.mkNot(hasFieldKind)));
+        SeqExpr<?> elements =
+            isList
+                ? typeSystem.getSeq(typeSystem.getListRef(finalValue))
+                : typeSystem.getMapKeys(typeSystem.getMapRef(finalValue));
+        BoolExpr isEmpty = ctx.mkAnd(hasFieldKind, ctx.mkEq(ctx.mkLength(elements), ctx.mkInt(0)));
+        isUnset = isEmpty;
+        // A google.protobuf.ListValue or Struct field has the same type, but is set even if empty,
+        // so either may hold.
+        if (fieldType.equals(ListType.create(SimpleType.DYN))
+            || fieldType.equals(MapType.create(SimpleType.STRING, SimpleType.DYN))) {
+          valueTv =
+              valueTv.withApproximation(
+                  context.recordApproximation(
+                      "whether empty `list(dyn)` and `map(string, dyn)` fields are set",
+                      CelZ3Exprs.mkAndFlattened(ctx, optionalHasValue, isEmpty)));
+          isUnset =
+              ctx.mkAnd(
+                  isEmpty,
+                  ctx.mkBoolConst(
+                      "!unset_" + createStruct.messageName() + "." + entryAst.fieldKey()));
+        }
+      }
+      elementsTv.add(valueTv);
 
-      BoolExpr shouldBypass = ctx.mkOr(ctx.mkNot(optionalHasValue), isDefaultPrimitive);
+      BoolExpr shouldBypass = ctx.mkOr(ctx.mkNot(optionalHasValue), isUnset);
+      // The last entry for a field wins, so a later unset entry clears an earlier one.
+      boolean isRepeatedEntry = !fields.add(entryAst.fieldKey());
 
       msgValues =
-          (ArrayExpr) ctx.mkITE(shouldBypass, msgValues, ctx.mkStore(msgValues, key, finalValue));
+          (ArrayExpr)
+              ctx.mkITE(
+                  shouldBypass,
+                  isRepeatedEntry ? ctx.mkStore(msgValues, key, typeSystem.mkUnknown()) : msgValues,
+                  ctx.mkStore(msgValues, key, finalValue));
 
       msgPresence =
           (ArrayExpr)
-              ctx.mkITE(shouldBypass, msgPresence, ctx.mkStore(msgPresence, key, ctx.mkTrue()));
+              ctx.mkITE(
+                  shouldBypass,
+                  isRepeatedEntry ? ctx.mkStore(msgPresence, key, ctx.mkFalse()) : msgPresence,
+                  ctx.mkStore(msgPresence, key, ctx.mkTrue()));
     }
 
     context.addConstraint(
@@ -154,7 +198,9 @@ final class CelZ3StructTranslator {
     context.addConstraint(ctx.mkEq(typeSystem.getMsgValues(msgRef), msgValues));
     context.addConstraint(ctx.mkEq(typeSystem.getMsgPresence(msgRef), msgPresence));
 
-    Expr<?> result = typeSystem.wrapMessage(msgRef);
+    Expr<?> result =
+        typeSystem.withRuntimeError(
+            typeSystem.wrapMessage(msgRef), CelZ3Exprs.mkOrFlattened(ctx, invalidFields));
     return TranslatedValue.propagateStrict(ctx, typeSystem, result, celExpr, elementsTv);
   }
 
@@ -368,6 +414,7 @@ final class CelZ3StructTranslator {
         .orElse(defaultValue);
   }
 
+  // TODO: proto2 fields with a custom default read as their type's zero value.
   private Expr<?> getDefaultValueForType(CelType type) {
     if (type instanceof NullableType) {
       return typeSystem.mkNull();
@@ -375,7 +422,8 @@ final class CelZ3StructTranslator {
     if (type instanceof OptionalType) {
       return typeSystem.mkOptionalNone();
     }
-    if (type.equals(SimpleType.INT)) {
+    // Enums too.
+    if (type.kind() == CelKind.INT) {
       return typeSystem.mkInt(0);
     }
     if (type.equals(SimpleType.BOOL)) {
@@ -498,6 +546,8 @@ final class CelZ3StructTranslator {
 
     Expr<?> presenceResult;
     Expr<?> valueResult;
+    BoolExpr unmodeledMessage = ctx.mkFalse();
+    BoolExpr presenceError = ctx.mkFalse();
 
     if (operandType instanceof MapType) {
       FieldAccess mapAcc = getMapAccess(operand, field, ctx.mkTrue());
@@ -522,20 +572,60 @@ final class CelZ3StructTranslator {
               .addCase(isMap, mapAcc.presence)
               .build(ctx.mkFalse());
 
-      // TODO: Unsound: an unset field reads as an unknown, which can make a
-      // satisfiable
-      // expression look unsatisfiable. Its default depends on the message's runtime type.
-      Expr<?> msgRead = ctx.mkITE(msgAcc.presence, msgAcc.value, typeSystem.mkUnknown());
+      // A field reads as its value if set, else its default, in the message's runtime type, and is
+      // an error if that type doesn't declare it. Well-known types are never messages.
+      Expr<?> typeName = typeSystem.getMsgTypeName(typeSystem.getMessageRef(operand));
+      CelZ3Exprs.SwitchBuilder msgRead = CelZ3Exprs.SwitchBuilder.newBuilder(ctx);
+      List<BoolExpr> isModeledType = new ArrayList<>();
+      List<BoolExpr> isUndeclared = new ArrayList<>();
+      for (CelType type : typeProvider.types()) {
+        if (!(type instanceof StructType) || CelTypes.isWellKnownType(type.name())) {
+          continue;
+        }
+        BoolExpr isType = ctx.mkEq(typeName, ctx.mkString(type.name()));
+        isModeledType.add(isType);
+        Optional<StructType.Field> declared = ((StructType) type).findField(field);
+        if (!declared.isPresent()) {
+          isUndeclared.add(isType);
+          msgRead.addCase(isType, typeSystem.mkError());
+          continue;
+        }
+        if (select.testOnly()) {
+          continue;
+        }
+        CelType fieldType = declared.get().type();
+        context.addConstraint(
+            ctx.mkImplies(
+                ctx.mkAnd(isMessage, isType, msgAcc.presence),
+                typeConstraintGenerator.createTypeConstraintForType(msgAcc.value, fieldType)));
+        msgRead.addCase(
+            isType, ctx.mkITE(msgAcc.presence, msgAcc.value, getDefaultValueForType(fieldType)));
+      }
+      // Messages of other types aren't modeled.
+      unmodeledMessage =
+          context.recordApproximation(
+              "messages of types the type provider doesn't declare",
+              ctx.mkAnd(isMessage, ctx.mkNot(CelZ3Exprs.mkOrFlattened(ctx, isModeledType))));
       Expr<?> mapRead = ctx.mkITE(mapAcc.presence, mapAcc.value, typeSystem.mkError());
+      // Testing an undeclared field, or a field of something other than a map or message, errors.
+      presenceError =
+          ctx.mkOr(
+              ctx.mkAnd(isMessage, CelZ3Exprs.mkOrFlattened(ctx, isUndeclared)),
+              ctx.mkNot(ctx.mkOr(isMap, isMessage)));
 
       valueResult =
           CelZ3Exprs.SwitchBuilder.newBuilder(ctx)
-              .addCase(isMessage, msgRead)
+              .addCase(
+                  isMessage,
+                  msgRead.build(ctx.mkITE(msgAcc.presence, msgAcc.value, typeSystem.mkUnknown())))
               .addCase(isMap, mapRead)
               .build(typeSystem.mkError());
     }
 
-    Expr<?> fieldAccess = select.testOnly() ? typeSystem.wrapBool(presenceResult) : valueResult;
+    Expr<?> fieldAccess =
+        select.testOnly()
+            ? typeSystem.withRuntimeError(typeSystem.wrapBool(presenceResult), presenceError)
+            : valueResult;
 
     context.addConstraint(typeConstraintGenerator.createTypeConstraint(fieldAccess, exprId, ast));
 
@@ -545,7 +635,8 @@ final class CelZ3StructTranslator {
     // Map presence is only linked to the keys up to the unroll limit.
     return operandType.kind() == CelKind.STRUCT
         ? result
-        : result.withApproximation(context.isTruncatedMap(operand));
+        : result.withApproximation(
+            CelZ3Exprs.mkOrFlattened(ctx, context.isTruncatedMap(operand), unmodeledMessage));
   }
 
   private static CelType extractAstTypeOrDefault(CelAbstractSyntaxTree ast, long id) {

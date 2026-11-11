@@ -169,6 +169,8 @@ public final class CelVerifierZ3ImplTest {
     DYNAMIC_MAP_COMPREHENSION_EXISTS("string_int_map.exists(k, k == 'test')", "string_int_map = "),
     NULL_SATISFIABLE("unknown_var == null", "unknown_var = null"),
     DYNAMIC_VAR_NUMERIC_EQUALITY("dyn_var == 1 && dyn_var == 1.0", "dyn_var = 1"),
+    DYNAMIC_VAR_UNSET_MESSAGE_FIELD(
+        "dyn_var == TestAllTypes{} && dyn_var.single_string == ''", "dyn_var = "),
     ANY_NUMERIC_EQUALITY(
         "test_all_types.single_any == 1 && 1.0 == test_all_types.single_any", "test_all_types = "),
     DYNAMIC_VAR_NOT_IN_LIST(
@@ -547,6 +549,13 @@ public final class CelVerifierZ3ImplTest {
 
   private enum ApproximationSourceTestCase {
     PARTIALLY_MODELED_FUNCTION("int(string_var) == 5", "calls to `int`"),
+    EMPTY_LIST_DYN_FIELD(
+        "has(TestAllTypes{list_value: []}.list_value)",
+        "whether empty `list(dyn)` and `map(string, dyn)` fields are set"),
+    // An absent optional entry's value is never read.
+    ABSENT_OPTIONAL_LIST_DYN_FIELD(
+        "TestAllTypes{?list_value: optional.none()} == TestAllTypes{} && int(string_var) == 5",
+        "calls to `int`"),
     // `type` is exact; only its argument is approximate.
     APPROXIMATE_ARGUMENT("type(int(string_var)) == int", "calls to `int`"),
     APPROXIMATE_ARGUMENT_OF_UNCONDITIONAL_SOURCE(
@@ -664,6 +673,8 @@ public final class CelVerifierZ3ImplTest {
   }
 
   private enum IsSatisfiableInconclusiveTestCase {
+    // Well-known types are never messages, and other message types may have the field.
+    DYN_MESSAGE_FIELD_OF_UNKNOWN_TYPE("type(dyn_var) != map && dyn_var.type_url == ''"),
     MASKED_BY_BMC("int_list == [1, 2, 3, 4, 5, 6] ? int_list.exists(x, x == 42) : false"),
     MASKED_BY_BMC_ALL("int_list == [1, 2, 3, 4, 5, 6] ? int_list.all(x, x > 0) : false"),
     MASKED_BY_BMC_FILTER(
@@ -781,6 +792,9 @@ public final class CelVerifierZ3ImplTest {
   }
 
   private enum IsUnsatisfiableTestCase {
+    DYN_MESSAGE_PRESENT_UNDECLARED_FIELD("dyn(test_all_types).unknown_field == 42"),
+    REPEATED_FIELD_FROM_NON_LIST(
+        "dyn_var == 42 && TestAllTypes{repeated_int64: dyn_var} == TestAllTypes{}"),
     UNSATISFIABLE("x > 5 && x < 3"),
     DYN_RANGE_COMPREHENSION_MASKED_BY_FALSE("dyn_var.exists(e, e == 1) && false"),
     CONTRADICTORY_TYPES_FOR_DYNAMIC_VARIABLE("unknown_var + 1 == 2 && unknown_var[0] == 1"),
@@ -1083,6 +1097,29 @@ public final class CelVerifierZ3ImplTest {
     DIVIDE_TRUNCATED("-5 / 3 == -1"),
     MODULO_TRUNCATED("-5 % 3 == -2"),
     EXPLICIT_DEFAULT_READ("TestAllTypes{single_int32: 0}.single_int32 == 0"),
+    // Repeated and map fields are unset exactly when empty.
+    STRUCT_REPEATED_EQ_UNSET_IFF_EMPTY(
+        "(TestAllTypes{repeated_int64: int_list} == TestAllTypes{}) == (int_list == [])"),
+    STRUCT_MAP_EQ_UNSET_IFF_EMPTY(
+        "(TestAllTypes{map_string_int64: string_int_map} == TestAllTypes{})"
+            + " == (size(string_int_map) == 0)"),
+    STRUCT_EMPTY_REPEATED_NOT_PRESENT("!has(TestAllTypes{repeated_int64: []}.repeated_int64)"),
+    // The last entry for a field wins.
+    STRUCT_REPEATED_FIELD_ENTRY_RESET_TO_EMPTY(
+        "TestAllTypes{repeated_int64: [1], repeated_int64: []} == TestAllTypes{}"),
+    STRUCT_REPEATED_FIELD_ENTRY_RESET_TO_DEFAULT(
+        "TestAllTypes{single_int64: 1, single_int64: 0} == TestAllTypes{}"),
+    // Unset fields read through dyn are their default in the message's runtime type.
+    DYN_MESSAGE_EMPTY_REPEATED_FIELD("dyn(TestAllTypes{repeated_int64: []}).repeated_int64 == []"),
+    DYN_MESSAGE_DEFAULT_SCALAR_FIELD("dyn(TestAllTypes{single_int64: 0}).single_int64 == 0"),
+    DYN_MESSAGE_UNSET_NESTED_FIELD("dyn(TestAllTypes.NestedMessage{}).bb == 0"),
+    DYN_MESSAGE_UNSET_ENUM_FIELD("dyn(TestAllTypes{}).standalone_enum == 0"),
+    DYN_MESSAGE_SET_FIELD_TYPE("type(dyn(test_all_types).single_string) == string"),
+    STRUCT_DEFAULT_ENUM_EQ_UNSET("TestAllTypes{standalone_enum: 0} == TestAllTypes{}"),
+    // Whether an empty list(dyn) field is set is the same in every literal.
+    STRUCT_EMPTY_LIST_DYN_FIELD_PRESENCE_CONSISTENT(
+        "has(TestAllTypes{list_value: []}.list_value)"
+            + " == has(TestAllTypes{list_value: []}.list_value)"),
     STRUCT_EMPTY_MESSAGE_FIELD_INEQUALITY(
         "TestAllTypes{standalone_message: TestAllTypes.NestedMessage{}} != TestAllTypes{}"),
     IEEE_754_NAN_NEQ_ITSELF("(0.0 / 0.0) != (0.0 / 0.0)"),
@@ -1682,6 +1719,13 @@ public final class CelVerifierZ3ImplTest {
   }
 
   private enum UnconditionalErrorTestCase {
+    HAS_UNDECLARED_FIELD_OF_DYN_MESSAGE(
+        "has(dyn(TestAllTypes.NestedMessage{}).single_int64)"
+            + " || !has(dyn(TestAllTypes.NestedMessage{}).single_int64)"),
+    HAS_FIELD_OF_DYN_SCALAR("has(dyn(42).f) || !has(dyn(42).f)"),
+    DYN_MESSAGE_UNDECLARED_FIELD(
+        "dyn(TestAllTypes.NestedMessage{}).single_int64 == 0"
+            + " || dyn(TestAllTypes.NestedMessage{}).single_int64 != 0"),
     MAP_MISSING_KEY("{'a': 1}['b'] == 0 || !({'a': 1}['b'] == 0)"),
     COLLECTION_ERROR("{'a': 1 / 0} == {'a': 1 / 0}"),
     LIST_ERROR("[1 / 0] == [1 / 0]"),
@@ -1810,6 +1854,10 @@ public final class CelVerifierZ3ImplTest {
   }
 
   private enum IsAlwaysTrueViolationTestCase {
+    // The exact error wins over whether the empty list(dyn) field is set.
+    STRUCT_EMPTY_LIST_DYN_FIELD_WITH_ERROR(
+        "TestAllTypes{repeated_value: [], single_int64: 1 / 0} == TestAllTypes{}",
+        "Condition is not always true\\."),
     NOT_ALWAYS_TRUE(
         "x > 5", "Condition is not always true\\.", "Counterexample input:", "x = -?\\d+"),
     UNINTERPRETED_CONVERSION_CAN_ERROR_INT(
@@ -2198,6 +2246,11 @@ public final class CelVerifierZ3ImplTest {
     // The approximate operand may really be false, which absorbs the error.
     LOGICAL_AND_APPROXIMATE_OPERAND_WITH_ERROR(
         "size(int_list) < 6 || !(dyn(int_list)[5] == 'x' && 1 / 0 == 1)"),
+    // An empty list(dyn) or map(string, dyn) field is set if it's a ListValue or Struct, and unset
+    // if it's repeated or a map.
+    EMPTY_REPEATED_VALUE_FIELD("TestAllTypes{repeated_value: []} != TestAllTypes{}"),
+    EMPTY_MAP_VALUE_FIELD("TestAllTypes{map_string_value: {}} != TestAllTypes{}"),
+    EMPTY_LIST_VALUE_FIELD("!has(TestAllTypes{list_value: []}.list_value)"),
     ;
 
     private final String expr;
@@ -2461,8 +2514,9 @@ public final class CelVerifierZ3ImplTest {
             + " [nested_list[1]] : true",
         "true"),
     NESTED_DYNAMIC_MAP_LOOKUP_EXTENSIONALITY(
-        "has(dyn_map.a) && has(dyn_map.a.b) && has(dyn_map.c) && has(dyn_map.c.d) && dyn_map.a.b =="
-            + " dyn_map.c.d ? [dyn_map.a.b] == [dyn_map.c.d] : true",
+        "has(dyn_map.a) && type(dyn_map.a) == map && has(dyn_map.a.b) && has(dyn_map.c)"
+            + " && type(dyn_map.c) == map && has(dyn_map.c.d) && dyn_map.a.b == dyn_map.c.d"
+            + " ? [dyn_map.a.b] == [dyn_map.c.d] : true",
         "true"),
     MULTIPLY("x * y", "y * x"),
     DIVIDE("x / y == 5", "5 == x / y"),
