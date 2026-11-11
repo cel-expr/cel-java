@@ -169,6 +169,10 @@ public final class CelVerifierZ3ImplTest {
     DYNAMIC_MAP_COMPREHENSION_EXISTS("string_int_map.exists(k, k == 'test')", "string_int_map = "),
     NULL_SATISFIABLE("unknown_var == null", "unknown_var = null"),
     DYNAMIC_VAR_NUMERIC_EQUALITY("dyn_var == 1 && dyn_var == 1.0", "dyn_var = 1"),
+    // Map equality compares values numerically, so an int value equals 1u.
+    MAP_LITERAL_LEFT_EQ_TYPED_MAP_ACROSS_NUMERIC_VALUES(
+        "{'a': 1u} == string_dyn_map && type(string_dyn_map['a']) == int",
+        "string_dyn_map = \\{\"a\": 1\\}"),
     DYNAMIC_VAR_UNSET_MESSAGE_FIELD(
         "dyn_var == TestAllTypes{} && dyn_var.single_string == ''", "dyn_var = "),
     ANY_NUMERIC_EQUALITY(
@@ -802,6 +806,8 @@ public final class CelVerifierZ3ImplTest {
     TYPE_CONVERSION_UNSATISFIABLE_DOUBLE_TO_STRING("type(string(1.5)) == int"),
     TYPE_CONVERSION_UNSATISFIABLE_INT_TO_DOUBLE_NAN("double(x) != double(x)"),
     EMPTY_MAP_SIZE_NOT_ZERO("size({}) != 0"),
+    // An int key never finds a double key of a host map.
+    INT_KEY_NOT_FOUND_BUT_LITERAL_FOUND("x == 1 && !(x in dyn_var) && 1 in dyn_var"),
     TIMESTAMP_INEQUALITY_CONTRADICTION(
         "timestamp('2023-01-01T00:00:00Z') != timestamp('2023-01-01T00:00:00Z')"),
     TYPE_TIMESTAMP_NOT_INT("type(timestamp('1970-01-01T00:00:00Z')) == int"),
@@ -999,7 +1005,8 @@ public final class CelVerifierZ3ImplTest {
     MEMBER_MAP_SIZE("{'a': 1, 'b': 2}.size() == 2"),
     MAP_LOOKUP_EQUALITY("!(x == y) || {x: 1, 'b': 2}[x] == {y: 1, 'b': 2}[y]"),
     MAP_INSERT_SIZE(
-        "dyn_map == {'a': 1, 'b': 2} ? size(dyn_map.transformMap(k, v, v > 1, v * 2)) == 1 : true"),
+        "dyn_map == {'a': 1, 'b': 2} && type(dyn_map['b']) == int ?"
+            + " size(dyn_map.transformMap(k, v, v > 1, v * 2)) == 1 : true"),
     UNSET_MAP_FIELD_SIZE("TestAllTypes{}.map_int64_int64.size() == 0"),
     STRING_CONTAINS_SELF("role.contains(role)"),
     STRING_STARTS_WITH_SELF("role.startsWith(role)"),
@@ -1116,6 +1123,28 @@ public final class CelVerifierZ3ImplTest {
     DYN_MESSAGE_UNSET_ENUM_FIELD("dyn(TestAllTypes{}).standalone_enum == 0"),
     DYN_MESSAGE_SET_FIELD_TYPE("type(dyn(test_all_types).single_string) == string"),
     STRUCT_DEFAULT_ENUM_EQ_UNSET("TestAllTypes{standalone_enum: 0} == TestAllTypes{}"),
+    // Map keys and values compare by CEL equality: numerically across int, uint and double.
+    MAP_LITERAL_EQ_ACROSS_NUMERIC_KEYS("dyn({1: 'a'}) == {1u: 'a'}"),
+    MAP_LITERAL_EQ_ACROSS_NUMERIC_VALUES("dyn({'a': 1}) == {'a': 1.0}"),
+    MAP_LITERAL_NAN_VALUE_NEQ("{'a': 0.0 / 0.0} != {'a': 0.0 / 0.0}"),
+    MAP_LITERAL_EQ_ACROSS_NUMERIC_LIST_VALUES("dyn({'a': [1]}) == {'a': [1.0]}"),
+    MAP_LITERAL_EQ_ACROSS_NUMERIC_MAP_VALUES("dyn({'a': {1: 'x'}}) == {'a': {1u: 'x'}}"),
+    MAP_LITERAL_LEFT_EQ_ACROSS_NUMERIC_KEYS("{1u: 'a'} == dyn({1: 'a'})"),
+    MAP_LITERAL_WITH_ABSENT_OPTIONAL_ENTRY_EQ("{?'b': optional.none(), 'a': 1} == dyn({'a': 1.0})"),
+    MAP_LITERAL_WITH_VARIABLE_KEY_EQ("x == 1 ? {x: 1} == dyn({1u: 1.0}) : true"),
+    MAP_LITERAL_SIZE_NEQ("dyn({1: 'a'}) != {1u: 'a', 2: 'b'}"),
+    MAP_VARIABLE_EQ_LITERAL_ACROSS_NUMERIC_VALUES(
+        "string_int_map == {'a': 1} ? dyn(string_int_map) == {'a': 1.0} : true"),
+    IN_MAP_NUMERIC_KEYS("dyn(1.0) in {1: 'a'} && dyn(1u) in {1: 'a'} && !(dyn(1.5) in {1: 'a'})"),
+    IN_TYPED_MAP_NUMERIC_KEYS("!(dyn(1.0) in string_int_map) && !(dyn(1u) in string_int_map)"),
+    MAP_LITERAL_SINGLE_VARIABLE_KEY_LIST_VALUE("x == 1 ? {x: [1]} == dyn({1: [1.0]}) : true"),
+    MAP_LITERALS_PREFER_LIST_LITERAL_VALUES(
+        "int_list == [1] ? {'a': dyn(int_list)} == {'a': [1.0]} : true"),
+    MAP_EQ_LITERAL_ABSENT_KEY("dyn_var == {'a': 1} ? !('b' in dyn_var) : true"),
+    MAP_EQ_LITERAL_VALID_VALUE("x == -1 && dyn_var == {'a': x} ? dyn_var == {'a': -1} : true"),
+    TYPED_MAP_EQ_LITERAL(
+        "'a' in string_int_map && size(string_int_map) == 1 && string_int_map['a'] == 1 ?"
+            + " string_int_map == {'a': 1} : true"),
     // Whether an empty list(dyn) field is set is the same in every literal.
     STRUCT_EMPTY_LIST_DYN_FIELD_PRESENCE_CONSISTENT(
         "has(TestAllTypes{list_value: []}.list_value)"
@@ -1220,6 +1249,7 @@ public final class CelVerifierZ3ImplTest {
     HETEROGENEOUS_INT_UINT_GE("2 >= 1u"),
     HETEROGENEOUS_UINT_INT_GE("2u >= 1"),
     HETEROGENEOUS_INT_DOUBLE_PRECISION("9007199254740993 > 9007199254740992.0"),
+    HETEROGENEOUS_NEGATIVE_INT_DOUBLE_PRECISION("-9007199254740993 < -9007199254740992.0"),
     HETEROGENEOUS_INT_EQ_DOUBLE(
         "type(dyn_var) == int && type(dyn_var2) == double && dyn_var == 1 && dyn_var2 == 1.0 ?"
             + " dyn_var == dyn_var2 : true"),
@@ -1275,12 +1305,9 @@ public final class CelVerifierZ3ImplTest {
             + " dyn_var == dyn_var2 : true"),
     HETEROGENEOUS_DYNAMIC_ZERO("type(dyn_var) == double && dyn_var == -0.0 ? dyn_var == 0 : true"),
     HETEROGENEOUS_MAP_INT_KEY_DOUBLE_LOOKUP("{1: 'a'}[dyn(1.0)] == 'a'"),
-    HETEROGENEOUS_MAP_DOUBLE_KEY_INT_LOOKUP("{1.0: 'a'}[dyn(1)] == 'a'"),
-    HETEROGENEOUS_MAP_DOUBLE_KEY_UINT_LOOKUP("{1.0: 'a'}[dyn(1u)] == 'a'"),
     HETEROGENEOUS_MAP_UINT_KEY_DOUBLE_LOOKUP("{1u: 'a'}[dyn(1.0)] == 'a'"),
     HETEROGENEOUS_MAP_UINT_KEY_INT_LOOKUP_ZERO("{0u: 'a'}[dyn(0)] == 'a'"),
     HETEROGENEOUS_MAP_UINT_KEY_DOUBLE_LOOKUP_ZERO("{0u: 'a'}[dyn(0.0)] == 'a'"),
-    HETEROGENEOUS_MAP_DOUBLE_KEY_UINT_LOOKUP_ZERO("{0.0: 'a'}[dyn(0u)] == 'a'"),
     HETEROGENEOUS_MAP_INT_KEY_UINT_LOOKUP_ZERO("{0: 'a'}[dyn(0u)] == 'a'"),
     HETEROGENEOUS_MAP_PRECISION_MISS(
         "{9007199254740993: 'exact', 9007199254740992: 'rounded'}[dyn(9007199254740992.0)] =="
@@ -1324,8 +1351,8 @@ public final class CelVerifierZ3ImplTest {
     LITERAL_MAP_TRANSFORM_MAP_V2_FILTER(
         "{'a': 1, 'b': 2}.transformMap(k, v, v > 1, v * 2) == {'b': 4}"),
     TWO_VAR_HETEROGENEOUS_MAP(
-        "dyn_map == {'a': 1, 1: 'b'} ? dyn_map.exists(k, v, type(k) == string && type(v) == int &&"
-            + " k == 'a' && v == 1) : true"),
+        "dyn_map == {'a': 1, 1: 'b'} && type(dyn_map['a']) == int ? dyn_map.exists(k, v, type(k)"
+            + " == string && type(v) == int && k == 'a' && v == 1) : true"),
     TYPE_AXIOM_BOOL("type(true) == bool"),
     NULLABLE_INT_IS_NULL_OR_INT("type(nullable_int) == int || type(nullable_int) == null_type"),
     TYPE_AXIOM_INT("type(1) == int"),
@@ -1350,8 +1377,8 @@ public final class CelVerifierZ3ImplTest {
     TYPE_AXIOM_OPTIONAL("type(optional.of(1)) == optional_type"),
     TYPE_AXIOM_STRUCT("type(TestAllTypes{}) == type(TestAllTypes{})"),
     TWO_VAR_TRANSFORM_MAP_DYNAMIC(
-        "dyn_map == {'a': 1, 'b': 2} ? dyn_map.transformMap(k, v, v > 1, v * 2) == {'b': 4} :"
-            + " true"),
+        "dyn_map == {'a': 1, 'b': 2} && type(dyn_map['b']) == int ? dyn_map.transformMap(k, v, v >"
+            + " 1, v * 2) == {'b': 4} : true"),
     NULL_EQ_NULL("null == null"),
     NULL_NEQ_DYN("request == 1 ? request != null : true"),
     TYPE_AXIOM_NULL("type(null) == null_type"),
@@ -1532,9 +1559,9 @@ public final class CelVerifierZ3ImplTest {
 
     assertThat(result.status()).isEqualTo(VerificationStatus.VIOLATED);
     assertThat(result.message())
-        .isEqualTo(
-            "Condition is not always true. Counterexample input:\n"
-                + "  dyn_list = [{\"not_a_bool\": 123}]");
+        .matches(
+            "Condition is not always true\\. Counterexample input:\n"
+                + "  dyn_list = \\[\\{\"not_a_bool\": 123(u|\\.0)?\\}\\]");
   }
 
   @Test
@@ -2063,12 +2090,6 @@ public final class CelVerifierZ3ImplTest {
         "Condition is not always true\\.",
         "Counterexample input:",
         "dyn_map = \\{.*\\}"),
-    DYNAMIC_MAP_COMPREHENSION_NESTED_EQUALITY_VIOLATION(
-        "cel.bind(r, request, r.l == [[1], [2], [3], [4], [5]] && r.m == {1: [1], 2: [2],"
-            + " 3: [3]} ? r.l.all(x, r.m.exists(k, r.m[k] == x)) : true)",
-        "Condition is not always true\\.",
-        "Counterexample input:",
-        "request = .*"),
     UNINTERPRETED_EQUALITY_VIOLATION(
         "request == request",
         "Condition is not always true\\.",
@@ -2161,7 +2182,7 @@ public final class CelVerifierZ3ImplTest {
         "dyn_int_map != {1: 1} || (false && [dyn_int_map, string_dyn_map].exists(m, dyn(1) in m))",
         "Condition is not always true\\.",
         "Counterexample input:",
-        "dyn_int_map = \\{1: 1\\}"),
+        "dyn_int_map = \\{1u?: 1\\}"),
     CROSS_TYPE_POSITIVE_INT_EQUALS_DOUBLE("!(dyn(x) == d && x > 0)", "x = [1-9]\\d*", "d = [1-9]"),
     CROSS_TYPE_NEGATIVE_DOUBLE_BETWEEN_INTS(
         "!(x < 0 && x < d && d < x + 1)", "d = -\\d+\\.\\d*[1-9]"),
@@ -2190,12 +2211,55 @@ public final class CelVerifierZ3ImplTest {
     }
   }
 
+  @Test
+  public void isAlwaysTrue_dynValuesComparedWithIntConstant_verified(
+      @TestParameter({
+            "dyn_map == {'a': 1, 'b': 2} ? dyn_map.all(k, v, k == 'a' || v > 1) : true",
+            "dyn_map == {'a': 1, 'b': 2} ? dyn_map.all(k, v, k == 'b' || v < 2) : true"
+          })
+          String expression)
+      throws Exception {
+    CelAbstractSyntaxTree ast = CEL.compile(expression).getAst();
+    // A tighter timeout than the default, so that removing the fast path for comparing doubles with
+    // exact integer constants fails as a performance regression (~0.3 s with it, 19-45 s without).
+    CelVerifier verifier = withRuntimeOracle(CEL, b -> b.setTimeout(Duration.ofSeconds(5)));
+
+    CelVerificationResult result = verifier.isAlwaysTrue(ast);
+
+    assertThat(result.status()).isEqualTo(VerificationStatus.VERIFIED);
+  }
+
+  @Test
+  public void isAlwaysTrue_dynamicMapComprehensionNestedEquality_violated() throws Exception {
+    CelAbstractSyntaxTree ast =
+        CEL.compile(
+                "cel.bind(r, request, r.l == [[1], [2], [3], [4], [5]] && r.m == {1: [1], 2: [2],"
+                    + " 3: [3]} ? r.l.all(x, r.m.exists(k, r.m[k] == x)) : true)")
+            .getAst();
+    // A looser timeout than the default: comparing a dyn map with a literal admits every numeric
+    // representation of its keys and values, a state space that takes 5-15 s to explore locally.
+    CelVerifier verifier = withRuntimeOracle(CEL, b -> b.setTimeout(Duration.ofSeconds(20)));
+
+    CelVerificationResult result = verifier.isAlwaysTrue(ast);
+
+    assertThat(result.status()).isEqualTo(VerificationStatus.VIOLATED);
+    assertThat(result.message()).contains("request = ");
+  }
+
   private enum IsInconclusiveTestCase {
     // int('5') == 5 is approximate and may really be true, which absorbs the 1 / 0 error.
     APPROXIMATE_MATCH_BEFORE_ERROR(
         "int_list == [1, 0] ? int_list.exists(x, x == 1 ? int('5') == 5 : 1 / x == 1) : true"),
     // nested_list[5] is past the unroll limit, so it may not be a list.
     APPROXIMATE_DYN_RANGE("size(nested_list) == 6 ? dyn(nested_list)[5].all(e, e == e) : true"),
+    // A map literal's non-literal list value compares by its term.
+    MAP_LITERAL_VARIABLE_LIST_VALUE(
+        "int_list == [1] && dyn_list == [1.0] && dyn_var == {'a': dyn_list} ?"
+            + " {'a': dyn(int_list)} == dyn_var : true"),
+    // Lists nested in map values past the unroll limit compare approximately.
+    MAP_VALUE_LIST_PAST_UNROLL_LIMIT(
+        "!(size(int_list) == 6 && {'k': [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 1.5]} == {'k': [1.0] +"
+            + " dyn(int_list)})"),
     // TODO: Implement RFC 3339 spec in conversion
     TIMESTAMP_STRING_CONVERSION_VALID(
         "timestamp('2023-01-01T00:00:00Z') == timestamp('2023-01-01T00:00:00Z')"),

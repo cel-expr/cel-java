@@ -14,6 +14,8 @@
 
 package dev.cel.verifier;
 
+import static com.google.common.collect.ImmutableList.toImmutableList;
+
 import com.google.auto.value.AutoValue;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ObjectArrays;
@@ -47,6 +49,7 @@ import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -829,6 +832,70 @@ public final class CelZ3TypeSystem {
     return ctx.mkAnd(ctx.mkNot(isErrorOrUnknown(val)), isValidScalar(val));
   }
 
+  /**
+   * Returns the keys a lookup of {@code key} in a map finds, as {@code RuntimeEquality.findInMap}
+   * does: {@code key} itself, and its numeric counterparts across int and uint.
+   */
+  ImmutableList<EqualKey> equalKeys(Expr<?> key) {
+    ImmutableList.Builder<EqualKey> keys = ImmutableList.builder();
+    keys.add(EqualKey.create(key, ctx.mkTrue()));
+    BoolExpr isInt = isInt(key);
+    addEqualKey(keys, wrapUint(getInt(key)), ctx.mkAnd(isInt, ctx.mkGe(getInt(key), ctx.mkInt(0))));
+    BoolExpr isUint = isUint(key);
+    addEqualKey(
+        keys,
+        wrapInt(getUint(key)),
+        ctx.mkAnd(isUint, ctx.mkLe(getUint(key), ctx.mkInt(CelNumericBounds.MAX_INT64))));
+    // Performance only: a key that can't be a double needs no truncation.
+    BoolExpr isDouble = isDouble(key);
+    if (!isDouble.simplify().isFalse()) {
+      FPExpr d = (FPExpr) ctx.mkITE(isDouble, getDouble(key), mkFpDouble(0.0));
+      IntExpr t = truncateDouble(d);
+      BoolExpr isIntegralDouble = ctx.mkAnd(isDouble, isIntegral(d));
+      // TODO: -2^63 finds an int key here, but the spec doesn't say whether it should.
+      addEqualKey(keys, wrapInt(t), ctx.mkAnd(isIntegralDouble, ctx.mkNot(checkIntOverflow(t))));
+      addEqualKey(keys, wrapUint(t), ctx.mkAnd(isIntegralDouble, ctx.mkGe(t, ctx.mkInt(0))));
+    }
+    return keys.build();
+  }
+
+  // Performance only: skips the keys a constant key can't match, and folds the conditions it
+  // decides.
+  private void addEqualKey(ImmutableList.Builder<EqualKey> keys, Expr<?> key, BoolExpr condition) {
+    BoolExpr simplified = (BoolExpr) condition.simplify();
+    if (!simplified.isFalse()) {
+      keys.add(EqualKey.create(key, simplified.isTrue() ? simplified : condition));
+    }
+  }
+
+  /** Returns whether {@code map} has a key equal to {@code key}. */
+  public BoolExpr hasEqualKey(Expr<?> map, Expr<?> key) {
+    return hasEqualKey(map, equalKeys(key));
+  }
+
+  BoolExpr hasEqualKey(Expr<?> map, ImmutableList<EqualKey> equalKeys) {
+    ArrayExpr presence = (ArrayExpr) getMapPresence(getMapRef(map));
+    return CelZ3Exprs.mkOrFlattened(
+        ctx, equalKeys.stream().map(k -> isPresent(presence, k)).collect(toImmutableList()));
+  }
+
+  /** Returns the value of {@code map} at a key equal to one of {@code equalKeys}, if any. */
+  Expr<?> valueAtEqualKey(Expr<?> map, ImmutableList<EqualKey> equalKeys) {
+    Expr<?> mapRef = getMapRef(map);
+    ArrayExpr presence = (ArrayExpr) getMapPresence(mapRef);
+    ArrayExpr values = (ArrayExpr) getMapValues(mapRef);
+    CelZ3Exprs.SwitchBuilder value = CelZ3Exprs.SwitchBuilder.newBuilder(ctx);
+    for (EqualKey k : equalKeys) {
+      value.addCase(isPresent(presence, k), ctx.mkSelect(values, k.key()));
+    }
+    return value.build(mkUnknown());
+  }
+
+  private BoolExpr isPresent(ArrayExpr presence, EqualKey k) {
+    return CelZ3Exprs.mkAndFlattened(
+        ctx, k.condition(), (BoolExpr) ctx.mkSelect(presence, k.key()));
+  }
+
   /** Checks if the given arithmetic expression overflows a 64-bit unsigned integer. */
   public BoolExpr checkUintOverflow(ArithExpr result) {
     return ctx.mkOr(
@@ -845,6 +912,10 @@ public final class CelZ3TypeSystem {
 
   /** Returns whether the integer {@code n} is less than the double {@code d}. */
   public BoolExpr intLtDouble(IntExpr n, FPExpr d) {
+    Optional<FPExpr> exact = asExactDouble(n);
+    if (exact.isPresent()) {
+      return ctx.mkFPLt(exact.get(), d);
+    }
     IntExpr t = truncateDouble(d);
     return ctx.mkOr(
         ctx.mkFPGEq(d, mkFpDouble(CelNumericBounds.TWO_TO_64)),
@@ -857,6 +928,10 @@ public final class CelZ3TypeSystem {
 
   /** Returns whether the double {@code d} is less than the integer {@code n}. */
   public BoolExpr doubleLtInt(FPExpr d, IntExpr n) {
+    Optional<FPExpr> exact = asExactDouble(n);
+    if (exact.isPresent()) {
+      return ctx.mkFPLt(d, exact.get());
+    }
     IntExpr t = truncateDouble(d);
     return ctx.mkOr(
         ctx.mkFPLEq(d, ctx.mkFPNeg(mkFpDouble(CelNumericBounds.TWO_TO_64))),
@@ -874,6 +949,21 @@ public final class CelZ3TypeSystem {
   /** Returns whether the double {@code d} is at most the integer {@code n}. */
   public BoolExpr doubleLeInt(FPExpr d, IntExpr n) {
     return ctx.mkAnd(ctx.mkNot(ctx.mkFPIsNaN(d)), ctx.mkNot(intLtDouble(n, d)));
+  }
+
+  // Returns the double that holds the constant n exactly, if any. Comparing with it needs no
+  // truncation (performance only), and it's the double key equal to n.
+  private Optional<FPExpr> asExactDouble(IntExpr n) {
+    Expr<?> simplified = n.simplify();
+    if (!(simplified instanceof IntNum)) {
+      return Optional.empty();
+    }
+    BigInteger value = ((IntNum) simplified).getBigInteger();
+    double d = value.doubleValue();
+    return Double.isFinite(d)
+            && DoubleMath.roundToBigInteger(d, RoundingMode.UNNECESSARY).equals(value)
+        ? Optional.of(mkFpDouble(d))
+        : Optional.empty();
   }
 
   /** Returns whether {@code d} is an integer of magnitude below 2^64. */
@@ -960,6 +1050,18 @@ public final class CelZ3TypeSystem {
         .multiply(BigInteger.valueOf(NANOS_PER_SECOND))
         .add(BigInteger.valueOf(nanos))
         .toString();
+  }
+
+  /** A key a map lookup may find, and when. */
+  @AutoValue
+  abstract static class EqualKey {
+    abstract Expr<?> key();
+
+    abstract BoolExpr condition();
+
+    static EqualKey create(Expr<?> key, BoolExpr condition) {
+      return new AutoValue_CelZ3TypeSystem_EqualKey(key, condition);
+    }
   }
 
   @AutoValue

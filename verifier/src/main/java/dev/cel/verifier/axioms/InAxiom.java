@@ -14,7 +14,6 @@
 
 package dev.cel.verifier.axioms;
 
-import com.microsoft.z3.ArrayExpr;
 import com.microsoft.z3.BoolExpr;
 import com.microsoft.z3.Expr;
 import com.microsoft.z3.FPExpr;
@@ -99,14 +98,8 @@ public final class InAxiom {
               })
           .addBinaryOverloadTranslator(
               StandardFunction.Overload.InternalOperator.IN_MAP.celOverloadDecl(),
-              (ctx, typeSystem, constraintSink, lhsTrans, rhsTrans) -> {
-                Expr<?> mapRef = typeSystem.getMapRef(rhsTrans);
-                ArrayExpr mapPresence = (ArrayExpr) typeSystem.getMapPresence(mapRef);
-
-                BoolExpr inMap = (BoolExpr) ctx.mkSelect(mapPresence, lhsTrans);
-
-                return Optional.of(typeSystem.wrapBool(inMap));
-              })
+              (ctx, typeSystem, constraintSink, lhsTrans, rhsTrans) ->
+                  Optional.of(typeSystem.wrapBool(typeSystem.hasEqualKey(rhsTrans, lhsTrans))))
           .build();
 
   private InAxiom() {}
