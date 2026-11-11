@@ -27,6 +27,7 @@ import dev.cel.expr.Type;
 import dev.cel.expr.Value;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.protobuf.Descriptors.FileDescriptor;
 import com.google.protobuf.ExtensionRegistry;
 import com.google.protobuf.TypeRegistry;
@@ -132,11 +133,13 @@ public final class ConformanceTest extends Statement {
 
   private static final CelValueProvider LITE_VALUE_PROVIDER =
       ProtoMessageLiteValueProvider.newInstance(
-          dev.cel.expr.conformance.proto2.TestAllTypesCelDescriptor.getDescriptor(),
-          dev.cel.expr.conformance.proto2.NestedTestAllTypesCelDescriptor.getDescriptor(),
-          dev.cel.expr.conformance.proto2.TestRequiredCelDescriptor.getDescriptor(),
-          dev.cel.expr.conformance.proto3.TestAllTypesCelDescriptor.getDescriptor(),
-          dev.cel.expr.conformance.proto3.NestedTestAllTypesCelDescriptor.getDescriptor());
+          OPTIONS,
+          ImmutableSet.of(
+              dev.cel.expr.conformance.proto2.TestAllTypesCelDescriptor.getDescriptor(),
+              dev.cel.expr.conformance.proto2.NestedTestAllTypesCelDescriptor.getDescriptor(),
+              dev.cel.expr.conformance.proto2.TestRequiredCelDescriptor.getDescriptor(),
+              dev.cel.expr.conformance.proto3.TestAllTypesCelDescriptor.getDescriptor(),
+              dev.cel.expr.conformance.proto3.NestedTestAllTypesCelDescriptor.getDescriptor()));
 
   private static final ImmutableList<FileDescriptor> CONFORMANCE_FILE_DESCRIPTORS =
       ImmutableList.of(

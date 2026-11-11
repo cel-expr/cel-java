@@ -439,6 +439,22 @@ java_library(
     ],
 )
 
+cel_android_library(
+    name = "proto_json_adapter_android",
+    srcs = ["CelProtoJsonAdapter.java"],
+    tags = [
+    ],
+    deps = [
+        "//common/internal:date_time_helpers_android",
+        "//common/internal:proto_time_utils_android",
+        "//common/values:cel_byte_string",
+        "//common/values:values_android",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven_android//:com_google_guava_guava",
+        "@maven_android//:com_google_protobuf_protobuf_javalite",
+    ],
+)
+
 java_library(
     name = "source_location",
     srcs = ["CelSourceLocation.java"],

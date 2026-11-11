@@ -42,6 +42,11 @@ java_library(
     exports = ["//common/src/main/java/dev/cel/common/internal:proto_lite_adapter"],
 )
 
+cel_android_library(
+    name = "proto_lite_adapter_android",
+    exports = ["//common/src/main/java/dev/cel/common/internal:proto_lite_adapter_android"],
+)
+
 java_library(
     name = "proto_equality",
     exports = ["//common/src/main/java/dev/cel/common/internal:proto_equality"],
