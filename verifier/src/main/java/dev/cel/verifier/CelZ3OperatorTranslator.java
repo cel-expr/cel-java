@@ -659,10 +659,16 @@ final class CelZ3OperatorTranslator {
       IntExpr idx = ctx.mkInt(i);
       Expr<?> elem0 = ctx.mkNth(seq0, idx);
       Expr<?> elem1 = ctx.mkNth(seq1, idx);
-      context.constrainValidValue(
-          ctx.mkAnd(typeSystem.isList(listA.z3Expr()), ctx.mkLt(idx, ctx.mkLength(seq0))), elem0);
-      context.constrainValidValue(
-          ctx.mkAnd(typeSystem.isList(listB.z3Expr()), ctx.mkLt(idx, ctx.mkLength(seq1))), elem1);
+      // A literal's elements, and a concrete declared type's, are already CEL values (performance
+      // only).
+      if (!listA.isLiteral(ExprKind.Kind.LIST) && !hasConcreteElements(type0)) {
+        context.constrainValidValue(
+            ctx.mkAnd(typeSystem.isList(listA.z3Expr()), ctx.mkLt(idx, ctx.mkLength(seq0))), elem0);
+      }
+      if (!listB.isLiteral(ExprKind.Kind.LIST) && !hasConcreteElements(type1)) {
+        context.constrainValidValue(
+            ctx.mkAnd(typeSystem.isList(listB.z3Expr()), ctx.mkLt(idx, ctx.mkLength(seq1))), elem1);
+      }
 
       if (i >= comprehensionUnrollLimit) {
         constrainListElement(seq0, idx, elem0, type0);
@@ -1136,6 +1142,12 @@ final class CelZ3OperatorTranslator {
   static boolean isStaticallyKnown(CelType type) {
     CelKind kind = type.kind();
     return !kind.isDyn() && !kind.isTypeParam();
+  }
+
+  /** Whether {@code type} is a list or map whose elements (or keys) have a concrete type. */
+  static boolean hasConcreteElements(CelType type) {
+    return (type instanceof ListType || type instanceof MapType)
+        && isConcrete(type.parameters().get(0));
   }
 
   /** Whether {@code type} and, recursively, its type parameters are statically known. */

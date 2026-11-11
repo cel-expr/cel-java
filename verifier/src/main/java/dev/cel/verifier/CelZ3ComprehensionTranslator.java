@@ -396,12 +396,15 @@ final class CelZ3ComprehensionTranslator {
       context.addConstraint(ctx.mkImplies(inBounds, (BoolExpr) selectExpr));
     }
 
-    // Elements of a list, and keys of a map, are CEL values.
-    context.constrainValidValue(
-        ctx.mkAnd(
-            mapPresence == null ? typeSystem.isList(iterRange) : typeSystem.isMap(iterRange),
-            inBounds),
-        xVal);
+    // Elements of a list, and keys of a map, are CEL values. A concrete declared type already
+    // constrains them (performance only).
+    if (!CelZ3OperatorTranslator.hasConcreteElements(context.guaranteedType(iterRange))) {
+      context.constrainValidValue(
+          ctx.mkAnd(
+              mapPresence == null ? typeSystem.isList(iterRange) : typeSystem.isMap(iterRange),
+              inBounds),
+          xVal);
+    }
   }
 
   private TranslatedValue reduceAllOrExists(
