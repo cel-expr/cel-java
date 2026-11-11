@@ -951,8 +951,8 @@ public final class CelZ3TypeSystem {
     return ctx.mkAnd(ctx.mkNot(ctx.mkFPIsNaN(d)), ctx.mkNot(intLtDouble(n, d)));
   }
 
-  // Returns the double that holds the constant n exactly, if any. Comparing with it needs no
-  // truncation (performance only), and it's the double key equal to n.
+  // Performance only: a constant that a double holds exactly compares as that double, without the
+  // uninterpreted truncation.
   private Optional<FPExpr> asExactDouble(IntExpr n) {
     Expr<?> simplified = n.simplify();
     if (!(simplified instanceof IntNum)) {

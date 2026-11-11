@@ -349,7 +349,7 @@ public final class CelVerifierZ3ImplTest {
     LIST_PAST_UNROLL_LIMIT("size(int_list) == 6", "int_list"),
     MAP_PAST_UNROLL_LIMIT("size(string_int_map) == 6", "string_int_map"),
     LIST_WITH_INEXACT_ELEMENT("dyn_list == [b'\\xc3\\xa9']", "dyn_list"),
-    MAP_WITH_INEXACT_KEY("dyn_int_map == {b'\\xc3\\xa9': 1}", "dyn_int_map"),
+    MAP_WITH_INEXACT_KEY("b'\\xc3\\xa9' in dyn_int_map", "dyn_int_map"),
     MAP_WITH_INEXACT_VALUE("string_dyn_map == {'a': b'\\xc3\\xa9'}", "string_dyn_map"),
     OPTIONAL_WITH_INEXACT_VALUE("opt_dyn_var == optional.of(b'\\xc3\\xa9')", "opt_dyn_var");
 
@@ -991,14 +991,12 @@ public final class CelVerifierZ3ImplTest {
     MAP_SIZE("size({'a': 1, 'b': 2}) == 2"),
     EMPTY_LIST_SIZE("size([]) == 0"),
     EMPTY_MAP_SIZE("size({}) == 0"),
-    MAP_LITERAL_DUPLICATE_KEYS("size({'a': 1, 'a': 2}) == 1"),
     LIST_CONCATENATION_SIZE("size(int_list + [1]) == size(int_list) + 1"),
     STRING_CONCATENATION_SIZE("size(role + 'a') == size(role) + 1"),
     BYTES_CONCATENATION_SIZE("size(by + b'a') == size(by) + 1"),
     LIST_SIZE_NON_NEGATIVE("size(int_list) >= 0"),
     STRING_SIZE_NON_NEGATIVE("size(role) >= 0"),
     MAP_SIZE_NON_NEGATIVE("size(string_int_map) >= 0"),
-    DYNAMIC_MAP_DUPLICATE_KEYS("!(x == y) || size({x: 1, y: 2}) == 1"),
     MEMBER_LIST_SIZE("[1, 2].size() == 2"),
     MEMBER_STRING_SIZE("'abc'.size() == 3"),
     MEMBER_BYTES_SIZE("b'abc'.size() == 3"),
@@ -1123,6 +1121,8 @@ public final class CelVerifierZ3ImplTest {
     DYN_MESSAGE_UNSET_ENUM_FIELD("dyn(TestAllTypes{}).standalone_enum == 0"),
     DYN_MESSAGE_SET_FIELD_TYPE("type(dyn(test_all_types).single_string) == string"),
     STRUCT_DEFAULT_ENUM_EQ_UNSET("TestAllTypes{standalone_enum: 0} == TestAllTypes{}"),
+    // An absent optional entry's key may repeat.
+    MAP_LITERAL_ABSENT_OPTIONAL_KEY_REPEATED("{?1: optional.none(), 1: 'b'}[1] == 'b'"),
     // Map keys and values compare by CEL equality: numerically across int, uint and double.
     MAP_LITERAL_EQ_ACROSS_NUMERIC_KEYS("dyn({1: 'a'}) == {1u: 'a'}"),
     MAP_LITERAL_EQ_ACROSS_NUMERIC_VALUES("dyn({'a': 1}) == {'a': 1.0}"),
@@ -1881,6 +1881,16 @@ public final class CelVerifierZ3ImplTest {
   }
 
   private enum IsAlwaysTrueViolationTestCase {
+    // Map literal keys must be strings, ints, uints or bools, and can't repeat.
+    MAP_LITERAL_DOUBLE_KEY("{1.0: 'a'}[dyn(1)] == 'a'", "Condition is not always true\\."),
+    MAP_LITERAL_BYTES_KEY("size({b'a': 1}) == 1", "Condition is not always true\\."),
+    MAP_LITERAL_REPEATED_KEY("size({1: 'a', 1: 'b'}) == 1", "Condition is not always true\\."),
+    MAP_LITERAL_NUMERICALLY_REPEATED_KEY(
+        "size({1: 'a', 1u: 'b'}) == 2", "Condition is not always true\\."),
+    MAP_LITERAL_PRESENT_OPTIONAL_KEY_REPEATED(
+        "size({?1: optional.of('a'), 1: 'b'}) == 1", "Condition is not always true\\."),
+    MAP_LITERAL_VARIABLE_KEY_REPEATED(
+        "x == 1 ? size({x: 'a', 1u: 'b'}) == 2 : true", "Condition is not always true\\."),
     // The exact error wins over whether the empty list(dyn) field is set.
     STRUCT_EMPTY_LIST_DYN_FIELD_WITH_ERROR(
         "TestAllTypes{repeated_value: [], single_int64: 1 / 0} == TestAllTypes{}",

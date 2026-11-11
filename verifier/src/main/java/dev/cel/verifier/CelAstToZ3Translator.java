@@ -41,6 +41,7 @@ import dev.cel.common.types.TypeType;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -342,11 +343,33 @@ final class CelAstToZ3Translator {
 
     List<TranslatedValue> elementsTv = new ArrayList<>();
     List<Expr<?>> values = new ArrayList<>();
+    // Keys must be strings, ints, uints or bools, and can't equal an earlier key in the map.
+    List<BoolExpr> invalidKeys = new ArrayList<>();
+    Map<Expr<?>, BoolExpr> keysSoFar = new LinkedHashMap<>();
 
     for (CelExpr.CelMap.Entry entryAst : createMap.entries()) {
       TranslatedValue keyTv = translateExpr(entryAst.key(), ast);
       Expr<?> key = keyTv.z3Expr();
       elementsTv.add(keyTv);
+      invalidKeys.add(
+          ctx.mkNot(
+              ctx.mkOr(
+                  typeSystem.isString(key),
+                  typeSystem.isInt(key),
+                  typeSystem.isUint(key),
+                  typeSystem.isBool(key))));
+      for (CelZ3TypeSystem.EqualKey equalKey : typeSystem.equalKeys(key)) {
+        keysSoFar.forEach(
+            (earlierKey, isPresent) -> {
+              BoolExpr repeats =
+                  ctx.mkAnd(
+                      isPresent, equalKey.condition(), ctx.mkEq(earlierKey, equalKey.key()));
+              // Performance only: skips what distinct constant keys rule out.
+              if (!repeats.simplify().isFalse()) {
+                invalidKeys.add(repeats);
+              }
+            });
+      }
       TranslatedValue valueTv = translateExpr(entryAst.value(), ast);
       Expr<?> value = valueTv.z3Expr();
 
@@ -364,6 +387,7 @@ final class CelAstToZ3Translator {
       }
       elementsTv.add(valueTv);
       values.add(finalValue);
+      keysSoFar.merge(key, finalPresence, ctx::mkOr);
 
       BoolExpr keyAlreadyPresent = (BoolExpr) ctx.mkSelect(mapPresence, key);
       BoolExpr shouldInsertKey = ctx.mkAnd(ctx.mkNot(keyAlreadyPresent), finalPresence);
@@ -381,7 +405,9 @@ final class CelAstToZ3Translator {
     context.addConstraint(ctx.mkEq(typeSystem.getMapPresence(mapRef), mapPresence));
     context.addConstraint(ctx.mkEq(typeSystem.getMapKeys(mapRef), keysSeq));
 
-    Expr<?> result = typeSystem.wrapMap(mapRef);
+    Expr<?> result =
+        typeSystem.withRuntimeError(
+            typeSystem.wrapMap(mapRef), CelZ3Exprs.mkOrFlattened(ctx, invalidKeys));
     propagateTruncatedTypeConstraint(result, values);
     return TranslatedValue.propagateStrict(ctx, typeSystem, result, celExpr, elementsTv);
   }
