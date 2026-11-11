@@ -15,6 +15,7 @@
 package dev.cel.common;
 
 import com.google.auto.value.AutoValue;
+import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import com.google.errorprone.annotations.CheckReturnValue;
 import com.google.errorprone.annotations.Immutable;
 
@@ -80,7 +81,13 @@ public abstract class CelOptions {
 
   public abstract boolean enableTimestampEpoch();
 
-  public abstract boolean enableHeterogeneousNumericComparisons();
+  /**
+   * @deprecated Cross-type numeric comparisons are always enabled.
+   */
+  @Deprecated
+  public boolean enableHeterogeneousNumericComparisons() {
+    return true;
+  }
 
   public abstract boolean enableNamespacedDeclarations();
 
@@ -148,7 +155,6 @@ public abstract class CelOptions {
         .enableCompileTimeOverloadResolution(false)
         .enableHomogeneousLiterals(false)
         .enableTimestampEpoch(false)
-        .enableHeterogeneousNumericComparisons(false)
         .enableNamespacedDeclarations(true)
         .enableJsonFieldNames(false)
         // Evaluation options
@@ -183,7 +189,6 @@ public abstract class CelOptions {
         .enableUnsignedLongs(true)
         .enableRegexPartialMatch(true)
         .enableTimestampEpoch(true)
-        .enableHeterogeneousNumericComparisons(true)
         .errorOnDuplicateMapKeys(true)
         .evaluateCanonicalTypesToNativeValues(true)
         .errorOnIntWrap(true)
@@ -320,20 +325,22 @@ public abstract class CelOptions {
     public abstract Builder enableTimestampEpoch(boolean value);
 
     /**
-     * Enable the {@code less_equals_double_int64} and other cross-type numeric comparisons for
-     * {@code double}, {@code int64}, and {@code uint64} values.
-     *
-     * <p>This option is enabled by default in {@link CelOptions#current}.
-     *
-     * <p>TODO: Remove this feature once it has been auto-enabled.
-     *
-     * @deprecated This option is now enabled by default. If you are passing {@code true}, simply
-     *     remove this method call. If you are passing {@code false} to disable this feature, subset
-     *     the environment instead using {@code dev.cel.checker.CelStandardDeclarations} and {@code
+     * @deprecated Cross-type numeric comparisons are always enabled ({@code false} throws {@link
+     *     IllegalArgumentException}). Remove calls passing {@code true}, or subset using {@code
+     *     dev.cel.checker.CelStandardDeclarations} and {@code
      *     dev.cel.runtime.CelStandardFunctions}.
      */
     @Deprecated
-    public abstract Builder enableHeterogeneousNumericComparisons(boolean value);
+    @CanIgnoreReturnValue
+    public Builder enableHeterogeneousNumericComparisons(boolean value) {
+      if (!value) {
+        throw new IllegalArgumentException(
+            "Misconfigured CelOptions: enableHeterogeneousNumericComparisons cannot be disabled."
+                + " Subset the environment instead using CelStandardDeclarations and"
+                + " CelStandardFunctions.");
+      }
+      return this;
+    }
 
     /**
      * Enables the usage of namespaced functions and identifiers. This causes the type-checker to

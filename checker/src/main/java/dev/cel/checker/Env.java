@@ -242,12 +242,12 @@ public class Env {
                   }
                   break;
                 default:
-                  if (!celOptions.enableHeterogeneousNumericComparisons()
-                      && overload instanceof Comparison) {
-                    Comparison comparison = (Comparison) overload;
-                    if (comparison.isHeterogeneousComparison()) {
-                      return false;
-                    }
+                  // Heterogeneous numeric comparisons require UnsignedLong at runtime so uint
+                  // values do not share Long with int and dispatch to signed int64 overloads.
+                  if (!celOptions.enableUnsignedLongs()
+                      && overload instanceof Comparison
+                      && ((Comparison) overload).isHeterogeneousComparison()) {
+                    return false;
                   }
                   break;
               }

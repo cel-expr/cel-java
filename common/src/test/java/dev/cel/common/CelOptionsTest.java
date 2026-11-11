@@ -15,6 +15,7 @@
 package dev.cel.common;
 
 import static com.google.common.truth.Truth.assertThat;
+import static org.junit.Assert.assertThrows;
 
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -36,5 +37,30 @@ public final class CelOptionsTest {
     assertThat(CelOptions.current().build().enableUnknownTracking()).isFalse();
     assertThat(CelOptions.current().build().enablePrattParser()).isFalse();
     assertThat(CelOptions.current().build().enableIeee754ContainerEquality()).isTrue();
+  }
+
+  @Test
+  @SuppressWarnings("deprecation") // Testing deprecated compatibility methods
+  public void enableHeterogeneousNumericComparisons_true_isNoOp() {
+    CelOptions.Builder builder = CelOptions.newBuilder();
+
+    assertThat(builder.enableHeterogeneousNumericComparisons(true)).isSameInstanceAs(builder);
+    assertThat(CelOptions.DEFAULT.enableHeterogeneousNumericComparisons()).isTrue();
+    assertThat(CelOptions.LEGACY.enableHeterogeneousNumericComparisons()).isTrue();
+  }
+
+  @Test
+  @SuppressWarnings("deprecation") // Testing deprecated compatibility methods
+  public void enableHeterogeneousNumericComparisons_false_throws() {
+    CelOptions.Builder builder = CelOptions.DEFAULT.toBuilder();
+
+    IllegalArgumentException e =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> builder.enableHeterogeneousNumericComparisons(false));
+
+    assertThat(e)
+        .hasMessageThat()
+        .contains("enableHeterogeneousNumericComparisons cannot be disabled");
   }
 }

@@ -22,6 +22,7 @@ import com.google.testing.junit.testparameterinjector.TestParameterInjector;
 import com.google.testing.junit.testparameterinjector.TestParameters;
 import dev.cel.checker.CelStandardDeclarations.StandardFunction;
 import dev.cel.checker.CelStandardDeclarations.StandardFunction.Overload.Arithmetic;
+import dev.cel.checker.CelStandardDeclarations.StandardFunction.Overload.Comparison;
 import dev.cel.checker.CelStandardDeclarations.StandardIdentifier;
 import dev.cel.common.CelOptions;
 import dev.cel.common.CelValidationException;
@@ -327,14 +328,36 @@ public class CelStandardDeclarationsTest {
   @TestParameters("{expression: '2u <= 1'}")
   @TestParameters("{expression: '2u <= 1.0'}")
   @TestParameters("{expression: '1.0 <= 2u'}")
-  public void heterogeneousEqualityDisabled_mixedTypeComparisons_throws(String expression) {
+  public void standardEnvironment_excludeHeterogeneousComparisons_throws(String expression) {
     CelCompiler celCompiler =
         CelCompilerFactory.standardCelCompilerBuilder()
-            .setOptions(CelOptions.current().enableHeterogeneousNumericComparisons(false).build())
+            .setStandardDeclarations(
+                CelStandardDeclarations.newBuilder()
+                    .filterFunctions(
+                        (function, overload) ->
+                            !(overload instanceof Comparison
+                                && ((Comparison) overload).isHeterogeneousComparison()))
+                    .build())
+            .build();
+    CelValidationException e =
+        assertThrows(CelValidationException.class, () -> celCompiler.compile(expression).getAst());
+
+    assertThat(e).hasMessageThat().contains("found no matching overload for");
+  }
+
+  @Test
+  @TestParameters("{expression: '1 < 2.0'}")
+  @TestParameters("{expression: '1 < 2u'}")
+  @TestParameters("{expression: '2u < 1.0'}")
+  public void unsignedLongsDisabled_mixedTypeComparisons_throws(String expression) {
+    CelCompiler celCompiler =
+        CelCompilerFactory.standardCelCompilerBuilder()
+            .setOptions(CelOptions.current().enableUnsignedLongs(false).build())
             .build();
 
     CelValidationException e =
         assertThrows(CelValidationException.class, () -> celCompiler.compile(expression).getAst());
+
     assertThat(e).hasMessageThat().contains("found no matching overload for");
   }
 

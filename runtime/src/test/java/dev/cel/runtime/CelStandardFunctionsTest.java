@@ -187,17 +187,17 @@ public class CelStandardFunctionsTest {
   @TestParameters("{expression: '2u <= 1'}")
   @TestParameters("{expression: '2u <= 1.0'}")
   @TestParameters("{expression: '1.0 <= 2u'}")
-  public void heterogeneousEqualityDisabled_mixedTypeComparisons_throws(String expression) {
+  public void unsignedLongsDisabled_mixedTypeComparisons_throws(String expression)
+      throws Exception {
     CelCompiler celCompiler = CelCompilerFactory.standardCelCompilerBuilder().build();
     CelRuntime celRuntime =
         CelRuntimeFactory.legacyCelRuntimeBuilder()
-            .setOptions(CelOptions.current().enableHeterogeneousNumericComparisons(false).build())
+            .setOptions(CelOptions.current().enableUnsignedLongs(false).build())
             .build();
+    CelRuntime.Program program = celRuntime.createProgram(celCompiler.compile(expression).getAst());
 
-    CelEvaluationException e =
-        assertThrows(
-            CelEvaluationException.class,
-            () -> celRuntime.createProgram(celCompiler.compile(expression).getAst()).eval());
+    CelEvaluationException e = assertThrows(CelEvaluationException.class, program::eval);
+
     assertThat(e).hasMessageThat().contains("No matching overload for function");
   }
 

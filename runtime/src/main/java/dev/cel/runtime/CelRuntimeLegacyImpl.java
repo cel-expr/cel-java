@@ -409,7 +409,7 @@ public final class CelRuntimeLegacyImpl implements CelRuntime {
                           }
                           break;
                         default:
-                          if (!options.enableHeterogeneousNumericComparisons()) {
+                          if (!options.enableUnsignedLongs()) {
                             return !CelStandardFunctions.isHeterogeneousComparison(
                                 standardOverload);
                           }

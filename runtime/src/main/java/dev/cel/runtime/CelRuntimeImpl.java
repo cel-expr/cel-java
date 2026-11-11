@@ -445,20 +445,11 @@ public abstract class CelRuntimeImpl implements CelRuntime {
         throw new IllegalArgumentException(
             prefix + "unwrapWellKnownTypesOnFunctionDispatch cannot be disabled.");
       }
-
-      // Disallowed options in favor of subsetting
-      String subsettingError = "Subset the environment instead using setStandardFunctions method.";
-
       if (!celOptions.enableTimestampEpoch()) {
         throw new IllegalArgumentException(
-            prefix + "enableTimestampEpoch cannot be disabled. " + subsettingError);
-      }
-
-      if (!celOptions.enableHeterogeneousNumericComparisons()) {
-        throw new IllegalArgumentException(
             prefix
-                + "enableHeterogeneousNumericComparisons cannot be disabled. "
-                + subsettingError);
+                + "enableTimestampEpoch cannot be disabled. Subset the environment instead using"
+                + " setStandardFunctions method.");
       }
     }
 
