@@ -758,9 +758,6 @@ public class CelOptionalLibraryTest {
 
   @Test
   public void optionalFieldSelection_onProtoMessage_listValue() throws Exception {
-    // TODO: Message creation with prepopulated fields is not yet supported in
-    // CelLiteRuntime.
-    assumeFalse(testMode.isLite());
     TestCel cel = newCelBuilder().build();
     CelAbstractSyntaxTree ast =
         compile(
@@ -773,9 +770,6 @@ public class CelOptionalLibraryTest {
 
   @Test
   public void optionalFieldSelection_onProtoMessage_indexValue() throws Exception {
-    // TODO: Message creation with prepopulated fields is not yet supported in
-    // CelLiteRuntime.
-    assumeFalse(testMode.isLite());
     TestCel cel = newCelBuilder().build();
     CelAbstractSyntaxTree ast =
         compile(
@@ -1450,9 +1444,6 @@ public class CelOptionalLibraryTest {
 
   @Test
   public void optionalMessageCreation_fieldValueIsPresent_returnsMessage() throws Exception {
-    // TODO: Message creation with prepopulated fields is not yet supported in
-    // CelLiteRuntime.
-    assumeFalse(testMode.isLite());
     TestCel cel = newCelBuilder().build();
     CelAbstractSyntaxTree ast =
         compile(cel, "TestAllTypes{?single_double_wrapper: optional.ofNonZeroValue(5.0)}");
@@ -1490,9 +1481,6 @@ public class CelOptionalLibraryTest {
 
   @Test
   public void optionalMessageCreation_fieldValueContainsMap_returnsEmptyMessage() throws Exception {
-    // TODO: Message creation with prepopulated fields is not yet supported in
-    // CelLiteRuntime.
-    assumeFalse(testMode.isLite());
     TestCel cel =
         newCelBuilder()
             .addVar(
@@ -1614,9 +1602,6 @@ public class CelOptionalLibraryTest {
 
   @Test
   public void optionalListCreation_withinProtoMessage_success() throws Exception {
-    // TODO: Message creation with prepopulated fields is not yet supported in
-    // CelLiteRuntime.
-    assumeFalse(testMode.isLite());
     TestCel cel =
         newCelBuilder()
             .addVar("m", MapType.create(SimpleType.STRING, SimpleType.DYN))

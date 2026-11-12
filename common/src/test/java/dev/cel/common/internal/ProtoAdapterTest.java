@@ -240,6 +240,22 @@ public final class ProtoAdapterTest {
     }
 
     @Test
+    @SuppressWarnings("deprecation") // Signed uints are only enabled through a deprecated option.
+    public void adaptValueToFieldType_unsignedLongsDisabled_acceptsSignedUints() {
+      ProtoAdapter protoAdapter =
+          new ProtoAdapter(DYNAMIC_PROTO, CelOptions.current().enableUnsignedLongs(false).build());
+
+      assertThat(
+              protoAdapter.adaptValueToFieldType(
+                  UInt32Value.getDescriptor().findFieldByName("value"), 1L))
+          .hasValue(1);
+      assertThat(
+              protoAdapter.adaptValueToFieldType(
+                  UInt64Value.getDescriptor().findFieldByName("value"), 1L))
+          .hasValue(1L);
+    }
+
+    @Test
     public void adaptValueToProto_asymmetricJsonConversion() {
       ProtoAdapter protoAdapter = new ProtoAdapter(DYNAMIC_PROTO, CelOptions.DEFAULT);
       assertThat(

@@ -49,6 +49,8 @@ import java.util.function.Supplier;
 @Immutable
 @Internal
 public final class DefaultLiteDescriptorPool implements CelLiteDescriptorPool {
+  private static final String STRUCT_FIELDS_ENTRY = "google.protobuf.Struct.FieldsEntry";
+
   private final ImmutableMap<String, MessageLiteDescriptor> protoFqnToMessageInfo;
   private final ImmutableMap<Class<?>, MessageLiteDescriptor> classToMessageInfo;
 
@@ -163,7 +165,7 @@ public final class DefaultLiteDescriptorPool implements CelLiteDescriptorPool {
                 /* encodingType= */ EncodingType.MAP,
                 /* protoFieldType= */ FieldLiteDescriptor.Type.MESSAGE,
                 /* isPacked= */ false,
-                /* fieldProtoTypeName= */ "google.protobuf.Struct.FieldsEntry"));
+                /* fieldProtoTypeName= */ STRUCT_FIELDS_ENTRY));
         break;
       case JSON_VALUE:
         messageBuilder = Value::newBuilder;
@@ -268,6 +270,14 @@ public final class DefaultLiteDescriptorPool implements CelLiteDescriptorPool {
       protoFqnMapBuilder.put(wellKnownProto.typeName(), wktMessageInfo);
       classMapBuilder.put(wellKnownProto.messageClass(), wktMessageInfo);
     }
+    // Struct's map entry, which `google.protobuf.Struct{fields: ...}` literals are encoded with.
+    protoFqnMapBuilder.put(
+        STRUCT_FIELDS_ENTRY,
+        CelLiteDescriptor.mapEntry(
+            /* fullName= */ STRUCT_FIELDS_ENTRY,
+            /* keyType= */ FieldLiteDescriptor.Type.STRING,
+            /* valueType= */ FieldLiteDescriptor.Type.MESSAGE,
+            /* valueTypeName= */ WellKnownProto.JSON_VALUE.typeName()));
 
     for (CelLiteDescriptor descriptor : descriptors) {
       protoFqnMapBuilder.putAll(descriptor.getProtoTypeNamesToDescriptors());
