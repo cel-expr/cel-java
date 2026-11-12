@@ -15,8 +15,9 @@
 package dev.cel.common.internal;
 
 import static com.google.common.base.Preconditions.checkNotNull;
+import static dev.cel.common.internal.ProtoLiteAdapter.intCheckedCast;
+import static dev.cel.common.internal.ProtoLiteAdapter.unsignedIntCheckedCast;
 
-import com.google.common.primitives.Ints;
 import com.google.common.primitives.UnsignedInts;
 import com.google.common.primitives.UnsignedLong;
 import com.google.errorprone.annotations.CheckReturnValue;
@@ -33,7 +34,6 @@ import com.google.protobuf.Message;
 import com.google.protobuf.MessageOrBuilder;
 import dev.cel.common.CelOptions;
 import dev.cel.common.annotations.Internal;
-import dev.cel.common.exceptions.CelNumericOverflowException;
 import dev.cel.common.values.CelByteString;
 import dev.cel.common.values.NullValue;
 import java.util.ArrayList;
@@ -308,23 +308,21 @@ public final class ProtoAdapter {
       case SFIXED32:
       case SINT32:
       case INT32:
-        return unwrapAndConvert(INT_CONVERTER);
+        return unwrapAndConvert(fieldDescriptor, Long.class, INT_CONVERTER);
       case FIXED32:
       case UINT32:
         if (celOptions.enableUnsignedLongs()) {
-          return unwrapAndConvert(UNSIGNED_UINT32_CONVERTER);
+          return unwrapAndConvert(fieldDescriptor, UnsignedLong.class, UNSIGNED_UINT32_CONVERTER);
         }
-        return unwrapAndConvert(SIGNED_UINT32_CONVERTER);
+        return unwrapAndConvert(fieldDescriptor, Long.class, SIGNED_UINT32_CONVERTER);
       case FIXED64:
       case UINT64:
         if (celOptions.enableUnsignedLongs()) {
-          return unwrapAndConvert(UNSIGNED_UINT64_CONVERTER);
+          return unwrapAndConvert(fieldDescriptor, UnsignedLong.class, UNSIGNED_UINT64_CONVERTER);
         }
-        return BidiConverter.of(
-            BidiConverter.IDENTITY.forwardConverter(),
-            value -> BidiConverter.IDENTITY.backwardConverter().convert(maybeUnwrap(value)));
+        return unwrapAndCheck(fieldDescriptor, Long.class);
       case FLOAT:
-        return unwrapAndConvert(DOUBLE_CONVERTER);
+        return unwrapAndConvert(fieldDescriptor, Double.class, DOUBLE_CONVERTER);
       case BYTES:
         if (celOptions.evaluateCanonicalTypesToNativeValues()) {
           return BidiConverter.<Object, Object>of(
@@ -336,25 +334,24 @@ public final class ProtoAdapter {
             BidiConverter.IDENTITY.forwardConverter(),
             value -> BidiConverter.IDENTITY.backwardConverter().convert(maybeUnwrap(value)));
       case DOUBLE:
+        return unwrapAndCheck(fieldDescriptor, Double.class);
       case SFIXED64:
       case SINT64:
       case INT64:
+        return unwrapAndCheck(fieldDescriptor, Long.class);
       case STRING:
       case BOOL:
         return BidiConverter.of(
             BidiConverter.IDENTITY.forwardConverter(),
             value -> BidiConverter.IDENTITY.backwardConverter().convert(maybeUnwrap(value)));
       case ENUM:
-        return BidiConverter.<Object, Long>of(
+        return BidiConverter.<Object, Object>of(
             value -> (long) ((EnumValueDescriptor) value).getNumber(),
-            number -> {
-              if (number > Integer.MAX_VALUE || number < Integer.MIN_VALUE) {
-                throw new IllegalArgumentException("Enum value out of int32 range: " + number);
-              }
-              return fieldDescriptor
-                  .getEnumType()
-                  .findValueByNumberCreatingIfUnknown(number.intValue());
-            });
+            value ->
+                fieldDescriptor
+                    .getEnumType()
+                    .findValueByNumberCreatingIfUnknown(
+                        intCheckedCast((Long) unwrapNumber(fieldDescriptor, Long.class, value))));
       case MESSAGE:
         return BidiConverter.<MessageOrBuilder, Object>of(
             this::adaptProtoToValue,
@@ -401,9 +398,9 @@ public final class ProtoAdapter {
     switch (wellKnownProto) {
       case ANY_VALUE:
         if (value instanceof Message) {
-          protoTypeName = ((Message) value).getDescriptorForType().getFullName();
+          return Any.pack((Message) value);
         }
-        return protoLiteAdapter.adaptValueToAny(value, protoTypeName);
+        return protoLiteAdapter.adaptValueToAny(value);
       default:
         return (Message) protoLiteAdapter.adaptValueToWellKnownProto(value, wellKnownProto);
     }
@@ -430,22 +427,6 @@ public final class ProtoAdapter {
     return protoType.getFullName();
   }
 
-  private static int intCheckedCast(long value) {
-    try {
-      return Ints.checkedCast(value);
-    } catch (IllegalArgumentException e) {
-      throw new CelNumericOverflowException(e);
-    }
-  }
-
-  private static int unsignedIntCheckedCast(long value) {
-    try {
-      return UnsignedInts.checkedCast(value);
-    } catch (IllegalArgumentException e) {
-      throw new CelNumericOverflowException(e);
-    }
-  }
-
   private Object maybeUnwrap(Object value) {
     if (value instanceof Message) {
       return adaptProtoToValue((MessageOrBuilder) value);
@@ -454,9 +435,32 @@ public final class ProtoAdapter {
   }
 
   private BidiConverter<Number, Object> unwrapAndConvert(
-      final BidiConverter<Number, Number> original) {
+      FieldDescriptor fieldDescriptor, Class<?> celType, BidiConverter<Number, Number> original) {
     return BidiConverter.of(
         original.forwardConverter()::convert,
-        value -> original.backwardConverter().convert((Number) maybeUnwrap(value)));
+        value ->
+            original
+                .backwardConverter()
+                .convert((Number) unwrapNumber(fieldDescriptor, celType, value)));
+  }
+
+  private BidiConverter<Object, Object> unwrapAndCheck(
+      FieldDescriptor fieldDescriptor, Class<?> celType) {
+    return BidiConverter.of(
+        BidiConverter.IDENTITY.forwardConverter(),
+        value -> unwrapNumber(fieldDescriptor, celType, value));
+  }
+
+  // Per the spec, numbers aren't converted between int, uint, and double when setting a field.
+  private Object unwrapNumber(FieldDescriptor fieldDescriptor, Class<?> celType, Object value) {
+    Object celValue = maybeUnwrap(value);
+    if ((celValue instanceof Long || celValue instanceof UnsignedLong || celValue instanceof Double)
+        && !celType.isInstance(celValue)) {
+      throw new IllegalArgumentException(
+          String.format(
+              "unexpected value type for field '%s' in message '%s'",
+              fieldDescriptor.getName(), fieldDescriptor.getContainingType().getFullName()));
+    }
+    return celValue;
   }
 }
