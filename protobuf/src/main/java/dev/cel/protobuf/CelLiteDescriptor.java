@@ -45,6 +45,9 @@ public abstract class CelLiteDescriptor {
       Collections.unmodifiableSet(
           new HashSet<>(Arrays.asList(false, 0, 0L, 0.0f, 0.0d, "", ByteString.EMPTY)));
 
+  // Map entries have no generated class to build.
+  private static final Supplier<MessageLite.Builder> NO_BUILDER = () -> null;
+
   @SuppressWarnings("Immutable") // Copied to unmodifiable map
   private final Map<String, MessageLiteDescriptor> protoFqnToDescriptors;
 
@@ -119,6 +122,11 @@ public abstract class CelLiteDescriptor {
     /** Gets the builder for the message. Returns null for maps. */
     public MessageLite.Builder newMessageBuilder() {
       return messageBuilderSupplier.get();
+    }
+
+    /** Whether this describes a map field's entry, which has no message builder. */
+    public boolean isMapEntry() {
+      return messageBuilderSupplier.equals(NO_BUILDER);
     }
 
     /** Whether {@link #getFieldValue} reads this message's fields with their generated getters. */
@@ -415,7 +423,7 @@ public abstract class CelLiteDescriptor {
                 valueType,
                 false,
                 valueTypeName)),
-        () -> null);
+        NO_BUILDER);
   }
 
   protected CelLiteDescriptor(String version, List<MessageLiteDescriptor> messageInfoList) {
