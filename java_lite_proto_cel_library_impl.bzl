@@ -18,6 +18,7 @@ This is an implementation detail. Clients should use 'java_lite_proto_cel_librar
 """
 
 load("@rules_java//java:defs.bzl", "java_library")
+load("//:cel_android_rules.bzl", "cel_android_library")
 load("//publish:cel_version.bzl", "CEL_VERSION")
 load("@com_google_protobuf//bazel:java_lite_proto_library.bzl", "java_lite_proto_library")
 load("@com_google_protobuf//bazel/common:proto_info.bzl", "ProtoInfo")
@@ -26,7 +27,7 @@ def java_lite_proto_cel_library_impl(
         name,
         deps,
         java_proto_library_dep,
-        constraints = [],
+        use_android_library = False,
         java_descriptor_class_suffix = None,
         debug = False):
     """Generates a CelLiteDescriptor
@@ -36,7 +37,7 @@ def java_lite_proto_cel_library_impl(
        deps: The list of proto_library rules to generate Java code for.
        java_descriptor_class_suffix (optional): Suffix for the Java class name of the generated CEL lite descriptor.
                                                 Default is "CelLiteDescriptor".
-       constraints: (optional) List of strings that denote which environment the produced java_library label is associated in.
+       use_android_library: (optional) If true, generate an android_library target.
        java_proto_library_dep: (optional) Uses the provided java_lite_proto_library or java_proto_library to generate the lite descriptors.
                                 If none is provided, java_lite_proto_library is used by default behind the scenes. Most use cases should not need to provide this.
        debug: (optional) If true, prints additional information during codegen for debugging purposes.
@@ -68,11 +69,18 @@ def java_lite_proto_cel_library_impl(
         java_proto_library_dep,
     ]
 
-    java_library(
-        name = name,
-        srcs = [":" + generated],
-        deps = descriptor_codegen_deps,
-    )
+    if use_android_library:
+        cel_android_library(
+            name = name,
+            srcs = [":" + generated],
+            deps = descriptor_codegen_deps,
+        )
+    else:
+        java_library(
+            name = name,
+            srcs = [":" + generated],
+            deps = descriptor_codegen_deps,
+        )
 
 def _generate_cel_lite_descriptor_class(ctx):
     srcjar_output = ctx.actions.declare_file(ctx.attr.name + ".srcjar")

@@ -46,7 +46,7 @@ def java_lite_proto_cel_library(
     java_lite_proto_cel_library_impl(
         name = name,
         deps = deps,
-        # used_by_android
+        use_android_library = True,
         java_descriptor_class_suffix = java_descriptor_class_suffix,
         java_proto_library_dep = java_proto_library_dep,
         debug = debug,

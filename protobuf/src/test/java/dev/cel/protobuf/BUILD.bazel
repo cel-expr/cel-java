@@ -1,11 +1,12 @@
 load("@rules_java//java:defs.bzl", "java_test")
+load("//:cel_android_rules.bzl", "cel_android_local_test")
 
 package(
     default_applicable_licenses = ["//:license"],
     default_testonly = True,
 )
 
-java_test(
+cel_android_local_test(
     name = "cel_lite_descriptor_test",
     srcs = ["CelLiteDescriptorTest.java"],
     test_class = "dev.cel.protobuf.CelLiteDescriptorTest",
