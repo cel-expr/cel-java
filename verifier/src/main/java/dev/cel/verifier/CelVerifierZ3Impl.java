@@ -267,7 +267,7 @@ final class CelVerifierZ3Impl implements CelVerifier {
 
       for (Map.Entry<String, CelAbstractSyntaxTree> entry : boundSymbols.entrySet()) {
         TranslatedValue tv = translator.translate(entry.getValue());
-        translator.bindSymbol(entry.getKey(), tv);
+        translator.bindSymbol(entry.getKey(), tv, entry.getValue());
       }
 
       TranslatedValue assumeTv = translator.translate(assumeAst);

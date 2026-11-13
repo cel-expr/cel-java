@@ -14,6 +14,8 @@
 
 package dev.cel.verifier;
 
+import static com.google.common.base.Preconditions.checkArgument;
+
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -111,8 +113,8 @@ final class CelAstToZ3Translator {
    * Binds an identifier name in the symbol table to an already-translated value. Used to bind
    * reserved policy symbols such as 'rule.result' to the composed policy graph.
    */
-  void bindSymbol(String varName, TranslatedValue value) {
-    context.bindSymbol(varName, value);
+  void bindSymbol(String varName, TranslatedValue value, CelAbstractSyntaxTree ast) {
+    context.bindSymbol(varName, value, ast);
   }
 
   TranslatedValue translate(CelAbstractSyntaxTree ast) {
@@ -439,6 +441,15 @@ final class CelAstToZ3Translator {
     long exprId = expr.id();
     String functionName = call.function();
     ImmutableList<CelExpr> argsAst = call.args();
+    if (functionName.equals(Operator.OPTIONAL_SELECT.getFunction())) {
+      checkArgument(
+          !call.target().isPresent()
+              && argsAst.size() == 2
+              && argsAst.get(1).constantOrDefault().getKind() == CelConstant.Kind.STRING_VALUE,
+          "Malformed AST: operator %s expects an operand and a field name",
+          Operator.OPTIONAL_SELECT);
+      return structTranslator.translateSelect(expr, ast);
+    }
 
     List<TranslatedValue> args = new ArrayList<>();
 
@@ -453,42 +464,41 @@ final class CelAstToZ3Translator {
 
     return operatorTranslator
         .translateFunctionCall(functionName, args, exprId, ast)
-        .map(
-            tv -> {
-              if (mayEmbedArgs(functionName, ast.getTypeOrThrow(exprId))) {
-                propagateTruncatedTypeConstraint(
-                    tv.z3Expr(), Iterables.transform(args, TranslatedValue::z3Expr));
-              }
-              return TranslatedValue.create(tv.z3Expr(), expr, typeSystem, tv.isApproximate());
-            })
-        .orElseGet(
-            () -> {
-              // Uninterpreted function
-              Sort[] argSorts = new Sort[args.size()];
-              Arrays.fill(argSorts, 0, args.size(), typeSystem.celValueSort());
-              FuncDecl<?> funcDecl =
-                  typeSystem.internFuncDecl(
-                      uninterpretedFunctionSymbol(exprId, ast),
-                      argSorts,
-                      typeSystem.celValueSort());
+        .map(tv -> {
+          if (mayEmbedArgs(functionName, ast.getTypeOrThrow(exprId))) {
+            propagateTruncatedTypeConstraint(
+                tv.z3Expr(), Iterables.transform(args, TranslatedValue::z3Expr));
+          }
+          return TranslatedValue.create(tv.z3Expr(), expr, typeSystem, tv.isApproximate());
+        })
+        .orElseGet(() -> {
+          // Uninterpreted function
+          Sort[] argSorts = new Sort[args.size()];
+          Arrays.fill(argSorts, 0, args.size(), typeSystem.celValueSort());
+          FuncDecl<?> funcDecl =
+              typeSystem.internFuncDecl(
+                  uninterpretedFunctionSymbol(exprId, ast), argSorts, typeSystem.celValueSort());
 
-              Expr<?>[] exprArgs = args.stream().map(TranslatedValue::z3Expr).toArray(Expr[]::new);
-              Expr<?> callRes = ctx.mkApp(funcDecl, exprArgs);
-              context.addConstraint(
-                  typeConstraintGenerator.createTypeConstraint(callRes, exprId, ast));
-              context.addConstraint(ctx.mkNot(typeSystem.isUnknown(callRes)));
-              context.addConstraint(ctx.mkNot(typeSystem.isError(callRes)));
+          Expr<?>[] exprArgs = args.stream().map(TranslatedValue::z3Expr).toArray(Expr[]::new);
+          Expr<?> callRes = ctx.mkApp(funcDecl, exprArgs);
+          // A narrowed result's static type doesn't constrain it.
+          if (!context.mayBeNarrowed(expr, ast)) {
+            context.addConstraint(
+                typeConstraintGenerator.createTypeConstraint(callRes, exprId, ast));
+          }
+          context.addConstraint(ctx.mkNot(typeSystem.isUnknown(callRes)));
+          context.addConstraint(ctx.mkNot(typeSystem.isError(callRes)));
 
-              // The solver picks the result freely, so a model depending on it is never exact.
-              return TranslatedValue.propagateStrict(
-                  ctx,
-                  typeSystem,
-                  functionName,
-                  callRes,
-                  Optional.of(expr),
-                  /* baseTaint= */ context.recordCallApproximation(functionName, ctx.mkTrue()),
-                  args);
-            });
+          // The solver picks the result freely, so a model depending on it is never exact.
+          return TranslatedValue.propagateStrict(
+              ctx,
+              typeSystem,
+              functionName,
+              callRes,
+              Optional.of(expr),
+              /* baseTaint= */ context.recordCallApproximation(functionName, ctx.mkTrue()),
+              args);
+        });
   }
 
   /**

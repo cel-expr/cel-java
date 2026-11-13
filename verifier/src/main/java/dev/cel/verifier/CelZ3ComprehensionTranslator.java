@@ -187,13 +187,32 @@ final class CelZ3ComprehensionTranslator {
             ctx.mkAnd(isValidRange, ctx.mkGt(lengthExpr, ctx.mkInt(comprehensionUnrollLimit))));
     context.addUnmodeledResult(isTruncated);
 
-    if (isAllMacro(comp) || isExistsMacro(comp)) {
-      return unrollAllAndExists(
-          celExpr, ast, seq, lengthExpr, mapPresence, isTruncated, iterRangeTv);
-    } else {
-      return unrollMapAndFilter(
-          celExpr, ast, seq, lengthExpr, mapPresence, isTruncated, iterRangeTv);
+    TranslatedValue result =
+        isAllMacro(comp) || isExistsMacro(comp)
+            ? unrollAllAndExists(
+                celExpr, ast, seq, lengthExpr, mapPresence, isTruncated, iterRangeTv)
+            : unrollMapAndFilter(
+                celExpr, ast, seq, lengthExpr, mapPresence, isTruncated, iterRangeTv);
+    // Only for speed: a range that isn't narrowed always has its static kind.
+    if (!context.mayBeNarrowed(comp.iterRange(), ast)) {
+      return result;
     }
+    // The type checker may have narrowed the range's type (e.g. `dyn_var.orValue([1])` is typed
+    // list(int)), so it may be the other kind, or not a list or map at all.
+    BoolExpr isListOrMap = ctx.mkOr(typeSystem.isList(iterRange), typeSystem.isMap(iterRange));
+    BoolExpr isOtherKind =
+        context.recordApproximation(
+            "comprehensions over `dyn` values", ctx.mkAnd(ctx.mkNot(isValidRange), isListOrMap));
+    context.addUnmodeledResult(isOtherKind);
+    BoolExpr isNotRange = ctx.mkNot(ctx.mkOr(isListOrMap, typeSystem.isErrorOrUnknown(iterRange)));
+    return TranslatedValue.create(
+        CelZ3Exprs.SwitchBuilder.newBuilder(ctx)
+            .addCase(isOtherKind, mkParameterizedUnknown(celExpr, ast))
+            .addCase(isNotRange, typeSystem.mkError())
+            .build(result.z3Expr()),
+        celExpr,
+        typeSystem,
+        CelZ3Exprs.mkOrFlattened(ctx, result.isApproximate(), isOtherKind));
   }
 
   private <T> T withIterationScope(
