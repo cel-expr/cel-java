@@ -211,6 +211,18 @@ public final class ProtoLiteCelValueConverterTest {
   }
 
   @Test
+  public void toRuntimeValue_anyWithMapEntry_returnsRawValueOfPackedType() {
+    String mapEntryTypeName = PROTO3_TEST_ALL_TYPES + ".MapStringStringEntry";
+    Any any = Any.newBuilder().setTypeUrl("type.googleapis.com/" + mapEntryTypeName).build();
+
+    Object adaptedValue = PROTO_LITE_CEL_VALUE_CONVERTER.toRuntimeValue(any);
+
+    assertThat(adaptedValue).isInstanceOf(RawProtoMessageLiteValue.class);
+    assertThat(((RawProtoMessageLiteValue) adaptedValue).protoTypeName())
+        .isEqualTo(mapEntryTypeName);
+  }
+
+  @Test
   public void toRuntimeValue_anyNestedToMaxDepth_unpacks() {
     Object adaptedValue = PROTO_LITE_CEL_VALUE_CONVERTER.toRuntimeValue(nestedAny(100));
 

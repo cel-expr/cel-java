@@ -199,78 +199,34 @@ _TESTS_TO_SKIP_PLANNER = [
     "enums/strong_proto3",
 ]
 
-_TESTS_TO_SKIP_PLANNER_SELECT_OPT = _TESTS_TO_SKIP_PLANNER + [
-    # TODO: Optional field selection on proto messages is not yet supported by
-    # SelectOptimizer.
-    "optionals",
-]
-
 _TESTS_TO_SKIP_LITE_BASE = _TESTS_TO_SKIP_PLANNER + [
     # Proto2 extensions are not supported in CelLiteRuntime.
     "proto2_ext",
     "proto2/extensions_has",
     "proto2/extensions_get",
 
-    # TODO: Proto equality after dyn() unwrapping is not yet supported in
-    # CelLiteRuntime.
+    # TODO: Comparing a message with a value of another type, such as null, is not
+    # yet supported in CelLiteRuntime.
     "comparisons/eq_literal/not_eq_dyn_proto2_msg_null,not_eq_dyn_proto3_msg_null",
-    "comparisons/eq_wrapper/eq_proto_different_types",
-    "comparisons/ne_literal/ne_proto_different_types",
 
-    # TODO: Message creation with prepopulated fields is not yet supported in
-    # CelLiteRuntime.
-    "block_ext/basic/optional_message",
-    "comparisons/eq_wrapper/eq_bool,eq_bytes,eq_double,eq_float,eq_int32,eq_int64,eq_string,eq_uint32,eq_uint64",
-    "comparisons/eq_wrapper/eq_proto2,eq_proto3,eq_proto2_missing_fields_neq,eq_proto3_missing_fields_neq,eq_proto_nan_equal",
+    # TODO: Message equality is not yet supported in CelLiteRuntime.
+    "comparisons/eq_wrapper/eq_proto2,eq_proto3,eq_proto2_missing_fields_neq,eq_proto3_missing_fields_neq,eq_proto_nan_equal,eq_proto_different_types",
     "comparisons/eq_wrapper/eq_proto2_any_unpack_equal,eq_proto2_any_unpack_not_equal,eq_proto2_any_unpack_bytewise_fallback_not_equal,eq_proto2_any_unpack_bytewise_fallback_equal,eq_proto3_any_unpack_equal,eq_proto3_any_unpack_not_equal,eq_proto3_any_unpack_bytewise_fallback_not_equal,eq_proto3_any_unpack_bytewise_fallback_equal",
-    "comparisons/ne_literal/ne_proto2,ne_proto3,ne_proto2_missing_fields_neq,ne_proto3_missing_fields_neq,ne_proto_nan_not_equal",
+    "comparisons/ne_literal/ne_proto2,ne_proto3,ne_proto2_missing_fields_neq,ne_proto3_missing_fields_neq,ne_proto_nan_not_equal,ne_proto_different_types",
     "comparisons/ne_literal/ne_proto2_any_unpack,ne_proto2_any_unpack_bytewise_fallback,ne_proto3_any_unpack,ne_proto3_any_unpack_bytewise_fallback",
-    "dynamic/int32/literal,literal_no_field_access,field_assign_proto2,field_assign_proto2_zero,field_assign_proto2_max,field_assign_proto2_min,field_assign_proto2_range,field_read_proto2,field_read_proto2_zero,field_assign_proto3,field_assign_proto3_zero,field_assign_proto3_max,field_assign_proto3_min,field_assign_proto3_range,field_read_proto3,field_read_proto3_zero",
-    "dynamic/int64/literal,literal_no_field_access,field_assign_proto2,field_assign_proto2_zero,field_assign_proto3,field_assign_proto3_zero",
-    "dynamic/uint32/literal,literal_no_field_access,field_assign_proto2,field_assign_proto2_zero,field_assign_proto2_max,field_assign_proto2_range,field_assign_proto3,field_assign_proto3_zero,field_assign_proto3_max,field_assign_proto3_range,field_read_proto2,field_read_proto2_zero",
-    "dynamic/uint64/literal,literal_no_field_access,field_assign_proto2,field_assign_proto2_zero,field_assign_proto3,field_assign_proto3_zero,field_read_proto2,field_read_proto2_zero",
-    "dynamic/float/literal,literal_not_double,literal_no_field_access,field_assign_proto2,field_assign_proto2_zero,field_assign_proto2_subnorm,field_assign_proto2_round_to_zero,field_assign_proto2_range,field_read_proto2,field_read_proto2_zero,field_assign_proto3,field_assign_proto3_zero,field_assign_proto3_subnorm,field_assign_proto3_round_to_zero,field_assign_proto3_range,field_read_proto3,field_read_proto3_zero",
-    "dynamic/double/literal,literal_no_field_access,field_assign_proto2,field_assign_proto2_zero,field_assign_proto2_range,field_read_proto2,field_read_proto2_zero,field_assign_proto3,field_assign_proto3_zero,field_assign_proto3_range,field_read_proto3,field_read_proto3_zero",
-    "dynamic/bool/literal,literal_no_field_access,field_assign_proto2,field_assign_proto2_false,field_assign_proto3,field_assign_proto3_false",
-    "dynamic/string/literal,literal_no_field_access,literal_unicode,field_assign_proto2,field_assign_proto2_empty,field_assign_proto3,field_assign_proto3_empty",
-    "dynamic/bytes/literal,literal_no_field_access,literal_unicode,field_assign_proto2,field_assign_proto2_empty,field_assign_proto3,field_assign_proto3_empty",
-    "dynamic/list/literal,literal_no_field_access,literal_empty,field_assign_proto2,field_assign_proto2_empty,field_read_proto2,field_read_proto2_empty,field_assign_proto3,field_assign_proto3_empty,field_read_proto3,field_read_proto3_empty",
-    "dynamic/struct/literal,literal_no_field_access,literal_empty,field_assign_proto2,field_assign_proto2_empty,field_assign_proto2_bad,field_read_proto2,field_read_proto2_empty,field_assign_proto3,field_assign_proto3_empty,field_assign_proto3_bad,field_read_proto3,field_read_proto3_empty",
-    "dynamic/value_null/literal,literal_no_field_access,field_assign_proto2,field_read_proto2,field_assign_proto3,field_read_proto3",
-    "dynamic/value_number/literal,literal_no_field_access,literal_zero,field_assign_proto2,field_assign_proto2_zero,field_read_proto2,field_read_proto2_zero,field_assign_proto3,field_assign_proto3_zero,field_read_proto3,field_read_proto3_zero",
-    "dynamic/value_string/literal,literal_no_field_access,literal_empty,field_assign_proto2,field_assign_proto2_empty,field_read_proto2,field_read_proto2_zero,field_assign_proto3,field_assign_proto3_empty,field_read_proto3,field_read_proto3_zero",
-    "dynamic/value_bool/literal,literal_no_field_access,literal_false,field_assign_proto2,field_assign_proto2_false,field_read_proto2,field_read_proto2_false,field_assign_proto3,field_assign_proto3_false,field_read_proto3,field_read_proto3_false",
-    "dynamic/value_struct/literal,literal_no_field_access,literal_empty,field_assign_proto2,field_assign_proto2_empty,field_read_proto2,field_read_proto2_empty,field_assign_proto3,field_assign_proto3_empty,field_read_proto3,field_read_proto3_empty",
-    "dynamic/value_list/literal,literal_no_field_access,literal_empty,field_assign_proto2,field_assign_proto2_empty,field_read_proto2,field_read_proto2_empty,field_assign_proto3,field_assign_proto3_empty,field_read_proto3,field_read_proto3_empty",
-    "dynamic/any/literal,literal_no_field_access,field_assign_proto2,field_read_proto2,field_assign_proto3,field_read_proto3",
-    "dynamic/complex",
-    "enums/legacy_proto2/assign_standalone_name,assign_standalone_int,assign_standalone_int_too_big,assign_standalone_int_too_neg,assign_repeated_enum,list_enum_as_list_int,enum_as_int",
-    "enums/legacy_proto3/assign_standalone_name,assign_standalone_int,assign_standalone_int_big,assign_standalone_int_neg,assign_standalone_int_too_big,assign_standalone_int_too_neg,assign_repeated_enum,list_enum_as_list_int,enum_as_int",
-    "optionals/optionals/struct_map_optindex_field,struct_map_optindex_field_nested,struct_list_optindex_field,struct_optindex_value,optional_struct_optindex_value,optional_struct_optindex_index_value",
-    "parse/nest/message_literal",
-    "parse/repeat/message_literal",
-    "parse/whitespace",
-    "parse/comments",
-    "parse/struct_field_names",
-    "proto2/literal_singular",
-    "proto2/literal_wellknown",
-    "proto2/set_null",
-    "proto2/quoted_fields",
-    "proto2/has/repeated_none_explicit,repeated_one,repeated_many,map_none_explicit,map_one_default,map_one,map_many,required,optional_set_no_default,optional_set_with_default,optional_set_to_default,optional_message_set,optional_enum_set,optional_enum_set_zero,oneof_other_set,oneof_set,oneof_set_default",
-    "proto3/literal_singular",
-    "proto3/literal_wellknown",
-    "proto3/set_null",
-    "proto3/quoted_fields",
-    "proto3/has/repeated_none_explicit,repeated_one,repeated_many,map_none_explicit,map_one_default,map_one,map_many,single_set,single_set_to_default,single_message_set,single_message_set_to_default,single_enum_set,single_enum_set_zero,oneof_other_set,oneof_set,oneof_set_default",
-    "type_deductions/complex_initializers/struct",
-    "type_deductions/field_access/int_field",
-    "wrappers",
-]
-
-_TESTS_TO_SKIP_LITE_SELECT_OPT = _TESTS_TO_SKIP_LITE_BASE + [
-    # TODO: Optional field selection on proto messages is not yet supported by
-    # SelectOptimizer.
-    "optionals",
+    "proto2/quoted_fields/set_field_with_quoted_name",
+    "proto2/set_null/single_message,single_duration,single_timestamp",
+    "proto3/quoted_fields/set_field",
+    "proto3/set_null/single_message,single_duration,single_timestamp",
+    "wrappers/bool/to_null",
+    "wrappers/bytes/to_null",
+    "wrappers/double/to_null",
+    "wrappers/float/to_null",
+    "wrappers/int32/to_null",
+    "wrappers/int64/to_null",
+    "wrappers/string/to_null",
+    "wrappers/uint32/to_null",
+    "wrappers/uint64/to_null",
 ]
 
 _TESTS_TO_SKIP_LITE = _TESTS_TO_SKIP_LITE_BASE + [
@@ -309,7 +265,7 @@ conformance_test(
     data = _ALL_TESTS,
     enable_select_optimization = True,
     runtime = RUNTIME.PLANNER,
-    skip_tests = _TESTS_TO_SKIP_PLANNER_SELECT_OPT,
+    skip_tests = _TESTS_TO_SKIP_PLANNER,
 )
 
 conformance_test(
@@ -324,5 +280,5 @@ conformance_test(
     data = _ALL_TESTS,
     enable_select_optimization = True,
     runtime = RUNTIME.LITE,
-    skip_tests = _TESTS_TO_SKIP_LITE_SELECT_OPT,
+    skip_tests = _TESTS_TO_SKIP_LITE_BASE,
 )

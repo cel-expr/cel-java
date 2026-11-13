@@ -117,14 +117,25 @@ public class CelLiteRuntimeTest {
 
   @Test
   public void messageCreation_fieldsPopulated() throws Exception {
-    CelAbstractSyntaxTree ast = CEL_COMPILER.compile("TestAllTypes{single_int32: 4}").getAst();
-    Program program = CEL_RUNTIME.createProgram(ast);
+    CelAbstractSyntaxTree ast =
+        CEL_COMPILER
+            .compile(
+                "TestAllTypes{single_int32: 4, repeated_string: ['a'], map_string_string: {'k':"
+                    + " 'v'}, single_nested_message: TestAllTypes.NestedMessage{bb: 7},"
+                    + " single_int64_wrapper: 5}")
+            .getAst();
 
-    CelEvaluationException e = assertThrows(CelEvaluationException.class, program::eval);
+    TestAllTypes message = (TestAllTypes) CEL_RUNTIME.createProgram(ast).eval();
 
-    assertThat(e)
-        .hasMessageThat()
-        .contains("Message creation with prepopulated fields is not supported yet.");
+    assertThat(message)
+        .isEqualTo(
+            TestAllTypes.newBuilder()
+                .setSingleInt32(4)
+                .addRepeatedString("a")
+                .putMapStringString("k", "v")
+                .setSingleNestedMessage(NestedMessage.newBuilder().setBb(7))
+                .setSingleInt64Wrapper(Int64Value.of(5))
+                .build());
   }
 
   @Test

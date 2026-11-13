@@ -30,8 +30,10 @@ import com.google.protobuf.FloatValue;
 import com.google.protobuf.Int32Value;
 import com.google.protobuf.Int64Value;
 import com.google.protobuf.StringValue;
+import com.google.protobuf.Struct;
 import com.google.protobuf.UInt32Value;
 import com.google.protobuf.UInt64Value;
+import com.google.protobuf.Value;
 import com.google.testing.junit.testparameterinjector.TestParameter;
 import com.google.testing.junit.testparameterinjector.TestParameterInjector;
 import com.google.testing.junit.testparameterinjector.TestParameters;
@@ -873,6 +875,45 @@ public class CelLiteRuntimeAndroidTest {
     CelAbstractSyntaxTree ast = readCheckedExpr("compiled_optional_value");
 
     assertThat(runtime.createProgram(ast).eval()).isEqualTo(1L);
+  }
+
+  @Test
+  public void eval_messageCreation_returnsMessageLite() throws Exception {
+    CelLiteRuntime runtime =
+        CelLiteRuntimeFactory.newLiteRuntimeBuilder()
+            .setStandardFunctions(CelStandardFunctions.ALL_STANDARD_FUNCTIONS)
+            .setValueProvider(
+                ProtoMessageLiteValueProvider.newInstance(
+                    TestAllTypesCelLiteDescriptor.getDescriptor()))
+            .build();
+    // Expr: cel.expr.conformance.proto3.TestAllTypes{single_int32: -1, ..., single_value: ...}
+    CelAbstractSyntaxTree ast = readCheckedExpr("compiled_proto3_message_creation");
+
+    TestAllTypes result = (TestAllTypes) runtime.createProgram(ast).eval();
+
+    assertThat(result)
+        .isEqualTo(
+            TestAllTypes.newBuilder()
+                .setSingleInt32(-1)
+                .setSingleSint64(-2L)
+                .setSingleFixed32(-1)
+                .setSingleFloat(1.5f)
+                .setSingleString("foo")
+                .setSingleBytes(ByteString.copyFromUtf8("abc"))
+                .setStandaloneEnumValue(2)
+                .setOptionalBool(false)
+                .setSingleNestedMessage(TestAllTypes.NestedMessage.newBuilder().setBb(7).build())
+                .addRepeatedInt64(1L)
+                .addRepeatedInt64(2L)
+                .putMapStringString("k", "v")
+                .setSingleInt64Wrapper(Int64Value.of(5))
+                .setSingleUint32Wrapper(UInt32Value.of(-1))
+                .setSingleDuration(ProtoTimeUtils.toProtoDuration(Duration.ofSeconds(1)))
+                .setSingleStruct(
+                    Struct.newBuilder()
+                        .putFields("a", Value.newBuilder().setNumberValue(1.0).build()))
+                .setSingleValue(Value.newBuilder().setStringValue("x").build())
+                .build());
   }
 
   private enum CelOptionsTestCase {

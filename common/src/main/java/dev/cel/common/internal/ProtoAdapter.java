@@ -15,8 +15,9 @@
 package dev.cel.common.internal;
 
 import static com.google.common.base.Preconditions.checkNotNull;
+import static dev.cel.common.internal.ProtoLiteAdapter.intCheckedCast;
+import static dev.cel.common.internal.ProtoLiteAdapter.unsignedIntCheckedCast;
 
-import com.google.common.primitives.Ints;
 import com.google.common.primitives.UnsignedInts;
 import com.google.common.primitives.UnsignedLong;
 import com.google.errorprone.annotations.CheckReturnValue;
@@ -33,7 +34,6 @@ import com.google.protobuf.Message;
 import com.google.protobuf.MessageOrBuilder;
 import dev.cel.common.CelOptions;
 import dev.cel.common.annotations.Internal;
-import dev.cel.common.exceptions.CelNumericOverflowException;
 import dev.cel.common.values.CelByteString;
 import dev.cel.common.values.NullValue;
 import java.util.ArrayList;
@@ -347,14 +347,10 @@ public final class ProtoAdapter {
       case ENUM:
         return BidiConverter.<Object, Long>of(
             value -> (long) ((EnumValueDescriptor) value).getNumber(),
-            number -> {
-              if (number > Integer.MAX_VALUE || number < Integer.MIN_VALUE) {
-                throw new IllegalArgumentException("Enum value out of int32 range: " + number);
-              }
-              return fieldDescriptor
-                  .getEnumType()
-                  .findValueByNumberCreatingIfUnknown(number.intValue());
-            });
+            number ->
+                fieldDescriptor
+                    .getEnumType()
+                    .findValueByNumberCreatingIfUnknown(intCheckedCast(number)));
       case MESSAGE:
         return BidiConverter.<MessageOrBuilder, Object>of(
             this::adaptProtoToValue,
@@ -401,9 +397,9 @@ public final class ProtoAdapter {
     switch (wellKnownProto) {
       case ANY_VALUE:
         if (value instanceof Message) {
-          protoTypeName = ((Message) value).getDescriptorForType().getFullName();
+          return Any.pack((Message) value);
         }
-        return protoLiteAdapter.adaptValueToAny(value, protoTypeName);
+        return protoLiteAdapter.adaptValueToAny(value);
       default:
         return (Message) protoLiteAdapter.adaptValueToWellKnownProto(value, wellKnownProto);
     }
@@ -428,22 +424,6 @@ public final class ProtoAdapter {
 
   private static String typeName(Descriptor protoType) {
     return protoType.getFullName();
-  }
-
-  private static int intCheckedCast(long value) {
-    try {
-      return Ints.checkedCast(value);
-    } catch (IllegalArgumentException e) {
-      throw new CelNumericOverflowException(e);
-    }
-  }
-
-  private static int unsignedIntCheckedCast(long value) {
-    try {
-      return UnsignedInts.checkedCast(value);
-    } catch (IllegalArgumentException e) {
-      throw new CelNumericOverflowException(e);
-    }
   }
 
   private Object maybeUnwrap(Object value) {
