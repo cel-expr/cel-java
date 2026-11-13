@@ -273,8 +273,8 @@ final class CelVerifierZ3Impl implements CelVerifier {
       TranslatedValue assumeTv = translator.translate(assumeAst);
       TranslatedValue assertTv = translator.translate(assertAst);
 
-      BoolExpr assumeCondition = translator.isTrue(assumeTv.z3Expr());
-      BoolExpr assertCondition = translator.isTrue(assertTv.z3Expr());
+      BoolExpr assumeCondition = translator.getTypeSystem().isTrue(assumeTv.z3Expr());
+      BoolExpr assertCondition = translator.getTypeSystem().isTrue(assertTv.z3Expr());
       BoolExpr violationCondition = ctx.mkAnd(assumeCondition, ctx.mkNot(assertCondition));
 
       BoolExpr combinedTaint =
@@ -305,7 +305,7 @@ final class CelVerifierZ3Impl implements CelVerifier {
       CelAstToZ3Translator translator = newTranslator(ctx, /* parameterizeUnknowns= */ false);
 
       TranslatedValue tv = translator.translate(ast);
-      BoolExpr isTrue = translator.isTrue(tv.z3Expr());
+      BoolExpr isTrue = translator.getTypeSystem().isTrue(tv.z3Expr());
       if (searchForCounterexample) {
         return search(
             ctx,
