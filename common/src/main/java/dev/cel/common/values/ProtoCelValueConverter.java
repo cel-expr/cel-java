@@ -15,6 +15,7 @@
 package dev.cel.common.values;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 import com.google.common.primitives.UnsignedLong;
 import com.google.errorprone.annotations.Immutable;
 import com.google.protobuf.Any;
@@ -130,6 +131,10 @@ public final class ProtoCelValueConverter extends BaseProtoCelValueConverter {
         }
 
         if (fieldDescriptor.isMapField()) {
+          FieldDescriptor keyFieldDescriptor =
+              fieldDescriptor.getMessageType().findFieldByNumber(1);
+          FieldDescriptor valueFieldDescriptor =
+              fieldDescriptor.getMessageType().findFieldByNumber(2);
           Map<Object, Object> map = new HashMap<>();
           Object mapKey;
           Object mapValue;
@@ -140,17 +145,14 @@ public final class ProtoCelValueConverter extends BaseProtoCelValueConverter {
               mapValue = mapEntry.getValue();
             } else if (entry instanceof DynamicMessage) {
               DynamicMessage dynamicMessage = (DynamicMessage) entry;
-              FieldDescriptor keyFieldDescriptor =
-                  fieldDescriptor.getMessageType().findFieldByNumber(1);
-              FieldDescriptor valueFieldDescriptor =
-                  fieldDescriptor.getMessageType().findFieldByNumber(2);
               mapKey = dynamicMessage.getField(keyFieldDescriptor);
               mapValue = dynamicMessage.getField(valueFieldDescriptor);
             } else {
               throw new IllegalStateException("Unexpected map field type: " + entry);
             }
 
-            map.put(mapKey, mapValue);
+            map.put(
+                toUnsigned(keyFieldDescriptor, mapKey), toUnsigned(valueFieldDescriptor, mapValue));
           }
           return toRuntimeValue(map);
         }
@@ -158,16 +160,13 @@ public final class ProtoCelValueConverter extends BaseProtoCelValueConverter {
         return toRuntimeValue(result);
       case UINT32:
       case FIXED32:
-        if (!fieldDescriptor.isRepeated()) {
-          return UnsignedLong.valueOf((int) result);
-        }
-        break;
       case UINT64:
       case FIXED64:
-        if (!fieldDescriptor.isRepeated()) {
-          return UnsignedLong.fromLongBits((long) result);
-        }
-        break;
+        // Converts elements as they're read, so selecting one doesn't copy the whole list.
+        return fieldDescriptor.isRepeated()
+            ? CelPreAdaptedList.wrap(
+                Lists.transform((List<?>) result, element -> toUnsigned(fieldDescriptor, element)))
+            : toUnsigned(fieldDescriptor, result);
       default:
         break;
     }
@@ -185,6 +184,20 @@ public final class ProtoCelValueConverter extends BaseProtoCelValueConverter {
     }
 
     return toRuntimeValue(result);
+  }
+
+  // Protobuf returns uint32 and uint64 values as signed ints and longs.
+  private static Object toUnsigned(FieldDescriptor fieldDescriptor, Object value) {
+    switch (fieldDescriptor.getType()) {
+      case UINT32:
+      case FIXED32:
+        return UnsignedLong.fromLongBits(Integer.toUnsignedLong((Integer) value));
+      case UINT64:
+      case FIXED64:
+        return UnsignedLong.fromLongBits((Long) value);
+      default:
+        return value;
+    }
   }
 
   private ProtoCelValueConverter(

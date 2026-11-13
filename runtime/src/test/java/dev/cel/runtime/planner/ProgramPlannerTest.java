@@ -692,6 +692,23 @@ public final class ProgramPlannerTest {
     assertThat(result).isEqualTo(TestAllTypes.getDefaultInstance());
   }
 
+  // With fewer fields, the oneof fields would share a HashMap bucket and keep their order.
+  @Test
+  @TestParameters({
+    "{expression: 'TestAllTypes{oneof_bool: true, single_int32: 1, single_int64: 2,"
+        + " oneof_msg: TestAllTypes.NestedMessage{}}', expectedCase: ONEOF_MSG}",
+    "{expression: 'TestAllTypes{oneof_msg: TestAllTypes.NestedMessage{}, single_int32: 1,"
+        + " single_int64: 2, oneof_bool: true}', expectedCase: ONEOF_BOOL}"
+  })
+  public void plan_createStruct_oneofSetTwice_lastFieldWins(
+      String expression, TestAllTypes.KindCase expectedCase) throws Exception {
+    CelAbstractSyntaxTree ast = compile(expression);
+
+    TestAllTypes result = (TestAllTypes) PLANNER.plan(ast).eval();
+
+    assertThat(result.getKindCase()).isEqualTo(expectedCase);
+  }
+
   @Test
   public void plan_call_zeroArgs() throws Exception {
     CelAbstractSyntaxTree ast = compile("zero()");

@@ -36,6 +36,7 @@ import com.google.protobuf.NullValue;
 import com.google.protobuf.StringValue;
 import com.google.protobuf.Struct;
 import com.google.protobuf.Timestamp;
+import com.google.protobuf.UInt32Value;
 import com.google.protobuf.UInt64Value;
 import com.google.protobuf.Value;
 import com.google.type.Expr;
@@ -211,6 +212,31 @@ public final class ProtoAdapterTest {
       ProtoAdapter protoAdapter = new ProtoAdapter(DYNAMIC_PROTO, CelOptions.DEFAULT);
       assertThat(protoAdapter.adaptValueToProto(1.5F, DoubleValue.getDescriptor().getFullName()))
           .isEqualTo(DoubleValue.of(1.5D));
+    }
+
+    @Test
+    public void adaptValueToProto_signedUintWrappers_throws() {
+      ProtoAdapter protoAdapter = new ProtoAdapter(DYNAMIC_PROTO, CelOptions.DEFAULT);
+      String uint32TypeName = UInt32Value.getDescriptor().getFullName();
+      String uint64TypeName = UInt64Value.getDescriptor().getFullName();
+
+      assertThrows(
+          IllegalArgumentException.class, () -> protoAdapter.adaptValueToProto(1L, uint32TypeName));
+      assertThrows(
+          IllegalArgumentException.class,
+          () -> protoAdapter.adaptValueToProto(-1L, uint64TypeName));
+    }
+
+    @Test
+    @SuppressWarnings("deprecation") // Signed uints are only enabled through a deprecated option.
+    public void adaptValueToProto_unsignedLongsDisabled_acceptsSignedUintWrappers() {
+      ProtoAdapter protoAdapter =
+          new ProtoAdapter(DYNAMIC_PROTO, CelOptions.current().enableUnsignedLongs(false).build());
+
+      assertThat(protoAdapter.adaptValueToProto(1L, UInt32Value.getDescriptor().getFullName()))
+          .isEqualTo(UInt32Value.of(1));
+      assertThat(protoAdapter.adaptValueToProto(1L, UInt64Value.getDescriptor().getFullName()))
+          .isEqualTo(UInt64Value.of(1));
     }
 
     @Test

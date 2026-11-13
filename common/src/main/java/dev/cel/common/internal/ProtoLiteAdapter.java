@@ -279,7 +279,8 @@ public final class ProtoLiteAdapter {
     if (value instanceof Integer) {
       return UInt32Value.of((Integer) value);
     }
-    if (value instanceof Long) {
+    // Per the spec, an int isn't a uint, unless unsigned longs are disabled.
+    if (!celOptions.enableUnsignedLongs() && value instanceof Long) {
       try {
         return UInt32Value.of(unsignedIntCheckedCast((Long) value));
       } catch (IllegalArgumentException e) {
@@ -301,7 +302,7 @@ public final class ProtoLiteAdapter {
     if (value instanceof Integer) {
       return UInt64Value.of(UnsignedInts.toLong((Integer) value));
     }
-    if (value instanceof Long) {
+    if (!celOptions.enableUnsignedLongs() && value instanceof Long) {
       return UInt64Value.of((Long) value);
     }
     if (value instanceof UnsignedLong) {

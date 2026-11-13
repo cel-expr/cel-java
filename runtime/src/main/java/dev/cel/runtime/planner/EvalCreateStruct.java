@@ -46,7 +46,8 @@ final class EvalCreateStruct extends PlannedInterpretable {
 
   @Override
   Object evalInternal(GlobalResolver resolver, ExecutionFrame frame) {
-    Map<String, Object> fieldValues = Maps.newHashMapWithExpectedSize(keys.length);
+    // In source order, so that the last of several fields set in one oneof wins, as in protobuf.
+    Map<String, Object> fieldValues = Maps.newLinkedHashMapWithExpectedSize(keys.length);
     AccumulatedUnknowns unknowns = null;
     for (int i = 0; i < keys.length; i++) {
       Object value = EvalHelpers.evalStrictly(values[i], resolver, frame);

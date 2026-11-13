@@ -191,7 +191,7 @@ public final class ProtoMessageValueTest {
     BOOL("single_bool", true),
     INT32("single_int32", 4L),
     INT64("single_int64", 5L),
-    UINT32("single_uint32", UnsignedLong.valueOf(1L)),
+    UINT32("single_uint32", UnsignedLong.valueOf(0xFFFFFFFFL)),
     UINT64("single_uint64", UnsignedLong.MAX_VALUE),
     FLOAT("single_float", 1.5d),
     DOUBLE("single_double", 2.5d),
@@ -203,14 +203,18 @@ public final class ProtoMessageValueTest {
     TIMESTAMP("single_timestamp", Instant.ofEpochSecond(100)),
     INT32_WRAPPER("single_int32_wrapper", 5L),
     INT64_WRAPPER("single_int64_wrapper", 10L),
-    UINT32_WRAPPER("single_uint32_wrapper", UnsignedLong.valueOf(1L)),
+    UINT32_WRAPPER("single_uint32_wrapper", UnsignedLong.valueOf(0xFFFFFFFFL)),
     UINT64_WRAPPER("single_uint64_wrapper", UnsignedLong.MAX_VALUE),
     FLOAT_WRAPPER("single_float_wrapper", 7.5d),
     DOUBLE_WRAPPER("single_double_wrapper", 8.5d),
     STRING_WRAPPER("single_string_wrapper", "hello"),
     BYTES_WRAPPER("single_bytes_wrapper", CelByteString.of(new byte[] {0x02})),
     REPEATED_INT64("repeated_int64", ImmutableList.of(5L)),
+    REPEATED_UINT64("repeated_uint64", ImmutableList.of(UnsignedLong.MAX_VALUE)),
     MAP_STRING_STRING("map_string_string", ImmutableMap.of("a", "b")),
+    MAP_UINT32_UINT64(
+        "map_uint32_uint64",
+        ImmutableMap.of(UnsignedLong.valueOf(0xFFFFFFFFL), UnsignedLong.MAX_VALUE)),
     NESTED_MESSAGE(
         "standalone_message",
         ProtoMessageValue.create(
@@ -653,7 +657,7 @@ public final class ProtoMessageValueTest {
         .setSingleBool(true)
         .setSingleInt32(4)
         .setSingleInt64(5L)
-        .setSingleUint32(1)
+        .setSingleUint32(0xFFFFFFFF)
         .setSingleUint64(UnsignedLong.MAX_VALUE.longValue())
         .setSingleFloat(1.5f)
         .setSingleDouble(2.5d)
@@ -664,14 +668,16 @@ public final class ProtoMessageValueTest {
         .setSingleTimestamp(Timestamp.newBuilder().setSeconds(100))
         .setSingleInt32Wrapper(Int32Value.of(5))
         .setSingleInt64Wrapper(Int64Value.of(10L))
-        .setSingleUint32Wrapper(UInt32Value.of(1))
+        .setSingleUint32Wrapper(UInt32Value.of(0xFFFFFFFF))
         .setSingleUint64Wrapper(UInt64Value.of(UnsignedLong.MAX_VALUE.longValue()))
         .setSingleStringWrapper(StringValue.of("hello"))
         .setSingleFloatWrapper(FloatValue.of(7.5f))
         .setSingleDoubleWrapper(DoubleValue.of(8.5d))
         .setSingleBytesWrapper(BytesValue.of(ByteString.copyFrom(new byte[] {0x02})))
         .addRepeatedInt64(5L)
+        .addRepeatedUint64(UnsignedLong.MAX_VALUE.longValue())
         .putMapStringString("a", "b")
+        .putMapUint32Uint64(0xFFFFFFFF, UnsignedLong.MAX_VALUE.longValue())
         .setStandaloneMessage(NestedMessage.getDefaultInstance())
         .setStandaloneEnum(NestedEnum.BAR)
         .build();

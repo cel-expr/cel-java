@@ -95,7 +95,8 @@ public abstract class BaseProtoCelValueConverter extends CelValueConverter {
       case STRING_VALUE:
         return normalizePrimitive(((StringValue) message).getValue());
       case UINT32_VALUE:
-        return UnsignedLong.valueOf(((UInt32Value) message).getValue());
+        return UnsignedLong.fromLongBits(
+            Integer.toUnsignedLong(((UInt32Value) message).getValue()));
       case UINT64_VALUE:
         return UnsignedLong.fromLongBits(((UInt64Value) message).getValue());
       case EMPTY:
