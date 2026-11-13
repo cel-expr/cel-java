@@ -17,6 +17,7 @@ package dev.cel.runtime;
 import com.google.testing.junit.testparameterinjector.TestParameterInjector;
 import dev.cel.common.CelOptions;
 import dev.cel.common.values.ProtoMessageLiteValueProvider;
+import dev.cel.expr.conformance.proto3.NestedTestAllTypesCelDescriptor;
 import dev.cel.expr.conformance.proto3.TestAllTypesCelDescriptor;
 import dev.cel.extensions.CelOptionalLibrary;
 import dev.cel.testing.BaseInterpreterTest;
@@ -35,7 +36,8 @@ public class CelLiteInterpreterTest extends AbstractPlannerInterpreterTest {
         .setValueProvider(
             ProtoMessageLiteValueProvider.newInstance(
                 dev.cel.expr.conformance.proto2.TestAllTypesCelDescriptor.getDescriptor(),
-                TestAllTypesCelDescriptor.getDescriptor()))
+                TestAllTypesCelDescriptor.getDescriptor(),
+                NestedTestAllTypesCelDescriptor.getDescriptor()))
         .addLibraries(CelOptionalLibrary.INSTANCE)
         .addFileTypes(TEST_FILE_DESCRIPTORS)
         .addLateBoundFunctions("record")
@@ -51,58 +53,6 @@ public class CelLiteInterpreterTest extends AbstractPlannerInterpreterTest {
   @Override
   public void dynamicMessage_dynamicDescriptor() throws Exception {
     // Dynamic message is not supported in Protolite
-    skipBaselineVerification();
-  }
-
-  // All the tests below rely on message creation with fields populated. They are excluded for time
-  // being until this support is added.
-  @Override
-  public void nullAssignability() throws Exception {
-    skipBaselineVerification();
-  }
-
-  @Override
-  public void wrappers() throws Exception {
-    skipBaselineVerification();
-  }
-
-  @Override
-  public void jsonConversions() {
-    skipBaselineVerification();
-  }
-
-  @Override
-  public void nestedEnums() {
-    skipBaselineVerification();
-  }
-
-  @Override
-  public void messages() throws Exception {
-    skipBaselineVerification();
-  }
-
-  @Override
-  public void packUnpackAny() {
-    skipBaselineVerification();
-  }
-
-  @Override
-  public void lists() throws Exception {
-    skipBaselineVerification();
-  }
-
-  @Override
-  public void maps() throws Exception {
-    skipBaselineVerification();
-  }
-
-  @Override
-  public void jsonValueTypes() {
-    skipBaselineVerification();
-  }
-
-  @Override
-  public void messages_error() {
     skipBaselineVerification();
   }
 
