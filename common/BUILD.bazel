@@ -166,6 +166,11 @@ java_library(
     exports = ["//common/src/main/java/dev/cel/common:proto_json_adapter"],
 )
 
+cel_android_library(
+    name = "proto_json_adapter_android",
+    exports = ["//common/src/main/java/dev/cel/common:proto_json_adapter_android"],
+)
+
 java_library(
     name = "source",
     visibility = ["//:internal"],

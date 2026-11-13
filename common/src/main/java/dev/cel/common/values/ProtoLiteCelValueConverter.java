@@ -145,7 +145,8 @@ public final class ProtoLiteCelValueConverter extends BaseProtoCelValueConverter
       ByteString bytes, String fieldProtoTypeName, @Nullable Object existingValue, boolean isView) {
     MessageLiteDescriptor descriptor =
         descriptorPool.findDescriptor(fieldProtoTypeName).orElse(null);
-    if (descriptor == null) {
+    // An Any can name a map entry, which can't be built.
+    if (descriptor == null || descriptor.isMapEntry()) {
       if (existingValue instanceof RawProtoMessageLiteValue) {
         bytes = ((RawProtoMessageLiteValue) existingValue).toByteString().concat(bytes);
       }
