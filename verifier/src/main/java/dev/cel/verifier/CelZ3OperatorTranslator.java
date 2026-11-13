@@ -177,15 +177,6 @@ final class CelZ3OperatorTranslator {
             CelZ3Exprs.mkOrFlattened(
                 ctx, currentApprox, ctx.mkAnd(isList, CelZ3Exprs.mkOrFlattened(ctx, taints)));
       }
-    } else if (op == Operator.OPTIONAL_SELECT) {
-      // A chained optional select (e.g. `a.?b.?c`) selects from the value of an optional operand.
-      Expr<?> operand = z3Args.get(0);
-      Expr<?> target =
-          ctx.mkITE(
-              typeSystem.isOptional(operand),
-              typeSystem.getOptionalValue(typeSystem.getOptionalRef(operand)),
-              operand);
-      currentApprox = CelZ3Exprs.mkOrFlattened(ctx, currentApprox, context.isTruncatedMap(target));
     }
 
     return Optional.of(
@@ -335,9 +326,11 @@ final class CelZ3OperatorTranslator {
       case LOGICAL_OR:
         return translateLogicalAndOr(args, false);
       case LOGICAL_NOT:
-        return translateLogicalNot(args, ast);
+        return translateLogicalNot(args);
       case NEGATE:
-        return translateNegate(args.get(0), ast);
+        // NegateAxiom handles the overloads the type checker picked; other kinds error.
+        return TranslatedValue.propagateStrict(
+            ctx, typeSystem, op.getFunction(), typeSystem.mkError(), args);
       case EQUALS:
         return translateEquality(
             args.get(0), args.get(1), ast, /* isEquals= */ true, /* shallow= */ false);
@@ -359,11 +352,11 @@ final class CelZ3OperatorTranslator {
         return TranslatedValue.propagateStrict(
             ctx, typeSystem, op.getFunction(), typeSystem.mkError(), args);
       case INDEX:
-        return translateIndex(args, ast, false);
+        return translateIndex(args, ast, /* isOptional= */ false);
       case OPTIONAL_INDEX:
-        return translateIndex(args, ast, true);
+        return translateIndex(args, ast, /* isOptional= */ true);
       case CONDITIONAL:
-        return translateConditional(args, ast);
+        return translateConditional(args);
       case NOT_STRICTLY_FALSE:
       case OLD_NOT_STRICTLY_FALSE:
         return translateNotStrictlyFalse(args);
@@ -432,46 +425,15 @@ final class CelZ3OperatorTranslator {
     return TranslatedValue.create(resultZ3, typeSystem, resultTaint);
   }
 
-  private TranslatedValue translateLogicalNot(
-      List<TranslatedValue> args, CelAbstractSyntaxTree ast) {
+  private TranslatedValue translateLogicalNot(List<TranslatedValue> args) {
     TranslatedValue arg = args.get(0);
-    CelType type = extractAstTypeOrDefault(arg, ast);
-
-    Expr<?> baseResult = typeSystem.wrapBool(ctx.mkNot((BoolExpr) arg.unwrapZ3Bool()));
-    if (!type.equals(SimpleType.BOOL)) {
-      baseResult = typeSystem.withRuntimeError(baseResult, ctx.mkNot(arg.isZ3Bool()));
-    }
+    Expr<?> baseResult =
+        typeSystem.withRuntimeError(
+            typeSystem.wrapBool(ctx.mkNot((BoolExpr) arg.unwrapZ3Bool())),
+            ctx.mkNot(arg.isZ3Bool()));
 
     return TranslatedValue.propagateStrict(
         ctx, typeSystem, Operator.LOGICAL_NOT.getFunction(), baseResult, args);
-  }
-
-  private TranslatedValue translateNegate(TranslatedValue arg, CelAbstractSyntaxTree ast) {
-    CelType type = extractAstTypeOrDefault(arg, ast);
-    Expr<?> z3Expr = arg.z3Expr();
-
-    Expr<?> result;
-    if (type.equals(SimpleType.INT)) {
-      ArithExpr intNeg = ctx.mkUnaryMinus(typeSystem.getInt(z3Expr));
-      result =
-          typeSystem.withRuntimeError(
-              typeSystem.wrapInt((IntExpr) intNeg), typeSystem.checkIntOverflow(intNeg));
-    } else if (type.equals(SimpleType.DOUBLE)) {
-      result = typeSystem.wrapDouble(ctx.mkFPNeg(typeSystem.getDouble(z3Expr)));
-    } else {
-      ArithExpr intNeg = ctx.mkUnaryMinus(typeSystem.getInt(z3Expr));
-      Expr<?> intResult =
-          typeSystem.withRuntimeError(
-              typeSystem.wrapInt((IntExpr) intNeg), typeSystem.checkIntOverflow(intNeg));
-      Expr<?> doubleResult = typeSystem.wrapDouble(ctx.mkFPNeg(typeSystem.getDouble(z3Expr)));
-      result =
-          CelZ3Exprs.SwitchBuilder.newBuilder(ctx)
-              .addCase(typeSystem.isInt(z3Expr), intResult)
-              .addCase(typeSystem.isDouble(z3Expr), doubleResult)
-              .build(typeSystem.mkError());
-    }
-    return TranslatedValue.propagateStrict(
-        ctx, typeSystem, Operator.NEGATE.getFunction(), result, arg);
   }
 
   private BoolExpr isNumeric(Expr<?> arg) {
@@ -564,14 +526,14 @@ final class CelZ3OperatorTranslator {
       boolean approximateIntDouble) {
     if (arg0.isNumericConstant()) {
       return getNumericEqualityWithConstant(
-          arg1.z3Expr(), arg0.celExpr().get().constant(), extractAstTypeOrDefault(arg1, ast));
+          arg1.z3Expr(), arg0.celExpr().get().constant(), trustedType(arg1, ast));
     } else if (arg1.isNumericConstant()) {
       return getNumericEqualityWithConstant(
-          arg0.z3Expr(), arg1.celExpr().get().constant(), extractAstTypeOrDefault(arg0, ast));
+          arg0.z3Expr(), arg1.celExpr().get().constant(), trustedType(arg0, ast));
     }
 
-    CelType type0 = extractAstTypeOrDefault(arg0, ast);
-    CelType type1 = extractAstTypeOrDefault(arg1, ast);
+    CelType type0 = trustedType(arg0, ast);
+    CelType type1 = trustedType(arg1, ast);
     if (isStaticallyKnown(type0) && isStaticallyKnown(type1) && type0.kind() == type1.kind()) {
       return getStaticallyKnownNumericEquality(arg0.z3Expr(), type0, arg1.z3Expr());
     }
@@ -952,8 +914,11 @@ final class CelZ3OperatorTranslator {
     Expr<?> z3Arg0 = arg0.z3Expr();
     Expr<?> z3Arg1 = arg1.z3Expr();
 
-    CelType type0 = extractAstTypeOrDefault(arg0, ast);
-    CelType type1 = extractAstTypeOrDefault(arg1, ast);
+    // A literal's kind is known even if its type may be narrowed.
+    CelType trusted0 = trustedType(arg0, ast);
+    CelType trusted1 = trustedType(arg1, ast);
+    CelType type0 = isContainerLiteral(arg0) ? extractAstTypeOrDefault(arg0, ast) : trusted0;
+    CelType type1 = isContainerLiteral(arg1) ? extractAstTypeOrDefault(arg1, ast) : trusted1;
 
     BoolExpr equality;
     List<BoolExpr> taints = new ArrayList<>();
@@ -961,7 +926,7 @@ final class CelZ3OperatorTranslator {
       taints.add(mayObserveTruncatedTypeConstraint(ast, arg0, arg1));
     }
 
-    if (isNumericType(type0) && isNumericType(type1)) {
+    if (isNumericType(trusted0) && isNumericType(trusted1)) {
       equality = getNumericEquality(arg0, arg1, ast, taints, /* approximateIntDouble= */ false);
     } else {
       BoolExpr bothLists = ctx.mkAnd(typeSystem.isList(z3Arg0), typeSystem.isList(z3Arg1));
@@ -993,12 +958,12 @@ final class CelZ3OperatorTranslator {
                     ctx.mkITE(bothLists, unrollListEquality(arg0, arg1, ast, taints), structuralEq);
           } else if (type0.kind() == CelKind.MAP || type1.kind() == CelKind.MAP) {
             BoolExpr mapEquality =
-                isExact(type0, type1)
+                isExact(trusted0, trusted1)
                         && (arg0.isLiteral(ExprKind.Kind.MAP) || arg1.isLiteral(ExprKind.Kind.MAP))
                     ? mapEqualityAtLiteralKeys(arg0, arg1)
                     : unrollMapEquality(arg0, arg1, ast, taints);
             structuralEq = (BoolExpr) ctx.mkITE(bothMaps, mapEquality, structuralEq);
-          } else if (!isStaticallyKnown(type0) && !isStaticallyKnown(type1)) {
+          } else if (!isStaticallyKnown(trusted0) && !isStaticallyKnown(trusted1)) {
             // Performance only: a side with a known type isn't a list or map here.
             // TODO: Unless the type checker narrowed it, e.g. `(int_list +
             // dyn_var)[0]`.
@@ -1034,7 +999,7 @@ final class CelZ3OperatorTranslator {
   }
 
   private Expr<?> buildListIndex(
-      Expr<?> lhsTrans, Expr<?> rhsTrans, BoolExpr typeGuard, boolean isOptional) {
+      Expr<?> lhsTrans, Expr<?> rhsTrans, BoolExpr typeGuard, BoolExpr returnOptional) {
     Expr<?> listRef = typeSystem.getListRef(lhsTrans);
     SeqExpr<?> seq = typeSystem.getSeq(listRef);
     Expr<?> index = typeSystem.getInt(rhsTrans);
@@ -1043,31 +1008,37 @@ final class CelZ3OperatorTranslator {
             ctx.mkGe((ArithExpr) index, ctx.mkInt(0)),
             ctx.mkLt((ArithExpr) index, ctx.mkLength(seq)));
 
-    return finishIndex(inBounds, ctx.mkNth(seq, (ArithExpr) index), typeGuard, isOptional);
+    return finishIndex(inBounds, ctx.mkNth(seq, (ArithExpr) index), typeGuard, returnOptional);
   }
 
   private Expr<?> buildMapIndex(
-      Expr<?> lhsTrans, Expr<?> rhsTrans, BoolExpr typeGuard, boolean isOptional) {
+      Expr<?> lhsTrans, Expr<?> rhsTrans, BoolExpr typeGuard, BoolExpr returnOptional) {
     ImmutableList<CelZ3TypeSystem.EqualKey> equalKeys = typeSystem.equalKeys(rhsTrans);
     return finishIndex(
         typeSystem.hasEqualKey(lhsTrans, equalKeys),
         typeSystem.valueAtEqualKey(lhsTrans, equalKeys),
         typeGuard,
-        isOptional);
+        returnOptional);
   }
 
-  // Returns val where found, or else an error (or an empty optional).
-  private Expr<?> finishIndex(BoolExpr found, Expr<?> val, BoolExpr typeGuard, boolean isOptional) {
+  // Returns val where found, or else an error, as an optional (empty if not found) where
+  // returnOptional holds.
+  private Expr<?> finishIndex(
+      BoolExpr found, Expr<?> val, BoolExpr typeGuard, BoolExpr returnOptional) {
     context.constrainValidValue(ctx.mkAnd(typeGuard, found), val);
-    if (isOptional) {
-      Expr<?> resultOptRef = ctx.mkApp(typeSystem.optionalOfRefFunc(), val);
-      context.addConstraint(ctx.mkEq(typeSystem.getOptionalValue(resultOptRef), val));
-      context.addConstraint(typeSystem.optHasValue(resultOptRef));
-      return ctx.mkITE(found, typeSystem.mkOptionalOf(resultOptRef), typeSystem.mkOptionalNone());
+    Expr<?> plain = ctx.mkITE(found, val, typeSystem.mkError());
+    // Performance only: skips building an optional that isn't returned.
+    if (returnOptional.isFalse()) {
+      return plain;
     }
-    return ctx.mkITE(found, val, typeSystem.mkError());
+    Expr<?> optional = ctx.mkITE(found, context.mkOptionalOf(val), typeSystem.mkOptionalNone());
+    return returnOptional.isTrue() ? optional : ctx.mkITE(returnOptional, optional, plain);
   }
 
+  /**
+   * Translates {@code lhs[rhs]}, or {@code lhs[?rhs]} if isOptional. An optional lhs is indexed
+   * optionally (e.g. {@code optional.of([])[0]} is {@code optional.none()}).
+   */
   private TranslatedValue translateIndex(
       List<TranslatedValue> args, CelAbstractSyntaxTree ast, boolean isOptional) {
     TranslatedValue lhs = args.get(0);
@@ -1081,8 +1052,10 @@ final class CelZ3OperatorTranslator {
     BoolExpr isLhsOpt = ctx.mkFalse();
     BoolExpr lhsHasValue = ctx.mkFalse();
     BoolExpr shouldEvaluate = ctx.mkTrue();
+    BoolExpr returnOptional = isOptional ? ctx.mkTrue() : ctx.mkFalse();
 
-    if (isOptional) {
+    // Performance only: an lhs of a known type other than optional isn't one.
+    if (lhsType instanceof OptionalType || !isStaticallyKnown(lhsType)) {
       isLhsOpt = typeSystem.isOptional(lhsTrans);
       Expr<?> optRef = typeSystem.getOptionalRef(lhsTrans);
       lhsHasValue = typeSystem.optHasValue(optRef);
@@ -1092,21 +1065,24 @@ final class CelZ3OperatorTranslator {
 
       if (lhsType instanceof OptionalType) {
         lhsType = lhsType.parameters().get(0);
+        returnOptional = ctx.mkTrue();
+      } else if (!isOptional) {
+        returnOptional = isLhsOpt;
       }
     }
 
     TranslatedValue element =
         buildAndConstrainIndex(
-            lhsTrans, rhsTrans, lhsType, isLhsTypeGuaranteed, shouldEvaluate, isOptional);
-    Expr<?> actualValue = element.z3Expr();
-
-    if (isOptional) {
-      actualValue =
-          ctx.mkITE(
-              ctx.mkAnd(isLhsOpt, ctx.mkNot(lhsHasValue)),
-              typeSystem.mkOptionalNone(),
-              actualValue);
-    }
+            lhsTrans, rhsTrans, lhsType, isLhsTypeGuaranteed, shouldEvaluate, returnOptional);
+    // An empty optional gives an empty optional, unless no overload takes the index (e.g. a string
+    // indexing an optional list).
+    BoolExpr takesIndex =
+        lhsType.kind() == CelKind.LIST ? typeSystem.isInt(rhsTrans) : ctx.mkTrue();
+    Expr<?> actualValue =
+        ctx.mkITE(
+            CelZ3Exprs.mkAndFlattened(ctx, isLhsOpt, ctx.mkNot(lhsHasValue), takesIndex),
+            typeSystem.mkOptionalNone(),
+            element.z3Expr());
 
     String opName =
         isOptional ? Operator.OPTIONAL_INDEX.getFunction() : Operator.INDEX.getFunction();
@@ -1137,7 +1113,7 @@ final class CelZ3OperatorTranslator {
       CelType lhsType,
       boolean isLhsTypeGuaranteed,
       BoolExpr shouldEvaluate,
-      boolean isOptional) {
+      BoolExpr returnOptional) {
     CelType expectedElemType = null;
     if (lhsType.kind() == CelKind.LIST) {
       expectedElemType = ((ListType) lhsType).elemType();
@@ -1146,20 +1122,22 @@ final class CelZ3OperatorTranslator {
     }
 
     if (expectedElemType != null) {
-      Expr<?> actualValue;
-      if (lhsType.kind() == CelKind.MAP) {
-        actualValue = buildMapIndex(lhsTrans, rhsTrans, shouldEvaluate, isOptional);
-      } else {
-        BoolExpr isIntIndex = typeSystem.isInt(rhsTrans);
-        actualValue =
-            ctx.mkITE(
-                isIntIndex,
-                buildListIndex(
-                    lhsTrans, rhsTrans, ctx.mkAnd(shouldEvaluate, isIntIndex), isOptional),
-                typeSystem.mkError());
-      }
+      // The static type picks the overload, which errors on the other kind if it was narrowed.
+      BoolExpr takesIndex =
+          lhsType.kind() == CelKind.MAP
+              ? typeSystem.isMap(lhsTrans)
+              : ctx.mkAnd(typeSystem.isList(lhsTrans), typeSystem.isInt(rhsTrans));
+      BoolExpr guard = ctx.mkAnd(shouldEvaluate, takesIndex);
+      Expr<?> actualValue =
+          ctx.mkITE(
+              takesIndex,
+              lhsType.kind() == CelKind.MAP
+                  ? buildMapIndex(lhsTrans, rhsTrans, guard, returnOptional)
+                  : buildListIndex(lhsTrans, rhsTrans, guard, returnOptional),
+              typeSystem.mkError());
 
-      CelType finalType = isOptional ? OptionalType.create(expectedElemType) : expectedElemType;
+      CelType finalType =
+          returnOptional.isTrue() ? OptionalType.create(expectedElemType) : expectedElemType;
       BoolExpr isDefined = ctx.mkAnd(shouldEvaluate, ctx.mkNot(typeSystem.isError(actualValue)));
       BoolExpr typeConstraint =
           typeConstraintGenerator.createTypeConstraintForType(actualValue, finalType);
@@ -1182,27 +1160,22 @@ final class CelZ3OperatorTranslator {
 
     return TranslatedValue.create(
         CelZ3Exprs.SwitchBuilder.newBuilder(ctx)
-            .addCase(isListGuard, buildListIndex(lhsTrans, rhsTrans, isListGuard, isOptional))
-            .addCase(isMapGuard, buildMapIndex(lhsTrans, rhsTrans, isMapGuard, isOptional))
+            .addCase(isListGuard, buildListIndex(lhsTrans, rhsTrans, isListGuard, returnOptional))
+            .addCase(isMapGuard, buildMapIndex(lhsTrans, rhsTrans, isMapGuard, returnOptional))
             .build(typeSystem.mkError()),
         typeSystem,
         ctx.mkFalse());
   }
 
-  private TranslatedValue translateConditional(
-      List<TranslatedValue> args, CelAbstractSyntaxTree ast) {
+  private TranslatedValue translateConditional(List<TranslatedValue> args) {
     TranslatedValue cond = args.get(0);
     TranslatedValue trueBranch = args.get(1);
     TranslatedValue falseBranch = args.get(2);
-    CelType condType = extractAstTypeOrDefault(cond, ast);
 
     BoolExpr condTrue = ctx.mkAnd(cond.isZ3Bool(), (BoolExpr) cond.unwrapZ3Bool());
 
-    BoolExpr hasError = cond.isZ3Error();
+    BoolExpr hasError = ctx.mkNot(cond.isZ3Bool());
     BoolExpr hasUnknown = cond.isZ3Unknown();
-    if (!condType.equals(SimpleType.BOOL)) {
-      hasError = ctx.mkOr(hasError, ctx.mkNot(cond.isZ3Bool()));
-    }
 
     Expr<?> unknownResult =
         typeSystem.isParameterizingUnknowns()
@@ -1241,6 +1214,12 @@ final class CelZ3OperatorTranslator {
 
   private static CelType extractAstTypeOrDefault(TranslatedValue val, CelAbstractSyntaxTree ast) {
     return val.celExpr().map(node -> ast.getTypeOrThrow(node.id())).orElse(SimpleType.DYN);
+  }
+
+  // The static type of val unless the type checker may have narrowed it (e.g. `dyn_var.orValue(1)`
+  // is typed int). Overloads are still picked by static types.
+  private CelType trustedType(TranslatedValue val, CelAbstractSyntaxTree ast) {
+    return val.celExpr().map(e -> context.trustedType(e, ast)).orElse(SimpleType.DYN);
   }
 
   /**
@@ -1300,9 +1279,11 @@ final class CelZ3OperatorTranslator {
     }
   }
 
+  // A wrapper's kind is its value's, but it may also be null.
   private static boolean isNumericType(CelType type) {
     CelKind kind = type.kind();
-    return kind == CelKind.INT || kind == CelKind.UINT || kind == CelKind.DOUBLE;
+    return !(type instanceof NullableType)
+        && (kind == CelKind.INT || kind == CelKind.UINT || kind == CelKind.DOUBLE);
   }
 
   /**
@@ -1312,7 +1293,7 @@ final class CelZ3OperatorTranslator {
    */
   private BoolExpr mayObserveTruncatedTypeConstraint(
       CelAbstractSyntaxTree ast, TranslatedValue... args) {
-    if (Arrays.stream(args).allMatch(arg -> isConcrete(extractAstTypeOrDefault(arg, ast)))) {
+    if (Arrays.stream(args).allMatch(arg -> isConcrete(trustedType(arg, ast)))) {
       return ctx.mkFalse();
     }
     return context.recordUnrollLimitApproximation(

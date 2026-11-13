@@ -451,6 +451,39 @@ public final class CelPolicyVerifierImplTest {
   }
 
   @Test
+  public void verifyInvariants_narrowedVariable_violated() throws Exception {
+    Cel optionalCel =
+        CEL.toCelBuilder()
+            .addCompilerLibraries(CelOptionalLibrary.INSTANCE)
+            .addRuntimeLibraries(CelOptionalLibrary.INSTANCE)
+            .build();
+    CelPolicyVerifier verifier =
+        CelPolicyVerifierFactory.newVerifier(
+                CelPolicyCompilerFactory.newPolicyCompiler(optionalCel).build(),
+                CelVerifierFactory.newVerifier(optionalCel).build())
+            .build();
+    // variables.v is typed int, but is NaN for request = optional.of(0.0 / 0.0).
+    String policySource =
+        "name: narrowed_variable_policy\n" //
+            + "rule:\n" //
+            + "  match:\n" //
+            + "    - output: 'true'\n" //
+            + "verification:\n" //
+            + "  variables:\n" //
+            + "    - v: request.orValue(1)\n" //
+            + "  invariants:\n" //
+            + "    - id: variable_equals_itself\n" //
+            + "      assume: request.hasValue()\n" //
+            + "      assert: variables.v == variables.v";
+
+    ImmutableMap<String, CelVerificationResult> results =
+        verifier.verifyInvariants(PARSER.parse(policySource));
+
+    assertThat(results.get("variable_equals_itself").status())
+        .isEqualTo(VerificationStatus.VIOLATED);
+  }
+
+  @Test
   public void verifyInvariants_invariantReferencesPolicyVariable_verified() throws Exception {
     String policySource =
         "name: variable_reference_policy\n" //
@@ -554,12 +587,12 @@ public final class CelPolicyVerifierImplTest {
     assertThat(results).containsKey("universal_no_unapproved_privileged_prod");
     assertThat(results.get("universal_no_unapproved_privileged_prod").status())
         .isEqualTo(VerificationStatus.VIOLATED);
+    // Either the admin or the owner bypass violates it.
     assertThat(results.get("universal_no_unapproved_privileged_prod").message())
-        .isEqualTo(
+        .containsMatch(
             "Invariant 'universal_no_unapproved_privileged_prod' violation detected."
                 + " Counterexample input:\n"
-                + "  is_admin = true\n"
-                + "  is_owner = false\n"
+                + "  is_admin = (true\n  is_owner = (true|false)|false\n  is_owner = true)\n"
                 + "  is_privileged = true\n"
                 + "  is_prod = true\n"
                 + "  has_approval = false");
