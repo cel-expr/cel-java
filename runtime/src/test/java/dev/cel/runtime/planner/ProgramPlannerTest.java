@@ -710,6 +710,16 @@ public final class ProgramPlannerTest {
   }
 
   @Test
+  public void plan_createStruct_enumOutOfRange_throwsNumericOverflow() throws Exception {
+    CelAbstractSyntaxTree ast = compile("TestAllTypes{standalone_enum: 5000000000}");
+    Program program = PLANNER.plan(ast);
+
+    CelEvaluationException e = assertThrows(CelEvaluationException.class, program::eval);
+
+    assertThat(e.getErrorCode()).isEqualTo(CelErrorCode.NUMERIC_OVERFLOW);
+  }
+
+  @Test
   public void plan_call_zeroArgs() throws Exception {
     CelAbstractSyntaxTree ast = compile("zero()");
     Program program = PLANNER.plan(ast);

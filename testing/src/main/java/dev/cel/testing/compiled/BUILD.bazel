@@ -63,6 +63,7 @@ java_library(
         ":compiled_proto2_select_repeated_fields",
         ":compiled_proto2_select_wrappers",
         ":compiled_proto3_deep_traversal",
+        ":compiled_proto3_message_creation",
         ":compiled_proto3_select_map_fields",
         ":compiled_proto3_select_primitives",
         ":compiled_proto3_select_primitives_all_ored",
@@ -103,6 +104,17 @@ compile_cel(
 compile_cel(
     name = "compiled_proto_message",
     expression = "cel.expr.conformance.proto3.TestAllTypes{single_int32: 1}",
+    proto_srcs = ["@cel_conformance//proto/cel/expr/conformance/proto3:test_all_types_proto"],
+)
+
+compile_cel(
+    name = "compiled_proto3_message_creation",
+    expression = "cel.expr.conformance.proto3.TestAllTypes{single_int32: -1, single_sint64: -2, single_fixed32: 4294967295u, " +
+                 "single_float: 1.5, single_string: 'foo', single_bytes: b'abc', standalone_enum: 2, optional_bool: false, " +
+                 "single_nested_message: cel.expr.conformance.proto3.TestAllTypes.NestedMessage{bb: 7}, repeated_int64: [1, 2], " +
+                 "map_string_string: {'k': 'v'}, single_int64_wrapper: 5, single_uint32_wrapper: google.protobuf.UInt32Value{value: 4294967295u}, " +
+                 "single_duration: duration('1s'), single_struct: google.protobuf.Struct{fields: {'a': 1.0}}, " +
+                 "single_value: google.protobuf.Value{string_value: 'x'}}",
     proto_srcs = ["@cel_conformance//proto/cel/expr/conformance/proto3:test_all_types_proto"],
 )
 
