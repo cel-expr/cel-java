@@ -108,13 +108,6 @@ final class CelAstToZ3Translator {
   }
 
   /**
-   * Returns a Z3 boolean expression asserting that the provided CEL value is a boolean and is true.
-   */
-  BoolExpr isTrue(Expr<?> celValue) {
-    return ctx.mkAnd(typeSystem.isBool(celValue), (BoolExpr) typeSystem.unwrapBool(celValue));
-  }
-
-  /**
    * Binds an identifier name in the symbol table to an already-translated value. Used to bind
    * reserved policy symbols such as 'rule.result' to the composed policy graph.
    */

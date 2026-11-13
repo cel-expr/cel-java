@@ -14,88 +14,26 @@
 
 package dev.cel.verifier.axioms;
 
-import com.microsoft.z3.BoolExpr;
 import com.microsoft.z3.Expr;
-import com.microsoft.z3.FPExpr;
-import com.microsoft.z3.IntExpr;
-import com.microsoft.z3.SeqExpr;
 import dev.cel.checker.CelStandardDeclarations.StandardFunction;
 import java.util.Optional;
 
 /** Axiomatization for CEL's in operator/function (list and map overloads). */
 @SuppressWarnings({"unchecked", "rawtypes"}) // Z3 Java API uses raw types.
-public final class InAxiom {
+final class InAxiom {
 
   static final CelZ3FunctionAxiom INSTANCE =
       CelZ3FunctionAxiom.newBuilder(StandardFunction.IN.functionDecl())
+          // Matches by terms, which is CEL equality when lhs has the list's element type and that
+          // type compares by terms; the operator translator compares other lists by CEL equality.
           .addBinaryOverloadTranslator(
               StandardFunction.Overload.InternalOperator.IN_LIST.celOverloadDecl(),
-              (ctx, typeSystem, constraintSink, lhsTrans, rhsTrans) -> {
-                Expr<?> listRef = typeSystem.getListRef(rhsTrans);
-                SeqExpr<?> seq = typeSystem.getSeq(listRef);
-
-                BoolExpr structContains = ctx.mkContains((Expr) seq, (Expr) ctx.mkUnit(lhsTrans));
-
-                BoolExpr isDouble = typeSystem.isDouble(lhsTrans);
-                FPExpr fpVal = (FPExpr) typeSystem.getDouble(lhsTrans);
-
-                BoolExpr isNaN = ctx.mkFPIsNaN(fpVal);
-                BoolExpr isDoubleZero = ctx.mkFPIsZero(fpVal);
-
-                Expr<?> posZeroCel = typeSystem.wrapDouble(typeSystem.mkFpDouble(0.0));
-                Expr<?> negZeroCel = typeSystem.wrapDouble(typeSystem.mkFpDouble(-0.0));
-                Expr<?> intZeroCel = typeSystem.wrapInt(ctx.mkInt(0));
-                Expr<?> uintZeroCel = typeSystem.wrapUint(ctx.mkInt(0));
-
-                // CEL follows IEEE-754 where 0.0 == -0.0, and cross-type equality means they also
-                // equal int 0 and uint 0.
-                BoolExpr containsAnyZero =
-                    ctx.mkOr(
-                        ctx.mkContains((Expr) seq, (Expr) ctx.mkUnit(posZeroCel)),
-                        ctx.mkContains((Expr) seq, (Expr) ctx.mkUnit(negZeroCel)),
-                        ctx.mkContains((Expr) seq, (Expr) ctx.mkUnit(intZeroCel)),
-                        ctx.mkContains((Expr) seq, (Expr) ctx.mkUnit(uintZeroCel)));
-
-                // CEL follows IEEE-754 where NaN != NaN.
-                BoolExpr doubleInList =
-                    (BoolExpr)
-                        ctx.mkITE(
-                            isNaN,
-                            ctx.mkFalse(),
-                            ctx.mkITE(isDoubleZero, containsAnyZero, structContains));
-
-                BoolExpr isInt = typeSystem.isInt(lhsTrans);
-                BoolExpr isUint = typeSystem.isUint(lhsTrans);
-                BoolExpr isIntOrUint = ctx.mkOr(isInt, isUint);
-
-                IntExpr intVal =
-                    (IntExpr)
-                        ctx.mkITE(isInt, typeSystem.getInt(lhsTrans), typeSystem.getUint(lhsTrans));
-                BoolExpr isIntOrUintZero = ctx.mkEq(intVal, ctx.mkInt(0));
-
-                BoolExpr containsIntOrUint =
-                    ctx.mkOr(
-                        ctx.mkAnd(
-                            ctx.mkNot(typeSystem.checkIntOverflow(intVal)),
-                            ctx.mkContains(
-                                (Expr) seq, (Expr) ctx.mkUnit(typeSystem.wrapInt(intVal)))),
-                        ctx.mkAnd(
-                            ctx.mkNot(typeSystem.checkUintOverflow(intVal)),
-                            ctx.mkContains(
-                                (Expr) seq, (Expr) ctx.mkUnit(typeSystem.wrapUint(intVal)))));
-
-                BoolExpr intOrUintInList =
-                    (BoolExpr) ctx.mkITE(isIntOrUintZero, containsAnyZero, containsIntOrUint);
-
-                BoolExpr isMatch =
-                    (BoolExpr)
-                        ctx.mkITE(
-                            isDouble,
-                            doubleInList,
-                            ctx.mkITE(isIntOrUint, intOrUintInList, structContains));
-
-                return Optional.of(typeSystem.wrapBool(isMatch));
-              })
+              (ctx, typeSystem, constraintSink, lhsTrans, rhsTrans) ->
+                  Optional.of(
+                      typeSystem.wrapBool(
+                          ctx.mkContains(
+                              (Expr) typeSystem.getSeq(typeSystem.getListRef(rhsTrans)),
+                              (Expr) ctx.mkUnit(lhsTrans)))))
           .addBinaryOverloadTranslator(
               StandardFunction.Overload.InternalOperator.IN_MAP.celOverloadDecl(),
               (ctx, typeSystem, constraintSink, lhsTrans, rhsTrans) ->

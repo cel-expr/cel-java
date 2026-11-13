@@ -23,8 +23,10 @@ import com.microsoft.z3.BoolExpr;
 import com.microsoft.z3.Context;
 import com.microsoft.z3.Expr;
 import com.microsoft.z3.FPExpr;
+import com.microsoft.z3.FuncDecl;
 import com.microsoft.z3.IntExpr;
 import com.microsoft.z3.SeqExpr;
+import com.microsoft.z3.Sort;
 import dev.cel.common.CelAbstractSyntaxTree;
 import dev.cel.common.CelFunctionDecl;
 import dev.cel.common.CelOverloadDecl;
@@ -37,6 +39,7 @@ import dev.cel.common.types.CelKind;
 import dev.cel.common.types.CelType;
 import dev.cel.common.types.ListType;
 import dev.cel.common.types.MapType;
+import dev.cel.common.types.NullableType;
 import dev.cel.common.types.OptionalType;
 import dev.cel.common.types.SimpleType;
 import dev.cel.verifier.axioms.CelZ3OverloadResult;
@@ -49,6 +52,10 @@ import java.util.Optional;
 /** Handles mapping CEL Operators to Z3 SMT logic. */
 @SuppressWarnings({"unchecked", "rawtypes"}) // Z3 Java API uses raw types.
 final class CelZ3OperatorTranslator {
+  private static final String FUNC_APPROX_EQ = "!approxEq";
+  private static final String FUNC_APPROX_IN = "!approxIn";
+  private static final MapType DYN_MAP = MapType.create(SimpleType.DYN, SimpleType.DYN);
+
   private final Context ctx;
   private final CelZ3TypeSystem typeSystem;
   private final CelZ3TranslationContext context;
@@ -142,9 +149,34 @@ final class CelZ3OperatorTranslator {
 
     Operator op = opOpt.orElse(null);
     if (op == Operator.IN) {
+      TranslatedValue lhs = args.get(0);
+      TranslatedValue list = args.get(1);
       currentApprox =
-          CelZ3Exprs.mkOrFlattened(
-              ctx, currentApprox, constrainInWitnessTypes(args.get(0), args.get(1), ast));
+          CelZ3Exprs.mkOrFlattened(ctx, currentApprox, constrainInWitnessTypes(lhs, list, ast));
+      BoolExpr isList = typeSystem.isList(list.z3Expr());
+      if (isExact(ListType.create(guaranteedType(lhs, ast)), guaranteedType(list, ast))) {
+        // IN_LIST matched by terms, but a miss may be past the unroll limit, where elements aren't
+        // constrained to the element type (e.g. `!(false in bool_list)` with a 6th element of 1).
+        ArithExpr length = ctx.mkLength(typeSystem.getSeq(typeSystem.getListRef(list.z3Expr())));
+        currentApprox =
+            CelZ3Exprs.mkOrFlattened(
+                ctx,
+                currentApprox,
+                context.recordUnrollLimitApproximation(
+                    CelZ3Exprs.mkAndFlattened(
+                        ctx,
+                        isList,
+                        ctx.mkGt(length, ctx.mkInt(comprehensionUnrollLimit)),
+                        ctx.mkNot(typeSystem.isTrue(currentZ3Result)))));
+      } else if (extractAstTypeOrDefault(list, ast).kind() != CelKind.MAP) {
+        // Performance only: maps never take the list overload.
+        List<BoolExpr> taints = new ArrayList<>();
+        BoolExpr found = listMembership(lhs, list, ast, taints);
+        currentZ3Result = ctx.mkITE(isList, typeSystem.wrapBool(found), currentZ3Result);
+        currentApprox =
+            CelZ3Exprs.mkOrFlattened(
+                ctx, currentApprox, ctx.mkAnd(isList, CelZ3Exprs.mkOrFlattened(ctx, taints)));
+      }
     } else if (op == Operator.OPTIONAL_SELECT) {
       // A chained optional select (e.g. `a.?b.?c`) selects from the value of an optional operand.
       Expr<?> operand = z3Args.get(0);
@@ -182,49 +214,17 @@ final class CelZ3OperatorTranslator {
   }
 
   /**
-   * Constrains every value that {@code InAxiom} may find in {@code rhs} to its guaranteed element
-   * (or key) type, and returns the condition under which the result remains approximate.
-   *
-   * <p>Container type constraints are only unrolled up to the comprehension unroll limit, so
-   * without this, a match beyond it could violate the element type (e.g. a string found in a list
-   * of ints). This cannot help when the element type is not guaranteed and concrete, nor with map
-   * presence, which is only linked to the keys up to that limit.
+   * Constrains keys that {@code InAxiom} may find in a declared map to its key type, and returns
+   * where the result stays approximate.
    */
   private BoolExpr constrainInWitnessTypes(
       TranslatedValue lhsTv, TranslatedValue rhsTv, CelAbstractSyntaxTree ast) {
     Expr<?> lhs = lhsTv.z3Expr();
     Expr<?> rhs = rhsTv.z3Expr();
-    CelType rhsType = guaranteedType(rhsTv);
-    if (rhsType instanceof ListType) {
-      // IN_LIST probes lhs itself, its int/uint reinterpretation for cross-type numeric equality,
-      // and every zero (0.0 == -0.0 == 0 == 0u).
-      IntExpr intVal =
-          (IntExpr)
-              ctx.mkITE(typeSystem.isInt(lhs), typeSystem.getInt(lhs), typeSystem.getUint(lhs));
-      ImmutableList<Expr<?>> candidates =
-          ImmutableList.of(
-              lhs,
-              typeSystem.wrapInt(intVal),
-              typeSystem.wrapUint(intVal),
-              typeSystem.mkDouble(0.0),
-              typeSystem.mkDouble(-0.0),
-              typeSystem.mkInt(0),
-              typeSystem.mkUint(0));
-      CelType elemType = ((ListType) rhsType).elemType();
-      SeqExpr<?> seq = typeSystem.getSeq(typeSystem.getListRef(rhs));
-      for (Expr<?> cand : candidates) {
-        BoolExpr structContains = ctx.mkContains((Expr) seq, (Expr) ctx.mkUnit(cand));
-        context.addConstraint(
-            ctx.mkImplies(
-                ctx.mkAnd(typeSystem.isList(rhs), structContains),
-                typeConstraintGenerator.createTypeConstraintForType(cand, elemType)));
-      }
-      // With a concrete element type, the constraints above cover any match in rhs.
-      return isConcrete(elemType)
-          ? mayObserveTruncatedTypeConstraint(ast, lhsTv)
-          : mayObserveTruncatedTypeConstraint(ast, lhsTv, rhsTv);
-    } else if (rhsType instanceof MapType) {
-      // IN_MAP probes lhs and its numeric counterparts.
+    CelType rhsType = guaranteedType(rhsTv, ast);
+    if (rhsType instanceof MapType) {
+      // IN_MAP probes lhs and its numeric counterparts, which type constraints unrolled up to the
+      // limit don't cover (e.g. a string found in a map with int keys).
       ArrayExpr mapPresence = (ArrayExpr) typeSystem.getMapPresence(typeSystem.getMapRef(rhs));
       for (CelZ3TypeSystem.EqualKey key : typeSystem.equalKeys(lhs)) {
         context.addConstraint(
@@ -238,8 +238,14 @@ final class CelZ3OperatorTranslator {
       }
       return context.isTruncatedMap(rhs);
     }
-    return CelZ3Exprs.mkOrFlattened(
-        ctx, context.isTruncatedMap(rhs), mayObserveTruncatedTypeConstraint(ast, lhsTv, rhsTv));
+    // On lists, IN_LIST is exact (lhs has the element type, which compares by terms), or else
+    // listMembership compares by CEL equality.
+    return ctx.mkAnd(
+        typeSystem.isMap(rhs),
+        CelZ3Exprs.mkOrFlattened(
+            ctx,
+            context.isTruncatedMap(rhs),
+            mayObserveTruncatedTypeConstraint(ast, lhsTv, rhsTv)));
   }
 
   private BoolExpr mkTypeGuard(Expr<?> arg, CelType expectedType) {
@@ -333,9 +339,11 @@ final class CelZ3OperatorTranslator {
       case NEGATE:
         return translateNegate(args.get(0), ast);
       case EQUALS:
-        return translateEquality(args.get(0), args.get(1), ast, /* isEquals= */ true);
+        return translateEquality(
+            args.get(0), args.get(1), ast, /* isEquals= */ true, /* shallow= */ false);
       case NOT_EQUALS:
-        return translateEquality(args.get(0), args.get(1), ast, /* isEquals= */ false);
+        return translateEquality(
+            args.get(0), args.get(1), ast, /* isEquals= */ false, /* shallow= */ false);
       case LESS:
       case GREATER:
       case LESS_EQUALS:
@@ -549,7 +557,11 @@ final class CelZ3OperatorTranslator {
   }
 
   private BoolExpr getNumericEquality(
-      TranslatedValue arg0, TranslatedValue arg1, CelAbstractSyntaxTree ast) {
+      TranslatedValue arg0,
+      TranslatedValue arg1,
+      CelAbstractSyntaxTree ast,
+      List<BoolExpr> taints,
+      boolean approximateIntDouble) {
     if (arg0.isNumericConstant()) {
       return getNumericEqualityWithConstant(
           arg1.z3Expr(), arg0.celExpr().get().constant(), extractAstTypeOrDefault(arg1, ast));
@@ -564,7 +576,7 @@ final class CelZ3OperatorTranslator {
       return getStaticallyKnownNumericEquality(arg0.z3Expr(), type0, arg1.z3Expr());
     }
 
-    return getDynamicNumericEquality(arg0.z3Expr(), arg1.z3Expr());
+    return getDynamicNumericEquality(arg0.z3Expr(), arg1.z3Expr(), taints, approximateIntDouble);
   }
 
   /** Evaluates numeric equality when types are statically known. */
@@ -582,7 +594,8 @@ final class CelZ3OperatorTranslator {
     }
   }
 
-  private BoolExpr getDynamicNumericEquality(Expr<?> z3Expr0, Expr<?> z3Expr1) {
+  private BoolExpr getDynamicNumericEquality(
+      Expr<?> z3Expr0, Expr<?> z3Expr1, List<BoolExpr> taints, boolean approximateIntDouble) {
     BoolExpr isIntOrUint0 = ctx.mkOr(typeSystem.isInt(z3Expr0), typeSystem.isUint(z3Expr0));
     BoolExpr isIntOrUint1 = ctx.mkOr(typeSystem.isInt(z3Expr1), typeSystem.isUint(z3Expr1));
     BoolExpr bothIntOrUint = ctx.mkAnd(isIntOrUint0, isIntOrUint1);
@@ -608,16 +621,27 @@ final class CelZ3OperatorTranslator {
     BoolExpr isIntOrUintAndDouble = ctx.mkAnd(isIntOrUint0, typeSystem.isDouble(z3Expr1));
     BoolExpr isDoubleAndIntOrUint = ctx.mkAnd(typeSystem.isDouble(z3Expr0), isIntOrUint1);
 
-    // Likewise fall back to 0.0, which the int/double comparisons never need to define.
-    FPExpr fpVal0 = guardedDouble(z3Expr0);
-    FPExpr fpVal1 = guardedDouble(z3Expr1);
-
-    return (BoolExpr)
+    CelZ3Exprs.SwitchBuilder equality =
         CelZ3Exprs.SwitchBuilder.newBuilder(ctx)
             .addCase(bothIntOrUint, ctx.mkEq(val0, val1))
             .addCase(
                 bothDouble,
-                ctx.mkFPEq(typeSystem.getDouble(z3Expr0), typeSystem.getDouble(z3Expr1)))
+                ctx.mkFPEq(typeSystem.getDouble(z3Expr0), typeSystem.getDouble(z3Expr1)));
+    if (approximateIntDouble) {
+      return approximateEqualityWhere(
+          context.recordApproximation(
+              "comparisons of ints with doubles read out of lists and maps",
+              ctx.mkOr(isIntOrUintAndDouble, isDoubleAndIntOrUint)),
+          z3Expr0,
+          z3Expr1,
+          /* exact= */ (BoolExpr) equality.build(ctx.mkFalse()),
+          taints);
+    }
+    // Likewise fall back to 0.0, which the int/double comparisons never need to define.
+    FPExpr fpVal0 = guardedDouble(z3Expr0);
+    FPExpr fpVal1 = guardedDouble(z3Expr1);
+    return (BoolExpr)
+        equality
             .addCase(isIntOrUintAndDouble, typeSystem.intEqDouble(val0, fpVal1))
             .addCase(isDoubleAndIntOrUint, typeSystem.intEqDouble(val1, fpVal0))
             .build(ctx.mkFalse());
@@ -629,152 +653,154 @@ final class CelZ3OperatorTranslator {
             typeSystem.isDouble(z3Expr), typeSystem.getDouble(z3Expr), typeSystem.mkFpDouble(0.0));
   }
 
-  private boolean hasOptionalElements(TranslatedValue arg) {
-    return arg.isLiteral(ExprKind.Kind.LIST)
-        && !arg.celExpr().get().list().optionalIndices().isEmpty();
+  // A literal with optional elements has as many elements as are present, so no fixed length.
+  private static boolean isFixedLengthListLiteral(TranslatedValue list) {
+    return list.isLiteral(ExprKind.Kind.LIST)
+        && list.celExpr().get().list().optionalIndices().isEmpty();
   }
 
-  /**
-   * Unrolls equality against a list literal element-wise, adding each element equality's
-   * approximation to {@code taints}. The lists' own taints don't cover it, since numerically equal
-   * elements (e.g. {@code 1 == 1u}) needn't be equal terms.
-   */
+  // Unrolls list equality element-wise (up to the unroll limit unless either is a literal), adding
+  // each element equality's approximation to taints: numerically equal elements (e.g. 1 == 1u)
+  // needn't be equal terms.
   private BoolExpr unrollListEquality(
       TranslatedValue listA,
       TranslatedValue listB,
       CelAbstractSyntaxTree ast,
       List<BoolExpr> taints) {
-    CelExpr literalListAst =
-        listA.isLiteral(ExprKind.Kind.LIST) ? listA.celExpr().get() : listB.celExpr().get();
-    CelType type0 = guaranteedType(listA);
-    CelType type1 = guaranteedType(listB);
-
+    boolean isLiteralA = isFixedLengthListLiteral(listA);
+    boolean isLiteralB = isFixedLengthListLiteral(listB);
+    boolean isLiteral = isLiteralA || isLiteralB;
     SeqExpr<?> seq0 = typeSystem.getSeq(typeSystem.getListRef(listA.z3Expr()));
     SeqExpr<?> seq1 = typeSystem.getSeq(typeSystem.getListRef(listB.z3Expr()));
+    ArithExpr length = ctx.mkLength(seq0);
 
     List<BoolExpr> equalities = new ArrayList<>();
-    equalities.add(ctx.mkEq(ctx.mkLength(seq0), ctx.mkLength(seq1)));
-
-    int size = literalListAst.list().elements().size();
-    for (int i = 0; i < size; i++) {
-      IntExpr idx = ctx.mkInt(i);
-      Expr<?> elem0 = ctx.mkNth(seq0, idx);
-      Expr<?> elem1 = ctx.mkNth(seq1, idx);
-      // A literal's elements, and a concrete declared type's, are already CEL values (performance
-      // only).
-      if (!listA.isLiteral(ExprKind.Kind.LIST) && !hasConcreteElements(type0)) {
-        context.constrainValidValue(
-            ctx.mkAnd(typeSystem.isList(listA.z3Expr()), ctx.mkLt(idx, ctx.mkLength(seq0))), elem0);
-      }
-      if (!listB.isLiteral(ExprKind.Kind.LIST) && !hasConcreteElements(type1)) {
-        context.constrainValidValue(
-            ctx.mkAnd(typeSystem.isList(listB.z3Expr()), ctx.mkLt(idx, ctx.mkLength(seq1))), elem1);
-      }
-
-      if (i >= comprehensionUnrollLimit) {
-        constrainListElement(seq0, idx, elem0, type0);
-        constrainListElement(seq1, idx, elem1, type1);
-      }
-
-      TranslatedValue elemA =
-          TranslatedValue.create(elem0, listA.listElementAt(i), typeSystem, listA.isApproximate());
-      TranslatedValue elemB =
-          TranslatedValue.create(elem1, listB.listElementAt(i), typeSystem, listB.isApproximate());
-
-      TranslatedValue elemEquality = translateEquality(elemA, elemB, ast, /* isEquals= */ true);
-      Expr<?> eqZ3 = elemEquality.z3Expr();
-
-      BoolExpr isBool = typeSystem.isBool(eqZ3);
-      BoolExpr isTrue = ctx.mkAnd(isBool, (BoolExpr) typeSystem.unwrapBool(eqZ3));
-
-      equalities.add(isTrue);
-      taints.add(elemEquality.isApproximate());
+    equalities.add(ctx.mkEq(length, ctx.mkLength(seq1)));
+    int size =
+        isLiteral
+            ? (isLiteralA ? listA : listB).celExpr().get().list().elements().size()
+            : comprehensionUnrollLimit;
+    if (!isLiteral) {
+      equalities.add(approximatePastUnrollLimit(length, listA.z3Expr(), listB.z3Expr(), taints));
     }
-
+    for (int i = 0; i < size; i++) {
+      TranslatedValue elemA = listElement(listA, seq0, i, isLiteralA, ast);
+      TranslatedValue elemB = listElement(listB, seq1, i, isLiteralB, ast);
+      TranslatedValue elemEquality =
+          translateEquality(elemA, elemB, ast, /* isEquals= */ true, /* shallow= */ !isLiteral);
+      BoolExpr inBounds = ctx.mkLt(ctx.mkInt(i), length);
+      equalities.add(ctx.mkImplies(inBounds, typeSystem.isTrue(elemEquality.z3Expr())));
+      taints.add(ctx.mkAnd(inBounds, elemEquality.isApproximate()));
+    }
     return CelZ3Exprs.mkAndFlattened(ctx, equalities);
   }
 
-  // Unrolled over a map literal's keys: the other map has as many keys, each present and equal to
-  // a literal key, and an equal value for each literal key.
+  // Element i of list, typed by the literal's element if list is a literal.
+  private TranslatedValue listElement(
+      TranslatedValue list, SeqExpr<?> seq, int i, boolean isLiteral, CelAbstractSyntaxTree ast) {
+    Expr<?> elem = ctx.mkNth(seq, ctx.mkInt(i));
+    // A literal's elements are already CEL values (performance only).
+    if (!isLiteral) {
+      BoolExpr inBounds = ctx.mkLt(ctx.mkInt(i), ctx.mkLength(seq));
+      context.constrainValidValue(ctx.mkAnd(typeSystem.isList(list.z3Expr()), inBounds), elem);
+      CelType listType = guaranteedType(list, ast);
+      // Type constraints are only unrolled up to the limit.
+      if (i >= comprehensionUnrollLimit && listType instanceof ListType) {
+        context.addConstraint(
+            ctx.mkImplies(
+                inBounds,
+                typeConstraintGenerator.createTypeConstraintForType(
+                    elem, ((ListType) listType).elemType())));
+      }
+    }
+    return TranslatedValue.create(
+        elem,
+        isLiteral ? list.listElementAt(i) : Optional.empty(),
+        typeSystem,
+        list.isApproximate());
+  }
+
+  // Unrolled over a map literal's keys, or else mapA's up to the unroll limit: the other map has as
+  // many keys, and an equal key and value for each.
   private BoolExpr unrollMapEquality(
       TranslatedValue mapA,
       TranslatedValue mapB,
       CelAbstractSyntaxTree ast,
       List<BoolExpr> taints) {
+    boolean isLiteral = mapA.isLiteral(ExprKind.Kind.MAP) || mapB.isLiteral(ExprKind.Kind.MAP);
     // Prefer a literal whose values are list or map literals, which compare element-wise.
-    boolean isLiteralA =
-        mapA.isLiteral(ExprKind.Kind.MAP)
-            && !(mapB.isLiteral(ExprKind.Kind.MAP)
-                && hasContainerLiteralValue(mapB)
-                && !hasContainerLiteralValue(mapA));
-    TranslatedValue literal = isLiteralA ? mapA : mapB;
-    Expr<?> other = (isLiteralA ? mapB : mapA).z3Expr();
+    boolean isMapA =
+        !mapB.isLiteral(ExprKind.Kind.MAP)
+            || (mapA.isLiteral(ExprKind.Kind.MAP) && !hasContainerLiteralValue(mapB));
+    TranslatedValue map = isMapA ? mapA : mapB;
+    TranslatedValue otherMap = isMapA ? mapB : mapA;
+    Expr<?> other = otherMap.z3Expr();
     BoolExpr isOtherMap = typeSystem.isMap(other);
-    Expr<?> literalRef = typeSystem.getMapRef(literal.z3Expr());
-    SeqExpr<?> keys = typeSystem.getMapKeys(literalRef);
-    ArrayExpr values = (ArrayExpr) typeSystem.getMapValues(literalRef);
+    Expr<?> mapRef = typeSystem.getMapRef(map.z3Expr());
+    SeqExpr<?> keys = typeSystem.getMapKeys(mapRef);
+    ArrayExpr values = (ArrayExpr) typeSystem.getMapValues(mapRef);
     ArithExpr length = ctx.mkLength(keys);
     Expr<?> otherRef = typeSystem.getMapRef(other);
     SeqExpr<?> otherKeys = typeSystem.getMapKeys(otherRef);
 
     List<BoolExpr> equalities = new ArrayList<>();
     equalities.add(ctx.mkEq(length, ctx.mkLength(otherKeys)));
-    ImmutableList<CelExpr.CelMap.Entry> entries = literal.celExpr().get().map().entries();
+    ImmutableList<CelExpr.CelMap.Entry> entries =
+        isLiteral ? map.celExpr().get().map().entries() : ImmutableList.of();
     // The keys are in entry order unless an optional entry is absent (repeated keys are errors).
-    boolean inEntryOrder = entries.stream().noneMatch(CelExpr.CelMap.Entry::optionalEntry);
-    for (int i = 0; i < entries.size(); i++) {
+    boolean inEntryOrder =
+        isLiteral && entries.stream().noneMatch(CelExpr.CelMap.Entry::optionalEntry);
+    int size = isLiteral ? entries.size() : comprehensionUnrollLimit;
+    if (!isLiteral) {
+      equalities.add(approximatePastUnrollLimit(length, map.z3Expr(), other, taints));
+      // A map that isn't a literal or of a declared map type isn't otherwise known to be
+      // well-formed (distinct keys matching its presence, valid keys and values).
+      for (TranslatedValue operand : ImmutableList.of(mapA, mapB)) {
+        if (!(guaranteedType(operand, ast) instanceof MapType)) {
+          context.addConstraint(
+              ctx.mkImplies(
+                  typeSystem.isMap(operand.z3Expr()),
+                  typeConstraintGenerator.createTypeConstraintForType(operand.z3Expr(), DYN_MAP)));
+        }
+      }
+    }
+    for (int i = 0; i < size; i++) {
       BoolExpr inBounds = ctx.mkLt(ctx.mkInt(i), length);
       Expr<?> key = ctx.mkNth(keys, ctx.mkInt(i)).simplify();
       ImmutableList<CelZ3TypeSystem.EqualKey> equalKeys = typeSystem.equalKeys(key);
       BoolExpr hasKey = typeSystem.hasEqualKey(other, equalKeys);
       Expr<?> otherValue = typeSystem.valueAtEqualKey(other, equalKeys);
       context.constrainValidValue(ctx.mkAnd(isOtherMap, inBounds, hasKey), otherValue);
-      Expr<?> value = ctx.mkSelect(values, key);
-      CelExpr valueAst = entries.get(i).value();
-      boolean isValueLiteral = inEntryOrder && isContainerLiteral(valueAst);
       TranslatedValue valueEquality =
           translateEquality(
-              inEntryOrder
-                  ? TranslatedValue.create(value, valueAst, typeSystem, literal.isApproximate())
-                  : TranslatedValue.create(value, typeSystem, literal.isApproximate()),
-              TranslatedValue.create(otherValue, typeSystem, ctx.mkFalse()),
+              TranslatedValue.create(
+                  ctx.mkSelect(values, key),
+                  inEntryOrder ? Optional.of(entries.get(i).value()) : Optional.empty(),
+                  typeSystem,
+                  map.isApproximate()),
+              TranslatedValue.create(otherValue, typeSystem, otherMap.isApproximate()),
               ast,
-              /* isEquals= */ true);
+              /* isEquals= */ true,
+              /* shallow= */ !isLiteral);
       taints.add(ctx.mkAnd(inBounds, valueEquality.isApproximate()));
-      if (!isValueLiteral) {
-        // TODO: Lists and maps compare by their terms unless one is a literal.
-        taints.add(
-            context.recordApproximation(
-                "comparisons of lists or maps nested in maps",
-                CelZ3Exprs.mkAndFlattened(
-                    ctx,
-                    isOtherMap,
-                    inBounds,
-                    hasKey,
-                    ctx.mkOr(
-                        ctx.mkAnd(typeSystem.isList(value), typeSystem.isList(otherValue)),
-                        ctx.mkAnd(typeSystem.isMap(value), typeSystem.isMap(otherValue))))));
-      }
-      Expr<?> isEqual = valueEquality.z3Expr();
       equalities.add(
-          ctx.mkImplies(
-              inBounds,
-              ctx.mkAnd(
-                  hasKey, typeSystem.isBool(isEqual), (BoolExpr) typeSystem.unwrapBool(isEqual))));
+          ctx.mkImplies(inBounds, ctx.mkAnd(hasKey, typeSystem.isTrue(valueEquality.z3Expr()))));
     }
-    // The other map's keys are exactly the present ones, so each equals a literal key: as many as
-    // the literal's, which are all present.
-    ArrayExpr presence = ctx.mkConstArray(typeSystem.celValueSort(), ctx.mkFalse());
-    for (int j = 0; j < entries.size(); j++) {
-      Expr<?> otherKey = ctx.mkNth(otherKeys, ctx.mkInt(j));
-      presence =
-          (ArrayExpr)
-              ctx.mkITE(
-                  ctx.mkLt(ctx.mkInt(j), length),
-                  ctx.mkStore(presence, otherKey, ctx.mkTrue()),
-                  presence);
+    if (isLiteral) {
+      // The other map's keys are exactly the present ones, so each equals a literal key: as many
+      // as the literal's, which are all present.
+      ArrayExpr presence = ctx.mkConstArray(typeSystem.celValueSort(), ctx.mkFalse());
+      for (int j = 0; j < entries.size(); j++) {
+        Expr<?> otherKey = ctx.mkNth(otherKeys, ctx.mkInt(j));
+        presence =
+            (ArrayExpr)
+                ctx.mkITE(
+                    ctx.mkLt(ctx.mkInt(j), length),
+                    ctx.mkStore(presence, otherKey, ctx.mkTrue()),
+                    presence);
+      }
+      equalities.add(ctx.mkEq(typeSystem.getMapPresence(otherRef), presence));
     }
-    equalities.add(ctx.mkEq(typeSystem.getMapPresence(otherRef), presence));
     return CelZ3Exprs.mkAndFlattened(ctx, equalities);
   }
 
@@ -805,6 +831,101 @@ final class CelZ3OperatorTranslator {
     return CelZ3Exprs.mkAndFlattened(ctx, equalities);
   }
 
+  // `in` on a list compares each element with lhs by CEL equality, unrolled over a literal's
+  // elements or else up to the unroll limit, past which a match is approximate.
+  private BoolExpr listMembership(
+      TranslatedValue lhs, TranslatedValue list, CelAbstractSyntaxTree ast, List<BoolExpr> taints) {
+    boolean isLiteral = isFixedLengthListLiteral(list);
+    SeqExpr<?> seq = typeSystem.getSeq(typeSystem.getListRef(list.z3Expr()));
+    ArithExpr length = ctx.mkLength(seq);
+    List<BoolExpr> matches = new ArrayList<>();
+    int size = isLiteral ? list.celExpr().get().list().elements().size() : comprehensionUnrollLimit;
+    for (int i = 0; i < size; i++) {
+      BoolExpr inBounds = ctx.mkLt(ctx.mkInt(i), length);
+      // The runtime compares each element with lhs, in that order.
+      TranslatedValue equality =
+          translateEquality(
+              listElement(list, seq, i, isLiteral, ast),
+              lhs,
+              ast,
+              /* isEquals= */ true,
+              /* shallow= */ !isLiteral);
+      matches.add(ctx.mkAnd(inBounds, typeSystem.isTrue(equality.z3Expr())));
+      taints.add(ctx.mkAnd(inBounds, equality.isApproximate()));
+    }
+    BoolExpr found = CelZ3Exprs.mkOrFlattened(ctx, matches);
+    if (isLiteral) {
+      return found;
+    }
+    CelType listType = guaranteedType(list, ast);
+    CelType elemType =
+        listType instanceof ListType ? ((ListType) listType).elemType() : SimpleType.DYN;
+    return approximateWhere(
+        context.recordUnrollLimitApproximation(
+            CelZ3Exprs.mkAndFlattened(
+                ctx,
+                ctx.mkGt(length, ctx.mkInt(comprehensionUnrollLimit)),
+                ctx.mkNot(found),
+                mayEqualElement(lhs.z3Expr(), elemType))),
+        uninterpreted(FUNC_APPROX_IN, lhs.z3Expr(), list.z3Expr()),
+        found,
+        taints);
+  }
+
+  // Whether lhs may equal an element of elemType: a number only across numeric types, and a list
+  // only another list (anything else conservatively).
+  private BoolExpr mayEqualElement(Expr<?> lhs, CelType elemType) {
+    if (elemType instanceof NullableType) {
+      return ctx.mkTrue();
+    }
+    if (isNumericType(elemType)) {
+      return isNumeric(lhs);
+    }
+    return elemType.kind() == CelKind.LIST ? typeSystem.isList(lhs) : ctx.mkTrue();
+  }
+
+  // Where the recorded approximation holds, the verifier doesn't model the result, so it's the
+  // given uninterpreted relation there.
+  private BoolExpr approximateWhere(
+      BoolExpr approximation, BoolExpr relation, BoolExpr exact, List<BoolExpr> taints) {
+    taints.add(approximation);
+    return (BoolExpr) ctx.mkITE(approximation, relation, exact);
+  }
+
+  private BoolExpr uninterpreted(String name, Expr<?> z3Expr0, Expr<?> z3Expr1) {
+    Sort sort = typeSystem.celValueSort();
+    FuncDecl<?> relation =
+        typeSystem.internFuncDecl(name, new Sort[] {sort, sort}, ctx.getBoolSort());
+    return (BoolExpr) ctx.mkApp(relation, z3Expr0, z3Expr1);
+  }
+
+  // Like approximateWhere, for CEL equality, which is symmetric.
+  private BoolExpr approximateEqualityWhere(
+      BoolExpr approximation,
+      Expr<?> z3Expr0,
+      Expr<?> z3Expr1,
+      BoolExpr exact,
+      List<BoolExpr> taints) {
+    // Ordered by term id (in either direction) so that x == y and y == x share one application.
+    // Asserting both orders instead doubles the applications, which made nested comparisons slow.
+    boolean swap = z3Expr0.getId() > z3Expr1.getId();
+    BoolExpr relation =
+        uninterpreted(FUNC_APPROX_EQ, swap ? z3Expr1 : z3Expr0, swap ? z3Expr0 : z3Expr1);
+    return approximateWhere(approximation, relation, exact, taints);
+  }
+
+  // Lists and maps compared up to the unroll limit may differ past it.
+  private BoolExpr approximatePastUnrollLimit(
+      ArithExpr length, Expr<?> z3Expr0, Expr<?> z3Expr1, List<BoolExpr> taints) {
+    return approximateEqualityWhere(
+        context.recordUnrollLimitApproximation(
+            ctx.mkGt(length, ctx.mkInt(comprehensionUnrollLimit))),
+        z3Expr0,
+        z3Expr1,
+        /* exact= */ ctx.mkTrue(),
+        taints);
+  }
+
   private static boolean hasContainerLiteralValue(TranslatedValue map) {
     return map.celExpr().get().map().entries().stream()
         .anyMatch(e -> isContainerLiteral(e.value()));
@@ -814,19 +935,20 @@ final class CelZ3OperatorTranslator {
     return expr.getKind() == ExprKind.Kind.LIST || expr.getKind() == ExprKind.Kind.MAP;
   }
 
-  private void constrainListElement(SeqExpr<?> seq, IntExpr idx, Expr<?> elem, CelType listType) {
-    if (listType instanceof ListType) {
-      context.addConstraint(
-          ctx.mkImplies(
-              ctx.mkLt(idx, ctx.mkLength(seq)),
-              context
-                  .typeConstraintGenerator()
-                  .createTypeConstraintForType(elem, ((ListType) listType).elemType())));
-    }
+  private static boolean isContainerLiteral(TranslatedValue val) {
+    return val.isLiteral(ExprKind.Kind.LIST) || val.isLiteral(ExprKind.Kind.MAP);
   }
 
+  // CEL equality. Values read out of lists and maps that aren't literals (shallow, unless either is
+  // a list or map literal) compare numbers numerically, but ints and doubles approximately, and
+  // lists, maps, messages and optionals approximately (performance only).
   private TranslatedValue translateEquality(
-      TranslatedValue arg0, TranslatedValue arg1, CelAbstractSyntaxTree ast, boolean isEquals) {
+      TranslatedValue arg0,
+      TranslatedValue arg1,
+      CelAbstractSyntaxTree ast,
+      boolean isEquals,
+      boolean shallow) {
+    boolean isShallow = shallow && !isContainerLiteral(arg0) && !isContainerLiteral(arg1);
     Expr<?> z3Arg0 = arg0.z3Expr();
     Expr<?> z3Arg1 = arg1.z3Expr();
 
@@ -835,51 +957,69 @@ final class CelZ3OperatorTranslator {
 
     BoolExpr equality;
     List<BoolExpr> taints = new ArrayList<>();
-    taints.add(mayObserveTruncatedTypeConstraint(ast, arg0, arg1));
+    if (!isShallow) {
+      taints.add(mayObserveTruncatedTypeConstraint(ast, arg0, arg1));
+    }
 
     if (isNumericType(type0) && isNumericType(type1)) {
-      equality = getNumericEquality(arg0, arg1, ast);
-    } else if (type0.kind() == CelKind.LIST
-        && type1.kind() == CelKind.LIST
-        && (arg0.isLiteral(ExprKind.Kind.LIST) || arg1.isLiteral(ExprKind.Kind.LIST))
-        && !hasOptionalElements(arg0)
-        && !hasOptionalElements(arg1)) {
-      equality = unrollListEquality(arg0, arg1, ast, taints);
-    } else if (arg0.isLiteral(ExprKind.Kind.MAP) || arg1.isLiteral(ExprKind.Kind.MAP)) {
+      equality = getNumericEquality(arg0, arg1, ast, taints, /* approximateIntDouble= */ false);
+    } else {
+      BoolExpr bothLists = ctx.mkAnd(typeSystem.isList(z3Arg0), typeSystem.isList(z3Arg1));
+      BoolExpr bothMaps = ctx.mkAnd(typeSystem.isMap(z3Arg0), typeSystem.isMap(z3Arg1));
+      BoolExpr structuralEq;
+      if (isShallow) {
+        structuralEq =
+            approximateEqualityWhere(
+                context.recordApproximation(
+                    "comparisons of lists, maps, messages or optionals read out of lists and maps",
+                    CelZ3Exprs.mkOrFlattened(
+                        ctx,
+                        bothLists,
+                        bothMaps,
+                        ctx.mkAnd(typeSystem.isMessage(z3Arg0), typeSystem.isMessage(z3Arg1)),
+                        ctx.mkAnd(typeSystem.isOptional(z3Arg0), typeSystem.isOptional(z3Arg1)))),
+                z3Arg0,
+                z3Arg1,
+                /* exact= */ ctx.mkEq(z3Arg0, z3Arg1),
+                taints);
+      } else {
+        // Lists and maps compare by CEL equality, unless their guaranteed types make it their
+        // terms'.
+        structuralEq = typeSystem.getStructuralEquality(z3Arg0, z3Arg1);
+        if (!isExact(guaranteedType(arg0, ast), guaranteedType(arg1, ast))) {
+          if (type0.kind() == CelKind.LIST || type1.kind() == CelKind.LIST) {
+            structuralEq =
+                (BoolExpr)
+                    ctx.mkITE(bothLists, unrollListEquality(arg0, arg1, ast, taints), structuralEq);
+          } else if (type0.kind() == CelKind.MAP || type1.kind() == CelKind.MAP) {
+            BoolExpr mapEquality =
+                isExact(type0, type1)
+                        && (arg0.isLiteral(ExprKind.Kind.MAP) || arg1.isLiteral(ExprKind.Kind.MAP))
+                    ? mapEqualityAtLiteralKeys(arg0, arg1)
+                    : unrollMapEquality(arg0, arg1, ast, taints);
+            structuralEq = (BoolExpr) ctx.mkITE(bothMaps, mapEquality, structuralEq);
+          } else if (!isStaticallyKnown(type0) && !isStaticallyKnown(type1)) {
+            // Performance only: a side with a known type isn't a list or map here.
+            // TODO: Unless the type checker narrowed it, e.g. `(int_list +
+            // dyn_var)[0]`.
+            structuralEq =
+                approximateEqualityWhere(
+                    context.recordApproximation(
+                        "comparisons of lists or maps typed dyn", ctx.mkOr(bothLists, bothMaps)),
+                    z3Arg0,
+                    z3Arg1,
+                    structuralEq,
+                    taints);
+          }
+        }
+      }
       equality =
           (BoolExpr)
               ctx.mkITE(
-                  ctx.mkAnd(typeSystem.isMap(z3Arg0), typeSystem.isMap(z3Arg1)),
-                  type0.equals(type1) && hasStructuralEquality(type0)
-                      ? mapEqualityAtLiteralKeys(arg0, arg1)
-                      : unrollMapEquality(arg0, arg1, ast, taints),
-                  typeSystem.getStructuralEquality(z3Arg0, z3Arg1));
-    } else if (isStaticallyKnown(type0) && isStaticallyKnown(type1)) {
-      equality = typeSystem.getStructuralEquality(z3Arg0, z3Arg1);
-    } else {
-      boolean canBeNumeric0 = !isStaticallyKnown(type0) || isNumericType(type0);
-      boolean canBeNumeric1 = !isStaticallyKnown(type1) || isNumericType(type1);
-
-      // Check if one side is an explicit LIST that we can unroll
-      BoolExpr structuralEq = typeSystem.getStructuralEquality(z3Arg0, z3Arg1);
-      if ((arg0.isLiteral(ExprKind.Kind.LIST) || arg1.isLiteral(ExprKind.Kind.LIST))
-          && !hasOptionalElements(arg0)
-          && !hasOptionalElements(arg1)) {
-        structuralEq =
-            (BoolExpr)
-                ctx.mkITE(
-                    ctx.mkAnd(typeSystem.isList(z3Arg0), typeSystem.isList(z3Arg1)),
-                    unrollListEquality(arg0, arg1, ast, taints),
-                    structuralEq);
-      }
-
-      if (canBeNumeric0 && canBeNumeric1) {
-        BoolExpr bothNumeric = ctx.mkAnd(isNumeric(z3Arg0), isNumeric(z3Arg1));
-        equality =
-            (BoolExpr) ctx.mkITE(bothNumeric, getNumericEquality(arg0, arg1, ast), structuralEq);
-      } else {
-        equality = structuralEq;
-      }
+                  ctx.mkAnd(isNumeric(z3Arg0), isNumeric(z3Arg1)),
+                  getNumericEquality(
+                      arg0, arg1, ast, taints, /* approximateIntDouble= */ isShallow),
+                  structuralEq);
     }
 
     if (!isEquals) {
@@ -933,7 +1073,7 @@ final class CelZ3OperatorTranslator {
     TranslatedValue lhs = args.get(0);
     TranslatedValue rhs = args.get(1);
     CelType lhsType = extractAstTypeOrDefault(lhs, ast);
-    boolean isLhsTypeGuaranteed = lhsType.equals(guaranteedType(lhs));
+    boolean isLhsTypeGuaranteed = lhsType.equals(guaranteedType(lhs, ast));
 
     Expr<?> lhsTrans = lhs.z3Expr();
     Expr<?> rhsTrans = rhs.z3Expr();
@@ -1104,13 +1244,15 @@ final class CelZ3OperatorTranslator {
   }
 
   /**
-   * Returns the type that {@code val} is guaranteed to conform to at runtime: the declared type of
-   * an input variable, or else dyn. Global constraints may only be derived from guaranteed types:
-   * the type checker may narrow static types (e.g. {@code ['a'] + dyn_var} is typed list(string)),
-   * so constraints derived from those could exclude valid inputs.
+   * Returns the type that {@code val} is guaranteed to conform to at runtime: a constant's, the
+   * declared type of an input variable, or else dyn. Global constraints may only be derived from
+   * guaranteed types: the type checker may narrow static types (e.g. {@code ['a'] + dyn_var} is
+   * typed list(string)), so constraints derived from those could exclude valid inputs.
    */
-  private CelType guaranteedType(TranslatedValue val) {
-    return context.guaranteedType(val.z3Expr());
+  private CelType guaranteedType(TranslatedValue val, CelAbstractSyntaxTree ast) {
+    return val.isLiteral(ExprKind.Kind.CONSTANT)
+        ? extractAstTypeOrDefault(val, ast)
+        : context.guaranteedType(val.z3Expr());
   }
 
   /**
@@ -1132,6 +1274,10 @@ final class CelZ3OperatorTranslator {
   private static boolean isConcrete(CelType type) {
     return isStaticallyKnown(type)
         && type.parameters().stream().allMatch(CelZ3OperatorTranslator::isConcrete);
+  }
+
+  private static boolean isExact(CelType type0, CelType type1) {
+    return type0.equals(type1) && hasStructuralEquality(type0);
   }
 
   /** Whether values of {@code type} are equal exactly when their terms are. */

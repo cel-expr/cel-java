@@ -360,6 +360,11 @@ public final class CelZ3TypeSystem {
     return ctx.mkFP(val, ctx.mkFPSortDouble());
   }
 
+  /** Whether the given CelValue is the bool true. */
+  BoolExpr isTrue(Expr<?> celValue) {
+    return ctx.mkAnd(isBool(celValue), (BoolExpr) unwrapBool(celValue));
+  }
+
   /** Checks if the given CelValue is a double. */
   public BoolExpr isDouble(Expr<?> val) {
     return (BoolExpr) ctx.mkApp(doubleCons.getTesterDecl(), val);
