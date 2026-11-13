@@ -20,12 +20,10 @@ import static dev.cel.extensions.CelOptionalLibrary.OptionalDeclaration.OPTIONAL
 import static dev.cel.extensions.CelOptionalLibrary.OptionalDeclaration.OPTIONAL_OF_NON_ZERO_VALUE;
 import static dev.cel.extensions.CelOptionalLibrary.OptionalDeclaration.OPTIONAL_OR;
 import static dev.cel.extensions.CelOptionalLibrary.OptionalDeclaration.OPTIONAL_OR_VALUE;
-import static dev.cel.extensions.CelOptionalLibrary.OptionalDeclaration.OPTIONAL_SELECT;
 import static dev.cel.extensions.CelOptionalLibrary.OptionalDeclaration.OPTIONAL_VALUE;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import com.microsoft.z3.ArrayExpr;
 import com.microsoft.z3.BoolExpr;
 import com.microsoft.z3.Context;
 import com.microsoft.z3.Expr;
@@ -33,7 +31,6 @@ import com.microsoft.z3.FPExpr;
 import com.microsoft.z3.SeqExpr;
 import dev.cel.common.CelFunctionDecl;
 import dev.cel.common.CelOverloadDecl;
-import dev.cel.verifier.CelZ3Exprs;
 import dev.cel.verifier.CelZ3TypeSystem;
 import java.util.Optional;
 
@@ -88,63 +85,6 @@ final class OptionalAxioms {
               (ctx, ts, sink, val, other) -> {
                 Expr<?> optRef = ts.getOptionalRef(val);
                 return Optional.of(ctx.mkITE(ts.optHasValue(optRef), val, other));
-              }),
-          createBinaryAxiom(
-              OPTIONAL_SELECT,
-              (ctx, ts, sink, operand, field) -> {
-                Expr<?> optRef = ts.getOptionalRef(operand);
-                BoolExpr isOpt = ts.isOptional(operand);
-                BoolExpr hasValue = ts.optHasValue(optRef);
-                Expr<?> actualOperand = ctx.mkITE(isOpt, ts.getOptionalValue(optRef), operand);
-
-                BoolExpr isMap = ts.isMap(actualOperand);
-                BoolExpr isMsg = ts.isMessage(actualOperand);
-                BoolExpr isValidTarget = ctx.mkOr(isMap, isMsg);
-
-                Expr<?> msgFieldZ3Str = ts.getString(field);
-                Expr<?> mapFieldCelVal = field;
-
-                Expr<?> msgRef = ts.getMessageRef(actualOperand);
-                Expr<?> mapRef = ts.getMapRef(actualOperand);
-
-                Expr<?> presence =
-                    CelZ3Exprs.SwitchBuilder.newBuilder(ctx)
-                        .addCase(
-                            isMsg,
-                            ctx.mkSelect((ArrayExpr) ts.getMsgPresence(msgRef), msgFieldZ3Str))
-                        .addCase(
-                            isMap,
-                            ctx.mkSelect((ArrayExpr) ts.getMapPresence(mapRef), mapFieldCelVal))
-                        .build(ctx.mkFalse());
-
-                Expr<?> value =
-                    CelZ3Exprs.SwitchBuilder.newBuilder(ctx)
-                        .addCase(
-                            isMsg, ctx.mkSelect((ArrayExpr) ts.getMsgValues(msgRef), msgFieldZ3Str))
-                        .addCase(
-                            isMap,
-                            ctx.mkSelect((ArrayExpr) ts.getMapValues(mapRef), mapFieldCelVal))
-                        .build(ts.mkError());
-
-                BoolExpr valNotError = ctx.mkNot(ctx.mkEq(value, ts.mkError()));
-                BoolExpr shouldEvaluate = (BoolExpr) ctx.mkITE(isOpt, hasValue, ctx.mkTrue());
-                sink.accept(
-                    ctx.mkImplies(
-                        CelZ3Exprs.mkAndFlattened(
-                            ctx, shouldEvaluate, isValidTarget, (BoolExpr) presence),
-                        valNotError));
-
-                Expr<?> resultOptRef = ctx.mkApp(ts.optionalOfRefFunc(), value);
-                sink.accept(ctx.mkEq(ts.getOptionalValue(resultOptRef), value));
-                sink.accept(ts.optHasValue(resultOptRef));
-
-                Expr<?> optionalResult =
-                    ctx.mkITE(
-                        (BoolExpr) presence, ts.mkOptionalOf(resultOptRef), ts.mkOptionalNone());
-
-                Expr<?> result = ctx.mkITE(isValidTarget, optionalResult, ts.mkError());
-                return Optional.of(
-                    ctx.mkITE(ctx.mkAnd(isOpt, ctx.mkNot(hasValue)), ts.mkOptionalNone(), result));
               }));
 
   private static BoolExpr isZeroValue(Context ctx, CelZ3TypeSystem ts, Expr<?> val) {

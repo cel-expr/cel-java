@@ -118,6 +118,9 @@ public final class CelVerifierZ3ImplTest {
           .addVar("opt_var", OptionalType.create(SimpleType.INT))
           .addVar("opt_dyn_var", OptionalType.create(SimpleType.DYN))
           .addVar("nullable_int", NullableType.create(SimpleType.INT))
+          .addVar("nullable_int_list", ListType.create(NullableType.create(SimpleType.INT)))
+          .addVar("bool_list", ListType.create(SimpleType.BOOL))
+          .addVar("bool_list_2", ListType.create(SimpleType.BOOL))
           .addVar("string_int_map", MapType.create(SimpleType.STRING, SimpleType.INT))
           .addVar("bytes_val", SimpleType.BYTES)
           .addVar(
@@ -177,8 +180,6 @@ public final class CelVerifierZ3ImplTest {
         "dyn_var == TestAllTypes{} && dyn_var.single_string == ''", "dyn_var = "),
     ANY_NUMERIC_EQUALITY(
         "test_all_types.single_any == 1 && 1.0 == test_all_types.single_any", "test_all_types = "),
-    DYNAMIC_VAR_NOT_IN_LIST(
-        "dyn_var == 1.5 && !(dyn_var in dyn_list) && size(dyn_list) == 6", "dyn_var = 1\\.5"),
     DYNAMIC_LIST_EQUALITY_BEYOND_BMC_LIMIT("dyn_list == [1, 2, 3, 4, 5, 6]", "dyn_list = "),
     CROSS_NUMERIC_EQUALITY_INT_DYN_EXACT("1 == request", "request = 1"),
     MACRO_LIMIT("dyn_list.all(x, x == 1)", "Satisfying input:"),
@@ -597,7 +598,18 @@ public final class CelVerifierZ3ImplTest {
     CUSTOM_COMPREHENSION_LOOP_CONDITION(
         "int_list == [1, 2] && int_list.first_elem() == 1", "comprehensions with a loop condition"),
     OPTIONAL_SELECT_WITH_AXIOM(
-        "(false && string_int_map.?k.hasValue()) || int(string_var) == 5", "calls to `int`");
+        "(false && string_int_map.?k.hasValue()) || int(string_var) == 5", "calls to `int`"),
+    INT_DOUBLE_IN_LISTS(
+        "size(dyn_list) == 1 && size(dyn_var) == 1 && dyn_list[0] + 1 == 2"
+            + " && dyn_var[0] + 1.0 == 2.0 && dyn_list == dyn_var",
+        "comparisons of ints with doubles read out of lists and maps"),
+    LISTS_IN_LISTS(
+        "size(dyn_list) == 1 && size(dyn_var) == 1 && type(dyn_list[0]) == list"
+            + " && dyn_list == dyn_var",
+        "comparisons of lists, maps, messages or optionals read out of lists and maps"),
+    DYN_LIST_VARIABLES(
+        "size(dyn_var) == 1 && dyn_var[0] == 1 && dyn_var == dyn_var2",
+        "comparisons of lists or maps typed dyn");
 
     private final String expr;
     private final String expectedSources;
@@ -677,6 +689,19 @@ public final class CelVerifierZ3ImplTest {
   }
 
   private enum IsSatisfiableInconclusiveTestCase {
+    // A list of nullable ints may hold null past the unroll limit.
+    NULL_IN_NULLABLE_LIST_PAST_UNROLL_LIMIT(
+        "size(nullable_int_list) == 6 && nullable_int_list[0] != null && nullable_int_list[1] !="
+            + " null && nullable_int_list[2] != null && nullable_int_list[3] != null"
+            + " && nullable_int_list[4] != null && null in nullable_int_list"),
+    // `in` on a list that isn't a literal is approximate past the unroll limit.
+    DYNAMIC_VAR_NOT_IN_LIST("dyn_var == 1.5 && !(dyn_var in dyn_list) && size(dyn_list) == 6"),
+    // `in` compares an int with doubles read out of lists that aren't literals approximately.
+    DYN_IN_LIST_OUT_OF_RANGE_CROSS_TYPE_CANDIDATE(
+        "size(dyn_var + []) == 1"
+            + " && ((-1 in dyn_var && dyn_var != ([-1] + []))"
+            + " || (18446744073709551615u in dyn_var"
+            + " && dyn_var != ([18446744073709551615u] + [])))"),
     // Well-known types are never messages, and other message types may have the field.
     DYN_MESSAGE_FIELD_OF_UNKNOWN_TYPE("type(dyn_var) != map && dyn_var.type_url == ''"),
     MASKED_BY_BMC("int_list == [1, 2, 3, 4, 5, 6] ? int_list.exists(x, x == 42) : false"),
@@ -807,7 +832,8 @@ public final class CelVerifierZ3ImplTest {
     TYPE_CONVERSION_UNSATISFIABLE_INT_TO_DOUBLE_NAN("double(x) != double(x)"),
     EMPTY_MAP_SIZE_NOT_ZERO("size({}) != 0"),
     // An int key never finds a double key of a host map.
-    INT_KEY_NOT_FOUND_BUT_LITERAL_FOUND("x == 1 && !(x in dyn_var) && 1 in dyn_var"),
+    INT_KEY_NOT_FOUND_BUT_LITERAL_FOUND(
+        "type(dyn_var) == map && x == 1 && !(x in dyn_var) && 1 in dyn_var"),
     TIMESTAMP_INEQUALITY_CONTRADICTION(
         "timestamp('2023-01-01T00:00:00Z') != timestamp('2023-01-01T00:00:00Z')"),
     TYPE_TIMESTAMP_NOT_INT("type(timestamp('1970-01-01T00:00:00Z')) == int"),
@@ -892,11 +918,6 @@ public final class CelVerifierZ3ImplTest {
         "d == -9223372036854777856.0 && dyn_var == [d] && !(d in dyn_var)"),
     DYN_LIST_EQUALITY_OUT_OF_RANGE_RIGHT_ELEMENT(
         "d == -9223372036854777856.0 && [d] == dyn_var && !(d in dyn_var)"),
-    DYN_IN_LIST_OUT_OF_RANGE_CROSS_TYPE_CANDIDATE(
-        "size(dyn_var + []) == 1"
-            + " && ((-1 in dyn_var && dyn_var != ([-1] + []))"
-            + " || (18446744073709551615u in dyn_var"
-            + " && dyn_var != ([18446744073709551615u] + [])))"),
     DYN_OPTIONAL_OR_VALUE_OUT_OF_RANGE(
         "type(dyn_var.orValue(1u)) == uint && dyn_var.orValue(1u) < 0u"),
     ANY_NEGATIVE_UINT("type(test_all_types.single_any) == uint && test_all_types.single_any < 0u"),
@@ -968,6 +989,9 @@ public final class CelVerifierZ3ImplTest {
     CYCLIC_MACRO_SHADOWING_SAFETY("[1].all(x, [x].all(x, x == 1))"),
     TAUTOLOGY("x > 5 || x <= 5"),
     LIST_VARIABLE_CONSTRAINED("1 in int_list || !(1 in int_list)"),
+    // Ints are found in int lists by their terms, past the unroll limit too.
+    INT_IN_INT_LIST_PAST_UNROLL_LIMIT(
+        "size(int_list) == 6 && int_list[5] == x ? x in int_list : true"),
     LIST_CONCATENATION("[1, 2, 3] == [1] + [2] + [3]"),
     LIST_CONTAINS_LIST("[1] in [[1]]"),
     UINT_MIN_RANGE("u >= 0u"),
@@ -1065,7 +1089,10 @@ public final class CelVerifierZ3ImplTest {
     STATIC_NUMERIC_EQUALITY_INT("x == x"),
     STATIC_NUMERIC_EQUALITY_UINT("u == u"),
     DYNAMIC_MAP_EQUALITY("string_int_map == {'a': 1} || string_int_map != {'a': 1}"),
-    DYNAMIC_LIST_VARIABLE_EQUALITY("dyn_list == dyn_list"),
+    // A dyn map equal to a declared map has as many distinct keys.
+    DYN_MAP_EQUAL_TO_DECLARED_MAP_KEYS(
+        "string_int_map == {'a': 1, 'b': 2} && dyn_var == string_int_map"
+            + " ? 'b' in dyn_var && !('c' in dyn_var) : true"),
     DYNAMIC_LIST_COMPREHENSION_ALL_SHORT_CIRCUITS_ERROR(
         "dyn_list == [false, 1] ? (dyn_list.all(x, x) == false) : true"),
     DYNAMIC_LIST_COMPREHENSION_EXISTS_SHORT_CIRCUITS_ERROR(
@@ -1145,6 +1172,20 @@ public final class CelVerifierZ3ImplTest {
     TYPED_MAP_EQ_LITERAL(
         "'a' in string_int_map && size(string_int_map) == 1 && string_int_map['a'] == 1 ?"
             + " string_int_map == {'a': 1} : true"),
+    // Lists and maps that aren't literals compare by CEL equality, and so does `in` on lists.
+    MAP_VARIABLES_EQ_ACROSS_NUMERIC_KEYS(
+        "dyn_map == {1: 'a'} && dyn_var == {1u: 'a'} ? dyn_map == dyn_var : true"),
+    IN_LIST_ACROSS_NUMERIC_ELEMENTS(
+        "dyn(1) in [dyn(1.0)] && dyn(1.0) in [dyn(1)] && dyn(1u) in [dyn(1.0)]"),
+    IN_LIST_ACROSS_NUMERIC_NESTED_ELEMENTS("[1] in [dyn([1.0])]"),
+    IN_LIST_AT_UNROLL_LIMIT(
+        "!(2 in [0, 0, 0, 0] + [dyn(1.0)]) && !(2 in [0, 0, 0, 0, 0, dyn(1.0)])"),
+    DYN_CONTAINER_EQUALITY_SYMMETRIC("(dyn(int_list) == dyn_var) == (dyn_var == dyn(int_list))"),
+    LIST_VARIABLES_EQ_WITHIN_LENGTH(
+        "size(int_list) == 1 && size(int_list_2) == 1 && int_list[0] == int_list_2[0] ?"
+            + " int_list + [] == int_list_2 : true"),
+    MAP_VARIABLES_NEQ_SIZE(
+        "dyn_map == {1: 'a'} && dyn_var == {1: 'a', 2: 'b'} ? dyn_map != dyn_var : true"),
     // Whether an empty list(dyn) field is set is the same in every literal.
     STRUCT_EMPTY_LIST_DYN_FIELD_PRESENCE_CONSISTENT(
         "has(TestAllTypes{list_value: []}.list_value)"
@@ -1754,6 +1795,23 @@ public final class CelVerifierZ3ImplTest {
         "dyn(TestAllTypes.NestedMessage{}).single_int64 == 0"
             + " || dyn(TestAllTypes.NestedMessage{}).single_int64 != 0"),
     MAP_MISSING_KEY("{'a': 1}['b'] == 0 || !({'a': 1}['b'] == 0)"),
+    OPTIONAL_SELECT_UNDECLARED_FIELD_OF_DYN_MESSAGE(
+        "dyn(TestAllTypes{}).?unknown_field.hasValue()"
+            + " || !dyn(TestAllTypes{}).?unknown_field.hasValue()"),
+    OPTIONAL_CHAINING_SELECT_UNDECLARED_FIELD(
+        "optional.of(dyn(TestAllTypes{})).unknown_field.hasValue()"
+            + " || !optional.of(dyn(TestAllTypes{})).unknown_field.hasValue()"),
+    // No overload indexes a list with a string, even an empty optional list.
+    OPTIONAL_LIST_INDEXED_BY_STRING(
+        "TestAllTypes{}.?repeated_int64[dyn('a')].hasValue()"
+            + " || !TestAllTypes{}.?repeated_int64[dyn('a')].hasValue()"),
+    OPTIONAL_LIST_OPTIONALLY_INDEXED_BY_STRING(
+        "TestAllTypes{}.?repeated_int64[?dyn('a')].hasValue()"
+            + " || !TestAllTypes{}.?repeated_int64[?dyn('a')].hasValue()"),
+    // A present optional's value must be a map or message to select from.
+    OPTIONAL_CHAINING_SELECT_FROM_NULL(
+        "{'null_key': dyn(null)}.?null_key.invalid.hasValue()"
+            + " || !{'null_key': dyn(null)}.?null_key.invalid.hasValue()"),
     COLLECTION_ERROR("{'a': 1 / 0} == {'a': 1 / 0}"),
     LIST_ERROR("[1 / 0] == [1 / 0]"),
     STRICT_LITERAL_ERROR("{'a': 1/0}.exists(k, k == 'a') == {'a': 1/0}.exists(k, k == 'a')"),
@@ -1830,7 +1888,12 @@ public final class CelVerifierZ3ImplTest {
         Operator.LESS,
         ImmutableList.of(
             CelExpr.newBuilder().setId(2).setConstant(CelConstant.ofValue(1L)).build()),
-        "expects 2 arguments, got 1");
+        "expects 2 arguments, got 1"),
+    OPTIONAL_SELECT(
+        Operator.OPTIONAL_SELECT,
+        ImmutableList.of(
+            CelExpr.newBuilder().setId(2).setConstant(CelConstant.ofValue(1L)).build()),
+        "expects an operand and a field name");
 
     final Operator operator;
     final ImmutableList<CelExpr> args;
@@ -1881,6 +1944,17 @@ public final class CelVerifierZ3ImplTest {
   }
 
   private enum IsAlwaysTrueViolationTestCase {
+    // `[NaN]` differs from itself.
+    DYNAMIC_LIST_VARIABLE_EQUALITY("dyn_list == dyn_list", "dyn_list = \\[double\\(\"NaN\"\\)\\]"),
+    DYNAMIC_MAP_VARIABLE_EQUALITY(
+        "string_dyn_map == string_dyn_map", "Condition is not always true\\."),
+    // `[NaN]` is found nowhere, not even by its term.
+    IN_LIST_NAN_LIST("[d] in [[d]]", "d = double\\(\"NaN\"\\)"),
+    // The checker types the value string, but at runtime it's the int 1, which equals 1.0.
+    NARROWED_TYPE_NUMERIC_EQUALITY(
+        "dyn_var == optional.of(1) ? optional.ofNonZeroValue('').or(dyn_var).value() != dyn(1.0)"
+            + " : true",
+        "dyn_var = optional\\.of\\(1\\)"),
     // Map literal keys must be strings, ints, uints or bools, and can't repeat.
     MAP_LITERAL_DOUBLE_KEY("{1.0: 'a'}[dyn(1)] == 'a'", "Condition is not always true\\."),
     MAP_LITERAL_BYTES_KEY("size({b'a': 1}) == 1", "Condition is not always true\\."),
@@ -2247,8 +2321,11 @@ public final class CelVerifierZ3ImplTest {
                     + " 3: [3]} ? r.l.all(x, r.m.exists(k, r.m[k] == x)) : true)")
             .getAst();
     // A looser timeout than the default: comparing a dyn map with a literal admits every numeric
-    // representation of its keys and values, a state space that takes 5-15 s to explore locally.
-    CelVerifier verifier = withRuntimeOracle(CEL, b -> b.setTimeout(Duration.ofSeconds(20)));
+    // representation of its keys and values, a state space that takes 5-25 s to explore remotely
+    // (longer on GitHub runners).
+    // TODO: Restore 20 s once the slowdown since map literal key validation is
+    // recovered.
+    CelVerifier verifier = withRuntimeOracle(CEL, b -> b.setTimeout(Duration.ofSeconds(60)));
 
     CelVerificationResult result = verifier.isAlwaysTrue(ast);
 
@@ -2262,10 +2339,42 @@ public final class CelVerifierZ3ImplTest {
         "int_list == [1, 0] ? int_list.exists(x, x == 1 ? int('5') == 5 : 1 / x == 1) : true"),
     // nested_list[5] is past the unroll limit, so it may not be a list.
     APPROXIMATE_DYN_RANGE("size(nested_list) == 6 ? dyn(nested_list)[5].all(e, e == e) : true"),
-    // A map literal's non-literal list value compares by its term.
+    // Ints compare with doubles read out of lists and maps that aren't literals approximately.
+    LIST_VARIABLES_ACROSS_NUMERIC_ELEMENTS(
+        "dyn_list == [1] && type(dyn_list[0]) == int && dyn_var == [1.0] && type(dyn_var[0]) =="
+            + " double ? dyn_list != dyn_var : true"),
+    DYN_LISTS_PAIRWISE_EQUALITY(
+        "int_list == [1] && int_list_2 == [2] && dyn_var == [1.0] && type(dyn_var[0]) == double &&"
+            + " dyn_var2 == [2.0] && type(dyn_var2[0]) == double ? !(dyn(int_list) == dyn_var &&"
+            + " dyn(int_list_2) == dyn_var2 && dyn(int_list) != dyn_var2 && dyn(int_list_2) !="
+            + " dyn_var) : true"),
+    MAP_LITERAL_VARIABLE_LIST_VALUE_NEQ(
+        "int_list == [1] && dyn_var == {'a': [1.0]} && type(dyn_var['a'][0]) == double ?"
+            + " {'a': dyn(int_list)} != dyn_var : true"),
     MAP_LITERAL_VARIABLE_LIST_VALUE(
         "int_list == [1] && dyn_list == [1.0] && dyn_var == {'a': dyn_list} ?"
             + " {'a': dyn(int_list)} == dyn_var : true"),
+    // Elements past the unroll limit aren't constrained to bool, so they may differ by their terms.
+    NOT_IN_BOOL_LIST_PAST_UNROLL_LIMIT(
+        "size(bool_list) == 6 && size(bool_list_2) == 6 && !(false in bool_list)"
+            + " && !(false in bool_list_2) ? bool_list == bool_list_2 : true"),
+    // An absent optional entry shifts the keys, so their values aren't typed by the entries.
+    MAP_LITERAL_ABSENT_OPTIONAL_ENTRY(
+        "dyn_var == {'b': [1], 'c': 0} ? {?'a': optional.none(), 'b': [1.0], 'c': 0} == dyn_var"
+            + " : true"),
+    // Lists that aren't literals compare, and `in` matches, only up to the unroll limit.
+    LIST_PAST_UNROLL_LIMIT_EQ("[0, 0, 0, 0, 0] + [dyn(1)] == [0, 0, 0, 0, 0] + [dyn(2)]"),
+    IN_LIST_PAST_UNROLL_LIMIT(
+        "x == 1 && u == 1u && d == 1.0 ? !(x in [0, 0, 0, 0, 0] + [dyn(1.0)]) || !(u in [0, 0, 0,"
+            + " 0, 0] + [dyn(1.0)]) || !(d in [0, 0, 0, 0, 0] + [dyn(1)]) : true"),
+    IN_LIST_PAST_UNROLL_LIMIT_STRING("dyn_list == [0, 0, 0, 0, 0, 'a'] ? 'a' in dyn_list : true"),
+    IN_LIST_PAST_UNROLL_LIMIT_MISSING("x == 2 ? x in [0, 0, 0, 0, 0] + [dyn(1.0)] : true"),
+    IN_LIST_PAST_UNROLL_LIMIT_LIST(
+        "nested_list == [[0], [0], [0], [0], [0], [1]] ? !(dyn([1.0]) in nested_list) : true"),
+    LIST_PAST_UNROLL_LIMIT_NEQ("[0, 0, 0, 0, 0] + [dyn(1)] != [0, 0, 0, 0, 0] + [dyn(1)]"),
+    MAP_PAST_UNROLL_LIMIT_EQ(
+        "x == 1 ? (x == 1 ? {'a': 0, 'b': 0, 'c': 0, 'd': 0, 'e': 0, 'f': 1} : {}) == (x == 1 ?"
+            + " {'a': 0, 'b': 0, 'c': 0, 'd': 0, 'e': 0, 'f': 2} : {}) : true"),
     // Lists nested in map values past the unroll limit compare approximately.
     MAP_VALUE_LIST_PAST_UNROLL_LIMIT(
         "!(size(int_list) == 6 && {'k': [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 1.5]} == {'k': [1.0] +"
@@ -2356,6 +2465,25 @@ public final class CelVerifierZ3ImplTest {
   }
 
   private enum EquivalenceInconclusiveTestCase {
+    // A list or map typed dyn holding NaN (e.g. `[NaN]`) differs from itself, so these do diverge,
+    // but lists and maps typed dyn on both sides compare approximately.
+    DYN_NAN_INPUT_AND_LITERAL("dyn_var != dyn_var ? 0.0 / 0.0 : dyn_var", "dyn_var"),
+    DYN_INDEXED_NAN_AND_LITERAL("dyn_var[0] != dyn_var[0] ? 0.0 / 0.0 : dyn_var[0]", "dyn_var[0]"),
+    DYN_OPTIONAL_NAN_AND_LITERAL(
+        "dyn_var.value() != dyn_var.value() ? 0.0 / 0.0 : dyn_var.value()", "dyn_var.value()"),
+    ANY_NAN_FIELD_AND_LITERAL(
+        "test_all_types.single_any != test_all_types.single_any"
+            + " ? 0.0 / 0.0 : test_all_types.single_any",
+        "test_all_types.single_any"),
+    // TODO: number_value set from an optional isn't checked to be a double, so it may
+    // be a list here.
+    DYN_OPTIONAL_JSON_NAN_AND_LITERAL(
+        "google.protobuf.Value{?number_value: dyn_var} != google.protobuf.Value{?number_value:"
+            + " dyn_var} ? 0.0 / 0.0 : google.protobuf.Value{?number_value: dyn_var}",
+        "google.protobuf.Value{?number_value: dyn_var}"),
+    // The lists nested in literals are compared element-wise up to the unroll limit.
+    NESTED_LIST_VARIABLE_EQUALITY(
+        "[int_list] == [int_list_2] ? int_list == int_list_2 : true", "true"),
     MASKED_BY_BMC(
         "int_list == [1, 2, 3, 4, 5, 6] ? int_list.all(x, x > 0) : true",
         "int_list == [1, 2, 3, 4, 5, 6] ? (int_list.all(x, x > 0) || size(int_list) == 6) : true"),
@@ -2581,8 +2709,6 @@ public final class CelVerifierZ3ImplTest {
     GREATER_EQUALS("x >= y", "y <= x"),
     ADD("x + y", "y + x"),
     SUBTRACT("x - y == 5", "5 == x - y"),
-    NESTED_LIST_VARIABLE_EQUALITY(
-        "[int_list] == [int_list_2] ? int_list == int_list_2 : true", "true"),
     NESTED_SYMBOLIC_LIST_EXTENSIONALITY(
         "size(nested_list) >= 2 && nested_list[0] == nested_list[1] ? [nested_list[0]] =="
             + " [nested_list[1]] : true",
@@ -2707,6 +2833,30 @@ public final class CelVerifierZ3ImplTest {
     OPTIONAL_FIELD_SELECTION_MAP_COMPREHENSION(
         "{'a': 1, 'b': 2}.transformMap(k, v, v > 1, v).?b", "optional.of(2)"),
     OPTIONAL_FIELD_SELECTION_BINDER("cel.bind(m, {'a': 1}, m.?a)", "optional.of(1)"),
+    // Selecting from or indexing an optional does so optionally.
+    OPTIONAL_CHAINING_SELECT(
+        "optional.of({'c': {'index': 'goodbye'}}).c.index", "optional.of('goodbye')"),
+    OPTIONAL_CHAINING_SELECT_MISSING("optional.of({'c': {}}).c.missing", "optional.none()"),
+    OPTIONAL_CHAINING_SELECT_NONE("optional.none().c", "optional.none()"),
+    OPTIONAL_CHAINING_SELECT_OPTIONAL_VALUE(
+        "optional.of({'a': optional.of(1)}).a", "optional.of(optional.of(1))"),
+    OPTIONAL_CHAINING_HAS_PRESENT("has(optional.of({'c': 1}).c)", "true"),
+    OPTIONAL_CHAINING_HAS_ABSENT("has(optional.of({'c': 1}).d)", "false"),
+    OPTIONAL_CHAINING_HAS_NONE("has(optional.none().c)", "false"),
+    OPTIONAL_CHAINING_SELECT_PROTO3_ZERO(
+        "optional.of(TestAllTypes{single_int64: 0}).single_int64", "optional.none()"),
+    OPTIONAL_CHAINING_SELECT_UNSET_WRAPPER(
+        "optional.of(TestAllTypes{}).single_int64_wrapper", "optional.none()"),
+    OPTIONAL_CHAINING_INDEX("optional.of(['list-value'])[0]", "optional.of('list-value')"),
+    OPTIONAL_CHAINING_INDEX_MISSING("optional.of({'c': {}}).c['missing']", "optional.none()"),
+    OPTIONAL_CHAINING_INDEX_NONE("optional.none()[0]", "optional.none()"),
+    OPTIONAL_SELECT_THEN_INDEX(
+        "optional.of(TestAllTypes{repeated_string: ['foo']}).?repeated_string[0]",
+        "optional.of('foo')"),
+    OPTIONAL_CHAINING_DYN(
+        "dyn_var == optional.of({'a': [1]}) ? dyn_var.a[0] : optional.of(1)", "optional.of(1)"),
+    OPTIONAL_CHAINING_DYN_NONE(
+        "request == optional.none() ? request.l : optional.none()", "optional.none()"),
     JSON_VALUE_BOOL("google.protobuf.Value{bool_value: true}", "true"),
     JSON_VALUE_NUMBER("google.protobuf.Value{number_value: 1.0}", "1.0"),
     JSON_VALUE_NULL("google.protobuf.Value{null_value: 0}", "null"),
@@ -2777,18 +2927,6 @@ public final class CelVerifierZ3ImplTest {
     WRAPPER_FLOAT_NAN("d != d ? google.protobuf.FloatValue{value: d} : 0.0", "d != d ? d : 0.0"),
     DOUBLE_NAN_ARITHMETIC("d != d ? d + 1.0 : 0.0", "d != d ? d : 0.0"),
     DOUBLE_NAN_INPUT_AND_LITERAL("d != d ? d : 0.0", "d != d ? 0.0 / 0.0 : 0.0"),
-    DYN_NAN_INPUT_AND_LITERAL("dyn_var != dyn_var ? 0.0 / 0.0 : dyn_var", "dyn_var"),
-    DYN_INDEXED_NAN_AND_LITERAL("dyn_var[0] != dyn_var[0] ? 0.0 / 0.0 : dyn_var[0]", "dyn_var[0]"),
-    DYN_OPTIONAL_JSON_NAN_AND_LITERAL(
-        "google.protobuf.Value{?number_value: dyn_var} != google.protobuf.Value{?number_value:"
-            + " dyn_var} ? 0.0 / 0.0 : google.protobuf.Value{?number_value: dyn_var}",
-        "google.protobuf.Value{?number_value: dyn_var}"),
-    DYN_OPTIONAL_NAN_AND_LITERAL(
-        "dyn_var.value() != dyn_var.value() ? 0.0 / 0.0 : dyn_var.value()", "dyn_var.value()"),
-    ANY_NAN_FIELD_AND_LITERAL(
-        "test_all_types.single_any != test_all_types.single_any"
-            + " ? 0.0 / 0.0 : test_all_types.single_any",
-        "test_all_types.single_any"),
     DOUBLE_NAN_IN_LIST("d != d ? [d] : []", "d != d ? [-d] : []"),
     WRAPPER_FLOAT_IDEMPOTENT_LITERAL(
         "google.protobuf.FloatValue{value: google.protobuf.FloatValue{value: 0.1}}",
