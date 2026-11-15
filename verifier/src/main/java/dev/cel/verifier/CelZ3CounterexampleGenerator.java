@@ -265,6 +265,7 @@ final class CelZ3CounterexampleGenerator {
     ImmutableMap.Builder<Object, Object> values = ImmutableMap.builder();
     List<String> entries = new ArrayList<>();
     Set<Expr<?>> seenKeys = new HashSet<>();
+    Set<Object> runtimeKeys = new HashSet<>();
     ArrayExpr keySet = ctx.mkConstArray(typeSystem.celValueSort(), ctx.mkFalse());
     for (long i = 0; i < limit; i++) {
       Expr<?> key = evaluate(ctx.mkNth(typeSystem.getMapKeys(mapRef), ctx.mkInt(i)));
@@ -276,7 +277,9 @@ final class CelZ3CounterexampleGenerator {
       Value keyValue = extract(key);
       Value value =
           extract(evaluate(ctx.mkSelect((ArrayExpr) typeSystem.getMapValues(mapRef), key)));
-      if (keyValue.runtimeValue.isPresent() && value.runtimeValue.isPresent()) {
+      if (keyValue.runtimeValue.isPresent()
+          && value.runtimeValue.isPresent()
+          && addValidKey(keyValue.runtimeValue.get(), runtimeKeys)) {
         values.put(keyValue.runtimeValue.get(), value.runtimeValue.get());
       } else {
         isExact = false;
@@ -292,6 +295,16 @@ final class CelZ3CounterexampleGenerator {
 
     String display = join("{", entries, length, "entries", "}");
     return isExact ? Value.exact(values.buildOrThrow(), display) : Value.inexact(display);
+  }
+
+  // Adds a CEL map key: an int, uint, bool or string, not numerically equal to another. Returns
+  // whether it's valid. Dyn maps aren't constrained to such keys.
+  private static boolean addValidKey(Object key, Set<Object> keys) {
+    if (key instanceof Long) {
+      return keys.add((Long) key >= 0 ? UnsignedLong.valueOf((Long) key) : key);
+    }
+    return (key instanceof UnsignedLong || key instanceof Boolean || key instanceof String)
+        && keys.add(key);
   }
 
   private static String join(
