@@ -26,6 +26,7 @@ import com.microsoft.z3.FPNum;
 import com.microsoft.z3.FuncDecl;
 import com.microsoft.z3.IntNum;
 import com.microsoft.z3.Model;
+import dev.cel.common.internal.MapKeys;
 import dev.cel.common.internal.ProtoTimeUtils;
 import dev.cel.common.values.CelByteString;
 import dev.cel.common.values.NullValue;
@@ -265,6 +266,7 @@ final class CelZ3CounterexampleGenerator {
     ImmutableMap.Builder<Object, Object> values = ImmutableMap.builder();
     List<String> entries = new ArrayList<>();
     Set<Expr<?>> seenKeys = new HashSet<>();
+    Set<Object> runtimeKeys = new HashSet<>();
     ArrayExpr keySet = ctx.mkConstArray(typeSystem.celValueSort(), ctx.mkFalse());
     for (long i = 0; i < limit; i++) {
       Expr<?> key = evaluate(ctx.mkNth(typeSystem.getMapKeys(mapRef), ctx.mkInt(i)));
@@ -276,7 +278,10 @@ final class CelZ3CounterexampleGenerator {
       Value keyValue = extract(key);
       Value value =
           extract(evaluate(ctx.mkSelect((ArrayExpr) typeSystem.getMapValues(mapRef), key)));
-      if (keyValue.runtimeValue.isPresent() && value.runtimeValue.isPresent()) {
+      if (keyValue.runtimeValue.isPresent()
+          && value.runtimeValue.isPresent()
+          && MapKeys.isValidKeyType(keyValue.runtimeValue.get())
+          && runtimeKeys.add(MapKeys.normalize(keyValue.runtimeValue.get()))) {
         values.put(keyValue.runtimeValue.get(), value.runtimeValue.get());
       } else {
         isExact = false;

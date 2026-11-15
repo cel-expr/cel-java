@@ -243,17 +243,20 @@ final class CelAstToZ3Translator {
     }
     String name = ident.name();
     CelType type = ast.getTypeOrThrow(exprId);
-    if (type instanceof TypeType) {
-      TypeType typeType = (TypeType) type;
-      if (typeType.type().kind() != CelKind.DYN) {
-        return TranslatedValue.create(
-            typeSystem.mkString(typeType.containingTypeName()), celExpr, typeSystem, ctx.mkFalse());
-      }
-    }
     TranslatedValue tv =
         context.computeSymbolIfAbsent(
             name,
             n -> {
+              // Nothing binds `n`, so if it's typed type(T), it names T (e.g. `int`).
+              if (type instanceof TypeType) {
+                TypeType typeType = (TypeType) type;
+                if (typeType.type().kind() != CelKind.DYN) {
+                  return TranslatedValue.create(
+                      typeSystem.mkString(typeType.containingTypeName()),
+                      typeSystem,
+                      /* isApproximate= */ ctx.mkFalse());
+                }
+              }
               Expr<?> v = ctx.mkConst(n, typeSystem.celValueSort());
               context.addInputVariable(v, type);
 
