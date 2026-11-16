@@ -19,6 +19,8 @@ java_library(
         "//common/navigation",  # unuseddeps: keep
         "//common/types",  # unuseddeps: keep
         "//common/types:type_providers",  # unuseddeps: keep
+        "//common/values",  # unuseddeps: keep
+        "//common/values:cel_value",  # unuseddeps: keep
         "//compiler",  # unuseddeps: keep
         "//compiler:compiler_builder",  # unuseddeps: keep
         "//optimizer",  # unuseddeps: keep
@@ -28,6 +30,7 @@ java_library(
         "//optimizer/optimizers:constant_folding",  # unuseddeps: keep
         "//parser:macro",  # unuseddeps: keep
         "//runtime",  # unuseddeps: keep
+        "//runtime:function_binding",  # unuseddeps: keep
         "//validator",  # unuseddeps: keep
         "//validator:ast_validator",  # unuseddeps: keep
         "//validator:validator_builder",  # unuseddeps: keep
@@ -36,6 +39,7 @@ java_library(
         "//validator/validators:regex",  # unuseddeps: keep
         "//validator/validators:timestamp",  # unuseddeps: keep
         "@com_google_googleapis//google/rpc/context:attribute_context_java_proto",  # unuseddeps: keep
+        "@maven//:com_google_errorprone_error_prone_annotations",  # unuseddeps: keep
         "@maven//:com_google_guava_guava",  # unuseddeps: keep
         "@maven//:com_google_protobuf_protobuf_java",  # unuseddeps: keep
         "@maven//:com_google_protobuf_protobuf_java_util",  # unuseddeps: keep
