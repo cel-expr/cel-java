@@ -22,6 +22,7 @@ import static org.junit.Assert.assertThrows;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.errorprone.annotations.Immutable;
 import com.google.testing.junit.testparameterinjector.TestParameter;
 import com.google.testing.junit.testparameterinjector.TestParameterInjector;
 // import com.google.testing.testsize.MediumTest;
@@ -38,6 +39,7 @@ import dev.cel.bundle.CelFactory;
 import dev.cel.common.CelAbstractSyntaxTree;
 import dev.cel.common.CelContainer;
 import dev.cel.common.CelFunctionDecl;
+import dev.cel.common.CelOptions;
 import dev.cel.common.CelOverloadDecl;
 import dev.cel.common.CelVarDecl;
 import dev.cel.common.Operator;
@@ -58,8 +60,11 @@ import dev.cel.extensions.CelOptionalLibrary;
 import dev.cel.optimizer.CelOptimizer;
 import dev.cel.optimizer.CelOptimizerFactory;
 import dev.cel.optimizer.optimizers.ConstantFoldingOptimizer;
+import dev.cel.optimizer.optimizers.SubexpressionOptimizer;
 import dev.cel.parser.CelMacro;
 import dev.cel.parser.CelStandardMacro;
+import dev.cel.runtime.CelFunctionBinding;
+import dev.cel.runtime.CelUnknownSet;
 import dev.cel.verifier.CelVerificationResult.VerificationStatus;
 import dev.cel.verifier.axioms.CelZ3FunctionAxiom;
 import dev.cel.verifier.axioms.CelZ3OverloadResult;
@@ -69,7 +74,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.function.Consumer;
-import java.util.function.UnaryOperator;
 import java.util.stream.IntStream;
 import org.junit.Before;
 import org.junit.Test;
@@ -141,15 +145,35 @@ public final class CelVerifierZ3ImplTest {
                   TestAllTypes.getDescriptor(), TestAllTypes.NestedMessage.getDescriptor()))
           .build();
 
-  private static final CelVerifier VERIFIER = withRuntimeOracle(CEL, b -> b);
+  private static final CelVerifier VERIFIER = checkedVerifier(CEL).build();
 
-  // For ASTs with functions the runtime can't plan, and for verifyImplication.
-  private static final CelVerifier VERIFIER_WITHOUT_ORACLE =
-      CelVerifierFactory.newVerifier(CEL).build();
+  // Doesn't check witnesses with the runtime: for approximate results, which it may confirm, for
+  // functions it has no bindings for, and for verifyImplication.
+  private static final CelVerifier UNCHECKED_VERIFIER = CelVerifierFactory.newVerifier(CEL).build();
 
-  // Builds a verifier whose exact witnesses are checked against the runtime of the same `cel`.
-  private static CelVerifier withRuntimeOracle(Cel cel, UnaryOperator<CelVerifierBuilder> config) {
-    return RuntimeOracle.wrap(cel, config.apply(CelVerifierFactory.newVerifier(cel)).build());
+  private static final CelFunctionDecl ZERO_DECL =
+      CelFunctionDecl.newFunctionDeclaration(
+          "zero", CelOverloadDecl.newGlobalOverload("zero_int", SimpleType.INT, SimpleType.INT));
+
+  private static final Cel UNBOUND_ZERO_CEL =
+      CEL.toCelBuilder().addFunctionDeclarations(ZERO_DECL).build();
+
+  // The verifier doesn't model `zero`, but the runtime has a binding for it.
+  private static final Cel ZERO_CEL =
+      UNBOUND_ZERO_CEL
+          .toCelBuilder()
+          .addFunctionBindings(CelFunctionBinding.from("zero_int", Long.class, x -> 0L))
+          .build();
+
+  // A verifier builder that checks witnesses with the runtime of the same `cel`.
+  private static CelVerifierBuilder checkedVerifier(Cel cel) {
+    return CelVerifierFactory.newVerifier(cel).enableCegar(true);
+  }
+
+  // An exact verdict the runtime didn't refute or fail to check.
+  private static void assertExact(CelVerificationResult result, VerificationStatus status) {
+    assertWithMessage(result.message()).that(result.status()).isEqualTo(status);
+    assertThat(result.message()).doesNotContain("CEL runtime");
   }
 
   @Before
@@ -161,6 +185,12 @@ public final class CelVerifierZ3ImplTest {
     SATISFIABLE("x > 5", "x = (?:[6-9]|[1-9]\\d+)"),
     DYNAMIC_ARITHMETIC("request == 1 && request + 2 == 3", "request = 1"),
     DYNAMIC_ARITHMETIC_UNARY("request == 1 && -request == -1", "request = 1"),
+    // The type checker narrows `dyn_var.orValue(1)` to int, but it may hold any value.
+    NARROWED_INT_NAN(
+        "dyn_var.orValue(1) != dyn_var.orValue(1)",
+        "dyn_var = optional\\.of\\(double\\(\"NaN\"\\)\\)"),
+    // Only checks that it's satisfiable: the range may be a list of strings.
+    NARROWED_LIST_RANGE("dyn_var.orValue([1]).exists(x, dyn(x) == 'a')", "dyn_var = "),
     GREATER_DOUBLE("d > 1.5", "d = "),
     LESS_EQUALS_UINT64("u <= 5u", "u = [0-5]u"),
     LESS_EQUALS_DOUBLE("d <= 5.5", "d = "),
@@ -253,7 +283,7 @@ public final class CelVerifierZ3ImplTest {
 
     CelVerificationResult result = VERIFIER.isSatisfiable(ast);
 
-    assertThat(result.status()).isEqualTo(VerificationStatus.VERIFIED);
+    assertExact(result, VerificationStatus.VERIFIED);
     for (String fragment : testCase.expectedFragments) {
       assertThat(result.message()).containsMatch(fragment);
     }
@@ -265,7 +295,7 @@ public final class CelVerifierZ3ImplTest {
 
     CelVerificationResult result = VERIFIER.isSatisfiable(ast);
 
-    assertThat(result.status()).isEqualTo(VerificationStatus.VERIFIED);
+    assertExact(result, VerificationStatus.VERIFIED);
     assertThat(result.message()).contains("Condition is satisfiable.");
     assertThat(result.message()).contains("Satisfying input:");
     assertThat(result.message()).containsMatch("x = (?:[6-9]|[1-9]\\d+)");
@@ -333,6 +363,7 @@ public final class CelVerifierZ3ImplTest {
 
     CelVerificationResult result = VERIFIER.isSatisfiable(ast);
 
+    assertExact(result, VerificationStatus.VERIFIED);
     CelWitness.Variable variable = result.witness().get().variables().get(testCase.variableName);
     assertThat(variable.displayValue()).isEqualTo(testCase.expectedDisplayValue);
     ImmutableMap<String, Object> input =
@@ -370,6 +401,7 @@ public final class CelVerifierZ3ImplTest {
 
     CelVerificationResult result = VERIFIER.isSatisfiable(ast);
 
+    assertExact(result, VerificationStatus.VERIFIED);
     assertThat(result.witness().get().variables().get(testCase.variableName).value()).isEmpty();
   }
 
@@ -433,6 +465,7 @@ public final class CelVerifierZ3ImplTest {
 
     CelVerificationResult result = VERIFIER.isSatisfiable(ast);
 
+    assertExact(result, VerificationStatus.VERIFIED);
     assertThat(result.message())
         .endsWith("int_list = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]");
   }
@@ -440,12 +473,13 @@ public final class CelVerifierZ3ImplTest {
   @Test
   public void isSatisfiable_listPastDisplayLimit_elidesRemainingElements() throws Exception {
     // Within the unroll limit the whole list is extracted, so the display must still elide it.
-    CelVerifier verifier = withRuntimeOracle(CEL, b -> b.setComprehensionUnrollLimit(16));
+    CelVerifier verifier = checkedVerifier(CEL).setComprehensionUnrollLimit(16).build();
     CelAbstractSyntaxTree ast =
         CEL.compile("int_list == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]").getAst();
 
     CelVerificationResult result = verifier.isSatisfiable(ast);
 
+    assertExact(result, VerificationStatus.VERIFIED);
     assertThat(result.message())
         .endsWith(
             "int_list = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, ... (1 more"
@@ -458,7 +492,7 @@ public final class CelVerifierZ3ImplTest {
 
     CelVerificationResult result = VERIFIER.isSatisfiable(ast);
 
-    assertThat(result.status()).isEqualTo(VerificationStatus.VERIFIED);
+    assertExact(result, VerificationStatus.VERIFIED);
     assertThat(result.message()).contains("Condition is satisfiable.");
     assertThat(result.message()).contains("Satisfying input:");
     assertThat(result.message()).contains("string_int_map = {");
@@ -471,7 +505,7 @@ public final class CelVerifierZ3ImplTest {
 
     CelVerificationResult result = VERIFIER.isSatisfiable(ast);
 
-    assertThat(result.status()).isEqualTo(VerificationStatus.VERIFIED);
+    assertExact(result, VerificationStatus.VERIFIED);
     assertThat(result.message()).contains("Condition is satisfiable.");
     assertThat(result.message()).contains("Satisfying input:");
     assertThat(result.message()).contains("dyn_list = [");
@@ -484,7 +518,7 @@ public final class CelVerifierZ3ImplTest {
 
     CelVerificationResult result = VERIFIER.isSatisfiable(ast);
 
-    assertThat(result.status()).isEqualTo(VerificationStatus.VERIFIED);
+    assertExact(result, VerificationStatus.VERIFIED);
     assertThat(result.message()).contains("Condition is satisfiable.");
     assertThat(result.message()).contains("Satisfying input:");
     assertThat(result.message()).contains("dyn_map = {");
@@ -497,7 +531,7 @@ public final class CelVerifierZ3ImplTest {
 
     CelVerificationResult result = VERIFIER.isSatisfiable(ast);
 
-    assertThat(result.status()).isEqualTo(VerificationStatus.VERIFIED);
+    assertExact(result, VerificationStatus.VERIFIED);
     assertThat(result.message()).contains("request = null");
   }
 
@@ -508,7 +542,7 @@ public final class CelVerifierZ3ImplTest {
 
     CelVerificationResult result = VERIFIER.isSatisfiable(ast);
 
-    assertThat(result.status()).isEqualTo(VerificationStatus.VERIFIED);
+    assertExact(result, VerificationStatus.VERIFIED);
     assertThat(result.message()).containsMatch("string_int_map = \\{[^}]*,[^}]*\\}");
     assertThat(result.message()).contains("\"a\": 1");
   }
@@ -535,7 +569,7 @@ public final class CelVerifierZ3ImplTest {
 
     CelVerificationResult result = VERIFIER.isAlwaysTrue(ast);
 
-    assertThat(result.status()).isEqualTo(VerificationStatus.VIOLATED);
+    assertExact(result, VerificationStatus.VIOLATED);
     assertThat(result.message()).doesNotContain("Error");
   }
 
@@ -545,7 +579,7 @@ public final class CelVerifierZ3ImplTest {
 
     CelVerificationResult result = VERIFIER.isSatisfiable(ast);
 
-    assertThat(result.status()).isEqualTo(VerificationStatus.VERIFIED);
+    assertExact(result, VerificationStatus.VERIFIED);
     assertThat(result.message())
         .isEqualTo(
             "Condition is satisfiable. (The expression is satisfiable unconditionally, regardless"
@@ -625,7 +659,7 @@ public final class CelVerifierZ3ImplTest {
       @TestParameter ApproximationSourceTestCase testCase) throws Exception {
     CelAbstractSyntaxTree ast = CEL.compile(testCase.expr).getAst();
 
-    CelVerificationResult result = VERIFIER.isSatisfiable(ast);
+    CelVerificationResult result = UNCHECKED_VERIFIER.isSatisfiable(ast);
 
     assertThat(result.status()).isEqualTo(VerificationStatus.INCONCLUSIVE);
     assertThat(result.reason())
@@ -665,7 +699,7 @@ public final class CelVerifierZ3ImplTest {
             .build();
     CelAbstractSyntaxTree ast = celCompiler.compile(testCase.expr).getAst();
 
-    CelVerificationResult result = VERIFIER_WITHOUT_ORACLE.isSatisfiable(ast);
+    CelVerificationResult result = UNCHECKED_VERIFIER.isSatisfiable(ast);
 
     assertThat(result.status()).isEqualTo(VerificationStatus.INCONCLUSIVE);
     assertThat(result.reason())
@@ -680,7 +714,7 @@ public final class CelVerifierZ3ImplTest {
   public void isSatisfiable_approximate_returnsPotentialSatisfyingInput() throws Exception {
     CelAbstractSyntaxTree ast = CEL.compile("int('123') == 123 ? x > 5 : false").getAst();
 
-    CelVerificationResult result = VERIFIER.isSatisfiable(ast);
+    CelVerificationResult result = UNCHECKED_VERIFIER.isSatisfiable(ast);
 
     assertThat(result.status()).isEqualTo(VerificationStatus.INCONCLUSIVE);
     assertThat(result.message()).contains("Inconclusive: a satisfying input may exist");
@@ -704,6 +738,9 @@ public final class CelVerifierZ3ImplTest {
             + " && dyn_var != ([18446744073709551615u] + [])))"),
     // Well-known types are never messages, and other message types may have the field.
     DYN_MESSAGE_FIELD_OF_UNKNOWN_TYPE("type(dyn_var) != map && dyn_var.type_url == ''"),
+    // The type checker narrows the range to a list, but it may be a map.
+    NARROWED_LIST_RANGE_OF_MAP(
+        "type(dyn_var.orValue([1])) == map && dyn_var.orValue([1]).exists(x, true)"),
     MASKED_BY_BMC("int_list == [1, 2, 3, 4, 5, 6] ? int_list.exists(x, x == 42) : false"),
     MASKED_BY_BMC_ALL("int_list == [1, 2, 3, 4, 5, 6] ? int_list.all(x, x > 0) : false"),
     MASKED_BY_BMC_FILTER(
@@ -788,7 +825,7 @@ public final class CelVerifierZ3ImplTest {
       throws Exception {
     CelAbstractSyntaxTree ast = CEL.compile(testCase.expr).getAst();
 
-    CelVerificationResult result = VERIFIER.isSatisfiable(ast);
+    CelVerificationResult result = UNCHECKED_VERIFIER.isSatisfiable(ast);
 
     assertThat(result.status()).isEqualTo(VerificationStatus.INCONCLUSIVE);
   }
@@ -801,8 +838,10 @@ public final class CelVerifierZ3ImplTest {
     CelAbstractSyntaxTree ast = CEL.compile(expr).getAst();
 
     CelVerifier customVerifier =
-        withRuntimeOracle(
-            CEL, b -> b.setComprehensionUnrollLimit(3).setTypeProvider(TYPE_PROVIDER));
+        CelVerifierFactory.newVerifier(CEL)
+            .setComprehensionUnrollLimit(3)
+            .setTypeProvider(TYPE_PROVIDER)
+            .build();
 
     CelVerificationResult result = customVerifier.isSatisfiable(ast);
 
@@ -814,7 +853,8 @@ public final class CelVerifierZ3ImplTest {
     String expr = "int_list == [1] ? int_list.exists(x, x == 1) : false";
     CelAbstractSyntaxTree ast = CEL.compile(expr).getAst();
 
-    CelVerifier verifier = withRuntimeOracle(CEL, b -> b.setComprehensionUnrollLimit(0));
+    CelVerifier verifier =
+        CelVerifierFactory.newVerifier(CEL).setComprehensionUnrollLimit(0).build();
     CelVerificationResult result = verifier.isSatisfiable(ast);
 
     assertThat(result.status()).isEqualTo(VerificationStatus.INCONCLUSIVE);
@@ -822,6 +862,15 @@ public final class CelVerifierZ3ImplTest {
 
   private enum IsUnsatisfiableTestCase {
     DYN_MESSAGE_PRESENT_UNDECLARED_FIELD("dyn(test_all_types).unknown_field == 42"),
+    // `-` on `dyn_var.orValue(1)`, typed int, takes only the int overload, so a double errors.
+    NARROWED_INT_NEGATE_OVERLOAD(
+        "type(dyn_var.orValue(1)) == double && -dyn_var.orValue(1) == dyn(-1)"),
+    // The static type picks the overload of `_[_]` or `in`, which errors on the other kind.
+    NARROWED_LIST_INDEX_OF_MAP("dyn_var == optional.of({0: true}) && dyn_var.orValue([true])[0]"),
+    NARROWED_MAP_INDEX_OF_LIST("dyn_var == optional.of([true]) && dyn_var.orValue({0: true})[0]"),
+    NARROWED_MAP_IN_OF_LIST("dyn_var == optional.of([1]) && 1 in dyn_var.orValue({1: 2})"),
+    // A wrapper is null or an int.
+    NULLABLE_NULL_AND_ONE("nullable_int == null && nullable_int == 1"),
     REPEATED_FIELD_FROM_NON_LIST(
         "dyn_var == 42 && TestAllTypes{repeated_int64: dyn_var} == TestAllTypes{}"),
     UNSATISFIABLE("x > 5 && x < 3"),
@@ -945,7 +994,7 @@ public final class CelVerifierZ3ImplTest {
 
     CelVerificationResult result = VERIFIER.isSatisfiable(ast);
 
-    assertThat(result.status()).isEqualTo(VerificationStatus.VIOLATED);
+    assertExact(result, VerificationStatus.VIOLATED);
     assertThat(result.message()).isEqualTo("Condition is not satisfiable.");
   }
 
@@ -1541,7 +1590,8 @@ public final class CelVerifierZ3ImplTest {
       throws Exception {
     CelAbstractSyntaxTree ast = CEL.compile(expression).getAst();
 
-    CelVerifier verifierWithUnknown = withRuntimeOracle(CEL, b -> b.addUnknownIdentifier("x"));
+    CelVerifier verifierWithUnknown =
+        CelVerifierFactory.newVerifier(CEL).addUnknownIdentifier("x").build();
 
     // 'x == x' is not a tautology if it can be unknown
     // i.e: CelUnknown == CelUnknown is unknown.
@@ -1575,7 +1625,8 @@ public final class CelVerifierZ3ImplTest {
   public void isAlwaysTrue_approximateBesideUnknown_inconclusive(
       @TestParameter ApproximateBesideUnknownTestCase testCase) throws Exception {
     CelAbstractSyntaxTree ast = CEL.compile(testCase.expr).getAst();
-    CelVerifier verifier = withRuntimeOracle(CEL, b -> b.addUnknownIdentifier("unknown_var"));
+    CelVerifier verifier =
+        CelVerifierFactory.newVerifier(CEL).addUnknownIdentifier("unknown_var").build();
 
     CelVerificationResult result = verifier.isAlwaysTrue(ast);
 
@@ -1596,9 +1647,9 @@ public final class CelVerifierZ3ImplTest {
             + " dyn_list.all(x, x.not_a_bool) == false) : true";
     CelAbstractSyntaxTree ast = CEL.compile(expr).getAst();
     CelVerificationResult result =
-        withRuntimeOracle(CEL, b -> b.setComprehensionUnrollLimit(1)).isAlwaysTrue(ast);
+        checkedVerifier(CEL).setComprehensionUnrollLimit(1).build().isAlwaysTrue(ast);
 
-    assertThat(result.status()).isEqualTo(VerificationStatus.VIOLATED);
+    assertExact(result, VerificationStatus.VIOLATED);
     assertThat(result.message())
         .matches(
             "Condition is not always true\\. Counterexample input:\n"
@@ -1610,7 +1661,8 @@ public final class CelVerifierZ3ImplTest {
     String expr = "int_list == [1, 2, 3] ? int_list.all(x, x > 0) : true";
     CelAbstractSyntaxTree ast = CEL.compile(expr).getAst();
 
-    CelVerifier verifier = withRuntimeOracle(CEL, b -> b.setComprehensionUnrollLimit(2));
+    CelVerifier verifier =
+        CelVerifierFactory.newVerifier(CEL).setComprehensionUnrollLimit(2).build();
     CelVerificationResult verifiedValue = verifier.isAlwaysTrue(ast);
 
     // Truncated loops return Unknown, which negates to Unknown.
@@ -1627,7 +1679,7 @@ public final class CelVerifierZ3ImplTest {
     String expr = "int_list == [] ? int_list.all(x, x > 0) : true";
     CelAbstractSyntaxTree ast = CEL.compile(expr).getAst();
 
-    CelVerifier verifier = withRuntimeOracle(CEL, b -> b.setComprehensionUnrollLimit(0));
+    CelVerifier verifier = checkedVerifier(CEL).setComprehensionUnrollLimit(0).build();
     CelVerificationResult verifiedValue = verifier.isAlwaysTrue(ast);
 
     assertThat(verifiedValue.status()).isEqualTo(VerificationStatus.VERIFIED);
@@ -1657,7 +1709,7 @@ public final class CelVerifierZ3ImplTest {
     CelAbstractSyntaxTree ast =
         celWithCustomFunc.compile("custom_func(1 / 0) == 5 || !(custom_func(1 / 0) == 5)").getAst();
 
-    CelVerificationResult result = VERIFIER_WITHOUT_ORACLE.isAlwaysTrue(ast);
+    CelVerificationResult result = UNCHECKED_VERIFIER.isAlwaysTrue(ast);
 
     // Should fail verification because the error propagates through custom_func,
     // so the whole expression evaluates to an error, not true.
@@ -1722,12 +1774,11 @@ public final class CelVerifierZ3ImplTest {
     CelAbstractSyntaxTree astA = CEL.compile(testCase.exprA).getAst();
     CelAbstractSyntaxTree astB = CEL.compile(testCase.exprB).getAst();
     CelVerifier verifier =
-        withRuntimeOracle(
-            CEL,
-            b ->
-                b.addUnknownIdentifier("a")
-                    .addUnknownIdentifier("x")
-                    .addUnknownIdentifier("unknown_var"));
+        CelVerifierFactory.newVerifier(CEL)
+            .addUnknownIdentifier("a")
+            .addUnknownIdentifier("x")
+            .addUnknownIdentifier("unknown_var")
+            .build();
 
     CelVerificationResult result = verifier.verifyEquivalence(astA, astB);
 
@@ -1741,7 +1792,7 @@ public final class CelVerifierZ3ImplTest {
     CelAbstractSyntaxTree astB =
         CEL.compile("x == y && y == port ? dyn_list.all(e, y == port) : false").getAst();
 
-    CelVerificationResult result = VERIFIER.verifyEquivalence(astA, astB);
+    CelVerificationResult result = UNCHECKED_VERIFIER.verifyEquivalence(astA, astB);
 
     assertThat(result.status()).isEqualTo(VerificationStatus.INCONCLUSIVE);
   }
@@ -1761,7 +1812,7 @@ public final class CelVerifierZ3ImplTest {
     CelAbstractSyntaxTree ast =
         celWithCustomFunc.compile("approx_list(1).map(x, x * 2) == []").getAst();
 
-    CelVerificationResult result = VERIFIER_WITHOUT_ORACLE.isSatisfiable(ast);
+    CelVerificationResult result = UNCHECKED_VERIFIER.isSatisfiable(ast);
 
     assertThat(result.status()).isEqualTo(VerificationStatus.INCONCLUSIVE);
   }
@@ -1781,7 +1832,7 @@ public final class CelVerifierZ3ImplTest {
     CelAbstractSyntaxTree ast =
         celWithCustomFunc.compile("y == [] && y.map(x, approx_func(1)) == y").getAst();
 
-    CelVerificationResult result = VERIFIER_WITHOUT_ORACLE.isSatisfiable(ast);
+    CelVerificationResult result = UNCHECKED_VERIFIER.isSatisfiable(ast);
 
     assertThat(result.status()).isEqualTo(VerificationStatus.VERIFIED);
   }
@@ -1795,6 +1846,23 @@ public final class CelVerifierZ3ImplTest {
         "dyn(TestAllTypes.NestedMessage{}).single_int64 == 0"
             + " || dyn(TestAllTypes.NestedMessage{}).single_int64 != 0"),
     MAP_MISSING_KEY("{'a': 1}['b'] == 0 || !({'a': 1}['b'] == 0)"),
+    OPTIONAL_SELECT_UNDECLARED_FIELD_OF_DYN_MESSAGE(
+        "dyn(TestAllTypes{}).?unknown_field.hasValue()"
+            + " || !dyn(TestAllTypes{}).?unknown_field.hasValue()"),
+    OPTIONAL_CHAINING_SELECT_UNDECLARED_FIELD(
+        "optional.of(dyn(TestAllTypes{})).unknown_field.hasValue()"
+            + " || !optional.of(dyn(TestAllTypes{})).unknown_field.hasValue()"),
+    // No overload indexes a list with a string, even an empty optional list.
+    OPTIONAL_LIST_INDEXED_BY_STRING(
+        "TestAllTypes{}.?repeated_int64[dyn('a')].hasValue()"
+            + " || !TestAllTypes{}.?repeated_int64[dyn('a')].hasValue()"),
+    OPTIONAL_LIST_OPTIONALLY_INDEXED_BY_STRING(
+        "TestAllTypes{}.?repeated_int64[?dyn('a')].hasValue()"
+            + " || !TestAllTypes{}.?repeated_int64[?dyn('a')].hasValue()"),
+    // A present optional's value must be a map or message to select from.
+    OPTIONAL_CHAINING_SELECT_FROM_NULL(
+        "{'null_key': dyn(null)}.?null_key.invalid.hasValue()"
+            + " || !{'null_key': dyn(null)}.?null_key.invalid.hasValue()"),
     COLLECTION_ERROR("{'a': 1 / 0} == {'a': 1 / 0}"),
     LIST_ERROR("[1 / 0] == [1 / 0]"),
     STRICT_LITERAL_ERROR("{'a': 1/0}.exists(k, k == 'a') == {'a': 1/0}.exists(k, k == 'a')"),
@@ -1819,7 +1887,7 @@ public final class CelVerifierZ3ImplTest {
 
     CelVerificationResult result = VERIFIER.isAlwaysTrue(ast);
 
-    assertThat(result.status()).isEqualTo(VerificationStatus.VIOLATED);
+    assertExact(result, VerificationStatus.VIOLATED);
     assertThat(result.message())
         .isEqualTo(
             "Condition is not always true. (The expression fails unconditionally, regardless of"
@@ -1834,7 +1902,7 @@ public final class CelVerifierZ3ImplTest {
 
     CelVerificationResult result = VERIFIER.verifyEquivalence(astA, astB);
 
-    assertThat(result.status()).isEqualTo(VerificationStatus.VIOLATED);
+    assertExact(result, VerificationStatus.VIOLATED);
     assertThat(result.message())
         .isEqualTo(
             "Equivalence violation detected. (The expression fails unconditionally, regardless of"
@@ -1849,7 +1917,7 @@ public final class CelVerifierZ3ImplTest {
 
     CelVerificationResult result = VERIFIER.verifyEquivalence(astA, astB);
 
-    assertThat(result.status()).isEqualTo(VerificationStatus.VIOLATED);
+    assertExact(result, VerificationStatus.VIOLATED);
     assertThat(result.message()).contains("string_int_map =");
     assertThat(result.message()).doesNotContain("string_int_map = {'a': 1}");
   }
@@ -1871,7 +1939,12 @@ public final class CelVerifierZ3ImplTest {
         Operator.LESS,
         ImmutableList.of(
             CelExpr.newBuilder().setId(2).setConstant(CelConstant.ofValue(1L)).build()),
-        "expects 2 arguments, got 1");
+        "expects 2 arguments, got 1"),
+    OPTIONAL_SELECT(
+        Operator.OPTIONAL_SELECT,
+        ImmutableList.of(
+            CelExpr.newBuilder().setId(2).setConstant(CelConstant.ofValue(1L)).build()),
+        "expects an operand and a field name");
 
     final Operator operator;
     final ImmutableList<CelExpr> args;
@@ -1918,10 +1991,24 @@ public final class CelVerifierZ3ImplTest {
 
     CelVerificationResult result = VERIFIER.verifyEquivalence(astA, astB);
 
-    assertThat(result.status()).isEqualTo(VerificationStatus.VIOLATED);
+    assertExact(result, VerificationStatus.VIOLATED);
   }
 
   private enum IsAlwaysTrueViolationTestCase {
+    // The type checker narrows `dyn_var.orValue(...)` to the default's type.
+    NARROWED_MAP_LITERAL_EQUALITY(
+        "dyn_var == optional.of({'a': 1.0}) ? dyn_var.orValue(string_int_map) != {'a': 1} : true",
+        "Condition is not always true\\."),
+    // The type checker narrows `b ? test_all_types : null` to TestAllTypes.
+    NARROWED_NULL_FIELD(
+        "b || has((b ? test_all_types : null).single_int64)"
+            + " || !has((b ? test_all_types : null).single_int64)",
+        "Condition is not always true\\."),
+    NARROWED_MESSAGE_FIELD(
+        "dyn_var == optional.of(dyn_var2) && dyn_var2 == 42"
+            + " ? dyn_var.orValue(test_all_types).single_int64 == 0"
+            + " || dyn_var.orValue(test_all_types).single_int64 != 0 : true",
+        "Condition is not always true\\."),
     // `[NaN]` differs from itself.
     DYNAMIC_LIST_VARIABLE_EQUALITY("dyn_list == dyn_list", "dyn_list = \\[double\\(\"NaN\"\\)\\]"),
     DYNAMIC_MAP_VARIABLE_EQUALITY(
@@ -2267,7 +2354,7 @@ public final class CelVerifierZ3ImplTest {
 
     CelVerificationResult result = VERIFIER.isAlwaysTrue(ast);
 
-    assertThat(result.status()).isEqualTo(VerificationStatus.VIOLATED);
+    assertExact(result, VerificationStatus.VIOLATED);
     for (String fragment : testCase.expectedFragments) {
       assertThat(result.message()).containsMatch(fragment);
     }
@@ -2284,11 +2371,11 @@ public final class CelVerifierZ3ImplTest {
     CelAbstractSyntaxTree ast = CEL.compile(expression).getAst();
     // A tighter timeout than the default, so that removing the fast path for comparing doubles with
     // exact integer constants fails as a performance regression (~0.3 s with it, 19-45 s without).
-    CelVerifier verifier = withRuntimeOracle(CEL, b -> b.setTimeout(Duration.ofSeconds(5)));
+    CelVerifier verifier = checkedVerifier(CEL).setTimeout(Duration.ofSeconds(5)).build();
 
     CelVerificationResult result = verifier.isAlwaysTrue(ast);
 
-    assertThat(result.status()).isEqualTo(VerificationStatus.VERIFIED);
+    assertExact(result, VerificationStatus.VERIFIED);
   }
 
   @Test
@@ -2301,13 +2388,13 @@ public final class CelVerifierZ3ImplTest {
     // A looser timeout than the default: comparing a dyn map with a literal admits every numeric
     // representation of its keys and values, a state space that takes 5-25 s to explore remotely
     // (longer on GitHub runners).
-    // TODO: Restore 20 s once select on optionals is modeled (`request` may be
-    // `optional.none()`) and the slowdown since map literal key validation is recovered.
-    CelVerifier verifier = withRuntimeOracle(CEL, b -> b.setTimeout(Duration.ofSeconds(60)));
+    // TODO: Restore 20 s once the slowdown since map literal key validation is
+    // recovered.
+    CelVerifier verifier = checkedVerifier(CEL).setTimeout(Duration.ofSeconds(60)).build();
 
     CelVerificationResult result = verifier.isAlwaysTrue(ast);
 
-    assertThat(result.status()).isEqualTo(VerificationStatus.VIOLATED);
+    assertExact(result, VerificationStatus.VIOLATED);
     assertThat(result.message()).contains("request = ");
   }
 
@@ -2426,7 +2513,7 @@ public final class CelVerifierZ3ImplTest {
       throws Exception {
     CelAbstractSyntaxTree ast = CEL.compile(testCase.expr).getAst();
 
-    CelVerificationResult result = VERIFIER.isAlwaysTrue(ast);
+    CelVerificationResult result = UNCHECKED_VERIFIER.isAlwaysTrue(ast);
 
     assertThat(result.status()).isEqualTo(VerificationStatus.INCONCLUSIVE);
   }
@@ -2435,7 +2522,7 @@ public final class CelVerifierZ3ImplTest {
   public void isAlwaysTrue_inconclusive_containsPotentialCounterexample() throws Exception {
     CelAbstractSyntaxTree ast = CEL.compile("request.matches('^[a-z]+$') == true").getAst();
 
-    CelVerificationResult result = VERIFIER.isAlwaysTrue(ast);
+    CelVerificationResult result = UNCHECKED_VERIFIER.isAlwaysTrue(ast);
 
     assertThat(result.status()).isEqualTo(VerificationStatus.INCONCLUSIVE);
     assertThat(result.message())
@@ -2536,7 +2623,7 @@ public final class CelVerifierZ3ImplTest {
     CelAbstractSyntaxTree astA = CEL.compile("dyn_var.all(e, e > 0)").getAst();
     CelAbstractSyntaxTree astB = CEL.compile("dyn_var.all(e, e < 0)").getAst();
 
-    CelVerificationResult result = VERIFIER.verifyEquivalence(astA, astB);
+    CelVerificationResult result = UNCHECKED_VERIFIER.verifyEquivalence(astA, astB);
 
     assertThat(result.reason())
         .isEqualTo(
@@ -2548,7 +2635,8 @@ public final class CelVerifierZ3ImplTest {
   public void verifyEquivalence_unknownResults_listedAsApproximationSource() throws Exception {
     CelAbstractSyntaxTree astA = CEL.compile("unknown_var * 1").getAst();
     CelAbstractSyntaxTree astB = CEL.compile("unknown_var + 0").getAst();
-    CelVerifier verifier = withRuntimeOracle(CEL, b -> b.addUnknownIdentifier("unknown_var"));
+    CelVerifier verifier =
+        CelVerifierFactory.newVerifier(CEL).addUnknownIdentifier("unknown_var").build();
 
     CelVerificationResult result = verifier.verifyEquivalence(astA, astB);
 
@@ -2564,7 +2652,7 @@ public final class CelVerifierZ3ImplTest {
     CelAbstractSyntaxTree astA = CEL.compile(testCase.exprA).getAst();
     CelAbstractSyntaxTree astB = CEL.compile(testCase.exprB).getAst();
 
-    CelVerificationResult result = VERIFIER.verifyEquivalence(astA, astB);
+    CelVerificationResult result = UNCHECKED_VERIFIER.verifyEquivalence(astA, astB);
 
     assertThat(result.status()).isEqualTo(VerificationStatus.INCONCLUSIVE);
   }
@@ -2811,6 +2899,30 @@ public final class CelVerifierZ3ImplTest {
     OPTIONAL_FIELD_SELECTION_MAP_COMPREHENSION(
         "{'a': 1, 'b': 2}.transformMap(k, v, v > 1, v).?b", "optional.of(2)"),
     OPTIONAL_FIELD_SELECTION_BINDER("cel.bind(m, {'a': 1}, m.?a)", "optional.of(1)"),
+    // Selecting from or indexing an optional does so optionally.
+    OPTIONAL_CHAINING_SELECT(
+        "optional.of({'c': {'index': 'goodbye'}}).c.index", "optional.of('goodbye')"),
+    OPTIONAL_CHAINING_SELECT_MISSING("optional.of({'c': {}}).c.missing", "optional.none()"),
+    OPTIONAL_CHAINING_SELECT_NONE("optional.none().c", "optional.none()"),
+    OPTIONAL_CHAINING_SELECT_OPTIONAL_VALUE(
+        "optional.of({'a': optional.of(1)}).a", "optional.of(optional.of(1))"),
+    OPTIONAL_CHAINING_HAS_PRESENT("has(optional.of({'c': 1}).c)", "true"),
+    OPTIONAL_CHAINING_HAS_ABSENT("has(optional.of({'c': 1}).d)", "false"),
+    OPTIONAL_CHAINING_HAS_NONE("has(optional.none().c)", "false"),
+    OPTIONAL_CHAINING_SELECT_PROTO3_ZERO(
+        "optional.of(TestAllTypes{single_int64: 0}).single_int64", "optional.none()"),
+    OPTIONAL_CHAINING_SELECT_UNSET_WRAPPER(
+        "optional.of(TestAllTypes{}).single_int64_wrapper", "optional.none()"),
+    OPTIONAL_CHAINING_INDEX("optional.of(['list-value'])[0]", "optional.of('list-value')"),
+    OPTIONAL_CHAINING_INDEX_MISSING("optional.of({'c': {}}).c['missing']", "optional.none()"),
+    OPTIONAL_CHAINING_INDEX_NONE("optional.none()[0]", "optional.none()"),
+    OPTIONAL_SELECT_THEN_INDEX(
+        "optional.of(TestAllTypes{repeated_string: ['foo']}).?repeated_string[0]",
+        "optional.of('foo')"),
+    OPTIONAL_CHAINING_DYN(
+        "dyn_var == optional.of({'a': [1]}) ? dyn_var.a[0] : optional.of(1)", "optional.of(1)"),
+    OPTIONAL_CHAINING_DYN_NONE(
+        "request == optional.none() ? request.l : optional.none()", "optional.none()"),
     JSON_VALUE_BOOL("google.protobuf.Value{bool_value: true}", "true"),
     JSON_VALUE_NUMBER("google.protobuf.Value{number_value: 1.0}", "1.0"),
     JSON_VALUE_NULL("google.protobuf.Value{null_value: 0}", "null"),
@@ -3183,7 +3295,7 @@ public final class CelVerifierZ3ImplTest {
 
     CelVerificationResult result = VERIFIER.verifyEquivalence(astA, astB);
 
-    assertThat(result.status()).isEqualTo(VerificationStatus.VIOLATED);
+    assertExact(result, VerificationStatus.VIOLATED);
     assertThat(result.message()).contains("Equivalence violation detected.");
   }
 
@@ -3194,7 +3306,7 @@ public final class CelVerifierZ3ImplTest {
 
     CelVerificationResult result = VERIFIER.verifyEquivalence(astA, astB);
 
-    assertThat(result.status()).isEqualTo(VerificationStatus.VIOLATED);
+    assertExact(result, VerificationStatus.VIOLATED);
     String message = result.message();
     assertThat(message).contains("Equivalence violation detected. Counterexample input:");
     assertThat(message).containsMatch(" {2}x = -?\\d+");
@@ -3210,7 +3322,7 @@ public final class CelVerifierZ3ImplTest {
 
     CelVerificationResult result = VERIFIER.verifyEquivalence(astA, astB);
 
-    assertThat(result.status()).isEqualTo(VerificationStatus.VIOLATED);
+    assertExact(result, VerificationStatus.VIOLATED);
   }
 
   @Test
@@ -3222,7 +3334,7 @@ public final class CelVerifierZ3ImplTest {
 
     CelVerificationResult result = VERIFIER.verifyEquivalence(astA, astB);
 
-    assertThat(result.status()).isEqualTo(VerificationStatus.VIOLATED);
+    assertExact(result, VerificationStatus.VIOLATED);
     assertThat(result.message()).contains("string_int_list_map = {");
     assertThat(result.message()).contains("\"a\": [1, 2]");
     assertThat(result.message()).containsMatch("\"b\": \\[3, [45]]");
@@ -3233,7 +3345,7 @@ public final class CelVerifierZ3ImplTest {
     CelAbstractSyntaxTree astA = CEL.compile("false && (1 / 0 == 0)").getAst();
     CelAbstractSyntaxTree astB = CEL.compile("false").getAst();
     CelVerificationResult result = VERIFIER.verifyEquivalence(astA, astB);
-    assertThat(result.status()).isEqualTo(VerificationStatus.VERIFIED);
+    assertExact(result, VerificationStatus.VERIFIED);
   }
 
   @Test
@@ -3241,7 +3353,7 @@ public final class CelVerifierZ3ImplTest {
     CelAbstractSyntaxTree astA = CEL.compile("true || unknown_var").getAst();
     CelAbstractSyntaxTree astB = CEL.compile("true").getAst();
     CelVerificationResult result = VERIFIER.verifyEquivalence(astA, astB);
-    assertThat(result.status()).isEqualTo(VerificationStatus.VERIFIED);
+    assertExact(result, VerificationStatus.VERIFIED);
   }
 
   @Test
@@ -3249,7 +3361,7 @@ public final class CelVerifierZ3ImplTest {
     CelAbstractSyntaxTree astA = CEL.compile("[[[[1]]]] == [[[[1]]]]").getAst();
     CelAbstractSyntaxTree astB = CEL.compile("true").getAst();
     CelVerificationResult result = VERIFIER.verifyEquivalence(astA, astB);
-    assertThat(result.status()).isEqualTo(VerificationStatus.VERIFIED);
+    assertExact(result, VerificationStatus.VERIFIED);
   }
 
   @Test
@@ -3258,7 +3370,7 @@ public final class CelVerifierZ3ImplTest {
         CEL.compile("(\"a\" + \"b\" + \"c\" + \"d\" + \"e\") == \"abcde\"").getAst();
     CelAbstractSyntaxTree astB = CEL.compile("true").getAst();
     CelVerificationResult result = VERIFIER.verifyEquivalence(astA, astB);
-    assertThat(result.status()).isEqualTo(VerificationStatus.VERIFIED);
+    assertExact(result, VerificationStatus.VERIFIED);
   }
 
   @Test
@@ -3270,7 +3382,7 @@ public final class CelVerifierZ3ImplTest {
 
     CelVerificationResult result = VERIFIER.verifyEquivalence(astA, astB);
 
-    assertThat(result.status()).isEqualTo(VerificationStatus.VERIFIED);
+    assertExact(result, VerificationStatus.VERIFIED);
   }
 
   @Test
@@ -3281,7 +3393,7 @@ public final class CelVerifierZ3ImplTest {
     CelAbstractSyntaxTree astB = CEL.compile("role + role == \"abc\"").getAst();
     CelVerificationResult result = VERIFIER.verifyEquivalence(astA, astB);
 
-    assertThat(result.status()).isEqualTo(VerificationStatus.VIOLATED);
+    assertExact(result, VerificationStatus.VIOLATED);
   }
 
   private enum CounterexampleFormatTestCase {
@@ -3389,7 +3501,7 @@ public final class CelVerifierZ3ImplTest {
     CelAbstractSyntaxTree astB = CEL.compile(testCase.exprB).getAst();
     CelVerificationResult result = VERIFIER.verifyEquivalence(astA, astB);
 
-    assertThat(result.status()).isEqualTo(VerificationStatus.VIOLATED);
+    assertExact(result, VerificationStatus.VIOLATED);
     boolean matched =
         testCase.expectedFragments.stream()
             .anyMatch(
@@ -3412,7 +3524,7 @@ public final class CelVerifierZ3ImplTest {
         CEL.compile("test_all_types == TestAllTypes{single_int32: 2}").getAst();
     CelVerificationResult result = VERIFIER.verifyEquivalence(astA, astB);
 
-    assertThat(result.status()).isEqualTo(VerificationStatus.VIOLATED);
+    assertExact(result, VerificationStatus.VIOLATED);
     assertThat(result.message())
         .isAnyOf(
             "Equivalence violation detected. Counterexample input:\n"
@@ -3429,7 +3541,7 @@ public final class CelVerifierZ3ImplTest {
     CelAbstractSyntaxTree ast = CEL.compile("x / x == x / x").getAst();
     CelVerificationResult result = VERIFIER.isAlwaysTrue(ast);
 
-    assertThat(result.status()).isEqualTo(VerificationStatus.VIOLATED);
+    assertExact(result, VerificationStatus.VIOLATED);
     assertThat(result.message()).contains("x = 0");
   }
 
@@ -3446,7 +3558,7 @@ public final class CelVerifierZ3ImplTest {
                     CelOverloadDecl.newGlobalOverload("request_overload", SimpleType.DYN)))
             .build();
     CelAbstractSyntaxTree ast = celCompiler.compile("request() == request()").getAst();
-    CelVerificationResult result = VERIFIER.isAlwaysTrue(ast);
+    CelVerificationResult result = UNCHECKED_VERIFIER.isAlwaysTrue(ast);
 
     assertThat(result.status()).isEqualTo(VerificationStatus.INCONCLUSIVE);
     assertThat(result.message()).contains("doesn't model exactly: calls to `request`.");
@@ -3465,7 +3577,7 @@ public final class CelVerifierZ3ImplTest {
             .build();
     CelAbstractSyntaxTree ast = celCompiler.compile("x != 0 && request() == 1").getAst();
 
-    CelVerificationResult result = VERIFIER_WITHOUT_ORACLE.isAlwaysTrue(ast);
+    CelVerificationResult result = UNCHECKED_VERIFIER.isAlwaysTrue(ast);
 
     assertThat(result.status()).isEqualTo(VerificationStatus.VIOLATED);
     assertThat(result.message()).contains("x = 0");
@@ -3482,7 +3594,7 @@ public final class CelVerifierZ3ImplTest {
                     CelOverloadDecl.newGlobalOverload("bool_func_overload", SimpleType.BOOL)))
             .build();
     CelAbstractSyntaxTree ast = celCompiler.compile("bool_func() == bool_func()").getAst();
-    CelVerificationResult result = VERIFIER_WITHOUT_ORACLE.isAlwaysTrue(ast);
+    CelVerificationResult result = UNCHECKED_VERIFIER.isAlwaysTrue(ast);
 
     assertThat(result.status()).isEqualTo(VerificationStatus.VERIFIED);
   }
@@ -3517,7 +3629,7 @@ public final class CelVerifierZ3ImplTest {
                         "f_list_string", SimpleType.INT, ListType.create(SimpleType.STRING))))
             .build();
     CelAbstractSyntaxTree ast = celCompiler.compile(expression).getAst();
-    CelVerificationResult result = VERIFIER.isAlwaysTrue(ast);
+    CelVerificationResult result = UNCHECKED_VERIFIER.isAlwaysTrue(ast);
 
     assertThat(result.status()).isEqualTo(VerificationStatus.INCONCLUSIVE);
   }
@@ -3533,7 +3645,7 @@ public final class CelVerifierZ3ImplTest {
             .build();
     CelAbstractSyntaxTree ast = celCompiler.compile("g() == g").getAst();
 
-    CelVerificationResult result = VERIFIER.isAlwaysTrue(ast);
+    CelVerificationResult result = UNCHECKED_VERIFIER.isAlwaysTrue(ast);
 
     assertThat(result.status()).isEqualTo(VerificationStatus.INCONCLUSIVE);
   }
@@ -3551,9 +3663,9 @@ public final class CelVerifierZ3ImplTest {
             .build();
     CelAbstractSyntaxTree astA = celCompiler.compile("request()").getAst();
     CelAbstractSyntaxTree astB = celCompiler.compile("request()").getAst();
-    CelVerificationResult result = VERIFIER.verifyEquivalence(astA, astB);
+    CelVerificationResult result = UNCHECKED_VERIFIER.verifyEquivalence(astA, astB);
 
-    assertThat(result.status()).isEqualTo(VerificationStatus.VERIFIED);
+    assertExact(result, VerificationStatus.VERIFIED);
   }
 
   @Test
@@ -3572,7 +3684,7 @@ public final class CelVerifierZ3ImplTest {
             .build();
     CelAbstractSyntaxTree ast = celCompiler.compile("!(int_list < int_list_2)").getAst();
 
-    CelVerificationResult result = VERIFIER.isSatisfiable(ast);
+    CelVerificationResult result = UNCHECKED_VERIFIER.isSatisfiable(ast);
 
     assertThat(result.status()).isEqualTo(VerificationStatus.INCONCLUSIVE);
   }
@@ -3594,7 +3706,7 @@ public final class CelVerifierZ3ImplTest {
 
     CelVerificationResult result = VERIFIER.isSatisfiable(ast);
 
-    assertThat(result.status()).isEqualTo(VerificationStatus.VIOLATED);
+    assertExact(result, VerificationStatus.VIOLATED);
   }
 
   @Test
@@ -3607,7 +3719,7 @@ public final class CelVerifierZ3ImplTest {
             .addVar("d4", SimpleType.DOUBLE)
             .build();
     CelVerifier timeoutVerifier =
-        withRuntimeOracle(customCel, b -> b.setTimeout(Duration.ofMillis(1)));
+        checkedVerifier(customCel).setTimeout(Duration.ofMillis(1)).build();
 
     // An overly complex double multiplication to guarantee Z3 FPA theory solver timeouts.
     CelAbstractSyntaxTree ast =
@@ -3904,7 +4016,7 @@ public final class CelVerifierZ3ImplTest {
     CelAbstractSyntaxTree ast = CEL.compile(expr).getAst();
     CelAbstractSyntaxTree optimizedAst = optimizer.optimize(ast);
 
-    assertThat(VERIFIER.isAlwaysTrue(optimizedAst).status()).isEqualTo(VerificationStatus.VIOLATED);
+    assertExact(VERIFIER.isAlwaysTrue(optimizedAst), VerificationStatus.VIOLATED);
   }
 
   @Test
@@ -3925,6 +4037,287 @@ public final class CelVerifierZ3ImplTest {
     CelAbstractSyntaxTree optimizedAst = optimizer.optimize(ast);
 
     assertThat(VERIFIER.isAlwaysTrue(optimizedAst).status()).isEqualTo(VerificationStatus.VERIFIED);
+  }
+
+  @Test
+  public void isSatisfiable_narrowedBlockIndex_satisfiable() throws Exception {
+    CelOptimizer optimizer =
+        CelOptimizerFactory.standardCelOptimizerBuilder(CEL)
+            .addAstOptimizers(SubexpressionOptimizer.getInstance())
+            .build();
+    // cel.@block([dyn_var.orValue(1)], @index0 != @index0), where @index0 is typed int.
+    CelAbstractSyntaxTree ast =
+        optimizer.optimize(CEL.compile("dyn_var.orValue(1) != dyn_var.orValue(1)").getAst());
+
+    CelVerificationResult result = UNCHECKED_VERIFIER.isSatisfiable(ast);
+
+    assertThat(result.status()).isEqualTo(VerificationStatus.VERIFIED);
+  }
+
+  @FunctionalInterface
+  @Immutable
+  private interface VerifierCall {
+    CelVerificationResult call(CelVerifier verifier) throws Exception;
+  }
+
+  private static VerifierCall alwaysTrue(String expr) {
+    return v -> v.isAlwaysTrue(ZERO_CEL.compile(expr).getAst());
+  }
+
+  private static VerifierCall satisfiable(String expr) {
+    return v -> v.isSatisfiable(ZERO_CEL.compile(expr).getAst());
+  }
+
+  // Models `zero(x)` as `value`.
+  private static CelZ3FunctionAxiom zeroAxiom(long value) {
+    return CelZ3FunctionAxiom.newBuilder(ZERO_DECL)
+        .addUnaryOverloadTranslator(
+            "zero_int",
+            (ctx, typeSystem, constraintSink, arg) -> Optional.of(typeSystem.mkInt(value)))
+        .build();
+  }
+
+  private static VerifierCall equivalent(String exprA, String exprB) {
+    return v ->
+        v.verifyEquivalence(ZERO_CEL.compile(exprA).getAst(), ZERO_CEL.compile(exprB).getAst());
+  }
+
+  private enum CegarTestCase {
+    COUNTEREXAMPLE_CONFIRMED(
+        alwaysTrue("zero(x) == 1"),
+        VerificationStatus.VIOLATED,
+        "Condition is not always true. The CEL runtime confirmed a counterexample the verifier"
+            + " approximated. Counterexample input:"),
+    COUNTEREXAMPLE_REFUTED(
+        alwaysTrue("zero(x) == 0"),
+        VerificationStatus.INCONCLUSIVE,
+        "The CEL runtime disagrees with the one found. Potential counterexample input:"),
+    ERROR_COUNTEREXAMPLE_CONFIRMED(
+        alwaysTrue("zero(x) / zero(x) == 1"),
+        VerificationStatus.VIOLATED,
+        "The CEL runtime confirmed a counterexample the verifier approximated."),
+    // `0 + 'a'` has no overload at runtime.
+    DISPATCH_ERROR_COUNTEREXAMPLE_CONFIRMED(
+        alwaysTrue("dyn(zero(x)) + 'a' == 'a'"),
+        VerificationStatus.VIOLATED,
+        "The CEL runtime confirmed a counterexample the verifier approximated."),
+    BAD_FORMAT_COUNTEREXAMPLE_CONFIRMED(
+        alwaysTrue("int('abc') == zero(x)"),
+        VerificationStatus.VIOLATED,
+        "The CEL runtime confirmed a counterexample the verifier approximated."),
+    EXACT_COUNTEREXAMPLE(
+        alwaysTrue("x != 1"),
+        VerificationStatus.VIOLATED,
+        "Condition is not always true. Counterexample input:"),
+    SATISFYING_INPUT_CONFIRMED(
+        satisfiable("zero(x) == 0"),
+        VerificationStatus.VERIFIED,
+        "Condition is satisfiable. The CEL runtime confirmed a satisfying input the verifier"
+            + " approximated. Satisfying input:"),
+    SATISFYING_INPUT_REFUTED(
+        satisfiable("zero(x) == 1"),
+        VerificationStatus.INCONCLUSIVE,
+        "The CEL runtime disagrees with the one found. Potential satisfying input:"),
+    DIVERGENCE_CONFIRMED(
+        equivalent("zero(x)", "1"),
+        VerificationStatus.VIOLATED,
+        "Equivalence violation detected. The CEL runtime confirmed a divergence the verifier"
+            + " approximated. Counterexample input:"),
+    DIVERGENCE_REFUTED(
+        equivalent("zero(x)", "0"),
+        VerificationStatus.INCONCLUSIVE,
+        "The CEL runtime disagrees with the one found. Potential counterexample input:"),
+    // Both sides divide by zero at runtime, and all errors are one value.
+    ERROR_DIVERGENCE_REFUTED(
+        equivalent("zero(x) / zero(x)", "1 / zero(x)"),
+        VerificationStatus.INCONCLUSIVE,
+        "The CEL runtime disagrees with the one found."),
+    // Maps can't have numerically equal keys, or bytes keys.
+    NUMERICALLY_EQUAL_KEYS(
+        satisfiable(
+            "zero(x) == 0 && 0 in dyn_int_map && 0u in dyn_int_map"
+                + " && dyn_int_map[0] != dyn_int_map[0u]"),
+        VerificationStatus.INCONCLUSIVE,
+        "Potential satisfying input:"),
+    BYTES_KEY(
+        satisfiable("zero(x) == 0 && b'a' in dyn_int_map"),
+        VerificationStatus.INCONCLUSIVE,
+        "Potential satisfying input:"),
+    NEGATIVE_KEY(
+        satisfiable("zero(x) == 0 && -1 in dyn_int_map"),
+        VerificationStatus.VERIFIED,
+        "The CEL runtime confirmed a satisfying input the verifier approximated."),
+    // Proto message inputs aren't exact witness values yet.
+    INEXACT_WITNESS(
+        alwaysTrue("zero(test_all_types.single_int64) == 1"),
+        VerificationStatus.INCONCLUSIVE,
+        "Potential counterexample input:");
+
+    private final VerifierCall call;
+    private final VerificationStatus status;
+    private final String message;
+
+    CegarTestCase(VerifierCall call, VerificationStatus status, String message) {
+      this.call = call;
+      this.status = status;
+      this.message = message;
+    }
+  }
+
+  @Test
+  public void cegar_checksWitnessWithRuntime(@TestParameter CegarTestCase testCase)
+      throws Exception {
+    CelVerifier verifier = checkedVerifier(ZERO_CEL).build();
+
+    CelVerificationResult result = testCase.call.call(verifier);
+
+    assertThat(result.status()).isEqualTo(testCase.status);
+    assertThat(result.message()).contains(testCase.message);
+  }
+
+  private static final CelFunctionDecl MAYBE_DECL =
+      CelFunctionDecl.newFunctionDeclaration(
+          "maybe", CelOverloadDecl.newGlobalOverload("maybe_int", SimpleType.BOOL, SimpleType.INT));
+
+  private enum NotAttemptedCegarTestCase {
+    OFF(CelVerifierFactory.newVerifier(ZERO_CEL).build()),
+    UNKNOWN_IDENTIFIERS(checkedVerifier(ZERO_CEL).addUnknownIdentifier("unknown_var").build());
+
+    private final CelVerifier verifier;
+
+    NotAttemptedCegarTestCase(CelVerifier verifier) {
+      this.verifier = verifier;
+    }
+  }
+
+  @Test
+  public void cegar_notAttempted_staysInconclusive(
+      @TestParameter NotAttemptedCegarTestCase testCase) throws Exception {
+    CelVerificationResult result =
+        testCase.verifier.isAlwaysTrue(ZERO_CEL.compile("zero(x) == 1").getAst());
+
+    assertThat(result.status()).isEqualTo(VerificationStatus.INCONCLUSIVE);
+    assertThat(result.message()).doesNotContain("CEL runtime");
+  }
+
+  private enum CantEvaluateCegarTestCase {
+    UNBOUND_FUNCTION(UNBOUND_ZERO_CEL, "zero(x) == 1", "No matching overload for function 'zero'"),
+    LATE_BOUND_FUNCTION(
+        UNBOUND_ZERO_CEL.toCelBuilder().addLateBoundFunctions("zero").build(),
+        "zero(x) == 1",
+        "No matching overload for function 'zero'"),
+    // The runtime's iteration limit isn't a CEL error.
+    ITERATION_LIMIT(
+        ZERO_CEL
+            .toCelBuilder()
+            .setOptions(CelOptions.current().comprehensionMaxIterations(0).build())
+            .build(),
+        "[1].all(i, zero(i) == 0)",
+        "Iteration budget exceeded"),
+    // Async bindings fail with an internal error when evaluated synchronously.
+    ASYNC_FUNCTION(
+        UNBOUND_ZERO_CEL
+            .toCelBuilder()
+            .addFunctionBindings(CelFunctionBinding.fromAsync("zero_int", Long.class, x -> null))
+            .build(),
+        "zero(x) == 1",
+        "evaluated in synchronous mode"),
+    NULL_RESULT(
+        CEL.toCelBuilder()
+            .addFunctionDeclarations(MAYBE_DECL)
+            .addFunctionBindings(CelFunctionBinding.from("maybe_int", Long.class, x -> null))
+            .build(),
+        "maybe(x)",
+        "evaluated to null"),
+    UNKNOWN_RESULT(
+        CEL.toCelBuilder()
+            .addFunctionDeclarations(MAYBE_DECL)
+            .addFunctionBindings(
+                CelFunctionBinding.from("maybe_int", Long.class, x -> CelUnknownSet.create(1L)))
+            .build(),
+        "maybe(x)",
+        "it evaluated to unknowns");
+
+    private final Cel cel;
+    private final String expr;
+    private final String reason;
+
+    CantEvaluateCegarTestCase(Cel cel, String expr, String reason) {
+      this.cel = cel;
+      this.expr = expr;
+      this.reason = reason;
+    }
+  }
+
+  @Test
+  public void cegar_cantEvaluate_saysWhy(@TestParameter CantEvaluateCegarTestCase testCase)
+      throws Exception {
+    CelVerifier verifier = checkedVerifier(testCase.cel).build();
+
+    CelVerificationResult result =
+        verifier.isAlwaysTrue(testCase.cel.compile(testCase.expr).getAst());
+
+    assertThat(result.status()).isEqualTo(VerificationStatus.INCONCLUSIVE);
+    assertThat(result.message())
+        .containsMatch(
+            "The CEL runtime couldn't check it: .*\\. (Potential counterexample input:|\\(The)");
+    assertThat(result.message()).contains(testCase.reason);
+  }
+
+  @Test
+  public void cegar_exactMatchCantEvaluate_saysWhy() throws Exception {
+    // Models `zero(x)` as 0, but the runtime has no binding for it.
+    CelVerifier verifier =
+        CelVerifierZ3Impl.newBuilder(UNBOUND_ZERO_CEL)
+            .addFunctionAxioms(zeroAxiom(0))
+            .enableCegar(true)
+            .build();
+
+    CelVerificationResult result =
+        verifier.isAlwaysTrue(UNBOUND_ZERO_CEL.compile("zero(x) == 1").getAst());
+
+    assertThat(result.status()).isEqualTo(VerificationStatus.VIOLATED);
+    assertThat(result.message())
+        .containsMatch(
+            "Condition is not always true\\. The CEL runtime couldn't check it: .*No matching"
+                + " overload for function 'zero'.*\\. Counterexample input:");
+  }
+
+  private enum RefutedExactMatchTestCase {
+    COUNTEREXAMPLE(
+        alwaysTrue("zero(x) == 0"),
+        "a counterexample the verifier found. Potential counterexample input:"),
+    SATISFYING_INPUT(
+        satisfiable("zero(x) == 1"),
+        "a satisfying input the verifier found. Potential satisfying input:"),
+    DIVERGENCE(
+        equivalent("zero(x)", "0"),
+        "a divergence the verifier found. Potential counterexample input:");
+
+    private final VerifierCall call;
+    private final String message;
+
+    RefutedExactMatchTestCase(VerifierCall call, String message) {
+      this.call = call;
+      this.message = message;
+    }
+  }
+
+  @Test
+  public void cegar_runtimeDisagreesWithExactMatch_inconclusive(
+      @TestParameter RefutedExactMatchTestCase testCase) throws Exception {
+    // Models `zero(x)` as 1, which the runtime disagrees with.
+    CelVerifier verifier =
+        CelVerifierZ3Impl.newBuilder(ZERO_CEL)
+            .addFunctionAxioms(zeroAxiom(1))
+            .enableCegar(true)
+            .build();
+
+    CelVerificationResult result = testCase.call.call(verifier);
+
+    assertThat(result.status()).isEqualTo(VerificationStatus.INCONCLUSIVE);
+    assertThat(result.message())
+        .contains("Inconclusive: the CEL runtime disagrees with " + testCase.message);
   }
 
   @Test
@@ -4032,11 +4425,11 @@ public final class CelVerifierZ3ImplTest {
     listLiteral.append("]");
 
     CelAbstractSyntaxTree ast = cel.compile("!(large_list == " + listLiteral + ")").getAst();
-    CelVerifier verifier = withRuntimeOracle(cel, b -> b.setTimeout(Duration.ofSeconds(10)));
+    CelVerifier verifier = checkedVerifier(cel).setTimeout(Duration.ofSeconds(10)).build();
 
     CelVerificationResult result = verifier.isAlwaysTrue(ast);
 
-    assertThat(result.status()).isEqualTo(VerificationStatus.VIOLATED);
+    assertExact(result, VerificationStatus.VIOLATED);
     assertThat(result.message()).contains("... (5 more elements)");
   }
 
@@ -4056,11 +4449,11 @@ public final class CelVerifierZ3ImplTest {
     mapLiteral.append("}");
 
     CelAbstractSyntaxTree ast = cel.compile("!(large_map == " + mapLiteral + ")").getAst();
-    CelVerifier verifier = withRuntimeOracle(cel, b -> b.setTimeout(Duration.ofSeconds(10)));
+    CelVerifier verifier = checkedVerifier(cel).setTimeout(Duration.ofSeconds(10)).build();
 
     CelVerificationResult result = verifier.isAlwaysTrue(ast);
 
-    assertThat(result.status()).isEqualTo(VerificationStatus.VIOLATED);
+    assertExact(result, VerificationStatus.VIOLATED);
     assertThat(result.message()).contains("... (5 more entries)");
   }
 
@@ -4076,9 +4469,9 @@ public final class CelVerifierZ3ImplTest {
     CelAbstractSyntaxTree ast =
         cel.compile("!(msg == TestAllTypes{single_int32: 1, single_int64: 2})").getAst();
 
-    CelVerificationResult result = withRuntimeOracle(cel, b -> b).isAlwaysTrue(ast);
+    CelVerificationResult result = checkedVerifier(cel).build().isAlwaysTrue(ast);
 
-    assertThat(result.status()).isEqualTo(VerificationStatus.VIOLATED);
+    assertExact(result, VerificationStatus.VIOLATED);
     assertThat(result.message()).contains("single_int32: 1");
     assertThat(result.message()).contains("single_int64: 2");
   }
@@ -4107,11 +4500,11 @@ public final class CelVerifierZ3ImplTest {
             .build();
     CelAbstractSyntaxTree ast =
         cel.compile("dyn_list == [1, 2] ? dyn_list.custom_fold(x) == true : true").getAst();
-    CelVerifier verifier = withRuntimeOracle(cel, b -> b);
+    CelVerifier verifier = checkedVerifier(cel).build();
 
     CelVerificationResult result = verifier.isAlwaysTrue(ast);
 
-    assertThat(result.status()).isEqualTo(VerificationStatus.VERIFIED);
+    assertExact(result, VerificationStatus.VERIFIED);
   }
 
   @Test
@@ -4122,7 +4515,7 @@ public final class CelVerifierZ3ImplTest {
     CelAbstractSyntaxTree ast =
         CEL.compile("int_list == [1, 2] ? int_list.first_elem() == 2 : true").getAst();
 
-    CelVerificationResult result = VERIFIER.isAlwaysTrue(ast);
+    CelVerificationResult result = UNCHECKED_VERIFIER.isAlwaysTrue(ast);
 
     assertThat(result.reason())
         .isEqualTo(
@@ -4204,7 +4597,7 @@ public final class CelVerifierZ3ImplTest {
   public void isSatisfiable_exactUnknownBesideUnmodeledComprehension_violated() throws Exception {
     CelAbstractSyntaxTree ast =
         CEL.compile("(false && int_list.first_elem() == 1) || (b && !b)").getAst();
-    CelVerifier verifier = withRuntimeOracle(CEL, b -> b.addUnknownIdentifier("b"));
+    CelVerifier verifier = CelVerifierFactory.newVerifier(CEL).addUnknownIdentifier("b").build();
 
     CelVerificationResult result = verifier.isSatisfiable(ast);
 
@@ -4247,10 +4640,10 @@ public final class CelVerifierZ3ImplTest {
     String expr = "int_list == [1, 2, 3, 4] ? int_list.exists(x, x == 42) && false : false";
     CelAbstractSyntaxTree ast = CEL.compile(expr).getAst();
 
-    CelVerifier verifier = withRuntimeOracle(CEL, b -> b.setComprehensionUnrollLimit(3));
+    CelVerifier verifier = checkedVerifier(CEL).setComprehensionUnrollLimit(3).build();
     CelVerificationResult result = verifier.isSatisfiable(ast);
 
-    assertThat(result.status()).isEqualTo(VerificationStatus.VIOLATED);
+    assertExact(result, VerificationStatus.VIOLATED);
   }
 
   @Test
@@ -4262,10 +4655,10 @@ public final class CelVerifierZ3ImplTest {
     CelAbstractSyntaxTree astA = CEL.compile(exprA).getAst();
     CelAbstractSyntaxTree astB = CEL.compile(exprB).getAst();
 
-    CelVerifier verifier = withRuntimeOracle(CEL, b -> b.setComprehensionUnrollLimit(3));
+    CelVerifier verifier = checkedVerifier(CEL).setComprehensionUnrollLimit(3).build();
     CelVerificationResult result = verifier.verifyEquivalence(astA, astB);
 
-    assertThat(result.status()).isEqualTo(VerificationStatus.VERIFIED);
+    assertExact(result, VerificationStatus.VERIFIED);
   }
 
   private enum EquivalenceZeroUnrollLimitTestCase {
@@ -4288,7 +4681,8 @@ public final class CelVerifierZ3ImplTest {
       @TestParameter EquivalenceZeroUnrollLimitTestCase testCase) throws Exception {
     CelAbstractSyntaxTree astA = CEL.compile(testCase.exprA).getAst();
     CelAbstractSyntaxTree astB = CEL.compile(testCase.exprB).getAst();
-    CelVerifier verifier = withRuntimeOracle(CEL, b -> b.setComprehensionUnrollLimit(0));
+    CelVerifier verifier =
+        CelVerifierFactory.newVerifier(CEL).setComprehensionUnrollLimit(0).build();
 
     CelVerificationResult result = verifier.verifyEquivalence(astA, astB);
 
@@ -4326,7 +4720,7 @@ public final class CelVerifierZ3ImplTest {
       @TestParameter EquivalenceZeroUnrollLimitVerifiedTestCase testCase) throws Exception {
     CelAbstractSyntaxTree astA = CEL.compile(testCase.exprA).getAst();
     CelAbstractSyntaxTree astB = CEL.compile(testCase.exprB).getAst();
-    CelVerifier verifier = withRuntimeOracle(CEL, b -> b.setComprehensionUnrollLimit(0));
+    CelVerifier verifier = checkedVerifier(CEL).setComprehensionUnrollLimit(0).build();
 
     CelVerificationResult result = verifier.verifyEquivalence(astA, astB);
 
@@ -4374,7 +4768,8 @@ public final class CelVerifierZ3ImplTest {
             .build();
     CelAbstractSyntaxTree astA = customCel.compile("dyn_list.my_macro_1(true)").getAst();
     CelAbstractSyntaxTree astB = customCel.compile("dyn_list.my_macro_2(true)").getAst();
-    CelVerifier verifier = withRuntimeOracle(customCel, b -> b.setComprehensionUnrollLimit(0));
+    CelVerifier verifier =
+        CelVerifierFactory.newVerifier(customCel).setComprehensionUnrollLimit(0).build();
 
     CelVerificationResult result = verifier.verifyEquivalence(astA, astB);
 
@@ -4416,7 +4811,8 @@ public final class CelVerifierZ3ImplTest {
         customCel.compile("cel.bind(x, 10, dyn_list.my_macro(1))").getAst();
     CelAbstractSyntaxTree astB =
         customCel.compile("cel.bind(x, 20, dyn_list.my_macro(1))").getAst();
-    CelVerifier verifier = withRuntimeOracle(customCel, b -> b.setComprehensionUnrollLimit(0));
+    CelVerifier verifier =
+        CelVerifierFactory.newVerifier(customCel).setComprehensionUnrollLimit(0).build();
 
     CelVerificationResult result = verifier.verifyEquivalence(astA, astB);
 
@@ -4433,7 +4829,7 @@ public final class CelVerifierZ3ImplTest {
             .addVar("d4", SimpleType.DOUBLE)
             .build();
     CelVerifier timeoutVerifier =
-        withRuntimeOracle(customCel, b -> b.setTimeout(Duration.ofMillis(1)));
+        checkedVerifier(customCel).setTimeout(Duration.ofMillis(1)).build();
     CelAbstractSyntaxTree astA =
         customCel
             .compile(
@@ -4461,7 +4857,7 @@ public final class CelVerifierZ3ImplTest {
                     .setConstant(CelConstant.ofValue(42L))
                     .build())
             .build();
-    CelVerifier verifier = withRuntimeOracle(celWithConstVar, b -> b);
+    CelVerifier verifier = checkedVerifier(celWithConstVar).build();
     CelAbstractSyntaxTree ast =
         celWithConstVar
             .compile("CONST_INT == 42 && [1, 2].all(x, .CONST_INT == 42 && x > 0)")
@@ -4494,10 +4890,10 @@ public final class CelVerifierZ3ImplTest {
                     exprFactory.newIdentifier("accu"))));
   }
 
-  // verifyImplication isn't part of CelVerifier, so it can't go through the runtime oracle.
+  // verifyImplication isn't part of CelVerifier.
   private static CelVerificationResult verifyImplication(
       CelCompiler compiler, String assume, String assertion) throws Exception {
-    return ((CelVerifierZ3Impl) VERIFIER_WITHOUT_ORACLE)
+    return ((CelVerifierZ3Impl) UNCHECKED_VERIFIER)
         .verifyImplication(
             compiler.compile(assume).getAst(),
             compiler.compile(assertion).getAst(),
