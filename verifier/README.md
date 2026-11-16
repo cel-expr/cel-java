@@ -408,6 +408,18 @@ by the Z3 solver during its search phase.
 If the solver times out, the verifier will throw a `CelVerificationException`
 which should be explicitly caught and handled by the caller.
 
+### Validating Counterexamples with the CEL Runtime
+
+`enableCegar(true)` checks the inputs the solver finds with the CEL
+runtime of the verifier's environment: a confirmed `INCONCLUSIVE` counterexample
+(or satisfying input) becomes `VIOLATED` (or `VERIFIED`), and any refuted one
+becomes `INCONCLUSIVE` with no witness. Only exact inputs are checked, when no unknown
+identifiers are registered; when the runtime can't evaluate them (e.g. a
+function has no binding), the message says why. The runtime must follow the CEL
+spec (e.g. `CelOptions.DEFAULT`, which has no iteration limit), and a function
+with bindings must have one for each overload, which is synchronous,
+deterministic and doesn't throw.
+
 ### Comprehensions and Bounded Model Checking
 
 Because CEL lists/maps can be dynamically sized, the verifier cannot
