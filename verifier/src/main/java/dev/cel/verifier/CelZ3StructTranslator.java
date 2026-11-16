@@ -26,6 +26,7 @@ import com.microsoft.z3.IntExpr;
 import com.microsoft.z3.SeqExpr;
 import dev.cel.common.CelAbstractSyntaxTree;
 import dev.cel.common.ast.CelExpr;
+import dev.cel.common.ast.CelExpr.ExprKind;
 import dev.cel.common.internal.ProtoTimeUtils;
 import dev.cel.common.types.CelKind;
 import dev.cel.common.types.CelType;
@@ -536,13 +537,41 @@ final class CelZ3StructTranslator {
     return new FieldAccess(presence, value);
   }
 
+  /**
+   * Translates {@code e.f}, {@code has(e.f)} or {@code e.?f} (an optional of {@code e.f} if {@code
+   * has(e.f)}, else empty).
+   */
   TranslatedValue translateSelect(CelExpr celExpr, CelAbstractSyntaxTree ast) {
-    CelExpr.CelSelect select = celExpr.select();
+    boolean isOptional = celExpr.getKind() == ExprKind.Kind.CALL;
+    CelExpr operandExpr = isOptional ? celExpr.call().args().get(0) : celExpr.select().operand();
+    String field =
+        isOptional
+            ? celExpr.call().args().get(1).constant().stringValue()
+            : celExpr.select().field();
+    boolean testOnly = !isOptional && celExpr.select().testOnly();
     long exprId = celExpr.id();
-    TranslatedValue operandTv = translateExpr(select.operand(), ast);
+    TranslatedValue operandTv = translateExpr(operandExpr, ast);
     Expr<?> operand = operandTv.z3Expr();
-    String field = select.field();
-    CelType operandType = extractAstTypeOrDefault(ast, select.operand().id());
+    CelType operandType = context.trustedType(operandExpr, ast);
+    // Selecting from an optional selects from its value optionally (e.g. `optional.of({}).a` is
+    // `optional.none()`). Performance only: an operand of a known type other than optional isn't.
+    boolean mayBeOptional =
+        operandType instanceof OptionalType
+            || !CelZ3OperatorTranslator.isStaticallyKnown(operandType);
+    BoolExpr isOptionalOperand = ctx.mkFalse();
+    BoolExpr hasValue = ctx.mkFalse();
+    BoolExpr shouldEvaluate = ctx.mkTrue();
+    if (mayBeOptional) {
+      Expr<?> optRef = typeSystem.getOptionalRef(operand);
+      isOptionalOperand = typeSystem.isOptional(operand);
+      hasValue = typeSystem.optHasValue(optRef);
+      shouldEvaluate = (BoolExpr) ctx.mkITE(isOptionalOperand, hasValue, ctx.mkTrue());
+      operand = ctx.mkITE(isOptionalOperand, typeSystem.getOptionalValue(optRef), operand);
+    }
+    if (operandType instanceof OptionalType) {
+      // Performance only: reads the value by its static type.
+      operandType = operandType.parameters().get(0);
+    }
 
     Expr<?> presenceResult;
     Expr<?> valueResult;
@@ -550,11 +579,11 @@ final class CelZ3StructTranslator {
     BoolExpr presenceError = ctx.mkFalse();
 
     if (operandType instanceof MapType) {
-      FieldAccess mapAcc = getMapAccess(operand, field, ctx.mkTrue());
+      FieldAccess mapAcc = getMapAccess(operand, field, shouldEvaluate);
       presenceResult = mapAcc.presence;
       valueResult = ctx.mkITE(mapAcc.presence, mapAcc.value, typeSystem.mkError());
     } else if (operandType.kind() == CelKind.STRUCT) {
-      FieldAccess msgAcc = getMsgAccess(operand, field, ctx.mkTrue());
+      FieldAccess msgAcc = getMsgAccess(operand, field, shouldEvaluate);
       presenceResult = msgAcc.presence;
       Expr<?> defaultVal = getDefaultValueForType(extractAstTypeOrDefault(ast, exprId));
       valueResult = ctx.mkITE(msgAcc.presence, msgAcc.value, defaultVal);
@@ -563,8 +592,8 @@ final class CelZ3StructTranslator {
       BoolExpr isMap = typeSystem.isMap(operand);
       BoolExpr isMessage = typeSystem.isMessage(operand);
 
-      FieldAccess mapAcc = getMapAccess(operand, field, isMap);
-      FieldAccess msgAcc = getMsgAccess(operand, field, isMessage);
+      FieldAccess mapAcc = getMapAccess(operand, field, ctx.mkAnd(shouldEvaluate, isMap));
+      FieldAccess msgAcc = getMsgAccess(operand, field, ctx.mkAnd(shouldEvaluate, isMessage));
 
       presenceResult =
           CelZ3Exprs.SwitchBuilder.newBuilder(ctx)
@@ -590,13 +619,13 @@ final class CelZ3StructTranslator {
           msgRead.addCase(isType, typeSystem.mkError());
           continue;
         }
-        if (select.testOnly()) {
+        if (testOnly) {
           continue;
         }
         CelType fieldType = declared.get().type();
         context.addConstraint(
             ctx.mkImplies(
-                ctx.mkAnd(isMessage, isType, msgAcc.presence),
+                ctx.mkAnd(shouldEvaluate, isMessage, isType, msgAcc.presence),
                 typeConstraintGenerator.createTypeConstraintForType(msgAcc.value, fieldType)));
         msgRead.addCase(
             isType, ctx.mkITE(msgAcc.presence, msgAcc.value, getDefaultValueForType(fieldType)));
@@ -605,7 +634,10 @@ final class CelZ3StructTranslator {
       unmodeledMessage =
           context.recordApproximation(
               "messages of types the type provider doesn't declare",
-              ctx.mkAnd(isMessage, ctx.mkNot(CelZ3Exprs.mkOrFlattened(ctx, isModeledType))));
+              ctx.mkAnd(
+                  shouldEvaluate,
+                  isMessage,
+                  ctx.mkNot(CelZ3Exprs.mkOrFlattened(ctx, isModeledType))));
       Expr<?> mapRead = ctx.mkITE(mapAcc.presence, mapAcc.value, typeSystem.mkError());
       // Testing an undeclared field, or a field of something other than a map or message, errors.
       presenceError =
@@ -622,12 +654,33 @@ final class CelZ3StructTranslator {
               .build(typeSystem.mkError());
     }
 
+    // has(e.f), else e.f, or for e.?f and an optional e, an optional of e.f if has(e.f).
     Expr<?> fieldAccess =
-        select.testOnly()
+        testOnly
             ? typeSystem.withRuntimeError(typeSystem.wrapBool(presenceResult), presenceError)
             : valueResult;
+    Expr<?> chained = fieldAccess;
+    if (!testOnly && (isOptional || mayBeOptional)) {
+      chained =
+          ctx.mkITE(
+              presenceError,
+              typeSystem.mkError(),
+              ctx.mkITE(
+                  (BoolExpr) presenceResult,
+                  context.mkOptionalOf(valueResult),
+                  typeSystem.mkOptionalNone()));
+      fieldAccess = isOptional ? chained : valueResult;
+    }
+    if (mayBeOptional) {
+      Expr<?> empty = testOnly ? typeSystem.mkBool(false) : typeSystem.mkOptionalNone();
+      fieldAccess = ctx.mkITE(isOptionalOperand, ctx.mkITE(hasValue, chained, empty), fieldAccess);
+    }
 
-    context.addConstraint(typeConstraintGenerator.createTypeConstraint(fieldAccess, exprId, ast));
+    context.addConstraint(
+        ctx.mkOr(
+            typeSystem.isErrorOrUnknown(fieldAccess),
+            typeConstraintGenerator.createTypeConstraintForType(
+                fieldAccess, context.trustedType(celExpr, ast))));
 
     TranslatedValue result =
         TranslatedValue.propagateStrict(
@@ -636,8 +689,10 @@ final class CelZ3StructTranslator {
     return operandType.kind() == CelKind.STRUCT
         ? result
         : result.withApproximation(
-            CelZ3Exprs.mkOrFlattened(ctx, context.isTruncatedMap(operand), unmodeledMessage));
+            CelZ3Exprs.mkOrFlattened(
+                ctx, ctx.mkAnd(shouldEvaluate, context.isTruncatedMap(operand)), unmodeledMessage));
   }
+
 
   private static CelType extractAstTypeOrDefault(CelAbstractSyntaxTree ast, long id) {
     return ast.getType(id).orElse(SimpleType.DYN);
