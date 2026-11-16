@@ -47,6 +47,7 @@ import dev.cel.policy.CelPolicyParser;
 import dev.cel.policy.CelPolicyParserFactory;
 import dev.cel.policy.CelPolicyValidationException;
 import dev.cel.policy.testing.K8sTagHandler;
+import dev.cel.runtime.CelFunctionBinding;
 import dev.cel.testing.testdata.SingleFile;
 import dev.cel.testing.testdata.proto3.StandaloneGlobalEnum;
 import dev.cel.verifier.CelVerificationResult.VerificationStatus;
@@ -359,7 +360,8 @@ public final class CelPolicyVerifierImplTest {
             .build();
     CelPolicyVerifier verifier =
         CelPolicyVerifierFactory.newVerifier(
-                CelPolicyCompilerFactory.newPolicyCompiler(extendedCel).build(), AST_VERIFIER)
+                CelPolicyCompilerFactory.newPolicyCompiler(extendedCel).build(),
+                CelVerifierFactory.newVerifier(extendedCel).build())
             .build();
 
     CelPolicy policy =
@@ -434,7 +436,8 @@ public final class CelPolicyVerifierImplTest {
             .build();
     CelPolicyVerifier verifier =
         CelPolicyVerifierFactory.newVerifier(
-                CelPolicyCompilerFactory.newPolicyCompiler(extendedCel).build(), AST_VERIFIER)
+                CelPolicyCompilerFactory.newPolicyCompiler(extendedCel).build(),
+                CelVerifierFactory.newVerifier(extendedCel).build())
             .build();
 
     CelPolicy policy =
@@ -448,6 +451,159 @@ public final class CelPolicyVerifierImplTest {
             "restricted_by_nationality_prohibited", CelVerificationResult.verified(),
             "restricted_by_origin_ip_prohibited", CelVerificationResult.verified(),
             "unrestricted_destination_allowed", CelVerificationResult.verified());
+  }
+
+  @Test
+  public void verifyInvariants_narrowedVariable_violated() throws Exception {
+    Cel optionalCel =
+        CEL.toCelBuilder()
+            .addCompilerLibraries(CelOptionalLibrary.INSTANCE)
+            .addRuntimeLibraries(CelOptionalLibrary.INSTANCE)
+            .build();
+    CelPolicyVerifier verifier =
+        CelPolicyVerifierFactory.newVerifier(
+                CelPolicyCompilerFactory.newPolicyCompiler(optionalCel).build(),
+                CelVerifierFactory.newVerifier(optionalCel).build())
+            .build();
+    // variables.v is typed int, but is NaN for request = optional.of(0.0 / 0.0).
+    String policySource =
+        "name: narrowed_variable_policy\n" //
+            + "rule:\n" //
+            + "  match:\n" //
+            + "    - output: 'true'\n" //
+            + "verification:\n" //
+            + "  variables:\n" //
+            + "    - v: request.orValue(1)\n" //
+            + "  invariants:\n" //
+            + "    - id: variable_equals_itself\n" //
+            + "      assume: request.hasValue()\n" //
+            + "      assert: variables.v == variables.v";
+
+    ImmutableMap<String, CelVerificationResult> results =
+        verifier.verifyInvariants(PARSER.parse(policySource));
+
+    assertThat(results.get("variable_equals_itself").status())
+        .isEqualTo(VerificationStatus.VIOLATED);
+  }
+
+  // The verifier doesn't model `zero` or `maybe`, but the runtime has bindings for them, though not
+  // for `unbound`.
+  private static final Cel CEGAR_CEL =
+      CEL.toCelBuilder()
+          .addFunctionDeclarations(
+              CelFunctionDecl.newFunctionDeclaration(
+                  "zero",
+                  CelOverloadDecl.newGlobalOverload("zero_int", SimpleType.INT, SimpleType.INT)),
+              CelFunctionDecl.newFunctionDeclaration(
+                  "unbound",
+                  CelOverloadDecl.newGlobalOverload("unbound_int", SimpleType.INT, SimpleType.INT)),
+              CelFunctionDecl.newFunctionDeclaration(
+                  "maybe",
+                  CelOverloadDecl.newGlobalOverload("maybe_int", SimpleType.BOOL, SimpleType.INT)))
+          .addFunctionBindings(
+              CelFunctionBinding.from("zero_int", Long.class, v -> 0L),
+              CelFunctionBinding.from("maybe_int", Long.class, v -> null))
+          .build();
+
+  private enum CegarInvariantTestCase {
+    COUNTEREXAMPLE_CONFIRMED(
+        "", "true", "rule.result == 1", VerificationStatus.VIOLATED, "The CEL runtime confirmed"),
+    ASSERTION_HOLDS(
+        "",
+        "true",
+        "rule.result == 0",
+        VerificationStatus.INCONCLUSIVE,
+        "The CEL runtime disagrees"),
+    ASSUMPTION_FAILS(
+        "",
+        "rule.result == 1",
+        "rule.result == 2",
+        VerificationStatus.INCONCLUSIVE,
+        "The CEL runtime disagrees"),
+    VARIABLE_READS_RESULT(
+        "v: rule.result + 1",
+        "true",
+        "variables.v == 1",
+        VerificationStatus.INCONCLUSIVE,
+        "The CEL runtime disagrees"),
+    // `variables.bad` errors, so the assertion does too.
+    VARIABLE_ERROR_CONFIRMED(
+        "bad: 1 / rule.result",
+        "true",
+        "rule.result == 1 || variables.bad == 0",
+        VerificationStatus.VIOLATED,
+        "The CEL runtime confirmed"),
+    VARIABLE_ERROR_ABSORBED(
+        "bad: 1 / rule.result",
+        "true",
+        "variables.bad == 0 || rule.result == 0",
+        VerificationStatus.INCONCLUSIVE,
+        "The CEL runtime disagrees"),
+    UNBOUND_VARIABLE_FUNCTION(
+        "u: unbound(x)",
+        "true",
+        "variables.u == 1",
+        VerificationStatus.INCONCLUSIVE,
+        "The CEL runtime couldn't check it"),
+    NULL_VARIABLE(
+        "m: maybe(x)", "true", "variables.m", VerificationStatus.INCONCLUSIVE, "evaluated to null"),
+    // The error of `1 / rule.result`, which `||` keeps, hides that of `variables.m`.
+    NULL_VARIABLE_AFTER_ERROR(
+        "m: maybe(x)",
+        "true",
+        "1 / rule.result == 0 || variables.m",
+        VerificationStatus.INCONCLUSIVE,
+        "The CEL runtime couldn't check it"),
+    NULL_VARIABLE_BEFORE_ERROR(
+        "m: maybe(x)",
+        "true",
+        "variables.m || 1 / rule.result == 0",
+        VerificationStatus.INCONCLUSIVE,
+        "The CEL runtime couldn't check it");
+
+    private final String policySource;
+    private final VerificationStatus status;
+    private final String message;
+
+    CegarInvariantTestCase(
+        String variable,
+        String assumption,
+        String assertion,
+        VerificationStatus status,
+        String message) {
+      this.policySource =
+          "name: cegar_policy\n" //
+              + "rule:\n" //
+              + "  match:\n" //
+              + "    - output: zero(x)\n" //
+              + "verification:\n" //
+              + (variable.isEmpty() ? "" : "  variables:\n    - " + variable + "\n")
+              + "  invariants:\n" //
+              + "    - id: invariant\n" //
+              + "      assume: '"
+              + assumption
+              + "'\n" //
+              + "      assert: "
+              + assertion;
+      this.status = status;
+      this.message = message;
+    }
+  }
+
+  @Test
+  public void verifyInvariants_cegar_checksWitnessWithRuntime(
+      @TestParameter CegarInvariantTestCase testCase) throws Exception {
+    CelPolicyVerifier verifier =
+        CelPolicyVerifierFactory.newVerifier(
+                CelPolicyCompilerFactory.newPolicyCompiler(CEGAR_CEL).build(),
+                CelVerifierFactory.newVerifier(CEGAR_CEL).enableCegar(true).build())
+            .build();
+
+    CelVerificationResult result =
+        verifier.verifyInvariants(PARSER.parse(testCase.policySource)).get("invariant");
+
+    assertWithMessage(result.message()).that(result.status()).isEqualTo(testCase.status);
+    assertThat(result.message()).contains(testCase.message);
   }
 
   @Test
@@ -542,7 +698,8 @@ public final class CelPolicyVerifierImplTest {
             .build();
     CelPolicyVerifier verifier =
         CelPolicyVerifierFactory.newVerifier(
-                CelPolicyCompilerFactory.newPolicyCompiler(extendedCel).build(), AST_VERIFIER)
+                CelPolicyCompilerFactory.newPolicyCompiler(extendedCel).build(),
+                CelVerifierFactory.newVerifier(extendedCel).build())
             .build();
 
     CelPolicy policy =
@@ -554,12 +711,12 @@ public final class CelPolicyVerifierImplTest {
     assertThat(results).containsKey("universal_no_unapproved_privileged_prod");
     assertThat(results.get("universal_no_unapproved_privileged_prod").status())
         .isEqualTo(VerificationStatus.VIOLATED);
+    // Either the admin or the owner bypass violates it.
     assertThat(results.get("universal_no_unapproved_privileged_prod").message())
-        .isEqualTo(
+        .containsMatch(
             "Invariant 'universal_no_unapproved_privileged_prod' violation detected."
                 + " Counterexample input:\n"
-                + "  is_admin = true\n"
-                + "  is_owner = false\n"
+                + "  is_admin = (true\n  is_owner = (true|false)|false\n  is_owner = true)\n"
                 + "  is_privileged = true\n"
                 + "  is_prod = true\n"
                 + "  has_approval = false");
@@ -578,7 +735,8 @@ public final class CelPolicyVerifierImplTest {
             .build();
     CelPolicyVerifier verifier =
         CelPolicyVerifierFactory.newVerifier(
-                CelPolicyCompilerFactory.newPolicyCompiler(extendedCel).build(), AST_VERIFIER)
+                CelPolicyCompilerFactory.newPolicyCompiler(extendedCel).build(),
+                CelVerifierFactory.newVerifier(extendedCel).build())
             .build();
 
     CelPolicy policy =
