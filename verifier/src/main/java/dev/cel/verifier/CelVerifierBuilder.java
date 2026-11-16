@@ -15,7 +15,6 @@
 package dev.cel.verifier;
 
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
-import dev.cel.common.types.CelTypeProvider;
 import java.time.Duration;
 
 /** Interface for building an instance of CelVerifier. */
@@ -40,16 +39,6 @@ public interface CelVerifierBuilder {
    */
   @CanIgnoreReturnValue
   CelVerifierBuilder addUnknownIdentifier(String identifier);
-
-  /**
-   * Sets the type provider for looking up {@code CelType} definitions by name.
-   *
-   * <p>The verifier uses this to resolve structural type definitions (such as protocol buffer
-   * messages) during verification. If not set, the verifier will fall back to type information
-   * present in the AST, which may lose details such as wrapper types.
-   */
-  @CanIgnoreReturnValue
-  CelVerifierBuilder setTypeProvider(CelTypeProvider typeProvider);
 
   /**
    * Sets the unroll limit for comprehensions (such as {@code map}, {@code filter}, {@code all},
@@ -81,6 +70,23 @@ public interface CelVerifierBuilder {
    */
   @CanIgnoreReturnValue
   CelVerifierBuilder setComprehensionUnrollLimit(int unrollLimit);
+
+  /**
+   * Checks the inputs the solver finds by evaluating them with the CEL runtime of the verifier's
+   * environment (off by default). For now this only validates them, without refining the solver
+   * (counterexample-guided abstraction refinement, CEGAR). An {@code INCONCLUSIVE} counterexample
+   * or satisfying input that the runtime confirms becomes {@code VIOLATED} (or {@code VERIFIED} for
+   * satisfiability), and any counterexample or satisfying input it disagrees with becomes {@code
+   * INCONCLUSIVE} with no witness.
+   *
+   * <p>Inputs are checked only when all their values are exact and no unknown identifiers are
+   * registered. When the runtime can't evaluate them, e.g. a function has no binding, the message
+   * says why. The runtime must follow the CEL spec (e.g. {@code CelOptions.DEFAULT}, which has no
+   * iteration limit), and a function with bindings must have one for each overload, which is
+   * synchronous, deterministic and doesn't throw.
+   */
+  @CanIgnoreReturnValue
+  CelVerifierBuilder enableCegar(boolean value);
 
   /** Builds the {@link CelVerifier} instance. */
   CelVerifier build();

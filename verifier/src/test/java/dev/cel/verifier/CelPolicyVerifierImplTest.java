@@ -47,6 +47,7 @@ import dev.cel.policy.CelPolicyParser;
 import dev.cel.policy.CelPolicyParserFactory;
 import dev.cel.policy.CelPolicyValidationException;
 import dev.cel.policy.testing.K8sTagHandler;
+import dev.cel.runtime.CelFunctionBinding;
 import dev.cel.testing.testdata.SingleFile;
 import dev.cel.testing.testdata.proto3.StandaloneGlobalEnum;
 import dev.cel.verifier.CelVerificationResult.VerificationStatus;
@@ -62,10 +63,7 @@ public final class CelPolicyVerifierImplTest {
 
   private static final Cel CEL =
       CelFactory.plannerCelBuilder()
-          .setOptions(
-              CelOptions.current()
-                  .populateMacroCalls(true)
-                  .build())
+          .setOptions(CelOptions.current().populateMacroCalls(true).build())
           .setStandardMacros(CelStandardMacro.STANDARD_MACROS)
           .addCompilerLibraries(CelExtensions.bindings())
           .addMessageTypes(TestAllTypes.getDescriptor())
@@ -80,6 +78,15 @@ public final class CelPolicyVerifierImplTest {
           .addVar(
               "test_all_types",
               StructTypeReference.create("cel.expr.conformance.proto3.TestAllTypes"))
+          .addVar("variables.s", SimpleType.INT)
+          .addFunctionDeclarations(
+              CelFunctionDecl.newFunctionDeclaration(
+                  "zero",
+                  CelOverloadDecl.newGlobalOverload("zero_int", SimpleType.INT, SimpleType.INT)),
+              CelFunctionDecl.newFunctionDeclaration(
+                  "unbound",
+                  CelOverloadDecl.newGlobalOverload("unbound_int", SimpleType.INT, SimpleType.INT)))
+          .addFunctionBindings(CelFunctionBinding.from("zero_int", Long.class, v -> 0L))
           .build();
 
   private static final CelPolicyCompiler POLICY_COMPILER =
@@ -88,6 +95,13 @@ public final class CelPolicyVerifierImplTest {
   private static final CelVerifier AST_VERIFIER = CelVerifierFactory.newVerifier(CEL).build();
   private static final CelPolicyVerifier VERIFIER =
       CelPolicyVerifierFactory.newVerifier(POLICY_COMPILER, AST_VERIFIER).build();
+
+  private static final String CONFIRMED = "The CEL runtime confirmed";
+  private static final String REFUTED = "doesn't model exactly: calls to `zero`.";
+  private static final CelPolicyVerifier CEGAR_VERIFIER =
+      CelPolicyVerifierFactory.newVerifier(
+              POLICY_COMPILER, CelVerifierFactory.newVerifier(CEL).enableCegar(true).build())
+          .build();
 
   @Before
   public void setUp() {
@@ -359,7 +373,8 @@ public final class CelPolicyVerifierImplTest {
             .build();
     CelPolicyVerifier verifier =
         CelPolicyVerifierFactory.newVerifier(
-                CelPolicyCompilerFactory.newPolicyCompiler(extendedCel).build(), AST_VERIFIER)
+                CelPolicyCompilerFactory.newPolicyCompiler(extendedCel).build(),
+                CelVerifierFactory.newVerifier(extendedCel).build())
             .build();
 
     CelPolicy policy =
@@ -434,7 +449,8 @@ public final class CelPolicyVerifierImplTest {
             .build();
     CelPolicyVerifier verifier =
         CelPolicyVerifierFactory.newVerifier(
-                CelPolicyCompilerFactory.newPolicyCompiler(extendedCel).build(), AST_VERIFIER)
+                CelPolicyCompilerFactory.newPolicyCompiler(extendedCel).build(),
+                CelVerifierFactory.newVerifier(extendedCel).build())
             .build();
 
     CelPolicy policy =
@@ -448,6 +464,142 @@ public final class CelPolicyVerifierImplTest {
             "restricted_by_nationality_prohibited", CelVerificationResult.verified(),
             "restricted_by_origin_ip_prohibited", CelVerificationResult.verified(),
             "unrestricted_destination_allowed", CelVerificationResult.verified());
+  }
+
+  private enum VariableReadTestCase {
+    INSIDE_SHADOWING_COMPREHENSION(
+        "[x]", "[999].all(x, variables.v.all(e, e == 999))", VerificationStatus.VIOLATED),
+    PAST_SHADOWING_ITERATION_VARIABLE(
+        "x", "[2].all(variables, .variables.v == 1)", VerificationStatus.VERIFIED),
+    TYPE("[int][x]", "variables.v == int", VerificationStatus.VIOLATED),
+    TYPE_ELEMENT("[int]", "variables.v.all(e, e == int)", VerificationStatus.VERIFIED),
+    LITERAL_PAST_UNROLL_LIMIT(
+        "[1, 2, 3, 4, 5, 6]", "variables.v.all(e, e > 0)", VerificationStatus.VERIFIED),
+    REPEATED_KEY("{x: 1, 1u: 2}", "variables.v.all(k, true)", VerificationStatus.VIOLATED);
+
+    private final String variable;
+    private final String assertion;
+    private final VerificationStatus expectedStatus;
+
+    VariableReadTestCase(String variable, String assertion, VerificationStatus expectedStatus) {
+      this.variable = variable;
+      this.assertion = assertion;
+      this.expectedStatus = expectedStatus;
+    }
+  }
+
+  @Test
+  public void verifyInvariants_variableRead(@TestParameter VariableReadTestCase testCase)
+      throws Exception {
+    CelPolicy policy =
+        PARSER.parse(
+            "name: variable_read_policy\n" //
+                + "rule:\n" //
+                + "  match:\n" //
+                + "    - output: 'true'\n" //
+                + "verification:\n" //
+                + "  variables:\n" //
+                + "    - v: '"
+                + testCase.variable
+                + "'\n" //
+                + "  invariants:\n" //
+                + "    - id: reads_variable\n" //
+                + "      assume: x == 1\n" //
+                + "      assert: '"
+                + testCase.assertion
+                + "'");
+
+    ImmutableMap<String, CelVerificationResult> results = VERIFIER.verifyInvariants(policy);
+
+    assertThat(results.get("reads_variable").status()).isEqualTo(testCase.expectedStatus);
+  }
+
+  private enum CegarInvariantTestCase {
+    COUNTEREXAMPLE_CONFIRMED("rule.result == 1", VerificationStatus.VIOLATED, CONFIRMED),
+    ASSERTION_HOLDS("rule.result == 0", VerificationStatus.INCONCLUSIVE, REFUTED),
+    ASSUMPTION_FAILS(
+        /* assumption= */ "rule.result == 1",
+        /* assertion= */ "rule.result == 2",
+        VerificationStatus.INCONCLUSIVE,
+        REFUTED),
+    RULE_VARIABLE("variables.r == 0", VerificationStatus.INCONCLUSIVE, REFUTED),
+    VARIABLE_READS_VARIABLE("variables.w == 3", VerificationStatus.INCONCLUSIVE, REFUTED),
+    VARIABLE_SHADOWS_INPUT(
+        "variables.t == variables.s",
+        VerificationStatus.VIOLATED,
+        "violation detected. Counterexample input:"),
+    VARIABLE_ERROR_CONFIRMED(
+        "rule.result == 1 || variables.bad == 0", VerificationStatus.VIOLATED, CONFIRMED),
+    VARIABLE_ERROR_ABSORBED(
+        "variables.bad == 0 || rule.result == 0", VerificationStatus.INCONCLUSIVE, REFUTED),
+    UNBOUND_VARIABLE_FUNCTION(
+        "variables.u == 1",
+        VerificationStatus.INCONCLUSIVE,
+        "The CEL runtime couldn't check it: reading `variables.u`: "),
+    UNBOUND_VARIABLE_BETWEEN_ERRORS(
+        "1 / rule.result == 0 || variables.u == 1 || variables.r == 5 || variables.bad == 0",
+        VerificationStatus.INCONCLUSIVE,
+        "reading `variables.u`: evaluation error at <input>:7: No matching overload for function"
+            + " 'unbound'"),
+    UNBOUND_VARIABLE_ABSORBED_IN_ASSUMPTION(
+        /* assumption= */ "variables.u == 1 || rule.result == 0",
+        /* assertion= */ "1 / rule.result == 0",
+        VerificationStatus.VIOLATED,
+        CONFIRMED),
+    UNBOUND_VARIABLE_ABSORBED_IN_VARIABLE(
+        "variables.ok && 1 / rule.result == 0", VerificationStatus.VIOLATED, CONFIRMED);
+
+    private final String assumption;
+    private final String assertion;
+    private final VerificationStatus status;
+    private final String message;
+
+    CegarInvariantTestCase(String assertion, VerificationStatus status, String message) {
+      this("true", assertion, status, message);
+    }
+
+    CegarInvariantTestCase(
+        String assumption, String assertion, VerificationStatus status, String message) {
+      this.assumption = assumption;
+      this.assertion = assertion;
+      this.status = status;
+      this.message = message;
+    }
+  }
+
+  // Unread variables must not be evaluated.
+  @Test
+  public void verifyInvariants_cegar_checksWitnessWithRuntime(
+      @TestParameter CegarInvariantTestCase testCase) throws Exception {
+    CelPolicy policy =
+        PARSER.parse(
+            String.format(
+                "name: cegar_policy\n"
+                    + "rule:\n"
+                    + "  variables:\n"
+                    + "    - r: zero(x)\n"
+                    + "    - unread: unbound(x)\n"
+                    + "  match:\n"
+                    + "    - output: variables.r\n"
+                    + "verification:\n"
+                    + "  variables:\n"
+                    + "    - v: rule.result + 2\n"
+                    + "    - w: variables.v + 1\n"
+                    + "    - t: variables.s\n"
+                    + "    - s: variables.s + 1\n"
+                    + "    - bad: 1 / rule.result\n"
+                    + "    - u: unbound(x)\n"
+                    + "    - ok: variables.u == 1 || rule.result == 0\n"
+                    + "  invariants:\n"
+                    + "    - id: invariant\n"
+                    + "      assume: '%s'\n"
+                    + "      assert: '%s'",
+                testCase.assumption, testCase.assertion));
+
+    CelVerificationResult result = CEGAR_VERIFIER.verifyInvariants(policy).get("invariant");
+
+    assertWithMessage(result.message()).that(result.status()).isEqualTo(testCase.status);
+    assertThat(result.message()).contains(testCase.message);
   }
 
   @Test
@@ -505,31 +657,6 @@ public final class CelPolicyVerifierImplTest {
   }
 
   @Test
-  public void verifyInvariants_literalListVariableBeyondUnrollLimit_verified() throws Exception {
-    String policySource =
-        "name: literal_list_policy\n" //
-            + "rule:\n" //
-            + "  variables:\n" //
-            + "    - xs: '[1, 2, 3, 4, 5, 6]'\n" //
-            + "  match:\n" //
-            + "    - output: 'true'\n" //
-            + "verification:\n" //
-            + "  invariants:\n" //
-            + "    - id: all_positive\n" //
-            + "      assert: variables.xs.all(x, x > 0)";
-    CelPolicy policy = PARSER.parse(policySource);
-    CelPolicyVerifier verifier =
-        CelPolicyVerifierFactory.newVerifier(
-                POLICY_COMPILER,
-                CelVerifierFactory.newVerifier(CEL).setComprehensionUnrollLimit(5).build())
-            .build();
-
-    ImmutableMap<String, CelVerificationResult> results = verifier.verifyInvariants(policy);
-
-    assertThat(results).containsExactly("all_positive", CelVerificationResult.verified());
-  }
-
-  @Test
   public void verifyInvariants_workloadAdmissionFlawed_violationsDetected() throws Exception {
     Cel extendedCel =
         CEL.toCelBuilder()
@@ -542,7 +669,8 @@ public final class CelPolicyVerifierImplTest {
             .build();
     CelPolicyVerifier verifier =
         CelPolicyVerifierFactory.newVerifier(
-                CelPolicyCompilerFactory.newPolicyCompiler(extendedCel).build(), AST_VERIFIER)
+                CelPolicyCompilerFactory.newPolicyCompiler(extendedCel).build(),
+                CelVerifierFactory.newVerifier(extendedCel).build())
             .build();
 
     CelPolicy policy =
@@ -578,7 +706,8 @@ public final class CelPolicyVerifierImplTest {
             .build();
     CelPolicyVerifier verifier =
         CelPolicyVerifierFactory.newVerifier(
-                CelPolicyCompilerFactory.newPolicyCompiler(extendedCel).build(), AST_VERIFIER)
+                CelPolicyCompilerFactory.newPolicyCompiler(extendedCel).build(),
+                CelVerifierFactory.newVerifier(extendedCel).build())
             .build();
 
     CelPolicy policy =
