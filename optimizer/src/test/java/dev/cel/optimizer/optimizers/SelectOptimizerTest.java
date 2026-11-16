@@ -1400,6 +1400,31 @@ public final class SelectOptimizerTest {
   }
 
   @Test
+  public void optimize_jsonFieldNames_throwsUnsupportedOperationException(
+      @TestParameter({
+            "msg.singleInt64",
+            "has(msg.singleInt64)",
+            "msg.?singleInt64",
+            "msg.singleNestedMessage.bb"
+          })
+          String expression)
+      throws Exception {
+    Cel jsonCel =
+        cel.toCelBuilder()
+            .setOptions(CEL_OPTIONS.toBuilder().enableJsonFieldNames(true).build())
+            .build();
+    CelAbstractSyntaxTree ast = jsonCel.compile(expression).getAst();
+    SelectOptimizer optimizer = SelectOptimizer.newInstance();
+
+    UnsupportedOperationException e =
+        assertThrows(UnsupportedOperationException.class, () -> optimizer.optimize(ast, jsonCel));
+
+    assertThat(e)
+        .hasMessageThat()
+        .isEqualTo("Optimization of json_name field selection is unsupported.");
+  }
+
+  @Test
   public void newInstance_fileDescriptorsVarargs_defaultOptions_success() throws Exception {
     FileDescriptor fd = PROTO2_TEST_ALL_TYPES_DESCRIPTOR.getFile();
     SelectOptimizer optimizer = SelectOptimizer.newInstance(fd);
@@ -2091,6 +2116,30 @@ public final class SelectOptimizerTest {
         .isEqualTo(
             "[nested_msg].map(n, cel.@attribute(n, [[1, \"child\", 11], [2, \"payload\", 11],"
                 + " [2, \"single_int64\", 3]], -64) + 2)");
+  }
+
+  @Test
+  public void optimize_afterSubexpressionOptimizer_rewritesBlockAndBody() throws Exception {
+    CelOptimizer optimizer =
+        CelOptimizerFactory.standardCelOptimizerBuilder(cel)
+            .addAstOptimizers(
+                SubexpressionOptimizer.getInstance(),
+                SelectOptimizer.newInstance(
+                    PROTO2_TEST_ALL_TYPES_DESCRIPTOR.getFile(),
+                    NestedTestAllTypes.getDescriptor().getFile()))
+            .build();
+    CelAbstractSyntaxTree ast =
+        cel.compile("nested_msg.child.payload.single_int32 + nested_msg.child.payload.single_int64")
+            .getAst();
+
+    CelAbstractSyntaxTree optimizedAst = optimizer.optimize(ast);
+
+    assertThat(CEL_UNPARSER.unparse(optimizedAst))
+        .isEqualTo(
+            "cel.@block([cel.@attribute(nested_msg, [[1, \"child\", 11], [2, \"payload\", 11]],"
+                + " cel.expr.conformance.proto2.TestAllTypes{})],"
+                + " cel.@attribute(@index0, [[1, \"single_int32\", 5]], -32)"
+                + " + cel.@attribute(@index0, [[2, \"single_int64\", 3]], -64))");
   }
 
   private static CelOptimizer newSelectOptimizer(Cel cel) {

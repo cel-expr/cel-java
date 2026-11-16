@@ -137,11 +137,16 @@ import java.util.OptionalInt;
  *
  * <p>Dynamic or trailing indices and non-protobuf selects pass through untouched.
  *
+ * <p><b>Optimizer Ordering:</b> Run {@code SelectOptimizer} last, after {@link
+ * ConstantFoldingOptimizer}, {@link InliningOptimizer}, and {@link SubexpressionOptimizer}, which
+ * operate on unoptimized {@code select} nodes.
+ *
  * <p><b>Limitations:</b>
  *
  * <ul>
  *   <li><b>Protobuf Extensions:</b> Extension fields are not rename-resilient; runtime lookup
- *       resolves extensions by their fully qualified name rather than field number.
+ *       resolves extensions by their fully qualified name rather than field number, and {@code
+ *       CelLiteRuntime} does not support them.
  *   <li><b>Dynamic & Unpacked Payloads:</b> When traversing values typed as {@code dyn}, unpacked
  *       from {@code google.protobuf.Any}, or evaluated via classless wire payloads ({@code
  *       RawProtoMessageLiteValue}), no cross-check between the embedded field number and field name
@@ -150,6 +155,11 @@ import java.util.OptionalInt;
  *       Any} field, whose packed type is only known at runtime. Fields selected past it ({@code
  *       msg.any_field.foo}) are resolved by name, so they are not rename-resilient and {@code
  *       CelLiteRuntime} needs the packed message's {@code CelLiteDescriptor}.
+ *   <li><b>Message Creation:</b> Message literals ({@code Msg{field: value}}) are resolved by field
+ *       name at runtime, so they are not rename-resilient. {@code CelLiteRuntime} only supports
+ *       empty literals ({@code Msg{}}), and requires the message's {@code CelLiteDescriptor}.
+ *   <li><b>JSON Field Names:</b> Selecting protobuf fields by {@code json_name} (e.g. {@code
+ *       CelOptions.enableJsonFieldNames(true)}) is unsupported and throws during optimization.
  *   <li><b>Oneofs:</b> The lite runtime reads fields from the wire, so it reports every serialized
  *       member of a oneof as present. Protobuf serializes at most one, unless an older-schema
  *       binary merges or mutates the message, or the bytes are concatenated or altered by hand.
@@ -265,6 +275,10 @@ public final class SelectOptimizer implements CelAstOptimizer {
     checkNotNull(ast);
     checkNotNull(cel);
     checkArgument(ast.isChecked(), "AST must be type-checked.");
+    if (ast.getSource().getExtensions().stream().anyMatch(e -> e.id().equals("json_name"))) {
+      throw new UnsupportedOperationException(
+          "Optimization of json_name field selection is unsupported.");
+    }
 
     CelMutableAst astToModify = CelMutableAst.fromCelAst(ast);
     CelNavigableMutableAst navAst = CelNavigableMutableAst.fromAst(astToModify);
