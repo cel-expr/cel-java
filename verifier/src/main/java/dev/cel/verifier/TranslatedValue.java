@@ -199,6 +199,8 @@ abstract class TranslatedValue {
     switch (expr.exprKind().getKind()) {
       case SELECT:
         return "select_" + expr.select().field() + "_" + expr.select().testOnly();
+      case CALL: // e.?f
+        return "optional_select_" + expr.call().args().get(1).constant().stringValue();
       case STRUCT:
         StringBuilder structSb = new StringBuilder("struct_").append(expr.struct().messageName());
         for (CelExpr.CelStruct.Entry entry : expr.struct().entries()) {
