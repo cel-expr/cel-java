@@ -636,6 +636,26 @@ public final class ProgramPlannerTest {
   }
 
   @Test
+  public void plan_createMap_negativeIntAndLargeUintKeys_distinct() throws Exception {
+    CelAbstractSyntaxTree ast = compile("{-1: 'a', 18446744073709551615u: 'b'}");
+    Program program = PLANNER.plan(ast);
+
+    Map<?, ?> result = (Map<?, ?>) program.eval();
+
+    assertThat(result).containsExactly(-1L, "a", UnsignedLong.MAX_VALUE, "b");
+  }
+
+  @Test
+  public void plan_createMap_absentOptionalEntry_keyNotTaken() throws Exception {
+    CelAbstractSyntaxTree ast = CEL_COMPILER.parse("{?1: opt_var, 1u: 'a'}").getAst();
+    Program program = PLANNER.plan(ast);
+
+    Map<?, ?> result = (Map<?, ?>) program.eval(ImmutableMap.of("opt_var", Optional.empty()));
+
+    assertThat(result).containsExactly(UnsignedLong.ONE, "a");
+  }
+
+  @Test
   public void plan_createMap_unsupportedKeyType_throws() throws Exception {
     CelAbstractSyntaxTree ast = compile("{1.0: 'foo'}");
     Program program = PLANNER.plan(ast);

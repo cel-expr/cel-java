@@ -18,11 +18,11 @@ import static com.google.common.base.Preconditions.checkArgument;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Sets;
-import com.google.common.primitives.UnsignedLong;
 import com.google.errorprone.annotations.Immutable;
 import dev.cel.common.ast.CelExpr;
 import dev.cel.common.exceptions.CelDuplicateKeyException;
 import dev.cel.common.exceptions.CelInvalidArgumentException;
+import dev.cel.common.internal.MapKeys;
 import dev.cel.runtime.AccumulatedUnknowns;
 import dev.cel.runtime.GlobalResolver;
 import java.util.HashSet;
@@ -77,9 +77,8 @@ final class EvalCreateMap extends PlannedInterpretable {
 
         Optional<?> opt = (Optional<?>) val;
         if (!opt.isPresent()) {
-          // This is a no-op currently but will be semantically correct when extended proto
-          // support allows proto mutation.
-          keysSeen.remove(key);
+          // The key isn't set, so a later entry may use it.
+          keysSeen.remove(MapKeys.normalize(key));
           continue;
         }
         val = opt.get();
@@ -97,29 +96,13 @@ final class EvalCreateMap extends PlannedInterpretable {
 
   private static void validateAndTrackKey(
       Set<Object> keysSeen, PlannedInterpretable keyInterpretable, Object key) {
-    if (!(key instanceof String
-        || key instanceof Long
-        || key instanceof UnsignedLong
-        || key instanceof Boolean)) {
+    if (!MapKeys.isValidKeyType(key)) {
       throw new LocalizedEvaluationException(
           new CelInvalidArgumentException("Unsupported key type: " + key),
           keyInterpretable.expr().id());
     }
 
-    boolean isDuplicate = !keysSeen.add(key);
-    if (!isDuplicate) {
-      if (key instanceof Long) {
-        long longVal = (Long) key;
-        if (longVal >= 0) {
-          isDuplicate = keysSeen.contains(UnsignedLong.valueOf(longVal));
-        }
-      } else if (key instanceof UnsignedLong) {
-        UnsignedLong ulongVal = (UnsignedLong) key;
-        isDuplicate = keysSeen.contains(ulongVal.longValue());
-      }
-    }
-
-    if (isDuplicate) {
+    if (!keysSeen.add(MapKeys.normalize(key))) {
       throw new LocalizedEvaluationException(
           CelDuplicateKeyException.of(key), keyInterpretable.expr().id());
     }

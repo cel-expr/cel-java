@@ -27,6 +27,16 @@ cel_android_library(
 )
 
 java_library(
+    name = "map_keys",
+    exports = ["//common/src/main/java/dev/cel/common/internal:map_keys"],
+)
+
+cel_android_library(
+    name = "map_keys_android",
+    exports = ["//common/src/main/java/dev/cel/common/internal:map_keys_android"],
+)
+
+java_library(
     name = "converter",
     # used_by_android
     exports = ["//common/src/main/java/dev/cel/common/internal:converter"],

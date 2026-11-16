@@ -107,6 +107,30 @@ cel_android_library(
 )
 
 java_library(
+    name = "map_keys",
+    srcs = ["MapKeys.java"],
+    tags = [
+    ],
+    deps = [
+        "//common/annotations",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:com_google_guava_guava",
+    ],
+)
+
+cel_android_library(
+    name = "map_keys_android",
+    srcs = ["MapKeys.java"],
+    tags = [
+    ],
+    deps = [
+        "//common/annotations",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven_android//:com_google_guava_guava",
+    ],
+)
+
+java_library(
     name = "converter",
     srcs = [
         "AdaptingTypes.java",
