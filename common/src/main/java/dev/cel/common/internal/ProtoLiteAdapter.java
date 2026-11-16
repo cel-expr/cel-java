@@ -32,7 +32,6 @@ import com.google.protobuf.FloatValue;
 import com.google.protobuf.Int32Value;
 import com.google.protobuf.Int64Value;
 import com.google.protobuf.ListValue;
-import com.google.protobuf.Message;
 import com.google.protobuf.MessageLite;
 import com.google.protobuf.MessageLiteOrBuilder;
 import com.google.protobuf.NullValue;
@@ -110,11 +109,7 @@ public final class ProtoLiteAdapter {
     }
   }
 
-  public Any adaptValueToAny(Object value, String typeName) {
-    if (value instanceof MessageLite) {
-      return packAnyMessage((MessageLite) value, typeName);
-    }
-
+  public Any adaptValueToAny(Object value) {
     if (value instanceof dev.cel.common.values.NullValue) {
       return packAnyMessage(
           Value.newBuilder().setNullValue(NullValue.NULL_VALUE).build(), WellKnownProto.JSON_VALUE);
@@ -234,7 +229,7 @@ public final class ProtoLiteAdapter {
         .collect(toImmutableMap(Entry::getKey, e -> adaptJsonToValue(e.getValue())));
   }
 
-  private Message adaptValueToDouble(Object value) {
+  private MessageLite adaptValueToDouble(Object value) {
     if (value instanceof Double) {
       return DoubleValue.of((Double) value);
     }
@@ -244,7 +239,7 @@ public final class ProtoLiteAdapter {
     throw new IllegalArgumentException("Unexpected value type: " + value);
   }
 
-  private Message adaptValueToFloat(Object value) {
+  private MessageLite adaptValueToFloat(Object value) {
     if (value instanceof Double) {
       return FloatValue.of(((Double) value).floatValue());
     }
@@ -254,7 +249,7 @@ public final class ProtoLiteAdapter {
     throw new IllegalArgumentException("Unexpected value type: " + value);
   }
 
-  private Message adaptValueToInt32(Object value) {
+  private MessageLite adaptValueToInt32(Object value) {
     if (value instanceof Integer) {
       return Int32Value.of((Integer) value);
     }
@@ -264,7 +259,7 @@ public final class ProtoLiteAdapter {
     throw new IllegalArgumentException("Unexpected value type: " + value);
   }
 
-  private Message adaptValueToInt64(Object value) {
+  private MessageLite adaptValueToInt64(Object value) {
     if (value instanceof Integer) {
       return Int64Value.of(((Integer) value).longValue());
     }
@@ -275,30 +270,22 @@ public final class ProtoLiteAdapter {
     throw new IllegalArgumentException("Unexpected value type: " + value);
   }
 
-  private Message adaptValueToUint32(Object value) {
+  private MessageLite adaptValueToUint32(Object value) {
     if (value instanceof Integer) {
       return UInt32Value.of((Integer) value);
     }
     // Per the spec, an int isn't a uint, unless unsigned longs are disabled.
     if (!celOptions.enableUnsignedLongs() && value instanceof Long) {
-      try {
-        return UInt32Value.of(unsignedIntCheckedCast((Long) value));
-      } catch (IllegalArgumentException e) {
-        throw new CelNumericOverflowException(e);
-      }
+      return UInt32Value.of(unsignedIntCheckedCast((Long) value));
     }
     if (value instanceof UnsignedLong) {
-      try {
-        return UInt32Value.of(unsignedIntCheckedCast(((UnsignedLong) value).longValue()));
-      } catch (IllegalArgumentException e) {
-        throw new CelNumericOverflowException(e);
-      }
+      return UInt32Value.of(unsignedIntCheckedCast(((UnsignedLong) value).longValue()));
     }
 
     throw new IllegalArgumentException("Unexpected value type: " + value);
   }
 
-  private Message adaptValueToUint64(Object value) {
+  private MessageLite adaptValueToUint64(Object value) {
     if (value instanceof Integer) {
       return UInt64Value.of(UnsignedInts.toLong((Integer) value));
     }
@@ -312,7 +299,7 @@ public final class ProtoLiteAdapter {
     throw new IllegalArgumentException("Unexpected value type: " + value);
   }
 
-  private static int intCheckedCast(long value) {
+  static int intCheckedCast(long value) {
     try {
       return Ints.checkedCast(value);
     } catch (IllegalArgumentException e) {
@@ -320,7 +307,7 @@ public final class ProtoLiteAdapter {
     }
   }
 
-  private static int unsignedIntCheckedCast(long value) {
+  static int unsignedIntCheckedCast(long value) {
     try {
       return UnsignedInts.checkedCast(value);
     } catch (IllegalArgumentException e) {

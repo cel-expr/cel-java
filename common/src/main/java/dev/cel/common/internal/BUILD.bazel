@@ -184,7 +184,6 @@ java_library(
         ":well_known_proto",
         "//common:options",
         "//common/annotations",
-        "//common/exceptions:numeric_overflow",
         "//common/values",
         "//common/values:cel_byte_string",
         "@maven//:com_google_code_findbugs_annotations",
@@ -211,6 +210,26 @@ java_library(
         "@maven//:com_google_errorprone_error_prone_annotations",
         "@maven//:com_google_guava_guava",
         "@maven//:com_google_protobuf_protobuf_java",
+    ],
+)
+
+cel_android_library(
+    name = "proto_lite_adapter_android",
+    srcs = ["ProtoLiteAdapter.java"],
+    tags = [
+    ],
+    deps = [
+        ":well_known_proto_android",
+        "//common:options",
+        "//common:proto_json_adapter_android",
+        "//common/annotations",
+        "//common/exceptions:numeric_overflow",
+        "//common/internal:proto_time_utils_android",
+        "//common/values:cel_byte_string",
+        "//common/values:values_android",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven_android//:com_google_guava_guava",
+        "@maven_android//:com_google_protobuf_protobuf_javalite",
     ],
 )
 
