@@ -656,14 +656,32 @@ public final class ProgramPlannerTest {
   }
 
   @Test
-  public void plan_createMap_unsupportedKeyType_throws() throws Exception {
-    CelAbstractSyntaxTree ast = compile("{1.0: 'foo'}");
+  @TestParameters({
+    "{expression: \"{1.0: 'foo'}\", column: 1, expectedType: 'double'}",
+    "{expression: \"{null: 'foo'}\", column: 1, expectedType: 'null_type'}",
+    "{expression: \"{b'foo': 'foo'}\", column: 1, expectedType: 'bytes'}",
+    "{expression: \"{[1]: 'foo'}\", column: 1, expectedType: 'list'}",
+    "{expression: \"{{}: 'foo'}\", column: 1, expectedType: 'map'}",
+    "{expression: \"{int: 'foo'}\", column: 1, expectedType: 'type'}",
+    "{expression: \"{TestAllTypes{}: 'foo'}\", column: 13,"
+        + " expectedType: 'dev.cel.expr.conformance.proto3.TestAllTypes'}",
+    "{expression: \"{dyn_var: 'foo'}\", column: 1,"
+        + " expectedType: 'dev.cel.expr.conformance.proto3.TestAllTypes'}",
+  })
+  public void plan_createMap_unsupportedKeyType_throws(
+      String expression, int column, String expectedType) throws Exception {
+    CelAbstractSyntaxTree ast = compile(expression);
     Program program = PLANNER.plan(ast);
 
-    CelEvaluationException e = assertThrows(CelEvaluationException.class, program::eval);
+    CelEvaluationException e =
+        assertThrows(
+            CelEvaluationException.class,
+            () -> program.eval(ImmutableMap.of("dyn_var", TestAllTypes.getDefaultInstance())));
     assertThat(e)
         .hasMessageThat()
-        .contains("evaluation error at <input>:1: Unsupported key type: 1.0");
+        .contains(
+            String.format(
+                "evaluation error at <input>:%d: Unsupported key type: %s", column, expectedType));
   }
 
   @Test

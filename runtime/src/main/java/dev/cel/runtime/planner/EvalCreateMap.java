@@ -14,8 +14,6 @@
 
 package dev.cel.runtime.planner;
 
-import static com.google.common.base.Preconditions.checkArgument;
-
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Sets;
 import com.google.errorprone.annotations.Immutable;
@@ -25,6 +23,7 @@ import dev.cel.common.exceptions.CelInvalidArgumentException;
 import dev.cel.common.internal.MapKeys;
 import dev.cel.runtime.AccumulatedUnknowns;
 import dev.cel.runtime.GlobalResolver;
+import dev.cel.runtime.TypeResolver;
 import java.util.HashSet;
 import java.util.Optional;
 import java.util.Set;
@@ -98,7 +97,8 @@ final class EvalCreateMap extends PlannedInterpretable {
       Set<Object> keysSeen, PlannedInterpretable keyInterpretable, Object key) {
     if (!MapKeys.isValidKeyType(key)) {
       throw new LocalizedEvaluationException(
-          new CelInvalidArgumentException("Unsupported key type: " + key),
+          new CelInvalidArgumentException(
+              "Unsupported key type: " + TypeResolver.resolveTypeName(key)),
           keyInterpretable.expr().id());
     }
 
@@ -123,14 +123,12 @@ final class EvalCreateMap extends PlannedInterpretable {
     ImmutableMap.Builder<Object, Object> builder =
         ImmutableMap.builderWithExpectedSize(keys.length);
     HashSet<Object> keysSeen = Sets.newHashSetWithExpectedSize(keys.length);
-    try {
-      for (int i = 0; i < keys.length; i++) {
-        Object key = ((EvalConstant) keys[i]).constantValue();
-        validateAndTrackKey(keysSeen, keys[i], key);
-        builder.put(key, ((EvalConstant) values[i]).constantValue());
+    for (int i = 0; i < keys.length; i++) {
+      Object key = ((EvalConstant) keys[i]).constantValue();
+      if (!MapKeys.isValidKeyType(key) || !keysSeen.add(MapKeys.normalize(key))) {
+        return new EvalCreateMap(expr, keys, values, isOptional);
       }
-    } catch (LocalizedEvaluationException e) {
-      return new EvalCreateMap(expr, keys, values, isOptional);
+      builder.put(key, ((EvalConstant) values[i]).constantValue());
     }
     return EvalConstant.create(expr, builder.buildOrThrow());
   }
@@ -141,8 +139,6 @@ final class EvalCreateMap extends PlannedInterpretable {
       PlannedInterpretable[] values,
       boolean[] isOptional) {
     super(expr);
-    checkArgument(keys.length == values.length);
-    checkArgument(keys.length == isOptional.length);
     this.keys = keys;
     this.values = values;
     this.isOptional = isOptional;
