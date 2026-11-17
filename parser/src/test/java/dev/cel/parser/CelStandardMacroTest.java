@@ -18,6 +18,7 @@ import static com.google.common.truth.Truth.assertThat;
 
 import com.google.common.testing.EqualsTester;
 import dev.cel.common.Operator;
+import java.util.EnumSet;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
@@ -153,9 +154,16 @@ public final class CelStandardMacroTest {
         .addEqualityGroup(CelStandardMacro.ALL)
         .addEqualityGroup(CelStandardMacro.EXISTS)
         .addEqualityGroup(CelStandardMacro.EXISTS_ONE)
+        .addEqualityGroup(CelStandardMacro.EXISTS_ONE_NEW)
         .addEqualityGroup(CelStandardMacro.MAP)
         .addEqualityGroup(CelStandardMacro.MAP_FILTER)
         .addEqualityGroup(CelStandardMacro.FILTER)
         .testEquals();
+  }
+
+  @Test
+  public void standardMacros_containsAllStandardMacros() {
+    assertThat(CelStandardMacro.STANDARD_MACROS)
+        .containsExactlyElementsIn(EnumSet.allOf(CelStandardMacro.class));
   }
 }

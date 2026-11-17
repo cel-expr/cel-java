@@ -73,9 +73,6 @@ public final class PrattParserTest extends BaselineTestCase {
                   .map(CelStandardMacro::getDefinition)
                   .collect(toImmutableMap(CelMacro::getKey, Function.identity())))
           .put(
-              CelStandardMacro.EXISTS_ONE_NEW.getDefinition().getKey(),
-              CelStandardMacro.EXISTS_ONE_NEW.getDefinition())
-          .put(
               "noop_macro",
               CelMacro.newGlobalVarArgMacro("noop_macro", (a, b, c) -> Optional.empty()))
           .buildOrThrow();

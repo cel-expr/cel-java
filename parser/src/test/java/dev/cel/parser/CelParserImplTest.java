@@ -19,7 +19,6 @@ import static org.junit.Assert.assertThrows;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
 import com.google.testing.junit.testparameterinjector.TestParameter;
 import com.google.testing.junit.testparameterinjector.TestParameterInjector;
 import com.google.testing.junit.testparameterinjector.TestParameters;
@@ -60,6 +59,8 @@ public final class CelParserImplTest {
     assertThat(parser.findMacro("exists:2:true")).hasValue(CelStandardMacro.EXISTS.getDefinition());
     assertThat(parser.findMacro("exists_one:2:true"))
         .hasValue(CelStandardMacro.EXISTS_ONE.getDefinition());
+    assertThat(parser.findMacro("existsOne:2:true"))
+        .hasValue(CelStandardMacro.EXISTS_ONE_NEW.getDefinition());
     assertThat(parser.findMacro("map:2:true")).hasValue(CelStandardMacro.MAP.getDefinition());
     assertThat(parser.findMacro("map:3:true"))
         .hasValue(CelStandardMacro.MAP_FILTER.getDefinition());
@@ -77,6 +78,8 @@ public final class CelParserImplTest {
     assertThat(parser.findMacro("exists:2:true")).hasValue(CelStandardMacro.EXISTS.getDefinition());
     assertThat(parser.findMacro("exists_one:2:true"))
         .hasValue(CelStandardMacro.EXISTS_ONE.getDefinition());
+    assertThat(parser.findMacro("existsOne:2:true"))
+        .hasValue(CelStandardMacro.EXISTS_ONE_NEW.getDefinition());
     assertThat(parser.findMacro("map:2:true")).hasValue(CelStandardMacro.MAP.getDefinition());
     assertThat(parser.findMacro("map:3:true"))
         .hasValue(CelStandardMacro.MAP_FILTER.getDefinition());
@@ -100,6 +103,8 @@ public final class CelParserImplTest {
     assertThat(parser.findMacro("exists:2:true")).hasValue(CelStandardMacro.EXISTS.getDefinition());
     assertThat(parser.findMacro("exists_one:2:true"))
         .hasValue(CelStandardMacro.EXISTS_ONE.getDefinition());
+    assertThat(parser.findMacro("existsOne:2:true"))
+        .hasValue(CelStandardMacro.EXISTS_ONE_NEW.getDefinition());
     assertThat(parser.findMacro("map:2:true")).hasValue(CelStandardMacro.MAP.getDefinition());
     assertThat(parser.findMacro("map:3:true"))
         .hasValue(CelStandardMacro.MAP_FILTER.getDefinition());
@@ -432,13 +437,7 @@ public final class CelParserImplTest {
   @TestParameters("{expression: 'A.filter(a?b, c)'}")
   public void parse_macroArgumentContainsSyntaxError_throws(String expression) {
     CelParser parser =
-        newParserBuilder()
-            .setStandardMacros(
-                ImmutableSet.<CelStandardMacro>builder()
-                    .addAll(CelStandardMacro.STANDARD_MACROS)
-                    .add(CelStandardMacro.EXISTS_ONE_NEW)
-                    .build())
-            .build();
+        newParserBuilder().setStandardMacros(CelStandardMacro.STANDARD_MACROS).build();
 
     CelValidationResult parseResult = parser.parse(expression);
 

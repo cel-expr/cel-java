@@ -85,7 +85,7 @@ public enum CelStandardMacro {
 
   /** Set of all standard macros supported by the CEL spec. */
   public static final ImmutableSet<CelStandardMacro> STANDARD_MACROS =
-      ImmutableSet.of(HAS, ALL, EXISTS, EXISTS_ONE, MAP, MAP_FILTER, FILTER);
+      ImmutableSet.of(HAS, ALL, EXISTS, EXISTS_ONE, EXISTS_ONE_NEW, MAP, MAP_FILTER, FILTER);
 
   private final CelMacro macro;
 

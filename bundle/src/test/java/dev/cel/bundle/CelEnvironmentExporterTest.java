@@ -111,7 +111,7 @@ public class CelEnvironmentExporterTest {
                         FunctionSelector.create("matches", ImmutableSet.of()),
                         FunctionSelector.create(
                             "timestamp", ImmutableSet.of("string_to_timestamp"))))
-                .setExcludedMacros(ImmutableSet.of("map", "existsOne", "filter"))
+                .setExcludedMacros(ImmutableSet.of("map", "filter"))
                 .build());
   }
 
@@ -164,7 +164,8 @@ public class CelEnvironmentExporterTest {
         .contains(FunctionSelector.create("-_", ImmutableSet.of()));
     assertThat(actual.includedFunctions())
         .contains(FunctionSelector.create("getDayOfYear", ImmutableSet.of()));
-    assertThat(actual.includedMacros()).containsAtLeast("all", "exists", "exists_one", "has");
+    assertThat(actual.includedMacros())
+        .containsAtLeast("all", "exists", "exists_one", "existsOne", "has");
   }
 
   @Test
