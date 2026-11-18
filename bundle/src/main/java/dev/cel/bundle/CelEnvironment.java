@@ -73,17 +73,19 @@ public abstract class CelEnvironment {
 
   @VisibleForTesting
   static final ImmutableMap<String, CanonicalCelExtension> CEL_EXTENSION_CONFIG_MAP =
-      ImmutableMap.of(
-          "bindings", CanonicalCelExtension.BINDINGS,
-          "encoders", CanonicalCelExtension.ENCODERS,
-          "lists", CanonicalCelExtension.LISTS,
-          "math", CanonicalCelExtension.MATH,
-          "optional", CanonicalCelExtension.OPTIONAL,
-          "protos", CanonicalCelExtension.PROTOS,
-          "regex", CanonicalCelExtension.REGEX,
-          "sets", CanonicalCelExtension.SETS,
-          "strings", CanonicalCelExtension.STRINGS,
-          "two-var-comprehensions", CanonicalCelExtension.COMPREHENSIONS);
+      ImmutableMap.<String, CanonicalCelExtension>builder()
+          .put("bindings", CanonicalCelExtension.BINDINGS)
+          .put("encoders", CanonicalCelExtension.ENCODERS)
+          .put("lists", CanonicalCelExtension.LISTS)
+          .put("math", CanonicalCelExtension.MATH)
+          .put("network", CanonicalCelExtension.NETWORK)
+          .put("optional", CanonicalCelExtension.OPTIONAL)
+          .put("protos", CanonicalCelExtension.PROTOS)
+          .put("regex", CanonicalCelExtension.REGEX)
+          .put("sets", CanonicalCelExtension.SETS)
+          .put("strings", CanonicalCelExtension.STRINGS)
+          .put("two-var-comprehensions", CanonicalCelExtension.COMPREHENSIONS)
+          .buildOrThrow();
 
   private static final ImmutableMap<String, ObjIntConsumer<CelOptions.Builder>> LIMIT_HANDLERS =
       ImmutableMap.of(
@@ -279,10 +281,9 @@ public abstract class CelEnvironment {
       applyStandardLibrarySubset(compilerBuilder);
 
       contextVariable()
-          .ifPresent(
-              cv ->
-                  compilerBuilder.addProtoTypeMasks(
-                      ProtoTypeMask.ofAllFields(cv.typeName()).withFieldsAsVariableDeclarations()));
+          .ifPresent(cv ->
+              compilerBuilder.addProtoTypeMasks(
+                  ProtoTypeMask.ofAllFields(cv.typeName()).withFieldsAsVariableDeclarations()));
 
       return compilerBuilder.build();
     } catch (RuntimeException e) {
@@ -392,9 +393,8 @@ public abstract class CelEnvironment {
           .setStandardEnvironmentEnabled(false)
           .setStandardDeclarations(
               CelStandardDeclarations.newBuilder()
-                  .filterFunctions(
-                      (function, overload) ->
-                          FunctionSelector.matchesAny(function, overload, includedFunctions))
+                  .filterFunctions((function, overload) ->
+                      FunctionSelector.matchesAny(function, overload, includedFunctions))
                   .build());
     } else if (!librarySubset.excludedFunctions().isEmpty()) {
       ImmutableSet<FunctionSelector> excludedFunctions = librarySubset.excludedFunctions();
@@ -402,9 +402,8 @@ public abstract class CelEnvironment {
           .setStandardEnvironmentEnabled(false)
           .setStandardDeclarations(
               CelStandardDeclarations.newBuilder()
-                  .filterFunctions(
-                      (function, overload) ->
-                          !FunctionSelector.matchesAny(function, overload, excludedFunctions))
+                  .filterFunctions((function, overload) ->
+                      !FunctionSelector.matchesAny(function, overload, excludedFunctions))
                   .build());
     }
   }
@@ -655,10 +654,7 @@ public abstract class CelEnvironment {
 
       target()
           .ifPresent(
-              t ->
-                  builder
-                      .setIsInstanceFunction(true)
-                      .addParameterTypes(t.toCelType(typeFinder)));
+              t -> builder.setIsInstanceFunction(true).addParameterTypes(t.toCelType(typeFinder)));
 
       for (TypeDecl type : arguments()) {
         builder.addParameterTypes(type.toCelType(typeFinder));
@@ -823,16 +819,14 @@ public abstract class CelEnvironment {
 
       Optional<CelType> builtinType = findCelTypeByName(name());
       if (builtinType.isPresent()) {
-        checkArgument(
-            params().isEmpty(), "Type %s cannot have type parameters", name());
+        checkArgument(params().isEmpty(), "Type %s cannot have type parameters", name());
         return builtinType.get();
       }
 
       CelType resolvedType =
           typeFinder
               .apply(name())
-              .orElseThrow(
-                  () -> new IllegalArgumentException("Undefined type name: " + name()));
+              .orElseThrow(() -> new IllegalArgumentException("Undefined type name: " + name()));
       if (!params().isEmpty()) {
         return resolvedType.withParameters(
             params().stream().map(p -> p.toCelType(typeFinder)).collect(toImmutableList()));
@@ -1007,6 +1001,9 @@ public abstract class CelEnvironment {
     MATH(
         (options, version) -> CelExtensions.math(options, version),
         (options, version) -> CelExtensions.math(options, version)),
+    NETWORK(
+        (options, version) -> CelExtensions.network(version),
+        (options, version) -> CelExtensions.network(version)),
     OPTIONAL(
         (options, version) -> CelExtensions.optional(version),
         (options, version) -> CelExtensions.optional(version)),
