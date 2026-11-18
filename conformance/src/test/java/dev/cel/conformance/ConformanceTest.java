@@ -59,6 +59,7 @@ import dev.cel.extensions.CelEncoderRuntimeLibrary;
 import dev.cel.extensions.CelExtensions;
 import dev.cel.extensions.CelListsRuntimeLibrary;
 import dev.cel.extensions.CelMathRuntimeLibrary;
+import dev.cel.extensions.CelNetworkRuntimeLibrary;
 import dev.cel.extensions.CelOptionalLibrary;
 import dev.cel.extensions.CelOptionalRuntimeLibrary;
 import dev.cel.extensions.CelSetsRuntimeLibrary;
@@ -104,6 +105,7 @@ public final class ConformanceTest extends Statement {
           CelExtensions.encoders(OPTIONS),
           CelExtensions.lists(),
           CelExtensions.math(),
+          CelExtensions.network(),
           CelExtensions.protos(),
           CelExtensions.sets(OPTIONS),
           CelExtensions.strings(),
@@ -116,6 +118,7 @@ public final class ConformanceTest extends Statement {
           CelExtensions.encoders(OPTIONS),
           CelExtensions.lists(),
           CelExtensions.math(),
+          CelExtensions.network(),
           CelExtensions.sets(OPTIONS),
           CelExtensions.strings(),
           CelOptionalLibrary.INSTANCE);
@@ -126,6 +129,7 @@ public final class ConformanceTest extends Statement {
           CelEncoderRuntimeLibrary.encoders(),
           CelListsRuntimeLibrary.lists(),
           CelMathRuntimeLibrary.math(),
+          CelNetworkRuntimeLibrary.network(),
           CelOptionalRuntimeLibrary.optional(),
           CelSetsRuntimeLibrary.sets(),
           CelStringRuntimeLibrary.strings());

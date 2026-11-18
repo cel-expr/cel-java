@@ -49,6 +49,7 @@ import dev.cel.extensions.CelComprehensionsRuntimeLibrary;
 import dev.cel.extensions.CelEncoderRuntimeLibrary;
 import dev.cel.extensions.CelListsRuntimeLibrary;
 import dev.cel.extensions.CelMathRuntimeLibrary;
+import dev.cel.extensions.CelNetworkRuntimeLibrary;
 import dev.cel.extensions.CelOptionalRuntimeLibrary;
 import dev.cel.extensions.CelRegexRuntimeLibrary;
 import dev.cel.extensions.CelSetsRuntimeLibrary;
@@ -873,6 +874,20 @@ public class CelLiteRuntimeAndroidTest {
     CelAbstractSyntaxTree ast = readCheckedExpr("compiled_optional_value");
 
     assertThat(runtime.createProgram(ast).eval()).isEqualTo(1L);
+  }
+
+  @Test
+  public void eval_networkExtension() throws Exception {
+    CelLiteRuntime runtime =
+        CelLiteRuntimeFactory.newLiteRuntimeBuilder()
+            .setStandardFunctions(CelStandardFunctions.ALL_STANDARD_FUNCTIONS)
+            .addLibraries(CelNetworkRuntimeLibrary.network())
+            .build();
+    // Expr: cidr('192.168.1.5/24').masked().containsIP(ip('192.168.1.42')) &&
+    // type(ip('::1')) == net.IP
+    CelAbstractSyntaxTree ast = readCheckedExpr("compiled_network_cidr_contains_ip");
+
+    assertThat(runtime.createProgram(ast).eval()).isEqualTo(true);
   }
 
   private enum CelOptionsTestCase {

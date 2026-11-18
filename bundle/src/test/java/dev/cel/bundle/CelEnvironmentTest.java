@@ -91,6 +91,7 @@ public class CelEnvironmentTest {
             ExtensionConfig.latest("encoders"),
             ExtensionConfig.latest("lists"),
             ExtensionConfig.latest("math"),
+            ExtensionConfig.latest("network"),
             ExtensionConfig.latest("optional"),
             ExtensionConfig.latest("protos"),
             ExtensionConfig.latest("regex"),
@@ -104,7 +105,9 @@ public class CelEnvironmentTest {
     CelAbstractSyntaxTree ast =
         cel.compile(
                 "cel.bind(x, 10, math.greatest([1,x])) < int(' 11  '.trim()) &&"
-                    + " optional.none().orValue(true) && [].flatten() == []")
+                    + " optional.none().orValue(true) && [].flatten() == [] &&"
+                    + " cidr('10.0.0.0/8').containsIP(ip('10.0.0.1')) &&"
+                    + " type(ip('10.0.0.1')) == net.IP")
             .getAst();
     boolean result = (boolean) cel.createProgram(ast).eval();
 
