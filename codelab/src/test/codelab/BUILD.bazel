@@ -152,6 +152,22 @@ java_test(
     ],
 )
 
+java_test(
+    name = "Exercise10Test",
+    srcs = ["Exercise10Test.java"],
+    tags = ["notap"],
+    test_class = "codelab.Exercise10Test",
+    deps = [
+        "//:java_truth",
+        "//codelab",
+        "//common:cel_ast",
+        "//runtime",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_testparameterinjector_test_parameter_injector",
+        "@maven//:junit_junit",
+    ],
+)
+
 test_suite(
     name = "exercise_test_suite",
     tags = ["notap"],

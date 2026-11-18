@@ -1673,3 +1673,104 @@ private static final CelValidator CEL_VALIDATOR =
 ```
 
 Re-run the test to confirm that all tests pass.
+
+## Custom Types
+
+### Exercise 10: Custom Types
+
+Most users extend the type system by introducing new protobuf types to the CEL
+environment. CEL has well-defined rules for mapping protobuf messages to struct
+types so this is typically the simplest approach.
+
+If you have a use case where the data type is not represented as a proto, there
+are two type kinds that can be introduced:
+
+- `struct`: an object with structured fields
+- `opaque`: a type that is only meaningful as the input or output of an
+  extension function.
+
+In CEL-Java, custom non-proto types are represented as `OpaqueType` at compile
+time and `OpaqueValue` at runtime. The recommended way to implement a custom
+opaque type is **Direct Extension**, where an immutable domain class extends
+`OpaqueValue`, returns `this` from `value()`, and returns its corresponding
+`OpaqueType` from `celType()`.
+
+Open `Exercise10.java`, where two custom opaque types (`net.Address` and
+`net.AddressMatcher`), their `CelTypeProvider` (`NETWORK_TYPE_PROVIDER`), and
+their `OpaqueValue` implementations (`Address` and `AddressMatcher`) are
+defined.
+
+Run the test:
+
+```sh
+blaze test --test_output=errors //third_party/java/cel/codelab/src/test/codelab:Exercise10Test
+```
+
+You should see the tests failing with compilation errors because `ip`, the
+custom types, and the network functions (`net.parseAddress`,
+`net.parseAddressMatcher`, and `containsAddress`) have not yet been declared on
+the compiler or bound on the runtime.
+
+First, update `compile` in `Exercise10.java` to register
+`NETWORK_TYPE_PROVIDER`, declare `ip` and the type identifiers (`net.Address`
+and `net.AddressMatcher`), and declare the extension functions:
+
+```java
+CelAbstractSyntaxTree compile(String expression) throws CelValidationException {
+  CelCompiler celCompiler =
+      CelCompilerFactory.standardCelCompilerBuilder()
+          .setResultType(SimpleType.BOOL)
+          .setTypeProvider(NETWORK_TYPE_PROVIDER)
+          .addVar("ip", SimpleType.STRING)
+          .addVar("net.Address", TypeType.create(ADDRESS_TYPE))
+          .addVar("net.AddressMatcher", TypeType.create(ADDRESS_MATCHER_TYPE))
+          .addFunctionDeclarations(
+              newFunctionDeclaration(
+                  "net.parseAddress",
+                  newGlobalOverload(
+                      "net_parseAddress_string", ADDRESS_TYPE, SimpleType.STRING)),
+              newFunctionDeclaration(
+                  "net.parseAddressMatcher",
+                  newGlobalOverload(
+                      "net_parseAddressMatcher_string",
+                      ADDRESS_MATCHER_TYPE,
+                      SimpleType.STRING)),
+              newFunctionDeclaration(
+                  "containsAddress",
+                  newMemberOverload(
+                      "net_AddressMatcher_containsAddress_net_Address",
+                      SimpleType.BOOL,
+                      ADDRESS_MATCHER_TYPE,
+                      ADDRESS_TYPE)))
+          .build();
+
+  return celCompiler.compile(expression).getAst();
+}
+```
+
+Next, update `eval` in `Exercise10.java` to register `NETWORK_TYPE_PROVIDER` and
+bind the function implementations:
+
+```java
+Object eval(CelAbstractSyntaxTree ast, Map<String, ?> parameterValues)
+    throws CelEvaluationException {
+  CelRuntime celRuntime =
+      CelRuntimeFactory.plannerRuntimeBuilder()
+          .setTypeProvider(NETWORK_TYPE_PROVIDER)
+          .addFunctionBindings(
+              CelFunctionBinding.from(
+                  "net_parseAddress_string", String.class, Address::parse),
+              CelFunctionBinding.from(
+                  "net_parseAddressMatcher_string", String.class, AddressMatcher::parse),
+              CelFunctionBinding.from(
+                  "net_AddressMatcher_containsAddress_net_Address",
+                  AddressMatcher.class,
+                  Address.class,
+                  AddressMatcher::containsAddress))
+          .build();
+
+  return celRuntime.createProgram(ast).eval(parameterValues);
+}
+```
+
+Re-run the unit tests to confirm that all test cases pass.
