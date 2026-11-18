@@ -53,6 +53,7 @@ java_library(
         ":compiled_list_literal",
         ":compiled_lists_slice",
         ":compiled_math_greatest",
+        ":compiled_network_cidr_contains_ip",
         ":compiled_one_plus_two",
         ":compiled_optional_value",
         ":compiled_primitive_variables",
@@ -128,6 +129,12 @@ compile_cel(
     name = "compiled_math_greatest",
     environment = "//testing/environment:all_extensions",
     expression = "math.greatest(1, 2)",
+)
+
+compile_cel(
+    name = "compiled_network_cidr_contains_ip",
+    environment = "//testing/environment:all_extensions",
+    expression = "cidr('192.168.1.5/24').masked().containsIP(ip('192.168.1.42')) && type(ip('::1')) == net.IP",
 )
 
 compile_cel(

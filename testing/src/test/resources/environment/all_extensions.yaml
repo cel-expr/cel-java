@@ -19,6 +19,7 @@ extensions:
 - name: "encoders"
 - name: "lists"
 - name: "math"
+- name: "network"
 - name: "optional"
 - name: "protos"
 - name: "regex"

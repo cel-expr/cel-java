@@ -37,6 +37,7 @@ public final class CelExtensions {
   private static final CelProtoExtensions PROTO_EXTENSIONS = new CelProtoExtensions();
   private static final CelBindingsExtensions BINDINGS_EXTENSIONS = new CelBindingsExtensions();
   private static final CelRegexExtensions REGEX_EXTENSIONS = new CelRegexExtensions();
+  private static final CelNetworkExtensions NETWORK_EXTENSIONS = new CelNetworkExtensions();
   private static final CelComprehensionsExtensions COMPREHENSIONS_EXTENSIONS =
       new CelComprehensionsExtensions();
 
@@ -448,6 +449,44 @@ public final class CelExtensions {
   }
 
   /**
+   * Extended functions for IP addresses and CIDR blocks ({@code net.IP}, {@code net.CIDR}).
+   *
+   * <p>Refer to README.md for available functions.
+   */
+  public static CelNetworkExtensions network() {
+    return NETWORK_EXTENSIONS;
+  }
+
+  /**
+   * Extended functions for IP addresses and CIDR blocks ({@code net.IP}, {@code net.CIDR}).
+   *
+   * <p>Refer to README.md for functions available in each version.
+   */
+  public static CelNetworkExtensions network(int version) {
+    return CelNetworkExtensions.library().version(version);
+  }
+
+  /**
+   * Extended functions for IP addresses and CIDR blocks ({@code net.IP}, {@code net.CIDR}).
+   *
+   * <p>This will include only the specific functions denoted by {@link
+   * CelNetworkExtensions.Function}.
+   */
+  public static CelNetworkExtensions network(CelNetworkExtensions.Function... functions) {
+    return network(ImmutableSet.copyOf(functions));
+  }
+
+  /**
+   * Extended functions for IP addresses and CIDR blocks ({@code net.IP}, {@code net.CIDR}).
+   *
+   * <p>This will include only the specific functions denoted by {@link
+   * CelNetworkExtensions.Function}.
+   */
+  public static CelNetworkExtensions network(Set<CelNetworkExtensions.Function> functions) {
+    return new CelNetworkExtensions(functions);
+  }
+
+  /**
    * Extended functions for Two Variable Comprehensions Expressions.
    *
    * <p>Refer to README.md for available functions.
@@ -526,6 +565,8 @@ public final class CelExtensions {
                 .map(CelListsExtensions.Function::getFunction),
             EnumSet.allOf(CelRegexExtensions.Function.class).stream()
                 .map(CelRegexExtensions.Function::getFunction),
+            EnumSet.allOf(CelNetworkExtensions.Function.class).stream()
+                .map(CelNetworkExtensions.Function::getFunction),
             Stream.of(
                     CelOptionalLibrary.Function.VALUE,
                     CelOptionalLibrary.Function.HAS_VALUE,
@@ -550,6 +591,8 @@ public final class CelExtensions {
         return CelListsExtensions.library();
       case "math":
         return CelMathExtensions.library();
+      case "network":
+        return CelNetworkExtensions.library();
       case "optional":
         return CelOptionalLibrary.library();
       case "protos":
