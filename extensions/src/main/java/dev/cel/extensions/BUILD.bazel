@@ -600,6 +600,32 @@ cel_android_library(
 )
 
 java_library(
+    name = "network_types",
+    srcs = ["CelIp.java"],
+    tags = [
+    ],
+    deps = [
+        "//common/types",
+        "//common/values",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:org_jspecify_jspecify",
+    ],
+)
+
+cel_android_library(
+    name = "network_types_android",
+    srcs = ["CelIp.java"],
+    tags = [
+    ],
+    deps = [
+        "//common/types:types_android",
+        "//common/values:values_android",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:org_jspecify_jspecify",
+    ],
+)
+
+java_library(
     name = "comprehensions",
     srcs = ["CelComprehensionsExtensions.java"],
     tags = [

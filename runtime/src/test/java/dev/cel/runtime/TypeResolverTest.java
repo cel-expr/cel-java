@@ -25,9 +25,11 @@ import com.google.testing.junit.testparameterinjector.TestParameterInjector;
 import dev.cel.common.internal.ProtoTimeUtils;
 import dev.cel.common.types.ListType;
 import dev.cel.common.types.MapType;
+import dev.cel.common.types.OpaqueType;
 import dev.cel.common.types.OptionalType;
 import dev.cel.common.types.SimpleType;
 import dev.cel.common.types.TypeType;
+import dev.cel.common.values.OpaqueValue;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -68,6 +70,14 @@ public class TypeResolverTest {
   }
 
   @Test
+  public void resolveTypeName_celValue_returnsCelTypeName() {
+    CustomOpaqueValue opaqueValue = new CustomOpaqueValue();
+
+    assertThat(opaqueValue.value()).isSameInstanceAs(opaqueValue);
+    assertThat(TypeResolver.resolveTypeName(opaqueValue)).isEqualTo("custom_opaque");
+  }
+
+  @Test
   public void resolveTypeName_extendableObjectType() {
     // LinkedHashMap is not in the exact-class table, so this exercises the interface walk. This is
     // the concrete type that CEL map literals evaluate to.
@@ -77,6 +87,20 @@ public class TypeResolverTest {
   @Test
   public void resolveTypeName_unknownObjectType_returnsJavaClassName() {
     assertThat(TypeResolver.resolveTypeName(new Object())).isEqualTo("java.lang.Object");
+  }
+
+  private static final class CustomOpaqueValue extends OpaqueValue {
+    private static final OpaqueType CUSTOM_OPAQUE_TYPE = OpaqueType.create("custom_opaque");
+
+    @Override
+    public CustomOpaqueValue value() {
+      return this;
+    }
+
+    @Override
+    public OpaqueType celType() {
+      return CUSTOM_OPAQUE_TYPE;
+    }
   }
 
   @SuppressWarnings("ImmutableEnumChecker") // Test only
