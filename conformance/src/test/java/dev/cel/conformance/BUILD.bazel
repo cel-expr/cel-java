@@ -38,6 +38,7 @@ java_library(
         "//extensions:encoders_runtime_library",
         "//extensions:lists_runtime_library",
         "//extensions:math_runtime_library",
+        "//extensions:network_runtime_library",
         "//extensions:optional_library",
         "//extensions:optional_runtime_library",
         "//extensions:sets_runtime_library",
@@ -123,6 +124,7 @@ _ALL_TESTS = [
     "@cel_conformance//tests/simple:testdata/macros2.textproto",
     "@cel_conformance//tests/simple:testdata/math_ext.textproto",
     "@cel_conformance//tests/simple:testdata/namespace.textproto",
+    "@cel_conformance//tests/simple:testdata/network_ext.textproto",
     "@cel_conformance//tests/simple:testdata/optionals.textproto",
     "@cel_conformance//tests/simple:testdata/parse.textproto",
     "@cel_conformance//tests/simple:testdata/plumbing.textproto",
@@ -165,6 +167,10 @@ _TESTS_TO_SKIP_LEGACY = [
     # "enums/legacy_proto3/assign_standalone_int_big",
     # "enums/legacy_proto3/assign_standalone_int_neg",
 
+    # SimpleTest expects an evaluation error while disable_check is false, but this triggers a
+    # compile-time type-check error before evaluation.
+    "network_ext/ip_type/is_ip_cidr_compile_error",
+
     # Type inference edgecases around null(able) assignability.
     # These type check, but resolve to a different type.
     # list(int), want list(wrapper(int))
@@ -181,6 +187,10 @@ _TESTS_TO_SKIP_PLANNER = [
     # TODO: This is actually a user experience degradation.
     # Not worth fixing until we see a concrete need.
     "basic/functions/unbound_is_runtime_error",
+
+    # SimpleTest expects an evaluation error while disable_check is false, but this triggers a
+    # compile-time type-check error before evaluation.
+    "network_ext/ip_type/is_ip_cidr_compile_error",
 
     # Type inference edgecases around null(able) assignability.
     # These type check, but resolve to a different type.

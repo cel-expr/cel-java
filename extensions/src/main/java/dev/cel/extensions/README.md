@@ -1176,3 +1176,72 @@ The type-mapping between Java and CEL is as follows:
 *   If there is a name collision with a Protobuf type, the protobuf type will take precedence.
 *   Instantiating new struct values (e.g., `Account{id: 1234}`) requires the class to have a no-argument constructor (public, protected, package-private, or private).
 *   Final fields are supported only in a **read-only** capacity; they cannot be populated when instantiating new struct values.
+
+## Network
+
+The `network` extension (`CelExtensions.network()`) provides functions and
+opaque types (`net.IP` and `net.CIDR`) for parsing, inspecting, and validating
+IPv4/IPv6 addresses and CIDR blocks. IPv4-mapped IPv6 addresses and zone
+identifiers are disallowed.
+
+Supported versions: `0` and `1` (both expose the full set of `net.IP` and
+`net.CIDR` types and functions).
+
+### IP Addresses
+
+```
+ip(string) -> net.IP
+isIP(string) -> bool
+ip.isCanonical(string) -> bool
+string(net.IP) -> string
+<net.IP>.family() -> int
+<net.IP>.isUnspecified() -> bool
+<net.IP>.isLoopback() -> bool
+<net.IP>.isGlobalUnicast() -> bool
+<net.IP>.isLinkLocalMulticast() -> bool
+<net.IP>.isLinkLocalUnicast() -> bool
+```
+
+Examples:
+
+```
+ip('192.168.0.1').family() == 4
+ip('2001:db8::1').family() == 6
+isIP('127.0.0.1') // true
+isIP('invalid') // false
+ip.isCanonical('2001:db8::1') // true
+ip.isCanonical('2001:DB8::1') // false
+ip('127.0.0.1').isLoopback() // true
+string(ip('2001:0db8::1')) // '2001:db8::1'
+type(ip('192.168.0.1')) == net.IP
+```
+
+### CIDR Blocks
+
+```
+cidr(string) -> net.CIDR
+isCIDR(string) -> bool
+string(net.CIDR) -> string
+<net.CIDR>.ip() -> net.IP
+<net.CIDR>.masked() -> net.CIDR
+<net.CIDR>.isMask() -> bool
+<net.CIDR>.prefixLength() -> int
+<net.CIDR>.containsIP(net.IP) -> bool
+<net.CIDR>.containsIP(string) -> bool
+<net.CIDR>.containsCIDR(net.CIDR) -> bool
+<net.CIDR>.containsCIDR(string) -> bool
+```
+
+Examples:
+
+```
+cidr('10.0.0.0/8').containsIP(ip('10.0.0.1')) // true
+cidr('10.0.0.0/8').containsIP('10.0.0.1') // true
+cidr('10.0.0.0/8').containsCIDR('10.1.0.0/16') // true
+cidr('192.168.1.5/24').ip() == ip('192.168.1.5') // true
+cidr('192.168.1.5/24').isMask() // false
+cidr('192.168.1.5/24').masked() == cidr('192.168.1.0/24') // true
+cidr('192.168.1.0/24').prefixLength() == 24
+type(cidr('192.168.0.0/24')) == net.CIDR
+```
+
