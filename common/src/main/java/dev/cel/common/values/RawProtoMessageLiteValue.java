@@ -18,6 +18,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.google.auto.value.AutoValue;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableListMultimap;
 import com.google.errorprone.annotations.Immutable;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.CodedInputStream;
@@ -25,6 +26,7 @@ import dev.cel.common.exceptions.CelAttributeNotFoundException;
 import dev.cel.common.types.CelType;
 import dev.cel.common.types.StructTypeReference;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -41,7 +43,7 @@ import java.util.Optional;
 abstract class RawProtoMessageLiteValue extends StructValue<String, WireMessageLite>
     implements OptimizedSelectable, WireMessageLite {
 
-  private static final String UNKNOWN_MESSAGE_TYPE_NAME = "cel.@unknownMessage";
+  static final String UNKNOWN_MESSAGE_TYPE_NAME = "cel.@unknownMessage";
 
   @Override
   public abstract ByteString toByteString();
@@ -73,13 +75,20 @@ abstract class RawProtoMessageLiteValue extends StructValue<String, WireMessageL
 
   @Override
   public final boolean equals(Object other) {
-    // TODO: Support message equality
-    throw new UnsupportedOperationException("Message equality is not supported");
+    if (!(other instanceof RawProtoMessageLiteValue)) {
+      return false;
+    }
+    RawProtoMessageLiteValue that = (RawProtoMessageLiteValue) other;
+    return protoTypeName().equals(that.protoTypeName()) && rawFields().equals(that.rawFields());
   }
 
   @Override
   public final int hashCode() {
-    throw new UnsupportedOperationException("Message equality is not supported");
+    return Objects.hash(protoTypeName(), rawFields());
+  }
+
+  private ImmutableListMultimap<Integer, ByteString> rawFields() {
+    return ProtoLiteEquality.rawFields(toByteString(), /* descriptor= */ null);
   }
 
   @Override

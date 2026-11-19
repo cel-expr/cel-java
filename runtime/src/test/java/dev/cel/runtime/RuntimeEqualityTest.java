@@ -15,7 +15,6 @@
 package dev.cel.runtime;
 
 import static com.google.common.truth.Truth.assertThat;
-import static org.junit.Assert.assertThrows;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -28,8 +27,10 @@ import dev.cel.common.CelOptions;
 import dev.cel.common.internal.DefaultDescriptorPool;
 import dev.cel.common.internal.DefaultMessageFactory;
 import dev.cel.common.internal.DynamicProto;
+import dev.cel.common.values.CelValueConverter;
 import dev.cel.common.values.ProtoMessageLiteValueProvider;
 import dev.cel.expr.conformance.proto2.TestAllTypes;
+import dev.cel.expr.conformance.proto2.TestAllTypesCelDescriptor;
 import java.util.Collections;
 import java.util.LinkedList;
 import java.util.Map;
@@ -167,33 +168,42 @@ public final class RuntimeEqualityTest {
   }
 
   @Test
-  public void objectEquals_protoMessageLite_throwsSymmetrically() {
+  public void objectEquals_protoMessageLite_fallsBackToClassAndEquals() {
+    class LiteStub implements MessageLiteOrBuilder {
+      @Override
+      public MessageLite getDefaultInstanceForType() {
+        return null;
+      }
+
+      @Override
+      public boolean isInitialized() {
+        return true;
+      }
+
+      @Override
+      public boolean equals(Object other) {
+        return other instanceof MessageLiteOrBuilder;
+      }
+
+      @Override
+      public int hashCode() {
+        return 1;
+      }
+    }
     ProtoMessageRuntimeEquality protoEquality =
         ProtoMessageRuntimeEquality.create(
             DynamicProto.create(DefaultMessageFactory.create(DefaultDescriptorPool.INSTANCE)),
             CelOptions.current().enableProtoDifferencerEquality(true).build());
-    MessageLiteOrBuilder liteOnly =
-        new MessageLiteOrBuilder() {
-          @Override
-          public MessageLite getDefaultInstanceForType() {
-            return null;
-          }
-
-          @Override
-          public boolean isInitialized() {
-            return true;
-          }
-        };
+    LiteStub sameClass1 = new LiteStub();
+    LiteStub sameClass2 = new LiteStub();
+    LiteStub subclass = new LiteStub() {};
     TestAllTypes fullMessage = TestAllTypes.getDefaultInstance();
 
-    assertThrows(
-        UnsupportedOperationException.class,
-        () -> protoEquality.objectEquals(liteOnly, fullMessage));
-    assertThrows(
-        UnsupportedOperationException.class,
-        () -> protoEquality.objectEquals(fullMessage, liteOnly));
-    assertThrows(
-        UnsupportedOperationException.class, () -> protoEquality.objectEquals(liteOnly, liteOnly));
+    assertThat(protoEquality.objectEquals(sameClass1, fullMessage)).isFalse();
+    assertThat(protoEquality.objectEquals(fullMessage, sameClass1)).isFalse();
+    assertThat(protoEquality.objectEquals(sameClass1, sameClass2)).isTrue();
+    assertThat(protoEquality.objectEquals(sameClass1, subclass)).isFalse();
+    assertThat(protoEquality.hashCode(sameClass1)).isEqualTo(sameClass1.getClass().hashCode());
   }
 
   @Test
@@ -205,45 +215,58 @@ public final class RuntimeEqualityTest {
   }
 
   @Test
-  public void objectEquals_messageLite_throws() {
+  public void objectEquals_messageLite_comparesWithoutThrowing() {
     TestAllTypes.Builder builder = TestAllTypes.newBuilder();
     TestAllTypes defaultInstance = TestAllTypes.getDefaultInstance();
+    TestAllTypes populated = TestAllTypes.newBuilder().setSingleInt32(1).build();
+    TestAllTypes populatedCopy = TestAllTypes.newBuilder().setSingleInt32(1).build();
 
-    UnsupportedOperationException builderThrown =
-        assertThrows(
-            UnsupportedOperationException.class,
-            () -> RUNTIME_EQUALITY.objectEquals(builder, defaultInstance));
-    UnsupportedOperationException stringThrown =
-        assertThrows(
-            UnsupportedOperationException.class,
-            () -> RUNTIME_EQUALITY.objectEquals("not_a_message", defaultInstance));
-
-    assertThat(builderThrown).hasMessageThat().isEqualTo("Not implemented yet");
-    assertThat(stringThrown).hasMessageThat().isEqualTo("Not implemented yet");
+    assertThat(RUNTIME_EQUALITY.objectEquals(builder, defaultInstance)).isFalse();
+    assertThat(RUNTIME_EQUALITY.objectEquals(builder, builder)).isTrue();
+    assertThat(RUNTIME_EQUALITY.objectEquals("not_a_message", defaultInstance)).isFalse();
+    assertThat(RUNTIME_EQUALITY.objectEquals(defaultInstance, null)).isFalse();
+    assertThat(RUNTIME_EQUALITY.objectEquals(null, defaultInstance)).isFalse();
+    assertThat(RUNTIME_EQUALITY.objectEquals(populated, populatedCopy)).isTrue();
+    assertThat(RUNTIME_EQUALITY.objectEquals(defaultInstance, populated)).isFalse();
+    assertThat(RUNTIME_EQUALITY.hashCode(populated)).isEqualTo(populated.hashCode());
   }
 
   @Test
-  public void objectEquals_wireMessageLite_throws() {
-    Object wireMsg1 =
-        ProtoMessageLiteValueProvider.newInstance()
-            .protoCelValueConverter()
-            .toRuntimeValue(TestAllTypes.getDefaultInstance());
-    Object wireMsg2 =
-        ProtoMessageLiteValueProvider.newInstance()
-            .protoCelValueConverter()
-            .toRuntimeValue(TestAllTypes.newBuilder().setSingleInt32(1).build());
+  public void objectEquals_wireMessageLite_comparesByTypeAndWireFields() {
+    CelValueConverter converter =
+        ProtoMessageLiteValueProvider.newInstance().protoCelValueConverter();
+    Object wireMsg1 = converter.toRuntimeValue(TestAllTypes.getDefaultInstance());
+    Object wireMsg1Copy = converter.toRuntimeValue(TestAllTypes.getDefaultInstance());
+    Object wireMsg2 = converter.toRuntimeValue(TestAllTypes.newBuilder().setSingleInt32(1).build());
 
-    UnsupportedOperationException messagesThrown =
-        assertThrows(
-            UnsupportedOperationException.class,
-            () -> RUNTIME_EQUALITY.objectEquals(wireMsg1, wireMsg2));
-    UnsupportedOperationException stringThrown =
-        assertThrows(
-            UnsupportedOperationException.class,
-            () -> RUNTIME_EQUALITY.objectEquals("not_a_message", wireMsg1));
+    assertThat(RUNTIME_EQUALITY.objectEquals(wireMsg1, wireMsg1Copy)).isTrue();
+    assertThat(RUNTIME_EQUALITY.objectEquals(wireMsg1, wireMsg2)).isFalse();
+    assertThat(RUNTIME_EQUALITY.objectEquals("not_a_message", wireMsg1)).isFalse();
+    assertThat(RUNTIME_EQUALITY.objectEquals(wireMsg1, null)).isFalse();
+    assertThat(RUNTIME_EQUALITY.hashCode(wireMsg1))
+        .isEqualTo(RUNTIME_EQUALITY.hashCode(wireMsg1Copy));
+  }
 
-    assertThat(messagesThrown).hasMessageThat().isEqualTo("Message equality is not supported");
-    assertThat(stringThrown).hasMessageThat().isEqualTo("Message equality is not supported");
+  @Test
+  public void objectEquals_and_hashCode_protoDifferencerWithLiteConverter() {
+    RuntimeEquality liteEquality =
+        RuntimeEquality.create(
+            RuntimeHelpers.create(),
+            CelOptions.current().enableProtoDifferencerEquality(true).build(),
+            ProtoMessageLiteValueProvider.newInstance(TestAllTypesCelDescriptor.getDescriptor())
+                .celValueConverter());
+    TestAllTypes minusZero = TestAllTypes.newBuilder().setSingleDouble(-0.0).build();
+    TestAllTypes plusZero = TestAllTypes.newBuilder().setSingleDouble(0.0).build();
+    TestAllTypes nan = TestAllTypes.newBuilder().setSingleDouble(Double.NaN).build();
+
+    assertThat(minusZero.hashCode()).isNotEqualTo(plusZero.hashCode());
+    assertThat(liteEquality.objectEquals(minusZero, plusZero)).isTrue();
+    assertThat(liteEquality.hashCode(minusZero)).isEqualTo(liteEquality.hashCode(plusZero));
+    assertThat(liteEquality.objectEquals(nan, nan)).isFalse();
+    assertThat(liteEquality.objectEquals(TestAllTypes.newBuilder(), TestAllTypes.newBuilder()))
+        .isFalse();
+    assertThat(liteEquality.objectEquals(minusZero, "not_a_message")).isFalse();
+    assertThat(liteEquality.hashCode("not_a_message")).isEqualTo("not_a_message".hashCode());
   }
 
   @Test

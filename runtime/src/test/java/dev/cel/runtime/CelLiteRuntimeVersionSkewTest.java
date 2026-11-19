@@ -1278,49 +1278,111 @@ public final class CelLiteRuntimeVersionSkewTest {
   }
 
   @Test
-  public void submessageEquality_withKnownSubmessageDescriptor_throwsUnsupportedOperationException(
+  public void submessageEquality_selfComparison_returnsTrue(
+      @TestParameter boolean knownSubmessageDescriptor,
       @TestParameter({
             "msg.single_nested_message == msg.single_nested_message",
             "msg.repeated_nested_message == msg.repeated_nested_message"
           })
           String expr)
       throws Exception {
+    CelLiteRuntime runtime =
+        knownSubmessageDescriptor ? clientRuntime : newRuntimeWithoutNestedMessageDescriptor();
     CelAbstractSyntaxTree optimizedAst =
         serverOptimizer.optimize(serverCompiler.compile(expr).getAst());
-    Program program = clientRuntime.createProgram(optimizedAst);
+    Program program = runtime.createProgram(optimizedAst);
 
-    CelEvaluationException thrown =
-        assertThrows(
-            CelEvaluationException.class,
-            () -> program.eval(ImmutableMap.of("msg", POPULATED_SERVER_MESSAGE)));
-
-    assertThat(thrown).hasCauseThat().isInstanceOf(UnsupportedOperationException.class);
-    assertThat(thrown).hasCauseThat().hasMessageThat().contains("Not implemented yet");
+    assertThat(program.eval(ImmutableMap.of("msg", POPULATED_SERVER_MESSAGE))).isEqualTo(true);
   }
 
   @Test
-  public void submessageEquality_withoutSubmessageDescriptor_throwsUnsupportedOperationException(
-      @TestParameter({
-            "msg.single_nested_message == msg.single_nested_message",
-            "msg.repeated_nested_message == msg.repeated_nested_message"
-          })
-          String expr)
+  @TestParameters({
+    "{knownSubmessageDescriptor: true, bb: 123, expected: true}",
+    "{knownSubmessageDescriptor: true, bb: 999, expected: false}",
+    "{knownSubmessageDescriptor: false, bb: 123, expected: true}",
+    "{knownSubmessageDescriptor: false, bb: 999, expected: false}"
+  })
+  public void submessageEquality_comparesSubmessages(
+      boolean knownSubmessageDescriptor, int bb, boolean expected) throws Exception {
+    CelLiteRuntime runtime =
+        knownSubmessageDescriptor ? clientRuntime : newRuntimeWithoutNestedMessageDescriptor();
+    CelAbstractSyntaxTree optimizedAst =
+        serverOptimizer.optimize(
+            serverCompiler
+                .compile("msg.single_nested_message == nested_msg.payload.single_nested_message")
+                .getAst());
+    Program program = runtime.createProgram(optimizedAst);
+    NestedTestAllTypes other =
+        NestedTestAllTypes.newBuilder()
+            .setPayload(
+                TestAllTypes.newBuilder()
+                    .setSingleNestedMessage(NestedMessage.newBuilder().setBb(bb)))
+            .build();
+
+    assertThat(program.eval(ImmutableMap.of("msg", POPULATED_SERVER_MESSAGE, "nested_msg", other)))
+        .isEqualTo(expected);
+  }
+
+  @Test
+  public void messageEquality_nanInUnknownClientField_comparesByBytes() throws Exception {
+    CelAbstractSyntaxTree optimizedAst =
+        serverOptimizer.optimize(serverCompiler.compile("msg == nested_msg.payload").getAst());
+    TestAllTypes nanMsg1 = TestAllTypes.newBuilder().setSingleDouble(Double.NaN).build();
+    TestAllTypes nanMsg2 = TestAllTypes.newBuilder().setSingleDouble(Double.NaN).build();
+    NestedTestAllTypes nestedNan = NestedTestAllTypes.newBuilder().setPayload(nanMsg2).build();
+    CelLiteRuntime v2Runtime =
+        CelLiteRuntimeFactory.newLiteRuntimeBuilder()
+            .setStandardFunctions(CelStandardFunctions.ALL_STANDARD_FUNCTIONS)
+            .setValueProvider(
+                ProtoMessageLiteValueProvider.newInstance(
+                    TestAllTypesCelDescriptor.getDescriptor(),
+                    NestedTestAllTypesCelDescriptor.getDescriptor()))
+            .setContainer(CEL_CONTAINER)
+            .build();
+
+    // single_double is absent from clientRuntime's V1 descriptor, so it falls back to wire bytes.
+    assertThat(
+            clientRuntime
+                .createProgram(optimizedAst)
+                .eval(ImmutableMap.of("msg", nanMsg1, "nested_msg", nestedNan)))
+        .isEqualTo(true);
+    assertThat(
+            v2Runtime
+                .createProgram(optimizedAst)
+                .eval(ImmutableMap.of("msg", nanMsg1, "nested_msg", nestedNan)))
+        .isEqualTo(false);
+  }
+
+  @Test
+  public void messageEquality_selectedSubmessageVsUnregisteredRootVar_returnsFalse()
       throws Exception {
     CelLiteRuntime runtimeWithoutNestedDesc = newRuntimeWithoutNestedMessageDescriptor();
     CelAbstractSyntaxTree optimizedAst =
-        serverOptimizer.optimize(serverCompiler.compile(expr).getAst());
-    Program program = runtimeWithoutNestedDesc.createProgram(optimizedAst);
+        serverOptimizer.optimize(
+            serverCompiler.compile("msg.single_nested_message == dyn(nested_msg)").getAst());
+    NestedMessage nested = NestedMessage.newBuilder().setBb(123).build();
 
-    CelEvaluationException thrown =
-        assertThrows(
-            CelEvaluationException.class,
-            () -> program.eval(ImmutableMap.of("msg", POPULATED_SERVER_MESSAGE)));
+    assertThat(
+            runtimeWithoutNestedDesc
+                .createProgram(optimizedAst)
+                .eval(ImmutableMap.of("msg", POPULATED_SERVER_MESSAGE, "nested_msg", nested)))
+        .isEqualTo(false);
+  }
 
-    assertThat(thrown).hasCauseThat().isInstanceOf(UnsupportedOperationException.class);
-    assertThat(thrown)
-        .hasCauseThat()
-        .hasMessageThat()
-        .contains("Message equality is not supported");
+  @Test
+  public void messageEquality_twoUnregisteredRootVarsWithSameWireBytes_returnsTrue()
+      throws Exception {
+    CelLiteRuntime descriptorlessRuntime = newDescriptorlessRuntime();
+    CelAbstractSyntaxTree optimizedAst =
+        serverOptimizer.optimize(serverCompiler.compile("dyn(nested_msg) == dyn(msg)").getAst());
+    NestedMessage nested = NestedMessage.newBuilder().setBb(123).build();
+    TestAllTypes sameWireBytes = TestAllTypes.newBuilder().setSingleInt32(123).build();
+
+    assertThat(
+            descriptorlessRuntime
+                .createProgram(optimizedAst)
+                .eval(ImmutableMap.of("nested_msg", nested, "msg", sameWireBytes)))
+        .isEqualTo(true);
   }
 
   @Test

@@ -412,7 +412,8 @@ public abstract class CelOptions {
     public abstract Builder enableUnsignedLongs(boolean value);
 
     /**
-     * Perform equality using {@code ProtoEquality} proto equality.
+     * Perform equality using {@code ProtoEquality} proto equality. {@code CelLiteRuntime} always
+     * applies this equality regardless of this option.
      *
      * <p>CEL's alternative implementation to the {@code Message#equals} comes with a few key
      * differences:

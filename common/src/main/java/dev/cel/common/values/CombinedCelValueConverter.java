@@ -18,6 +18,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.google.common.collect.ImmutableList;
 import dev.cel.common.annotations.Internal;
+import java.util.Optional;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -80,5 +81,16 @@ public final class CombinedCelValueConverter extends CelValueConverter {
     }
 
     return value;
+  }
+
+  @Override
+  public Optional<Boolean> messageEquals(Object x, Object y) {
+    for (CelValueConverter converter : converters) {
+      Optional<Boolean> result = converter.messageEquals(x, y);
+      if (result.isPresent()) {
+        return result;
+      }
+    }
+    return Optional.empty();
   }
 }

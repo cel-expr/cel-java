@@ -235,4 +235,9 @@ public class CelValueConverterTest {
 
     assertThat(e).hasMessageThat().isEqualTo("List element cannot be null at index: 1");
   }
+
+  @Test
+  public void messageEquals_returnsEmpty() {
+    assertThat(CEL_VALUE_CONVERTER.messageEquals("a", "b")).isEmpty();
+  }
 }

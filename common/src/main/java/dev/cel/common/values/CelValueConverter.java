@@ -221,6 +221,14 @@ public class CelValueConverter {
     return false;
   }
 
+  /**
+   * Returns whether {@code x} and {@code y} are equal in CEL, if they're protobuf messages this
+   * converter knows how to compare.
+   */
+  public Optional<Boolean> messageEquals(Object x, Object y) {
+    return Optional.empty();
+  }
+
   protected Object normalizePrimitive(Object value) {
     Preconditions.checkNotNull(value);
 

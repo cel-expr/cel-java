@@ -363,17 +363,10 @@ public class RuntimeHelpers {
   }
 
   /**
-   * Adapts a {@code protobuf.Message} to a plain old Java object.
-   *
-   * <p>Well-known protobuf types (wrappers, JSON types) are unwrapped to Java native object
-   * representations.
-   *
-   * <p>If the incoming {@code obj} is of type {@code google.protobuf.Any} the object is unpacked
-   * and the proto within is passed to the {@code adaptProtoToValue} method again to ensure the
-   * message contained within the Any is properly unwrapped if it is a well-known protobuf type.
+   * Adapts a protobuf message to a CEL value: as is, unless a subclass unwraps well-known types.
    */
   Object adaptProtoToValue(MessageLiteOrBuilder obj) {
-    throw new UnsupportedOperationException("Not implemented yet");
+    return obj;
   }
 
   public static Optional<UnsignedLong> doubleToUnsignedChecked(double v) {

@@ -21,6 +21,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.primitives.UnsignedLong;
+import com.google.common.testing.EqualsTester;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.CodedOutputStream;
 import com.google.protobuf.WireFormat;
@@ -101,31 +102,47 @@ public final class RawProtoMessageLiteValueTest {
   }
 
   @Test
-  @SuppressWarnings("SelfEquals") // Testing that equals throws even on self-comparison
-  public void equals_throwsUnsupportedOperationException() {
-    RawProtoMessageLiteValue value1 =
-        RawProtoMessageLiteValue.create(ByteString.EMPTY, "custom.Message", EMPTY_CONVERTER);
-    RawProtoMessageLiteValue value2 =
-        RawProtoMessageLiteValue.create(ByteString.EMPTY, "custom.Message", EMPTY_CONVERTER);
+  public void equalsAndHashCode() throws Exception {
+    ByteString order1 =
+        encode(out -> {
+          out.writeInt64(1, 10L);
+          out.writeString(2, "a");
+        });
+    ByteString order2 =
+        encode(out -> {
+          out.writeString(2, "a");
+          out.writeInt64(1, 10L);
+        });
+    ByteString differentField = encode(out -> out.writeInt64(1, 99L));
 
-    UnsupportedOperationException selfThrown =
-        assertThrows(UnsupportedOperationException.class, () -> value1.equals(value1));
-    UnsupportedOperationException otherThrown =
-        assertThrows(UnsupportedOperationException.class, () -> value1.equals(value2));
-
-    assertThat(selfThrown).hasMessageThat().isEqualTo("Message equality is not supported");
-    assertThat(otherThrown).hasMessageThat().isEqualTo("Message equality is not supported");
+    new EqualsTester()
+        .addEqualityGroup(
+            RawProtoMessageLiteValue.create(order1, "custom.Message", EMPTY_CONVERTER),
+            RawProtoMessageLiteValue.create(order2, "custom.Message", EMPTY_CONVERTER),
+            RawProtoMessageLiteValue.create(
+                order1, "custom.Message", EMPTY_CONVERTER, /* isView= */ true))
+        .addEqualityGroup(
+            RawProtoMessageLiteValue.create(differentField, "custom.Message", EMPTY_CONVERTER))
+        .addEqualityGroup(RawProtoMessageLiteValue.create(order1, "other.Message", EMPTY_CONVERTER))
+        .addEqualityGroup(
+            RawProtoMessageLiteValue.create(ByteString.EMPTY, EMPTY_CONVERTER),
+            RawProtoMessageLiteValue.create(ByteString.EMPTY, "", EMPTY_CONVERTER),
+            RawProtoMessageLiteValue.create(
+                ByteString.EMPTY, "cel.@unknownMessage", EMPTY_CONVERTER))
+        .testEquals();
   }
 
   @Test
-  public void hashCode_throwsUnsupportedOperationException() {
-    RawProtoMessageLiteValue value =
-        RawProtoMessageLiteValue.create(ByteString.EMPTY, "custom.Message", EMPTY_CONVERTER);
+  public void equals_malformedBytes_throwsIllegalArgumentException() {
+    RawProtoMessageLiteValue malformed1 =
+        RawProtoMessageLiteValue.create(
+            ByteString.copyFromUtf8("test"), "custom.Message", EMPTY_CONVERTER);
+    RawProtoMessageLiteValue malformed2 =
+        RawProtoMessageLiteValue.create(
+            ByteString.copyFromUtf8("test"), "custom.Message", EMPTY_CONVERTER);
 
-    UnsupportedOperationException thrown =
-        assertThrows(UnsupportedOperationException.class, value::hashCode);
-
-    assertThat(thrown).hasMessageThat().isEqualTo("Message equality is not supported");
+    assertThrows(IllegalArgumentException.class, () -> malformed1.equals(malformed2));
+    assertThrows(IllegalArgumentException.class, malformed1::hashCode);
   }
 
   @Test
