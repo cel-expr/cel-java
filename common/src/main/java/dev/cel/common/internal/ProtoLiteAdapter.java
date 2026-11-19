@@ -299,7 +299,8 @@ public final class ProtoLiteAdapter {
     throw new IllegalArgumentException("Unexpected value type: " + value);
   }
 
-  static int intCheckedCast(long value) {
+  /** Narrows {@code value} to an int32, or throws {@link CelNumericOverflowException}. */
+  public static int intCheckedCast(long value) {
     try {
       return Ints.checkedCast(value);
     } catch (IllegalArgumentException e) {
@@ -307,7 +308,8 @@ public final class ProtoLiteAdapter {
     }
   }
 
-  static int unsignedIntCheckedCast(long value) {
+  /** Narrows {@code value} to a uint32, or throws {@link CelNumericOverflowException}. */
+  public static int unsignedIntCheckedCast(long value) {
     try {
       return UnsignedInts.checkedCast(value);
     } catch (IllegalArgumentException e) {
@@ -316,14 +318,12 @@ public final class ProtoLiteAdapter {
   }
 
   private static Any packAnyMessage(MessageLite msg, WellKnownProto wellKnownProto) {
-    return packAnyMessage(msg, wellKnownProto.typeName());
+    return packAny(msg.toByteString(), wellKnownProto.typeName());
   }
 
-  private static Any packAnyMessage(MessageLite msg, String typeUrl) {
-    return Any.newBuilder()
-        .setValue(msg.toByteString())
-        .setTypeUrl("type.googleapis.com/" + typeUrl)
-        .build();
+  /** Packs {@code value}, a serialized message of type {@code typeName}, into an {@link Any}. */
+  public static Any packAny(ByteString value, String typeName) {
+    return Any.newBuilder().setValue(value).setTypeUrl("type.googleapis.com/" + typeName).build();
   }
 
   private Timestamp adaptValueToProtoTimestamp(Object value) {

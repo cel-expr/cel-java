@@ -21,6 +21,7 @@ import static org.junit.Assert.assertThrows;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.primitives.UnsignedLong;
+import com.google.protobuf.Any;
 import com.google.protobuf.BoolValue;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.BytesValue;
@@ -54,6 +55,9 @@ import dev.cel.expr.conformance.proto3.TestAllTypes;
 import dev.cel.expr.conformance.proto3.TestAllTypes.NestedEnum;
 import dev.cel.expr.conformance.proto3.TestAllTypes.NestedMessage;
 import dev.cel.expr.conformance.proto3.TestAllTypesCelDescriptor;
+import dev.cel.extensions.CelExtensions;
+import dev.cel.extensions.CelListsRuntimeLibrary;
+import dev.cel.extensions.CelSetsRuntimeLibrary;
 import dev.cel.parser.CelStandardMacro;
 import dev.cel.runtime.standard.EqualsOperator;
 import dev.cel.runtime.standard.TypeFunction;
@@ -117,14 +121,25 @@ public class CelLiteRuntimeTest {
 
   @Test
   public void messageCreation_fieldsPopulated() throws Exception {
-    CelAbstractSyntaxTree ast = CEL_COMPILER.compile("TestAllTypes{single_int32: 4}").getAst();
-    Program program = CEL_RUNTIME.createProgram(ast);
+    CelAbstractSyntaxTree ast =
+        CEL_COMPILER
+            .compile(
+                "TestAllTypes{single_int32: 4, repeated_string: ['a'], map_string_string: {'k':"
+                    + " 'v'}, single_nested_message: TestAllTypes.NestedMessage{bb: 7},"
+                    + " single_int64_wrapper: 5}")
+            .getAst();
 
-    CelEvaluationException e = assertThrows(CelEvaluationException.class, program::eval);
+    TestAllTypes message = (TestAllTypes) CEL_RUNTIME.createProgram(ast).eval();
 
-    assertThat(e)
-        .hasMessageThat()
-        .contains("Message creation with prepopulated fields is not supported yet.");
+    assertThat(message)
+        .isEqualTo(
+            TestAllTypes.newBuilder()
+                .setSingleInt32(4)
+                .addRepeatedString("a")
+                .putMapStringString("k", "v")
+                .setSingleNestedMessage(NestedMessage.newBuilder().setBb(7))
+                .setSingleInt64Wrapper(Int64Value.of(5))
+                .build());
   }
 
   @Test
@@ -761,5 +776,122 @@ public class CelLiteRuntimeTest {
     CelEvaluationException e =
         assertThrows(CelEvaluationException.class, () -> runtimeWithoutType.createProgram(ast));
     assertThat(e).hasMessageThat().contains("No matching overload for function 'type'");
+  }
+
+  @Test
+  public void eval_messageEquality_defaultOptions(@TestParameter MessageEqualityTestCase testCase)
+      throws Exception {
+    CelCompiler compiler =
+        CEL_COMPILER
+            .toCompilerBuilder()
+            .addLibraries(CelExtensions.lists(), CelExtensions.sets())
+            .addMessageTypes(dev.cel.expr.conformance.proto2.TestAllTypes.getDescriptor())
+            .addVar("x", SimpleType.DYN)
+            .addVar("y", SimpleType.DYN)
+            .build();
+    CelLiteRuntime runtime =
+        CEL_RUNTIME
+            .toRuntimeBuilder()
+            .addLibraries(CelListsRuntimeLibrary.lists(), CelSetsRuntimeLibrary.sets())
+            .build();
+    CelAbstractSyntaxTree ast = compiler.compile(testCase.expression).getAst();
+
+    Object result = runtime.createProgram(ast).eval(testCase.activation);
+
+    assertThat(result).isEqualTo(testCase.expected);
+  }
+
+  @SuppressWarnings("ImmutableEnumChecker") // Test only
+  private enum MessageEqualityTestCase {
+    EQUAL_MESSAGES(
+        "TestAllTypes{single_int32: 1} == TestAllTypes{single_int32: 1}", ImmutableMap.of(), true),
+    UNEQUAL_MESSAGES(
+        "TestAllTypes{single_int32: 1} != TestAllTypes{single_int32: 2}", ImmutableMap.of(), true),
+    MESSAGE_NOT_EQUAL_TO_NULL("dyn(TestAllTypes{}) == null", ImmutableMap.of(), false),
+    NAN_MESSAGE_UNEQUAL(
+        "TestAllTypes{single_double: double('NaN')} == TestAllTypes{single_double: double('NaN')}",
+        ImmutableMap.of(),
+        false),
+    NAN_MESSAGE_NOT_EQUALS_TRUE(
+        "TestAllTypes{single_double: double('NaN')} != TestAllTypes{single_double: double('NaN')}",
+        ImmutableMap.of(),
+        true),
+    PROTO2_SIGNED_ZERO_EQUAL(
+        "cel.expr.conformance.proto2.TestAllTypes{single_double: -0.0} == "
+            + "cel.expr.conformance.proto2.TestAllTypes{single_double: 0.0}",
+        ImmutableMap.of(),
+        true),
+    REENCODED_ANY_EQUAL(
+        "x == y",
+        ImmutableMap.of(
+            "x",
+            TestAllTypes.newBuilder()
+                .setSingleAny(
+                    Any.pack(
+                        dev.cel.expr.conformance.proto2.TestAllTypes.newBuilder()
+                            .setSingleDouble(-0.0)
+                            .build()))
+                .build(),
+            "y",
+            TestAllTypes.newBuilder()
+                .setSingleAny(
+                    Any.pack(
+                        dev.cel.expr.conformance.proto2.TestAllTypes.newBuilder()
+                            .setSingleDouble(0.0)
+                            .build()))
+                .build()),
+        true),
+    IN_LIST_SIGNED_ZERO(
+        "cel.expr.conformance.proto2.TestAllTypes{single_double: -0.0} in "
+            + "[cel.expr.conformance.proto2.TestAllTypes{single_double: 0.0}]",
+        ImmutableMap.of(),
+        true),
+    IN_LIST_NAN(
+        "TestAllTypes{single_double: double('NaN')} in "
+            + "[TestAllTypes{single_double: double('NaN')}]",
+        ImmutableMap.of(),
+        false),
+    LIST_OF_MESSAGES_EQUAL(
+        "[cel.expr.conformance.proto2.TestAllTypes{single_double: -0.0}] == "
+            + "[cel.expr.conformance.proto2.TestAllTypes{single_double: 0.0}]",
+        ImmutableMap.of(),
+        true),
+    MAP_OF_MESSAGES_EQUAL(
+        "{'k': cel.expr.conformance.proto2.TestAllTypes{single_double: -0.0}} == "
+            + "{'k': cel.expr.conformance.proto2.TestAllTypes{single_double: 0.0}}",
+        ImmutableMap.of(),
+        true),
+    LISTS_DISTINCT_SIGNED_ZERO_DEDUPLICATES(
+        "[cel.expr.conformance.proto2.TestAllTypes{single_double: -0.0}, "
+            + "cel.expr.conformance.proto2.TestAllTypes{single_double: 0.0}].distinct().size()",
+        ImmutableMap.of(),
+        1L),
+    LISTS_DISTINCT_NAN_KEEPS_BOTH(
+        "[TestAllTypes{single_double: double('NaN')}, "
+            + "TestAllTypes{single_double: double('NaN')}].distinct().size()",
+        ImmutableMap.of(),
+        2L),
+    SETS_CONTAINS_SIGNED_ZERO(
+        "sets.contains([cel.expr.conformance.proto2.TestAllTypes{single_double: 0.0}], "
+            + "[cel.expr.conformance.proto2.TestAllTypes{single_double: -0.0}])",
+        ImmutableMap.of(),
+        true),
+    SETS_CONTAINS_NAN(
+        "sets.contains([TestAllTypes{single_double: double('NaN')}], "
+            + "[TestAllTypes{single_double: double('NaN')}])",
+        ImmutableMap.of(),
+        false),
+    ;
+
+    private final String expression;
+    private final ImmutableMap<String, Object> activation;
+    private final Object expected;
+
+    MessageEqualityTestCase(
+        String expression, ImmutableMap<String, Object> activation, Object expected) {
+      this.expression = expression;
+      this.activation = activation;
+      this.expected = expected;
+    }
   }
 }

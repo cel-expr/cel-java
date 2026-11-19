@@ -14,6 +14,8 @@
 
 package dev.cel.runtime;
 
+import static com.google.common.base.Preconditions.checkNotNull;
+
 import com.google.common.primitives.UnsignedLong;
 import com.google.errorprone.annotations.Immutable;
 import com.google.protobuf.MessageLiteOrBuilder;
@@ -21,6 +23,7 @@ import dev.cel.common.CelOptions;
 import dev.cel.common.annotations.Internal;
 import dev.cel.common.exceptions.CelAttributeNotFoundException;
 import dev.cel.common.internal.ComparisonFunctions;
+import dev.cel.common.values.CelValueConverter;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -34,9 +37,16 @@ import java.util.RandomAccess;
 public class RuntimeEquality {
   protected final RuntimeHelpers runtimeHelpers;
   protected final CelOptions celOptions;
+  private final CelValueConverter celValueConverter;
 
   public static RuntimeEquality create(RuntimeHelpers runtimeHelper, CelOptions celOptions) {
     return new RuntimeEquality(runtimeHelper, celOptions);
+  }
+
+  /** Creates an equality that compares protobuf messages as {@code celValueConverter} does. */
+  static RuntimeEquality create(
+      RuntimeHelpers runtimeHelper, CelOptions celOptions, CelValueConverter celValueConverter) {
+    return new RuntimeEquality(runtimeHelper, celOptions, celValueConverter);
   }
 
   // Functions
@@ -171,9 +181,9 @@ public class RuntimeEquality {
   }
 
   boolean protoEquals(MessageLiteOrBuilder x, MessageLiteOrBuilder y) {
-    // TODO: Implement when CelLiteDescriptor is available
-    throw new UnsupportedOperationException(
-        "Proto Differencer equality is not supported for MessageLite.");
+    Optional<Boolean> result = celValueConverter.messageEquals(x, y);
+    // Only messages of one class are equal, which hashCode relies on.
+    return result.isPresent() ? result.get() : x.getClass() == y.getClass() && x.equals(y);
   }
 
   private boolean optionalEquals(Optional<?> x, Optional<?> y) {
@@ -290,6 +300,10 @@ public class RuntimeEquality {
       }
       return h;
     }
+    if (celOptions.enableProtoDifferencerEquality() && object instanceof MessageLiteOrBuilder) {
+      // Constant per class: protoEquals holds for messages that hash differently, as with -0.0/0.0.
+      return object.getClass().hashCode();
+    }
     return Objects.hashCode(object);
   }
 
@@ -325,7 +339,13 @@ public class RuntimeEquality {
   }
 
   RuntimeEquality(RuntimeHelpers runtimeHelpers, CelOptions celOptions) {
-    this.runtimeHelpers = runtimeHelpers;
-    this.celOptions = celOptions;
+    this(runtimeHelpers, celOptions, CelValueConverter.getDefaultInstance());
+  }
+
+  private RuntimeEquality(
+      RuntimeHelpers runtimeHelpers, CelOptions celOptions, CelValueConverter celValueConverter) {
+    this.runtimeHelpers = checkNotNull(runtimeHelpers);
+    this.celOptions = checkNotNull(celOptions);
+    this.celValueConverter = checkNotNull(celValueConverter);
   }
 }

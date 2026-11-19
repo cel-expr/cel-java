@@ -868,6 +868,18 @@ public final class ProtoLiteCelValueConverterTest {
     assertThat(wireValue).isEqualTo(99L);
   }
 
+  @Test
+  public void messageEquals_messages_comparesWithProtoLiteEquality() {
+    TestAllTypes nanMsg = TestAllTypes.newBuilder().setSingleDouble(Double.NaN).build();
+    TestAllTypes intMsg = TestAllTypes.newBuilder().setSingleInt32(1).build();
+    TestAllTypes equalIntMsg = TestAllTypes.newBuilder().setSingleInt32(1).build();
+
+    assertThat(ALL_TYPES_CONVERTER.messageEquals(nanMsg, nanMsg)).hasValue(false);
+    assertThat(ALL_TYPES_CONVERTER.messageEquals(intMsg, equalIntMsg)).hasValue(true);
+    assertThat(ALL_TYPES_CONVERTER.messageEquals(intMsg, TestAllTypes.newBuilder())).isEmpty();
+    assertThat(ALL_TYPES_CONVERTER.messageEquals(TestAllTypes.newBuilder(), intMsg)).isEmpty();
+  }
+
   // The value read, or the class of the exception thrown reading it.
   private static Object outcome(Supplier<Object> read) {
     try {

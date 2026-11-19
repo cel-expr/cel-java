@@ -188,7 +188,11 @@ final class CelLiteRuntimeImpl implements CelLiteRuntime {
       ImmutableList<CelFunctionBinding> userFunctionBindings =
           ImmutableList.copyOf(customFunctionBindings.values());
       RuntimeHelpers runtimeHelpers = RuntimeHelpers.create();
-      RuntimeEquality runtimeEquality = RuntimeEquality.create(runtimeHelpers, celOptions);
+      RuntimeEquality runtimeEquality =
+          RuntimeEquality.create(
+              runtimeHelpers,
+              celOptions.toBuilder().enableProtoDifferencerEquality(true).build(),
+              celValueProvider.celValueConverter());
       ImmutableSet<CelLiteRuntimeLibrary> runtimeLibs = runtimeLibrariesBuilder.build();
       for (CelLiteRuntimeLibrary lib : runtimeLibs) {
         if (lib instanceof CelInternalLiteRuntimeLibrary) {

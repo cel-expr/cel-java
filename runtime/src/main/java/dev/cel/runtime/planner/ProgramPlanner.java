@@ -52,6 +52,7 @@ import dev.cel.common.types.CelKind;
 import dev.cel.common.types.CelType;
 import dev.cel.common.types.CelTypeProvider;
 import dev.cel.common.types.SimpleType;
+import dev.cel.common.types.StructTypeReference;
 import dev.cel.common.types.TypeType;
 import dev.cel.common.values.CelValueConverter;
 import dev.cel.common.values.CelValueProvider;
@@ -662,13 +663,10 @@ public final class ProgramPlanner {
   }
 
   private CelType resolveStructType(CelExpr expr, PlannerContext ctx) {
-    CelType checkedType = ctx.typeMap().get(expr.id());
-    if (checkedType != null) {
-      CelKind kind = checkedType.kind();
-      // Type-checked ASTs do not need a type-provider lookup as long as it's of expected kind.
-      if (isValidStructKind(kind)) {
-        return checkedType;
-      }
+    // Checked ASTs reference the resolved message name, including for well-known types.
+    CelReference reference = ctx.referenceMap().get(expr.id());
+    if (reference != null) {
+      return StructTypeReference.create(reference.name());
     }
 
     CelStruct struct = expr.struct();

@@ -66,6 +66,31 @@ public final class CombinedCelValueConverterTest {
     assertThat(combinedConverter.toRuntimeValue("target2")).isEqualTo("replacement2");
   }
 
+  @Test
+  public void messageEquals_delegatesInOrder() {
+    CelValueConverter first =
+        new CelValueConverter() {
+          @Override
+          public Optional<Boolean> messageEquals(Object x, Object y) {
+            return x.equals("handledByFirst") ? Optional.of(true) : Optional.empty();
+          }
+        };
+    CelValueConverter second =
+        new CelValueConverter() {
+          @Override
+          public Optional<Boolean> messageEquals(Object x, Object y) {
+            return x.equals("handledByFirst") || x.equals("handledBySecond")
+                ? Optional.of(false)
+                : Optional.empty();
+          }
+        };
+    CelValueConverter combined = CombinedCelValueConverter.combine(ImmutableList.of(first, second));
+
+    assertThat(combined.messageEquals("handledByFirst", "other")).hasValue(true);
+    assertThat(combined.messageEquals("handledBySecond", "other")).hasValue(false);
+    assertThat(combined.messageEquals("unhandled", "unhandled")).isEmpty();
+  }
+
   private static class CustomConverter extends CelValueConverter {
     private final String target;
     private final String replacement;
