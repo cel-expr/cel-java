@@ -50,6 +50,14 @@ public class DefaultTypeProvider implements CelTypeProvider {
         "optional_type",
         // TODO: Move to CelOptionalLibrary and register it on demand
         OptionalType.create(SimpleType.DYN));
+    typeMapBuilder.put(
+        "net.IP",
+        // TODO: Move to CelNetworkExtensions and register it on demand
+        OpaqueType.create("net.IP"));
+    typeMapBuilder.put(
+        "net.CIDR",
+        // TODO: Move to CelNetworkExtensions and register it on demand
+        OpaqueType.create("net.CIDR"));
     this.commonTypes = typeMapBuilder.buildOrThrow();
   }
 }
