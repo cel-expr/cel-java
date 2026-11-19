@@ -41,7 +41,7 @@ import java.util.Optional;
 abstract class RawProtoMessageLiteValue extends StructValue<String, WireMessageLite>
     implements OptimizedSelectable, WireMessageLite {
 
-  private static final String UNKNOWN_MESSAGE_TYPE_NAME = "cel.@unknownMessage";
+  static final String UNKNOWN_MESSAGE_TYPE_NAME = "cel.@unknownMessage";
 
   @Override
   public abstract ByteString toByteString();

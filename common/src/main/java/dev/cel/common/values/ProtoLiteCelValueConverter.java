@@ -62,8 +62,8 @@ import org.jspecify.annotations.Nullable;
 public final class ProtoLiteCelValueConverter extends BaseProtoCelValueConverter {
   private static final String MAP_KEY_FIELD_NAME = "key";
   private static final String MAP_VALUE_FIELD_NAME = "value";
-  private static final int MAP_KEY_FIELD_NUMBER = 1;
-  private static final int MAP_VALUE_FIELD_NUMBER = 2;
+  static final int MAP_KEY_FIELD_NUMBER = 1;
+  static final int MAP_VALUE_FIELD_NUMBER = 2;
   // Protobuf's default recursion limit. Nested Anys are unwrapped in a loop since each payload is
   // parsed afresh, outside that limit.
   private static final int MAX_ANY_NESTING_DEPTH = 100;
@@ -168,7 +168,7 @@ public final class ProtoLiteCelValueConverter extends BaseProtoCelValueConverter
 
   // Unlike other WellKnownProtos (which unbox to CEL scalars/containers), FieldMask is
   // represented as a standard struct message so field selection (e.g., mask.paths) works.
-  private static boolean isStructLike(@Nullable WellKnownProto wellKnownProto) {
+  static boolean isStructLike(@Nullable WellKnownProto wellKnownProto) {
     return wellKnownProto == null || wellKnownProto == WellKnownProto.FIELD_MASK;
   }
 
@@ -190,7 +190,7 @@ public final class ProtoLiteCelValueConverter extends BaseProtoCelValueConverter
     return mergeMessageLite(descriptor.newMessageBuilder(), bytes, descriptor.getProtoTypeName());
   }
 
-  private static MessageLite mergeMessageLite(
+  static MessageLite mergeMessageLite(
       MessageLite.Builder builder, ByteString bytes, String protoTypeName) {
     try {
       return builder.mergeFrom(bytes, ExtensionRegistryLite.getEmptyRegistry()).build();

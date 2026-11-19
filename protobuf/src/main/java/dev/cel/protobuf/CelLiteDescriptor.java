@@ -406,7 +406,7 @@ public abstract class CelLiteDescriptor {
   }
 
   /** Describes map entry type {@code fullName}, whose key and value are fields 1 and 2. */
-  protected static MessageLiteDescriptor mapEntry(
+  public static MessageLiteDescriptor mapEntry(
       String fullName,
       FieldLiteDescriptor.Type keyType,
       FieldLiteDescriptor.Type valueType,
