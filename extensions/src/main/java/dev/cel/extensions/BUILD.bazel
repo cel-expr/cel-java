@@ -600,6 +600,89 @@ cel_android_library(
 )
 
 java_library(
+    name = "network_types",
+    srcs = [
+        "CelCidr.java",
+        "CelIp.java",
+    ],
+    tags = [
+    ],
+    deps = [
+        "//common/types",
+        "//common/values",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:org_jspecify_jspecify",
+    ],
+)
+
+cel_android_library(
+    name = "network_types_android",
+    srcs = [
+        "CelCidr.java",
+        "CelIp.java",
+    ],
+    tags = [
+    ],
+    deps = [
+        "//common/types:types_android",
+        "//common/values:values_android",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:org_jspecify_jspecify",
+    ],
+)
+
+java_library(
+    name = "network_compiler_library",
+    srcs = ["CelNetworkCompilerLibrary.java"],
+    tags = [
+    ],
+    deps = [
+        ":extension_library",
+        ":network_types",
+        "//checker:checker_builder",
+        "//common:cel_function_decl",
+        "//common:cel_overload_decl",
+        "//common:cel_var_decl",
+        "//common/types",
+        "//compiler:compiler_builder",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:com_google_guava_guava",
+    ],
+)
+
+java_library(
+    name = "network_runtime_library",
+    srcs = ["CelNetworkRuntimeLibrary.java"],
+    tags = [
+    ],
+    exports = [":network_types"],
+    deps = [
+        ":network_types",
+        "//common/exceptions:bad_format",
+        "//runtime:function_binding",
+        "//runtime:lite_runtime",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:com_google_guava_guava",
+    ],
+)
+
+cel_android_library(
+    name = "network_runtime_library_android",
+    srcs = ["CelNetworkRuntimeLibrary.java"],
+    tags = [
+    ],
+    exports = [":network_types_android"],
+    deps = [
+        ":network_types_android",
+        "//common/exceptions:bad_format",
+        "//runtime:function_binding_android",
+        "//runtime:lite_runtime_android",
+        "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven_android//:com_google_guava_guava",
+    ],
+)
+
+java_library(
     name = "comprehensions",
     srcs = ["CelComprehensionsExtensions.java"],
     tags = [
