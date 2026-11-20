@@ -45,6 +45,7 @@ java_library(
         "//common/types:type_providers",
         "//compiler",
         "//compiler:compiler_builder",
+        "//extensions:optional_library",
         #         "//java/com/google/testing/testsize:annotations",
         "//parser:macro",
         "//testing:adorner",

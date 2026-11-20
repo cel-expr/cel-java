@@ -34,6 +34,7 @@ import dev.cel.common.types.NullableType;
 import dev.cel.common.types.OpaqueType;
 import dev.cel.common.types.OptionalType;
 import dev.cel.common.types.SimpleType;
+import dev.cel.common.types.StructTypeReference;
 import dev.cel.common.types.TypeType;
 import java.util.HashMap;
 import java.util.List;
@@ -218,9 +219,69 @@ public final class Types {
     return false;
   }
 
-  /** Returns the more general of two types which are known to unify. */
+  /** Returns the least upper bound of two types. */
   public static CelType mostGeneral(CelType type1, CelType type2) {
-    return isEqualOrLessSpecific(type1, type2) ? type1 : type2;
+    if (type1.equals(type2)) {
+      return type1;
+    }
+    if (type1.kind().isError()) {
+      return type2;
+    }
+    if (type2.kind().isError()) {
+      return type1;
+    }
+    if (isDyn(type1) || isDyn(type2)) {
+      return SimpleType.DYN;
+    }
+    if (isTypeParam(type1)) {
+      return type1;
+    }
+    if (isTypeParam(type2)) {
+      return type2;
+    }
+    if (type1 instanceof NullableType) {
+      return joinNullable((NullableType) type1, type2);
+    }
+    if (type2 instanceof NullableType) {
+      return joinNullable((NullableType) type2, type1);
+    }
+    if (type1.kind() != type2.kind()) {
+      return SimpleType.DYN;
+    }
+    if (!type1.parameters().isEmpty()) {
+      if (!type1.name().equals(type2.name())
+          || type1.parameters().size() != type2.parameters().size()) {
+        return SimpleType.DYN;
+      }
+      ImmutableList.Builder<CelType> params =
+          ImmutableList.builderWithExpectedSize(type1.parameters().size());
+      for (int i = 0; i < type1.parameters().size(); i++) {
+        params.add(mostGeneral(type1.parameters().get(i), type2.parameters().get(i)));
+      }
+      ImmutableList<CelType> joinedParams = params.build();
+      if (type1 instanceof OptionalType || type2 instanceof OptionalType) {
+        return OptionalType.create(joinedParams.get(0));
+      }
+      return type1.withParameters(joinedParams);
+    }
+    boolean t1FromT2 = type1.isAssignableFrom(type2);
+    boolean t2FromT1 = type2.isAssignableFrom(type1);
+    if (t1FromT2 && t2FromT1) {
+      return type1.kind() == CelKind.INT
+          ? SimpleType.INT
+          : StructTypeReference.create(type1.name());
+    }
+    if (t1FromT2) {
+      return type1;
+    }
+    if (t2FromT1) {
+      return type2;
+    }
+    return SimpleType.DYN;
+  }
+
+  private static CelType joinNullable(NullableType nullable, CelType other) {
+    return nullable.isAssignableFrom(other) ? nullable : SimpleType.DYN;
   }
 
   /**
@@ -293,6 +354,10 @@ public final class Types {
     if (isTypeParam(type2)) {
       if (subs.containsKey(type2)) {
         CelType t2Sub = subs.get(type2);
+        if (isDyn(type1)) {
+          subs.put(type2, mostGeneral(type1, t2Sub));
+          return true;
+        }
         // Continue regular process with the assignment for type2.
         if (!internalIsAssignable(subs, type1, t2Sub)) {
           return false;
@@ -327,7 +392,11 @@ public final class Types {
       }
     }
     // Next check for wildcard types.
-    if (isDynOrError(type1) || isDynOrError(type2)) {
+    if (isDyn(type1)) {
+      bindTypeParamsToDyn(subs, type2);
+      return true;
+    }
+    if (isDyn(type2) || type1.kind().isError() || type2.kind().isError()) {
       return true;
     }
 
@@ -384,6 +453,15 @@ public final class Types {
     return true;
   }
 
+  private static void bindTypeParamsToDyn(Map<CelType, CelType> subs, CelType type) {
+    if (isTypeParam(type)) {
+      subs.put(type, SimpleType.DYN);
+    }
+    for (CelType param : type.parameters()) {
+      bindTypeParamsToDyn(subs, param);
+    }
+  }
+
   private static boolean internalIsCandidateAssignableToTarget(
       Map<CelType, CelType> subs, CelType candidate, CelType target) {
     return candidate.name().equals(target.name())
@@ -406,7 +484,8 @@ public final class Types {
    * Check whether one type is equal or less specific than the other one. A type is less specific if
    * it matches the other type using the DYN type.
    *
-   * @deprecated Use {@link #isEqualOrLessSpecific(CelType, CelType)} instead.
+   * @deprecated Do not use. Use {@code CelCheckerBuilder#setResultType(CelType)} to validate an
+   *     expression's expected result type.
    */
   @Deprecated
   public static boolean isEqualOrLessSpecific(Type type1, Type type2) {
@@ -417,7 +496,11 @@ public final class Types {
   /**
    * Check whether one type is equal or less specific than the other one. A type is less specific if
    * it matches the other type using the DYN type.
+   *
+   * @deprecated Do not use. Use {@code CelCheckerBuilder#setResultType(CelType)} to validate an
+   *     expression's expected result type.
    */
+  @Deprecated
   public static boolean isEqualOrLessSpecific(CelType type1, CelType type2) {
     // The first type is less specific.
     if (isDyn(type1) || isTypeParam(type1)) {

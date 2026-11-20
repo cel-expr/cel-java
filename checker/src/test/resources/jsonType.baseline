@@ -19,9 +19,9 @@ _&&_(
             "claims"~string
           )~dyn^index_map,
           "groups"~string
-        )~list(dyn)^index_map,
+        )~dyn^index_map,
         0~int
-      )~dyn^index_list.name~dyn,
+      )~dyn^index_list|index_map.name~dyn,
       "dummy"~string
     )~bool^equals,
     _==_(

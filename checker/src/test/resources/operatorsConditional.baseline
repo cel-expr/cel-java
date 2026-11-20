@@ -7,4 +7,4 @@ _?_:_(
   false~bool,
   x~cel.expr.conformance.proto3.TestAllTypes^x.single_timestamp~google.protobuf.Timestamp,
   null~null
-)~google.protobuf.Timestamp^conditional
+)~dyn^conditional

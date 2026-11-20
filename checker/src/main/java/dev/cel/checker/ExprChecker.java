@@ -415,7 +415,7 @@ public final class ExprChecker {
               value.id(), getPosition(value), valueType, OptionalType.create(valueType));
         }
       }
-      if (!inferenceContext.isAssignable(fieldType, valueType)) {
+      if (!inferenceContext.isAssignable(inferenceContext.specialize(valueType), fieldType)) {
         env.reportError(
             expr.id(),
             getPosition(entry),
@@ -591,17 +591,16 @@ public final class ExprChecker {
     }
     List<CelType> argTypes = new ArrayList<>();
     if (target != null) {
-      argTypes.add(env.getType(target));
+      argTypes.add(inferenceContext.specialize(env.getType(target)));
     }
     for (CelMutableExpr arg : args) {
-      argTypes.add(env.getType(arg));
+      argTypes.add(inferenceContext.specialize(env.getType(arg)));
     }
     CelType resultType = null; // For most common result type.
     String firstCandString = null;
     CelReference.Builder refBuilder = CelReference.newBuilder();
     List<String> excludedCands = new ArrayList<>();
-    String expectedString =
-        TypeFormatter.formatFunction(inferenceContext.specialize(argTypes), target != null);
+    String expectedString = TypeFormatter.formatFunction(argTypes, target != null);
     for (CelOverloadDecl overload : function.overloads()) {
       boolean isInstance = overload.isInstanceFunction();
       if ((target == null && isInstance) || (target != null && !isInstance)) {
@@ -920,20 +919,22 @@ public final class ExprChecker {
   }
 
   /** Checks compatibility of joined types, and returns the most general common type. */
-  private CelType joinTypes(long exprId, int position, CelType previousType, CelType type) {
+  private CelType joinTypes(
+      long exprId, int position, @Nullable CelType previousType, CelType type) {
+    type = inferenceContext.specialize(type);
     if (previousType == null) {
       return type;
     }
     if (homogeneousLiterals) {
       assertIsAssignable(exprId, position, type, previousType);
-    } else if (!inferenceContext.isAssignable(previousType, type)) {
+    } else if (!Types.isDyn(previousType) && !inferenceContext.isAssignable(previousType, type)) {
       return SimpleType.DYN;
     }
-    return Types.mostGeneral(previousType, type);
+    return inferenceContext.specialize(Types.mostGeneral(previousType, type));
   }
 
   private void assertIsAssignable(long exprId, int position, CelType actual, CelType expected) {
-    if (!inferenceContext.isAssignable(expected, actual)) {
+    if (!inferenceContext.isAssignable(inferenceContext.specialize(actual), expected)) {
       env.reportError(
           exprId,
           position,
