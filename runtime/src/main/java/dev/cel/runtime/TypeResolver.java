@@ -157,11 +157,16 @@ public class TypeResolver {
   public static String resolveTypeName(Object obj) {
     checkNotNull(obj);
     Optional<TypeType> resolvedType = resolveWellKnownObjectType(obj);
-    if (!resolvedType.isPresent()) {
-      resolvedType = resolveExtendableObjectType(obj.getClass());
+    if (resolvedType.isPresent()) {
+      return resolvedType.get().containingTypeName();
+    }
+    if (obj instanceof CelValue) {
+      return ((CelValue) obj).celType().name();
     }
 
-    return resolvedType.map(TypeType::containingTypeName).orElseGet(() -> obj.getClass().getName());
+    return resolveExtendableObjectType(obj.getClass())
+        .map(TypeType::containingTypeName)
+        .orElseGet(() -> obj.getClass().getName());
   }
 
   /** Resolves types that the client may have extended, walking superclasses and interfaces. */
