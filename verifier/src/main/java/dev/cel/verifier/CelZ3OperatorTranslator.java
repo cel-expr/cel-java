@@ -74,10 +74,9 @@ final class CelZ3OperatorTranslator {
     TranslatedValue resultChain =
         opOpt
             .map(op -> translateOperatorCall(op, args, ast))
-            .orElseGet(
-                () ->
-                    TranslatedValue.propagateStrict(
-                        ctx, typeSystem, functionName, typeSystem.mkError(), args));
+            .orElseGet(() ->
+                TranslatedValue.propagateStrict(
+                    ctx, typeSystem, functionName, typeSystem.mkError(), args));
 
     CelReference reference = ast.getReferenceMap().get(exprId);
     CelFunctionDecl decl = functionRegistry.getDeclaration(functionName).orElse(null);
@@ -177,15 +176,6 @@ final class CelZ3OperatorTranslator {
             CelZ3Exprs.mkOrFlattened(
                 ctx, currentApprox, ctx.mkAnd(isList, CelZ3Exprs.mkOrFlattened(ctx, taints)));
       }
-    } else if (op == Operator.OPTIONAL_SELECT) {
-      // A chained optional select (e.g. `a.?b.?c`) selects from the value of an optional operand.
-      Expr<?> operand = z3Args.get(0);
-      Expr<?> target =
-          ctx.mkITE(
-              typeSystem.isOptional(operand),
-              typeSystem.getOptionalValue(typeSystem.getOptionalRef(operand)),
-              operand);
-      currentApprox = CelZ3Exprs.mkOrFlattened(ctx, currentApprox, context.isTruncatedMap(target));
     }
 
     return Optional.of(
@@ -359,9 +349,8 @@ final class CelZ3OperatorTranslator {
         return TranslatedValue.propagateStrict(
             ctx, typeSystem, op.getFunction(), typeSystem.mkError(), args);
       case INDEX:
-        return translateIndex(args, ast, false);
       case OPTIONAL_INDEX:
-        return translateIndex(args, ast, true);
+        return translateIndex(args, ast, op);
       case CONDITIONAL:
         return translateConditional(args, ast);
       case NOT_STRICTLY_FALSE:
@@ -1033,160 +1022,125 @@ final class CelZ3OperatorTranslator {
         .withApproximation(CelZ3Exprs.mkOrFlattened(ctx, taints));
   }
 
-  private Expr<?> buildListIndex(
-      Expr<?> lhsTrans, Expr<?> rhsTrans, BoolExpr typeGuard, boolean isOptional) {
-    Expr<?> listRef = typeSystem.getListRef(lhsTrans);
-    SeqExpr<?> seq = typeSystem.getSeq(listRef);
-    Expr<?> index = typeSystem.getInt(rhsTrans);
-    BoolExpr inBounds =
-        ctx.mkAnd(
-            ctx.mkGe((ArithExpr) index, ctx.mkInt(0)),
-            ctx.mkLt((ArithExpr) index, ctx.mkLength(seq)));
+  /** A list element or map value, read without regard to optionals. */
+  private static final class IndexAccess {
+    private final BoolExpr valid;
+    private final BoolExpr found;
+    private final Expr<?> value;
+    private final BoolExpr isApproximate;
 
-    return finishIndex(inBounds, ctx.mkNth(seq, (ArithExpr) index), typeGuard, isOptional);
+    private IndexAccess(BoolExpr valid, BoolExpr found, Expr<?> value, BoolExpr isApproximate) {
+      this.valid = valid;
+      this.found = found;
+      this.value = value;
+      this.isApproximate = isApproximate;
+    }
   }
 
-  private Expr<?> buildMapIndex(
-      Expr<?> lhsTrans, Expr<?> rhsTrans, BoolExpr typeGuard, boolean isOptional) {
+  private IndexAccess listAccess(Expr<?> lhsTrans, Expr<?> rhsTrans) {
+    SeqExpr<?> seq = typeSystem.getSeq(typeSystem.getListRef(lhsTrans));
+    IntExpr index = typeSystem.getInt(rhsTrans);
+    return new IndexAccess(
+        ctx.mkAnd(typeSystem.isList(lhsTrans), typeSystem.isInt(rhsTrans)),
+        ctx.mkAnd(ctx.mkGe(index, ctx.mkInt(0)), ctx.mkLt(index, ctx.mkLength(seq))),
+        ctx.mkNth(seq, index),
+        /* isApproximate= */ ctx.mkFalse());
+  }
+
+  private IndexAccess mapAccess(Expr<?> lhsTrans, Expr<?> rhsTrans) {
     ImmutableList<CelZ3TypeSystem.EqualKey> equalKeys = typeSystem.equalKeys(rhsTrans);
-    return finishIndex(
+    return new IndexAccess(
+        typeSystem.isMap(lhsTrans),
         typeSystem.hasEqualKey(lhsTrans, equalKeys),
         typeSystem.valueAtEqualKey(lhsTrans, equalKeys),
-        typeGuard,
-        isOptional);
+        /* isApproximate= */ ctx.mkFalse());
   }
 
-  // Returns val where found, or else an error (or an empty optional).
-  private Expr<?> finishIndex(BoolExpr found, Expr<?> val, BoolExpr typeGuard, boolean isOptional) {
-    context.constrainValidValue(ctx.mkAnd(typeGuard, found), val);
-    if (isOptional) {
-      Expr<?> resultOptRef = ctx.mkApp(typeSystem.optionalOfRefFunc(), val);
-      context.addConstraint(ctx.mkEq(typeSystem.getOptionalValue(resultOptRef), val));
-      context.addConstraint(typeSystem.optHasValue(resultOptRef));
-      return ctx.mkITE(found, typeSystem.mkOptionalOf(resultOptRef), typeSystem.mkOptionalNone());
+  /**
+   * Looks up {@code rhsTrans} in the list or map {@code lhsTrans}. The value is approximate if the
+   * static element type isn't guaranteed and it may not conform.
+   */
+  private IndexAccess indexAccess(
+      Expr<?> lhsTrans, Expr<?> rhsTrans, CelType containerType, boolean isLhsTypeGuaranteed) {
+    IndexAccess list = listAccess(lhsTrans, rhsTrans);
+    IndexAccess map = mapAccess(lhsTrans, rhsTrans);
+    IndexAccess access =
+        new IndexAccess(
+            ctx.mkOr(list.valid, map.valid),
+            (BoolExpr) ctx.mkITE(list.valid, list.found, map.found),
+            ctx.mkITE(list.valid, list.value, map.value),
+            /* isApproximate= */ ctx.mkFalse());
+    BoolExpr isRead = ctx.mkAnd(access.valid, access.found);
+    context.constrainValidValue(isRead, access.value);
+    if (containerType.kind() != CelKind.MAP && containerType.kind() != CelKind.LIST) {
+      return access;
     }
-    return ctx.mkITE(found, val, typeSystem.mkError());
+    CelType elemType =
+        containerType.kind() == CelKind.MAP
+            ? ((MapType) containerType).valueType()
+            : ((ListType) containerType).elemType();
+    BoolExpr conforms = typeConstraintGenerator.createTypeConstraintForType(access.value, elemType);
+    if (isLhsTypeGuaranteed) {
+      context.addConstraint(ctx.mkImplies(isRead, conforms));
+      return access;
+    }
+    // The type checker may narrow other static types (e.g. `(['a'] + dyn_var)[1]` is typed
+    // string), so the element may not conform.
+    return new IndexAccess(
+        access.valid,
+        access.found,
+        access.value,
+        CelZ3Exprs.mkAndFlattened(ctx, isRead, CelZ3Exprs.mkNotFlattened(ctx, conforms)));
   }
 
+  /**
+   * Translates {@code lhs[rhs]} or {@code lhs[?rhs]}, per {@code op}. An optional lhs is indexed
+   * optionally (e.g. {@code optional.of([])[0]} is {@code optional.none()}).
+   */
   private TranslatedValue translateIndex(
-      List<TranslatedValue> args, CelAbstractSyntaxTree ast, boolean isOptional) {
+      List<TranslatedValue> args, CelAbstractSyntaxTree ast, Operator op) {
     TranslatedValue lhs = args.get(0);
     TranslatedValue rhs = args.get(1);
     CelType lhsType = extractAstTypeOrDefault(lhs, ast);
     boolean isLhsTypeGuaranteed = lhsType.equals(guaranteedType(lhs, ast));
+    CelType containerType = lhsType instanceof OptionalType ? lhsType.parameters().get(0) : lhsType;
 
     Expr<?> lhsTrans = lhs.z3Expr();
     Expr<?> rhsTrans = rhs.z3Expr();
+    BoolExpr isOptionalLhs = typeSystem.isOptional(lhsTrans);
+    Expr<?> optRef = typeSystem.getOptionalRef(lhsTrans);
+    BoolExpr lhsHasValue = typeSystem.optHasValue(optRef);
+    lhsTrans = ctx.mkITE(isOptionalLhs, typeSystem.getOptionalValue(optRef), lhsTrans);
+    // An empty optional's value can't be read, so constraining it is harmless.
+    IndexAccess access = indexAccess(lhsTrans, rhsTrans, containerType, isLhsTypeGuaranteed);
+    Expr<?> element =
+        ctx.mkITE(ctx.mkAnd(access.valid, access.found), access.value, typeSystem.mkError());
+    Expr<?> optionalElement =
+        ctx.mkITE(
+            access.valid,
+            ctx.mkITE(
+                access.found, context.mkOptionalOf(access.value), typeSystem.mkOptionalNone()),
+            typeSystem.mkError());
+    Expr<?> actualValue =
+        ctx.mkITE(
+            isOptionalLhs,
+            ctx.mkITE(lhsHasValue, optionalElement, typeSystem.mkOptionalNone()),
+            op == Operator.OPTIONAL_INDEX ? optionalElement : element);
 
-    BoolExpr isLhsOpt = ctx.mkFalse();
-    BoolExpr lhsHasValue = ctx.mkFalse();
-    BoolExpr shouldEvaluate = ctx.mkTrue();
-
-    if (isOptional) {
-      isLhsOpt = typeSystem.isOptional(lhsTrans);
-      Expr<?> optRef = typeSystem.getOptionalRef(lhsTrans);
-      lhsHasValue = typeSystem.optHasValue(optRef);
-
-      lhsTrans = ctx.mkITE(isLhsOpt, typeSystem.getOptionalValue(optRef), lhsTrans);
-      shouldEvaluate = (BoolExpr) ctx.mkITE(isLhsOpt, lhsHasValue, ctx.mkTrue());
-
-      if (lhsType instanceof OptionalType) {
-        lhsType = lhsType.parameters().get(0);
-      }
-    }
-
-    TranslatedValue element =
-        buildAndConstrainIndex(
-            lhsTrans, rhsTrans, lhsType, isLhsTypeGuaranteed, shouldEvaluate, isOptional);
-    Expr<?> actualValue = element.z3Expr();
-
-    if (isOptional) {
-      actualValue =
-          ctx.mkITE(
-              ctx.mkAnd(isLhsOpt, ctx.mkNot(lhsHasValue)),
-              typeSystem.mkOptionalNone(),
-              actualValue);
-    }
-
-    String opName =
-        isOptional ? Operator.OPTIONAL_INDEX.getFunction() : Operator.INDEX.getFunction();
     BoolExpr isListIndexTruncated =
         context.recordUnrollLimitApproximation(
             ctx.mkAnd(
-                shouldEvaluate,
                 typeSystem.isList(lhsTrans),
                 typeSystem.isInt(rhsTrans),
                 ctx.mkGe(typeSystem.getInt(rhsTrans), ctx.mkInt(comprehensionUnrollLimit)),
                 ctx.mkLt(
                     typeSystem.getInt(rhsTrans),
                     ctx.mkLength(typeSystem.getSeq(typeSystem.getListRef(lhsTrans))))));
-    BoolExpr isMapIndexTruncated = ctx.mkAnd(shouldEvaluate, context.isTruncatedMap(lhsTrans));
-    return TranslatedValue.propagateStrict(ctx, typeSystem, opName, actualValue, args)
+    BoolExpr isMapIndexTruncated = context.isTruncatedMap(lhsTrans);
+    return TranslatedValue.propagateStrict(ctx, typeSystem, op.getFunction(), actualValue, args)
         .withApproximation(
             CelZ3Exprs.mkOrFlattened(
-                ctx, isListIndexTruncated, isMapIndexTruncated, element.isApproximate()));
-  }
-
-  /**
-   * Returns the element of {@code lhsTrans} at {@code rhsTrans}, which is approximate if it may not
-   * conform to a static element type that is not guaranteed.
-   */
-  private TranslatedValue buildAndConstrainIndex(
-      Expr<?> lhsTrans,
-      Expr<?> rhsTrans,
-      CelType lhsType,
-      boolean isLhsTypeGuaranteed,
-      BoolExpr shouldEvaluate,
-      boolean isOptional) {
-    CelType expectedElemType = null;
-    if (lhsType.kind() == CelKind.LIST) {
-      expectedElemType = ((ListType) lhsType).elemType();
-    } else if (lhsType.kind() == CelKind.MAP) {
-      expectedElemType = ((MapType) lhsType).valueType();
-    }
-
-    if (expectedElemType != null) {
-      Expr<?> actualValue;
-      if (lhsType.kind() == CelKind.MAP) {
-        actualValue = buildMapIndex(lhsTrans, rhsTrans, shouldEvaluate, isOptional);
-      } else {
-        BoolExpr isIntIndex = typeSystem.isInt(rhsTrans);
-        actualValue =
-            ctx.mkITE(
-                isIntIndex,
-                buildListIndex(
-                    lhsTrans, rhsTrans, ctx.mkAnd(shouldEvaluate, isIntIndex), isOptional),
-                typeSystem.mkError());
-      }
-
-      CelType finalType = isOptional ? OptionalType.create(expectedElemType) : expectedElemType;
-      BoolExpr isDefined = ctx.mkAnd(shouldEvaluate, ctx.mkNot(typeSystem.isError(actualValue)));
-      BoolExpr typeConstraint =
-          typeConstraintGenerator.createTypeConstraintForType(actualValue, finalType);
-      if (isLhsTypeGuaranteed) {
-        context.addConstraint(ctx.mkImplies(isDefined, typeConstraint));
-        return TranslatedValue.create(actualValue, typeSystem, ctx.mkFalse());
-      }
-      // The type checker may narrow other static types (e.g. `(['a'] + dyn_var)[1]` is typed
-      // string), so the element may not conform.
-      return TranslatedValue.create(
-          actualValue,
-          typeSystem,
-          CelZ3Exprs.mkAndFlattened(
-              ctx, isDefined, CelZ3Exprs.mkNotFlattened(ctx, typeConstraint)));
-    }
-
-    BoolExpr isListGuard =
-        ctx.mkAnd(shouldEvaluate, typeSystem.isList(lhsTrans), typeSystem.isInt(rhsTrans));
-    BoolExpr isMapGuard = ctx.mkAnd(shouldEvaluate, typeSystem.isMap(lhsTrans));
-
-    return TranslatedValue.create(
-        CelZ3Exprs.SwitchBuilder.newBuilder(ctx)
-            .addCase(isListGuard, buildListIndex(lhsTrans, rhsTrans, isListGuard, isOptional))
-            .addCase(isMapGuard, buildMapIndex(lhsTrans, rhsTrans, isMapGuard, isOptional))
-            .build(typeSystem.mkError()),
-        typeSystem,
-        ctx.mkFalse());
+                ctx, isListIndexTruncated, isMapIndexTruncated, access.isApproximate));
   }
 
   private TranslatedValue translateConditional(

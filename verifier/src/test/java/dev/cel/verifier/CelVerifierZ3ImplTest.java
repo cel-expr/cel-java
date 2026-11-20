@@ -747,8 +747,6 @@ public final class CelVerifierZ3ImplTest {
         "dyn({'a': int_list}) == {'a': [1, 2, 3, 4, 5, dyn('not_an_int')]}"),
     BEYOND_BMC_LIMIT_DYN_MAP_LITERAL_OPTIONAL_VALUE_EQUALITY(
         "dyn({?'a': optional.of(int_list)}) == {'a': [1, 2, 3, 4, 5, dyn('not_an_int')]}"),
-    BEYOND_BMC_LIMIT_OPTIONAL_MAP_LITERAL_EQUALITY_WITH_DYN_MAP(
-        "size(int_list) == 6 && dyn({?'a': optional.of(int_list)}) == dyn_map"),
     BEYOND_BMC_LIMIT_EQUALITY_WITH_DYN_LIST(
         "int_list == dyn_list && size(dyn_list) == 6 && 'not_an_int' in dyn_list"),
     BEYOND_BMC_LIMIT_IN_DYN_LIST("size(int_list) == 6 && dyn('not_an_int') in dyn(int_list)"),
@@ -757,8 +755,6 @@ public final class CelVerifierZ3ImplTest {
     BEYOND_BMC_LIMIT_IN_DYN_MAP("size(string_int_map) == 6 && dyn(1) in dyn(string_int_map)"),
     BEYOND_BMC_LIMIT_IN_DYN_LIST_CONCATENATION("'a' in dyn(int_list + [1])"),
     // A long map's type constraint is truncated even if only its key or its value type is known.
-    BEYOND_BMC_LIMIT_DYN_KEY_MAP_IN_LITERAL(
-        "dyn(dyn_int_map) in [{1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: dyn('not_an_int')}]"),
     BEYOND_BMC_LIMIT_DYN_VALUE_MAP_IN_LITERAL(
         "dyn(string_dyn_map) in [{'a': 1, 'b': 2, 'c': 3, 'd': 4, 'e': 5, dyn(6): 6}]"),
     // Map presence is only linked to the keys up to the unroll limit.
@@ -789,6 +785,23 @@ public final class CelVerifierZ3ImplTest {
     CelAbstractSyntaxTree ast = CEL.compile(testCase.expr).getAst();
 
     CelVerificationResult result = VERIFIER.isSatisfiable(ast);
+
+    assertThat(result.status()).isEqualTo(VerificationStatus.INCONCLUSIVE);
+  }
+
+  @Test
+  public void isSatisfiable_mapLiteralWithDynMapBeyondBmcLimit_inconclusive(
+      @TestParameter({
+            "size(int_list) == 2 && dyn({?'a': optional.of(int_list)}) == dyn_map",
+            "dyn(dyn_int_map) in [{1: 1, 2: dyn('not_an_int')}]"
+          })
+          String expr)
+      throws Exception {
+    CelAbstractSyntaxTree ast = CEL.compile(expr).getAst();
+    // A small unroll limit keeps the solver fast; the maps are still past it.
+    CelVerifier verifier = withRuntimeOracle(CEL, b -> b.setComprehensionUnrollLimit(1));
+
+    CelVerificationResult result = verifier.isSatisfiable(ast);
 
     assertThat(result.status()).isEqualTo(VerificationStatus.INCONCLUSIVE);
   }
@@ -1212,6 +1225,37 @@ public final class CelVerifierZ3ImplTest {
     OPTIONAL_OF_EQ_OF_VAR("optional.of(x) == optional.of(x)"),
     OPTIONAL_OF_NEQ_OF_VAR("x != y ? optional.of(x) != optional.of(y) : true"),
     OPTIONAL_OR_VALUE_VAR("optional.of(x).orValue(y) == x"),
+    // Indexing follows the value, whatever type the checker narrowed it to.
+    NARROWED_MAP_INDEXED_AS_LIST(
+        "dyn_var == optional.of([2]) ? dyn_var.orValue({0: 1})[0] == 2 : true"),
+    NARROWED_LIST_INDEXED_AS_MAP(
+        "dyn_var == optional.of({0: 2}) ? dyn_var.orValue([1])[0] == 2 : true"),
+    NARROWED_LIST_GIVEN_OPTIONAL(
+        "dyn_var == optional.of(optional.of([2]))"
+            + " ? dyn(dyn_var.orValue([1])[0]) == optional.of(2) : true"),
+    NARROWED_LIST_GIVEN_OPTIONAL_OPTIONAL_INDEX(
+        "dyn_var == optional.of(optional.of([2]))"
+            + " ? dyn(dyn_var.orValue([1])[?0]) == optional.of(2) : true"),
+    NARROWED_OPTIONAL_INDEX(
+        "dyn_var == optional.of(['a'])"
+            + " ? dyn(dyn_var.orValue(optional.of([1]))[0]) == 'a' : true"),
+    NARROWED_OPTIONAL_OPTIONAL_INDEX(
+        "dyn_var == optional.of([2])"
+            + " ? dyn_var.orValue(optional.of([1]))[?0] == optional.of(2) : true"),
+    NARROWED_OPTIONAL_MAP_INDEX(
+        "dyn_var == optional.of({'a': 2})"
+            + " ? dyn(dyn_var.orValue(optional.of({'a': 1}))['a']) == 2 : true"),
+    // An empty optional gives an empty optional for any key.
+    OPTIONAL_LIST_INDEXED_BY_STRING("TestAllTypes{}.?repeated_int64[dyn('a')] == optional.none()"),
+    OPTIONAL_LIST_OPTIONALLY_INDEXED_BY_STRING(
+        "TestAllTypes{}.?repeated_int64[?dyn('a')] == optional.none()"),
+    // The checker finds several overloads for an optional(dyn) lhs, so the runtime indexes a value
+    // typed optional that isn't one by what it is.
+    NARROWED_OPTIONAL_DYN_INDEX(
+        "dyn_var == optional.of([2]) ? dyn_var.orValue(optional.of(dyn([1])))[0] == 2 : true"),
+    NARROWED_OPTIONAL_DYN_OPTIONAL_INDEX(
+        "dyn_var == optional.of([2]) ? dyn_var.orValue(optional.of(dyn([1])))[?0] == optional.of(2)"
+            + " : true"),
     OPTIONAL_OR_VALUE_FALLBACK_VAR("optional.none().orValue(x) == x"),
     OPTIONAL_OR_VAR("optional.of(x).or(optional.of(y)) == optional.of(x)"),
     OPTIONAL_OR_FALLBACK_VAR("optional.none().or(optional.of(x)) == optional.of(x)"),
@@ -1795,6 +1839,17 @@ public final class CelVerifierZ3ImplTest {
         "dyn(TestAllTypes.NestedMessage{}).single_int64 == 0"
             + " || dyn(TestAllTypes.NestedMessage{}).single_int64 != 0"),
     MAP_MISSING_KEY("{'a': 1}['b'] == 0 || !({'a': 1}['b'] == 0)"),
+    OPTIONAL_SELECT_UNDECLARED_FIELD_OF_DYN_MESSAGE(
+        "dyn(TestAllTypes{}).?unknown_field.hasValue()"
+            + " || !dyn(TestAllTypes{}).?unknown_field.hasValue()"),
+    OPTIONAL_CHAINING_SELECT_UNDECLARED_FIELD(
+        "optional.of(dyn(TestAllTypes{})).unknown_field.hasValue()"
+            + " || !optional.of(dyn(TestAllTypes{})).unknown_field.hasValue()"),
+    // No overload indexes a list with a string, even an empty optional list.
+    // A present optional's value must be a map or message to select from.
+    OPTIONAL_CHAINING_SELECT_FROM_NULL(
+        "{'null_key': dyn(null)}.?null_key.invalid.hasValue()"
+            + " || !{'null_key': dyn(null)}.?null_key.invalid.hasValue()"),
     COLLECTION_ERROR("{'a': 1 / 0} == {'a': 1 / 0}"),
     LIST_ERROR("[1 / 0] == [1 / 0]"),
     STRICT_LITERAL_ERROR("{'a': 1/0}.exists(k, k == 'a') == {'a': 1/0}.exists(k, k == 'a')"),
@@ -1871,7 +1926,12 @@ public final class CelVerifierZ3ImplTest {
         Operator.LESS,
         ImmutableList.of(
             CelExpr.newBuilder().setId(2).setConstant(CelConstant.ofValue(1L)).build()),
-        "expects 2 arguments, got 1");
+        "expects 2 arguments, got 1"),
+    OPTIONAL_SELECT(
+        Operator.OPTIONAL_SELECT,
+        ImmutableList.of(
+            CelExpr.newBuilder().setId(2).setConstant(CelConstant.ofValue(1L)).build()),
+        "expects an operand and a field name");
 
     final Operator operator;
     final ImmutableList<CelExpr> args;
@@ -1933,6 +1993,17 @@ public final class CelVerifierZ3ImplTest {
         "dyn_var == optional.of(1) ? optional.ofNonZeroValue('').or(dyn_var).value() != dyn(1.0)"
             + " : true",
         "dyn_var = optional\\.of\\(1\\)"),
+    // Indexing 42 errors whether or not the overload is picked by its narrowed type.
+    NARROWED_OPTIONAL_INDEX_NOT_CONTAINER(
+        "dyn_var == optional.of(42) ? dyn_var.orValue(optional.of([1]))[0] in [42, optional.of(42)]"
+            + " : true",
+        "dyn_var = optional\\.of\\(42\\)"),
+    // Selecting from an optional follows its value, here 42 rather than the map its type says.
+    NARROWED_OPTIONAL_MAP_SELECTED(
+        "dyn_var == optional.of(optional.of(42))"
+            + " ? (dyn_var.orValue(optional.of({'a': 1})).a.hasValue()"
+            + " || !dyn_var.orValue(optional.of({'a': 1})).a.hasValue()) : true",
+        "dyn_var = optional\\.of\\(optional\\.of\\(42\\)\\)"),
     // Map literal keys must be strings, ints, uints or bools, and can't repeat.
     MAP_LITERAL_DOUBLE_KEY("{1.0: 'a'}[dyn(1)] == 'a'", "Condition is not always true\\."),
     MAP_LITERAL_BYTES_KEY("size({b'a': 1}) == 1", "Condition is not always true\\."),
@@ -2301,8 +2372,8 @@ public final class CelVerifierZ3ImplTest {
     // A looser timeout than the default: comparing a dyn map with a literal admits every numeric
     // representation of its keys and values, a state space that takes 5-25 s to explore remotely
     // (longer on GitHub runners).
-    // TODO: Restore 20 s once select on optionals is modeled (`request` may be
-    // `optional.none()`) and the slowdown since map literal key validation is recovered.
+    // TODO: Restore 20 s once the slowdown since map literal key validation is
+    // recovered.
     CelVerifier verifier = withRuntimeOracle(CEL, b -> b.setTimeout(Duration.ofSeconds(60)));
 
     CelVerificationResult result = verifier.isAlwaysTrue(ast);
@@ -2811,6 +2882,32 @@ public final class CelVerifierZ3ImplTest {
     OPTIONAL_FIELD_SELECTION_MAP_COMPREHENSION(
         "{'a': 1, 'b': 2}.transformMap(k, v, v > 1, v).?b", "optional.of(2)"),
     OPTIONAL_FIELD_SELECTION_BINDER("cel.bind(m, {'a': 1}, m.?a)", "optional.of(1)"),
+    // Selecting from or indexing an optional does so optionally.
+    OPTIONAL_CHAINING_SELECT(
+        "optional.of({'c': {'index': 'goodbye'}}).c.index", "optional.of('goodbye')"),
+    OPTIONAL_CHAINING_SELECT_MISSING("optional.of({'c': {}}).c.missing", "optional.none()"),
+    OPTIONAL_CHAINING_SELECT_NONE("optional.none().c", "optional.none()"),
+    OPTIONAL_CHAINING_SELECT_OPTIONAL_VALUE(
+        "optional.of({'a': optional.of(1)}).a", "optional.of(optional.of(1))"),
+    OPTIONAL_CHAINING_HAS_PRESENT("has(optional.of({'c': 1}).c)", "true"),
+    OPTIONAL_CHAINING_HAS_ABSENT("has(optional.of({'c': 1}).d)", "false"),
+    OPTIONAL_CHAINING_HAS_NONE("has(optional.none().c)", "false"),
+    OPTIONAL_CHAINING_SELECT_PROTO3_ZERO(
+        "optional.of(TestAllTypes{single_int64: 0}).single_int64", "optional.none()"),
+    OPTIONAL_CHAINING_SELECT_UNSET_WRAPPER(
+        "optional.of(TestAllTypes{}).single_int64_wrapper", "optional.none()"),
+    OPTIONAL_CHAINING_INDEX("optional.of(['list-value'])[0]", "optional.of('list-value')"),
+    OPTIONAL_CHAINING_INDEX_MISSING("optional.of({'c': {}}).c['missing']", "optional.none()"),
+    OPTIONAL_CHAINING_INDEX_NONE("optional.none()[0]", "optional.none()"),
+    OPTIONAL_CHAINING_INDEX_DYN("dyn(optional.of([1]))[0]", "optional.of(1)"),
+    OPTIONAL_INDEX_DYN_OPTIONAL("dyn(optional.of([1]))[?0]", "optional.of(1)"),
+    OPTIONAL_SELECT_THEN_INDEX(
+        "optional.of(TestAllTypes{repeated_string: ['foo']}).?repeated_string[0]",
+        "optional.of('foo')"),
+    OPTIONAL_CHAINING_DYN(
+        "dyn_var == optional.of({'a': [1]}) ? dyn_var.a[0] : optional.of(1)", "optional.of(1)"),
+    OPTIONAL_CHAINING_DYN_NONE(
+        "request == optional.none() ? request.l : optional.none()", "optional.none()"),
     JSON_VALUE_BOOL("google.protobuf.Value{bool_value: true}", "true"),
     JSON_VALUE_NUMBER("google.protobuf.Value{number_value: 1.0}", "1.0"),
     JSON_VALUE_NULL("google.protobuf.Value{null_value: 0}", "null"),

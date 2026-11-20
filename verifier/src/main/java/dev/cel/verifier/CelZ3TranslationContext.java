@@ -80,6 +80,14 @@ final class CelZ3TranslationContext {
     addConstraint(ctx.mkImplies(guard, typeSystem.isValidValue(value)));
   }
 
+  /** Returns an optional holding {@code value}. */
+  Expr<?> mkOptionalOf(Expr<?> value) {
+    Expr<?> optRef = ctx.mkApp(typeSystem.optionalOfRefFunc(), value);
+    addConstraint(ctx.mkEq(typeSystem.getOptionalValue(optRef), value));
+    addConstraint(typeSystem.optHasValue(optRef));
+    return typeSystem.mkOptionalOf(optRef);
+  }
+
   void addInputVariable(Expr<?> variable, CelType declaredType) {
     inputVariableTypes.put(variable, declaredType);
   }

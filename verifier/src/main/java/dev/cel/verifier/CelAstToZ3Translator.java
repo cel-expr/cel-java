@@ -14,6 +14,8 @@
 
 package dev.cel.verifier;
 
+import static com.google.common.base.Preconditions.checkArgument;
+
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -439,6 +441,15 @@ final class CelAstToZ3Translator {
     long exprId = expr.id();
     String functionName = call.function();
     ImmutableList<CelExpr> argsAst = call.args();
+    if (functionName.equals(Operator.OPTIONAL_SELECT.getFunction())) {
+      checkArgument(
+          !call.target().isPresent()
+              && argsAst.size() == 2
+              && argsAst.get(1).constantOrDefault().getKind() == CelConstant.Kind.STRING_VALUE,
+          "Malformed AST: operator %s expects an operand and a field name",
+          Operator.OPTIONAL_SELECT);
+      return structTranslator.translateSelect(expr, ast);
+    }
 
     List<TranslatedValue> args = new ArrayList<>();
 
