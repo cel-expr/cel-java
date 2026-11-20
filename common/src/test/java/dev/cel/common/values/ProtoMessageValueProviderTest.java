@@ -20,6 +20,8 @@ import static org.junit.Assert.assertThrows;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.primitives.UnsignedLong;
+import com.google.protobuf.UInt64Value;
+import com.google.testing.junit.testparameterinjector.TestParameter;
 import com.google.testing.junit.testparameterinjector.TestParameterInjector;
 import com.google.testing.junit.testparameterinjector.TestParameters;
 import dev.cel.common.CelDescriptorUtil;
@@ -113,8 +115,7 @@ public class ProtoMessageValueProviderTest {
             VALUE_PROVIDER
                 .newValue(
                     TestAllTypes.getDescriptor().getFullName(),
-                    ImmutableMap.of(
-                        "single_uint32", 3, "single_uint64", UnsignedLong.MAX_VALUE.longValue()))
+                    ImmutableMap.of("single_uint32", 3, "single_uint64", UnsignedLong.MAX_VALUE))
                 .get();
 
     assertThat(protoMessageValue.isZeroValue()).isFalse();
@@ -192,6 +193,38 @@ public class ProtoMessageValueProviderTest {
         .isEqualTo(
             "field 'bogus' is not declared in message"
                 + " 'cel.expr.conformance.proto2.TestAllTypes'");
+  }
+
+  @SuppressWarnings("ImmutableEnumChecker") // Test only
+  private enum MismatchedNumericTypeTestCase {
+    INT_TO_UINT32("single_uint32", 1L),
+    INT_TO_FLOAT("single_float", 1L),
+    INT_TO_MAP_DOUBLE_VALUE("map_bool_double", ImmutableMap.of(true, 1L)),
+    UINT_TO_ENUM("standalone_enum", UnsignedLong.valueOf(1L)),
+    UINT_TO_MAP_INT32_KEY("map_int32_bool", ImmutableMap.of(UnsignedLong.valueOf(1L), true)),
+    UINT_WRAPPER_TO_INT64("single_int64", UInt64Value.of(1L)),
+    DOUBLE_TO_REPEATED_UINT64("repeated_uint64", ImmutableList.of(1.0d));
+
+    private final String fieldName;
+    private final Object value;
+
+    MismatchedNumericTypeTestCase(String fieldName, Object value) {
+      this.fieldName = fieldName;
+      this.value = value;
+    }
+  }
+
+  @Test
+  public void newValue_mismatchedNumericType_throws(
+      @TestParameter MismatchedNumericTypeTestCase testCase) {
+    String typeName = TestAllTypes.getDescriptor().getFullName();
+    ImmutableMap<String, Object> fields = ImmutableMap.of(testCase.fieldName, testCase.value);
+
+    IllegalArgumentException e =
+        assertThrows(
+            IllegalArgumentException.class, () -> VALUE_PROVIDER.newValue(typeName, fields));
+
+    assertThat(e).hasMessageThat().contains("unexpected value type for field");
   }
 
   @Test
