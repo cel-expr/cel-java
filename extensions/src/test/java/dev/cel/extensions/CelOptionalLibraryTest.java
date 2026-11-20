@@ -495,6 +495,29 @@ public class CelOptionalLibraryTest {
   }
 
   @Test
+  public void optionalOr_rhsProducesNonOptionalValue_throws(
+      @TestParameter({
+            "optional.none().or(x)",
+            "optional.none().or(dyn(2))",
+            "optional.none().or(dyn(null))",
+            "optional.none().or(dyn(true)).hasValue()",
+            "optional.none().or(dyn(1)).or(optional.of(2))",
+            "optional.none().or(optional.none()).or(dyn(2))",
+          })
+          String source)
+      throws Exception {
+    assumeFalse(testMode.equals(TestMode.LEGACY_CHECKED));
+    TestCel cel = newCelBuilder().addVar("x", OptionalType.create(SimpleType.INT)).build();
+    Program program = cel.createProgram(compile(cel, source));
+
+    CelEvaluationException e =
+        assertThrows(CelEvaluationException.class, () -> program.eval(ImmutableMap.of("x", 5L)));
+
+    assertThat(e.getErrorCode()).isEqualTo(CelErrorCode.OVERLOAD_NOT_FOUND);
+    assertThat(e).hasMessageThat().contains("No matching overload for function 'or'.");
+  }
+
+  @Test
   public void optionalOrValue_lhsHasValue_success(@TestParameter ConstantTestCases testCase)
       throws Exception {
     TestCel cel = newCelBuilder().setResultType(testCase.type).build();
@@ -582,13 +605,21 @@ public class CelOptionalLibraryTest {
   }
 
   @Test
-  @TestParameters("{source: optional.ofNonZeroValue(42).or(optional.of(10)).value() == 42}")
-  @TestParameters("{source: optional.none().or(optional.none()).orValue(42) == 42}")
-  public void optionalChainedFunctions_constants_success(String source) throws Exception {
+  public void optionalChainedFunctions_constants_success(
+      @TestParameter({
+            "optional.ofNonZeroValue(42).or(optional.of(10)).value() == 42",
+            "optional.none().or(optional.none()).orValue(42) == 42",
+            "optional.of(1).or(dyn(true)) == optional.of(1)",
+            "optional.none().or(dyn(optional.of(2))) == optional.of(2)",
+            "optional.none().or(dyn(optional.none())) == optional.none()",
+            "optional.none().or(dyn(2)).hasValue() || true",
+          })
+          String source)
+      throws Exception {
     TestCel cel = newCelBuilder().setResultType(SimpleType.BOOL).build();
-    CelAbstractSyntaxTree ast = compile(cel, source);
+    Program program = cel.createProgram(compile(cel, source));
 
-    boolean result = (boolean) cel.createProgram(ast).eval();
+    boolean result = (boolean) program.eval();
 
     assertThat(result).isTrue();
   }
@@ -1206,9 +1237,11 @@ public class CelOptionalLibraryTest {
   @Test
   // LHS
   @TestParameters("{expression: 'optx.or(optional.of(1))'}")
+  @TestParameters("{expression: 'optx.or(dyn(2))'}")
   @TestParameters("{expression: 'optx.orValue(1)'}")
   // RHS
   @TestParameters("{expression: 'optional.none().or(optx)'}")
+  @TestParameters("{expression: 'optional.none().or(dyn(optx))'}")
   @TestParameters("{expression: 'optional.none().orValue(optx)'}")
   public void optionalChainedFunctions_lhsIsUnknown_returnsUnknown(String expression)
       throws Exception {
@@ -1217,11 +1250,10 @@ public class CelOptionalLibraryTest {
             .addVar("optx", OptionalType.create(SimpleType.INT))
             .addVar("x", SimpleType.INT)
             .build();
-    CelAbstractSyntaxTree ast = compile(cel, expression);
+    Program program = cel.createProgram(compile(cel, expression));
 
     Object result =
-        cel.createProgram(ast)
-            .eval(PartialVars.of(CelAttributePattern.fromQualifiedIdentifier("optx")));
+        program.eval(PartialVars.of(CelAttributePattern.fromQualifiedIdentifier("optx")));
 
     assertThat(result).isInstanceOf(CelUnknownSet.class);
   }
@@ -1229,9 +1261,11 @@ public class CelOptionalLibraryTest {
   @Test
   // LHS
   @TestParameters("{expression: 'optional.of(1/0).or(optional.of(1))'}")
+  @TestParameters("{expression: 'optional.of(1/0).or(dyn(2))'}")
   @TestParameters("{expression: 'optional.of(1/0).orValue(1)'}")
   // RHS
   @TestParameters("{expression: 'optional.none().or(optional.of(1/0))'}")
+  @TestParameters("{expression: 'optional.none().or(dyn(1/0))'}")
   @TestParameters("{expression: 'optional.none().orValue(1/0)'}")
   public void optionalChainedFunctions_lhsIsError_returnsError(String expression) throws Exception {
     TestCel cel =
@@ -1239,9 +1273,11 @@ public class CelOptionalLibraryTest {
             .addVar("optx", OptionalType.create(SimpleType.INT))
             .addVar("x", SimpleType.INT)
             .build();
-    CelAbstractSyntaxTree ast = compile(cel, expression);
+    Program program = cel.createProgram(compile(cel, expression));
 
-    assertThrows(CelEvaluationException.class, () -> cel.createProgram(ast).eval());
+    CelEvaluationException e = assertThrows(CelEvaluationException.class, program::eval);
+
+    assertThat(e.getErrorCode()).isEqualTo(CelErrorCode.DIVIDE_BY_ZERO);
   }
 
   @Test

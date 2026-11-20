@@ -44,7 +44,12 @@ final class EvalOptionalOr extends PlannedInterpretable {
       return optionalLhs;
     }
 
-    return EvalHelpers.evalStrictly(rhs, resolver, frame);
+    Object rhsValue = EvalHelpers.evalStrictly(rhs, resolver, frame);
+    if (rhsValue instanceof AccumulatedUnknowns || rhsValue instanceof Optional) {
+      return rhsValue;
+    }
+
+    throw new CelOverloadNotFoundException("or");
   }
 
   static EvalOptionalOr create(CelExpr expr, PlannedInterpretable lhs, PlannedInterpretable rhs) {
