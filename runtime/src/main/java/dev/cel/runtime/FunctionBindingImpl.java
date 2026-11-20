@@ -18,9 +18,10 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Iterables;
 import com.google.errorprone.annotations.Immutable;
 import dev.cel.common.exceptions.CelOverloadNotFoundException;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 @Immutable
 final class FunctionBindingImpl implements InternalCelFunctionBinding {
@@ -107,21 +108,25 @@ final class FunctionBindingImpl implements InternalCelFunctionBinding {
         overloadBindings.stream().anyMatch(b -> b.getOverloadId().equals(functionName));
 
     if (!hasSingletonBinding) {
-      if (overloadBindings.size() == 1) {
-        CelFunctionBinding singleBinding = Iterables.getOnlyElement(overloadBindings);
-        builder.add(
-            new FunctionBindingImpl(
-                functionName,
-                functionName,
-                singleBinding.getArgTypes(),
-                singleBinding.getDefinition(),
-                singleBinding.isStrict()));
-      } else if (overloadBindings.size() > 1) {
-        builder.add(new DynamicDispatchBinding(functionName, functionBindings));
-      }
+      builder.add(new DynamicDispatchBinding(functionName, functionBindings));
     }
 
     return builder.build();
+  }
+
+  static CelFunctionBinding merge(CelFunctionBinding existing, CelFunctionBinding incoming) {
+    if (existing instanceof DynamicDispatchBinding && incoming instanceof DynamicDispatchBinding) {
+      DynamicDispatchOverload existingOverload =
+          ((DynamicDispatchBinding) existing).dynamicDispatchOverload;
+      DynamicDispatchOverload incomingOverload =
+          ((DynamicDispatchBinding) incoming).dynamicDispatchOverload;
+      Map<String, FunctionBindingImpl> merged = new LinkedHashMap<>();
+      existingOverload.overloadBindings.forEach(b -> merged.put(b.getOverloadId(), b));
+      incomingOverload.overloadBindings.forEach(b -> merged.putIfAbsent(b.getOverloadId(), b));
+      return new DynamicDispatchBinding(
+          existingOverload.functionName, ImmutableSet.copyOf(merged.values()));
+    }
+    return existing;
   }
 
   @Immutable

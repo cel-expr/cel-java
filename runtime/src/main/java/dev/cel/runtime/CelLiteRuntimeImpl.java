@@ -115,7 +115,8 @@ final class CelLiteRuntimeImpl implements CelLiteRuntime {
 
     @Override
     public CelLiteRuntimeBuilder addFunctionBindings(Iterable<CelFunctionBinding> bindings) {
-      bindings.forEach(o -> customFunctionBindings.putIfAbsent(o.getOverloadId(), o));
+      bindings.forEach(
+          o -> customFunctionBindings.merge(o.getOverloadId(), o, FunctionBindingImpl::merge));
       return this;
     }
 

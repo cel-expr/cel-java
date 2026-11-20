@@ -364,4 +364,35 @@ public final class FunctionBindingImplTest {
     assertThat(varargsBindings).isNotEmpty();
     assertThat(collectionBindings).isNotEmpty();
   }
+
+  @Test
+  public void merge_combinesDynamicDispatchAndDeduplicatesByOverloadId() throws Exception {
+    CelFunctionBinding standalone = CelFunctionBinding.from("fn", Long.class, x -> x);
+    CelFunctionBinding dynInt =
+        Iterables.find(
+            CelFunctionBinding.fromOverloads(
+                "fn", CelFunctionBinding.from("fn_int", Long.class, x -> x + 1L)),
+            b -> b.getOverloadId().equals("fn"));
+    CelFunctionBinding dynDupIntAndStr =
+        Iterables.find(
+            CelFunctionBinding.fromOverloads(
+                "fn",
+                CelFunctionBinding.from("fn_int", Long.class, x -> x + 100L),
+                CelFunctionBinding.from("fn_str", String.class, s -> s + "!")),
+            b -> b.getOverloadId().equals("fn"));
+
+    OptimizedFunctionOverload merged =
+        (OptimizedFunctionOverload)
+            FunctionBindingImpl.merge(dynInt, dynDupIntAndStr).getDefinition();
+    CelOverloadNotFoundException mismatch =
+        assertThrows(CelOverloadNotFoundException.class, () -> merged.apply(1.5d));
+
+    assertThat(merged.apply(1L)).isEqualTo(2L);
+    assertThat(merged.apply("hi")).isEqualTo("hi!");
+    assertThat(mismatch)
+        .hasMessageThat()
+        .isEqualTo("No matching overload for function 'fn'. Overload candidates: fn_int, fn_str");
+    assertThat(FunctionBindingImpl.merge(standalone, dynInt)).isSameInstanceAs(standalone);
+    assertThat(FunctionBindingImpl.merge(dynInt, standalone)).isSameInstanceAs(dynInt);
+  }
 }

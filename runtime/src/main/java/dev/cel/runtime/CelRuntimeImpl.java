@@ -350,7 +350,8 @@ public abstract class CelRuntimeImpl implements CelRuntime {
     @CanIgnoreReturnValue
     public Builder addFunctionBindings(Iterable<CelFunctionBinding> bindings) {
       checkNotNull(bindings);
-      bindings.forEach(o -> mutableFunctionBindings.putIfAbsent(o.getOverloadId(), o));
+      bindings.forEach(
+          o -> mutableFunctionBindings.merge(o.getOverloadId(), o, FunctionBindingImpl::merge));
       return this;
     }
 
@@ -517,6 +518,14 @@ public abstract class CelRuntimeImpl implements CelRuntime {
       CelValueProvider protoMessageValueProvider =
           ProtoMessageValueProvider.newInstance(options(), dynamicProto);
       RuntimeEquality runtimeEquality = ProtoMessageRuntimeEquality.create(dynamicProto, options());
+      functionBindings()
+          .forEach((overloadId, baseBinding) ->
+              mutableFunctionBindings.merge(
+                  overloadId,
+                  baseBinding,
+                  (newBinding, oldBinding) -> FunctionBindingImpl.merge(oldBinding, newBinding)));
+      ImmutableMap<String, CelFunctionBinding> userFunctionBindings =
+          ImmutableMap.copyOf(mutableFunctionBindings);
       ImmutableSet<CelRuntimeLibrary> runtimeLibraries = runtimeLibrariesBuilder().build();
       // Add libraries, such as extensions
       for (CelRuntimeLibrary celLibrary : runtimeLibraries) {
@@ -549,8 +558,6 @@ public abstract class CelRuntimeImpl implements CelRuntime {
             new CelTypeProvider.CombinedCelTypeProvider(combinedTypeProvider, typeProvider());
       }
 
-      mutableFunctionBindings.putAll(functionBindings());
-
       for (CelFunctionBinding binding :
           TypeFunction.create()
               .newFunctionBindings(
@@ -576,7 +583,7 @@ public abstract class CelRuntimeImpl implements CelRuntime {
               asyncExecutor().orElse(null));
       setPlanner(planner);
 
-      setFunctionBindings(ImmutableMap.copyOf(mutableFunctionBindings));
+      setFunctionBindings(userFunctionBindings);
       return autoBuild();
     }
   }

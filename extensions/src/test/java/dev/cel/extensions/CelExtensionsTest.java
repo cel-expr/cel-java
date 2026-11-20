@@ -15,20 +15,32 @@
 package dev.cel.extensions;
 
 import static com.google.common.truth.Truth.assertThat;
+import static dev.cel.common.CelFunctionDecl.newFunctionDeclaration;
+import static dev.cel.common.CelOverloadDecl.newGlobalOverload;
 import static org.junit.Assert.assertThrows;
 
+import com.google.testing.junit.testparameterinjector.TestParameter;
+import com.google.testing.junit.testparameterinjector.TestParameterInjector;
 import dev.cel.bundle.Cel;
 import dev.cel.bundle.CelFactory;
 import dev.cel.common.CelAbstractSyntaxTree;
 import dev.cel.common.CelOptions;
 import dev.cel.common.CelValidationException;
+import dev.cel.common.types.SimpleType;
+import dev.cel.compiler.CelCompiler;
+import dev.cel.compiler.CelCompilerFactory;
 import dev.cel.extensions.CelStringExtensions.Function;
 import dev.cel.runtime.CelEvaluationException;
+import dev.cel.runtime.CelFunctionBinding;
+import dev.cel.runtime.CelLiteRuntime;
+import dev.cel.runtime.CelLiteRuntimeFactory;
+import dev.cel.runtime.CelRuntime;
+import dev.cel.runtime.CelStandardFunctions;
+import java.util.Optional;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-import org.junit.runners.JUnit4;
 
-@RunWith(JUnit4.class)
+@RunWith(TestParameterInjector.class)
 public class CelExtensionsTest {
 
   @Test
@@ -196,5 +208,97 @@ public class CelExtensionsTest {
             "optional.unwrap",
             "optional.ofNonZeroValue",
             "cel.@mapInsert");
+  }
+
+  @Test
+  public void crossExtensionSharedFunctionName_reverse_dispatchesAcrossListsAndStrings(
+      @TestParameter boolean isParseOnly) throws Exception {
+    Cel cel =
+        CelFactory.plannerCelBuilder()
+            .addCompilerLibraries(CelExtensions.lists(), CelExtensions.strings())
+            .addRuntimeLibraries(CelExtensions.lists(), CelExtensions.strings())
+            .build();
+    String expression = "dyn('hello').reverse() == 'olleh' && dyn([1, 2]).reverse() == [2, 1]";
+    CelAbstractSyntaxTree ast =
+        isParseOnly ? cel.parse(expression).getAst() : cel.compile(expression).getAst();
+
+    Object result = cel.createProgram(ast).eval();
+
+    assertThat(result).isEqualTo(true);
+  }
+
+  @Test
+  public void crossExtensionSharedFunctionName_liteRuntime_reverseDispatchesAcrossListsAndStrings(
+      @TestParameter boolean isParseOnly) throws Exception {
+    CelCompiler compiler =
+        CelCompilerFactory.standardCelCompilerBuilder()
+            .addLibraries(CelExtensions.lists(), CelExtensions.strings())
+            .build();
+    CelLiteRuntime runtime =
+        CelLiteRuntimeFactory.newLiteRuntimeBuilder()
+            .setStandardFunctions(CelStandardFunctions.ALL_STANDARD_FUNCTIONS)
+            .addLibraries(CelListsRuntimeLibrary.lists(), CelStringRuntimeLibrary.strings())
+            .build();
+    String expression = "dyn('hello').reverse() == 'olleh' && dyn([1, 2]).reverse() == [2, 1]";
+    CelAbstractSyntaxTree ast =
+        isParseOnly ? compiler.parse(expression).getAst() : compiler.compile(expression).getAst();
+
+    Object result = runtime.createProgram(ast).eval();
+
+    assertThat(result).isEqualTo(true);
+  }
+
+  @Test
+  public void toCelBuilder_mergesDerivedLibrariesAndFunctionBindings() throws Exception {
+    Cel baseCel =
+        CelFactory.plannerCelBuilder()
+            .addCompilerLibraries(CelExtensions.lists())
+            .addRuntimeLibraries(CelExtensions.lists())
+            .addFunctionDeclarations(
+                newFunctionDeclaration(
+                    "fn",
+                    newGlobalOverload("fn_int", SimpleType.INT, SimpleType.INT),
+                    newGlobalOverload("fn_str", SimpleType.STRING, SimpleType.STRING)))
+            .addFunctionBindings(
+                CelFunctionBinding.fromOverloads(
+                    "fn", CelFunctionBinding.from("fn_int", Long.class, x -> x + 1L)))
+            .build();
+    Cel derivedCel =
+        baseCel
+            .toCelBuilder()
+            .addCompilerLibraries(CelExtensions.strings())
+            .addRuntimeLibraries(CelExtensions.strings())
+            .addFunctionBindings(
+                CelFunctionBinding.fromOverloads(
+                    "fn",
+                    CelFunctionBinding.from("fn_int", Long.class, x -> x + 100L),
+                    CelFunctionBinding.from("fn_str", String.class, s -> s + "!")))
+            .build();
+    String expression =
+        "dyn('hello').reverse() == 'olleh' && dyn([1, 2]).reverse() == [2, 1]"
+            + " && fn(dyn(1)) == 2 && fn(dyn('a')) == 'a!'";
+
+    assertThat(derivedCel.createProgram(derivedCel.compile(expression).getAst()).eval())
+        .isEqualTo(true);
+    assertThat(derivedCel.createProgram(derivedCel.parse(expression).getAst()).eval())
+        .isEqualTo(true);
+  }
+
+  @Test
+  public void toRuntimeBuilder_optionalLibrary_updatesRuntimeEquality() throws Exception {
+    Cel defaultCel =
+        CelFactory.plannerCelBuilder()
+            .addCompilerLibraries(CelExtensions.optional())
+            .addRuntimeLibraries(CelExtensions.optional())
+            .build();
+    CelAbstractSyntaxTree ast = defaultCel.compile("{1: 'a'}[?dyn(1.0)]").getAst();
+    CelRuntime strictMapKeyRuntime =
+        defaultCel
+            .toRuntimeBuilder()
+            .setOptions(CelOptions.current().disableCelStandardEquality(true).build())
+            .build();
+
+    assertThat(defaultCel.createProgram(ast).eval()).isEqualTo(Optional.of("a"));
+    assertThat(strictMapKeyRuntime.createProgram(ast).eval()).isEqualTo(Optional.empty());
   }
 }
