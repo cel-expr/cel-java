@@ -15,7 +15,9 @@
 package dev.cel.runtime;
 
 import static com.google.common.truth.Truth.assertThat;
+import static org.junit.Assert.assertThrows;
 
+import dev.cel.common.exceptions.CelOverloadNotFoundException;
 import dev.cel.expr.conformance.proto3.TestAllTypes;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -110,5 +112,66 @@ public final class CelResolvedOverloadTest {
             Long.class,
             Long.class);
     assertThat(nonStrictOverload.canHandle(new Object[] {new RuntimeException(), "Foo"})).isFalse();
+  }
+
+  @Test
+  public void invoke_fallbackOverloadMatches_dispatchesAcrossArities() throws Exception {
+    DefaultDispatcher dispatcher = newFallbackTestDispatcher();
+    CelResolvedOverload unary = dispatcher.findOverload("fn_int").get();
+    CelResolvedOverload binary = dispatcher.findOverload("fn_bin_int").get();
+
+    Object primaryUnary = unary.invoke(1L);
+    Object fallbackUnary = unary.invoke("hi");
+    Object fallbackVarargs = unary.invoke(new Object[] {"hi"});
+    Object fallbackBinary = binary.invoke("a", "b");
+
+    assertThat(primaryUnary).isEqualTo(2L);
+    assertThat(fallbackUnary).isEqualTo("hi!");
+    assertThat(fallbackVarargs).isEqualTo("hi!");
+    assertThat(fallbackBinary).isEqualTo("ab");
+  }
+
+  @Test
+  public void invoke_noFallbackMatch_preservesPrimaryCandidateInException() {
+    DefaultDispatcher dispatcher = newFallbackTestDispatcher();
+    CelResolvedOverload unary = dispatcher.findOverload("fn_int").get();
+    CelResolvedOverload binary = dispatcher.findOverload("fn_bin_int").get();
+    CelResolvedOverload noFallback = getIncrementIntOverload();
+    Object[] badArgs = new Object[] {"bad"};
+
+    CelOverloadNotFoundException unaryErr =
+        assertThrows(CelOverloadNotFoundException.class, () -> unary.invoke(true));
+    CelOverloadNotFoundException varargsErr =
+        assertThrows(CelOverloadNotFoundException.class, () -> unary.invoke(new Object[] {true}));
+    CelOverloadNotFoundException binaryErr =
+        assertThrows(CelOverloadNotFoundException.class, () -> binary.invoke(true, false));
+    CelOverloadNotFoundException noFallbackVarargsErr =
+        assertThrows(CelOverloadNotFoundException.class, () -> noFallback.invoke(badArgs));
+
+    assertThat(unaryErr).hasMessageThat().contains("Overload candidates: fn_int");
+    assertThat(varargsErr).hasMessageThat().contains("Overload candidates: fn_int");
+    assertThat(binaryErr).hasMessageThat().contains("Overload candidates: fn_bin_int");
+    assertThat(noFallbackVarargsErr)
+        .hasMessageThat()
+        .contains("Overload candidates: increment_int_overload");
+  }
+
+  private static DefaultDispatcher newFallbackTestDispatcher() {
+    DefaultDispatcher.Builder builder = DefaultDispatcher.newBuilder();
+    for (CelFunctionBinding binding :
+        CelFunctionBinding.fromOverloads(
+            "fn",
+            CelFunctionBinding.from("fn_int", Long.class, x -> x + 1L),
+            CelFunctionBinding.from("fn_str", String.class, s -> s + "!"),
+            CelFunctionBinding.from("fn_bin_int", Long.class, Long.class, Long::sum),
+            CelFunctionBinding.from("fn_bin_str", String.class, String.class, String::concat))) {
+      builder.addOverload(
+          ((InternalCelFunctionBinding) binding).getFunctionName(),
+          binding.getOverloadId(),
+          binding.getArgTypes(),
+          binding.isStrict(),
+          binding.getDefinition());
+    }
+    return builder.build();
   }
 }

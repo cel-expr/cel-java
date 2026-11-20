@@ -14,9 +14,6 @@
 
 package dev.cel.runtime;
 
-import static com.google.common.collect.ImmutableMap.toImmutableMap;
-
-import com.google.common.collect.ImmutableMap;
 import com.google.errorprone.annotations.Immutable;
 import java.util.Arrays;
 import java.util.Collection;
@@ -29,24 +26,19 @@ import java.util.Optional;
 @Immutable
 public final class CelLateFunctionBindings implements CelFunctionResolver {
 
-  private final ImmutableMap<String, CelResolvedOverload> functions;
-
-  private CelLateFunctionBindings(ImmutableMap<String, CelResolvedOverload> functions) {
-    this.functions = functions;
-  }
+  private final DefaultDispatcher dispatcher;
 
   @Override
   public Optional<CelResolvedOverload> findOverloadMatchingArgs(
       String functionName, Collection<String> overloadIds, Object[] args)
       throws CelEvaluationException {
-    return DefaultDispatcher.findOverloadMatchingArgs(functionName, overloadIds, functions, args);
+    return dispatcher.findOverloadMatchingArgs(functionName, overloadIds, args);
   }
 
   @Override
   public Optional<CelResolvedOverload> findOverloadMatchingArgs(String functionName, Object[] args)
       throws CelEvaluationException {
-    return DefaultDispatcher.findOverloadMatchingArgs(
-        functionName, functions.keySet(), functions, args);
+    return dispatcher.findOverloadMatchingArgs(functionName, args);
   }
 
   public static CelLateFunctionBindings from(CelFunctionBinding... functions) {
@@ -54,24 +46,23 @@ public final class CelLateFunctionBindings implements CelFunctionResolver {
   }
 
   public static CelLateFunctionBindings from(Collection<CelFunctionBinding> functions) {
-    return new CelLateFunctionBindings(
-        functions.stream()
-            .collect(
-                toImmutableMap(
-                    CelFunctionBinding::getOverloadId,
-                    CelLateFunctionBindings::createResolvedOverload)));
+    DefaultDispatcher.Builder builder = DefaultDispatcher.newBuilder();
+    for (CelFunctionBinding binding : functions) {
+      String functionName =
+          binding instanceof InternalCelFunctionBinding
+              ? ((InternalCelFunctionBinding) binding).getFunctionName()
+              : binding.getOverloadId();
+      builder.addOverload(
+          functionName,
+          binding.getOverloadId(),
+          binding.getArgTypes(),
+          binding.isStrict(),
+          binding.getDefinition());
+    }
+    return new CelLateFunctionBindings(builder.build());
   }
 
-  private static CelResolvedOverload createResolvedOverload(CelFunctionBinding binding) {
-    String functionName = binding.getOverloadId();
-    if (binding instanceof InternalCelFunctionBinding) {
-      functionName = ((InternalCelFunctionBinding) binding).getFunctionName();
-    }
-    return CelResolvedOverload.of(
-        functionName,
-        binding.getOverloadId(),
-        binding.getDefinition(),
-        binding.isStrict(),
-        binding.getArgTypes());
+  private CelLateFunctionBindings(DefaultDispatcher dispatcher) {
+    this.dispatcher = dispatcher;
   }
 }

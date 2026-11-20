@@ -19,7 +19,9 @@ import com.google.common.collect.ImmutableList;
 import com.google.errorprone.annotations.Immutable;
 import dev.cel.common.annotations.Internal;
 import dev.cel.common.exceptions.CelOverloadNotFoundException;
+import dev.cel.runtime.FunctionBindingImpl.DynamicDispatchOverload;
 import java.util.List;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Representation of a function overload which has been resolved to a specific set of argument types
@@ -58,11 +60,20 @@ public abstract class CelResolvedOverload {
 
   abstract OptimizedFunctionOverload getOptimizedDefinition();
 
+  abstract @Nullable DynamicDispatchOverload getFallbackOverload();
+
   public Object invoke(Object[] args) throws CelEvaluationException {
     // Note: canHandle check is handled separately in DynamicDispatchOverload
     if (isDynamicDispatch()
         || CelFunctionOverload.canHandle(args, getParameterTypes(), isStrict())) {
       return getDefinition().apply(args);
+    }
+    DynamicDispatchOverload fallback = getFallbackOverload();
+    if (fallback != null) {
+      FunctionBindingImpl match = fallback.findOverload(args);
+      if (match != null) {
+        return match.getDefinition().apply(args);
+      }
     }
     throw new CelOverloadNotFoundException(getFunctionName(), ImmutableList.of(getOverloadId()));
   }
@@ -72,6 +83,13 @@ public abstract class CelResolvedOverload {
         || CelFunctionOverload.canHandle(arg, getParameterTypes(), isStrict())) {
       return getOptimizedDefinition().apply(arg);
     }
+    DynamicDispatchOverload fallback = getFallbackOverload();
+    if (fallback != null) {
+      FunctionBindingImpl match = fallback.findOverload(arg);
+      if (match != null) {
+        return match.getOptimizedDefinition().apply(arg);
+      }
+    }
     throw new CelOverloadNotFoundException(getFunctionName(), ImmutableList.of(getOverloadId()));
   }
 
@@ -79,6 +97,13 @@ public abstract class CelResolvedOverload {
     if (isDynamicDispatch()
         || CelFunctionOverload.canHandle(arg1, arg2, getParameterTypes(), isStrict())) {
       return getOptimizedDefinition().apply(arg1, arg2);
+    }
+    DynamicDispatchOverload fallback = getFallbackOverload();
+    if (fallback != null) {
+      FunctionBindingImpl match = fallback.findOverload(arg1, arg2);
+      if (match != null) {
+        return match.getOptimizedDefinition().apply(arg1, arg2);
+      }
     }
     throw new CelOverloadNotFoundException(getFunctionName(), ImmutableList.of(getOverloadId()));
   }
@@ -106,13 +131,30 @@ public abstract class CelResolvedOverload {
       CelFunctionOverload definition,
       boolean isStrict,
       List<Class<?>> parameterTypes) {
+    return of(
+        functionName,
+        overloadId,
+        definition,
+        isStrict,
+        parameterTypes,
+        /* fallbackOverload= */ null);
+  }
+
+  static CelResolvedOverload of(
+      String functionName,
+      String overloadId,
+      CelFunctionOverload definition,
+      boolean isStrict,
+      List<Class<?>> parameterTypes,
+      @Nullable DynamicDispatchOverload fallbackOverload) {
     return new AutoValue_CelResolvedOverload(
         functionName,
         overloadId,
         ImmutableList.copyOf(parameterTypes),
         isStrict,
         definition,
-        OptimizedFunctionOverload.of(definition));
+        OptimizedFunctionOverload.of(definition),
+        fallbackOverload);
   }
 
   /**
@@ -123,6 +165,6 @@ public abstract class CelResolvedOverload {
   }
 
   private boolean isDynamicDispatch() {
-    return getDefinition() instanceof FunctionBindingImpl.DynamicDispatchOverload;
+    return getDefinition() instanceof DynamicDispatchOverload;
   }
 }

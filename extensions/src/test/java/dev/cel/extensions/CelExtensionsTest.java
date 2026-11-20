@@ -212,13 +212,19 @@ public class CelExtensionsTest {
 
   @Test
   public void crossExtensionSharedFunctionName_reverse_dispatchesAcrossListsAndStrings(
-      @TestParameter boolean isParseOnly) throws Exception {
+      @TestParameter({
+            "dyn('hello').reverse() == 'olleh' && dyn([1, 2]).reverse() == [2, 1]",
+            "(([['a']] + dyn(['hello']))[1]).reverse() == dyn('olleh')",
+            "(('a' == '' ? 'a' : (['a'] + dyn([[1, 2]]))[1])).reverse() == dyn([2, 1])",
+          })
+          String expression,
+      @TestParameter boolean isParseOnly)
+      throws Exception {
     Cel cel =
         CelFactory.plannerCelBuilder()
             .addCompilerLibraries(CelExtensions.lists(), CelExtensions.strings())
             .addRuntimeLibraries(CelExtensions.lists(), CelExtensions.strings())
             .build();
-    String expression = "dyn('hello').reverse() == 'olleh' && dyn([1, 2]).reverse() == [2, 1]";
     CelAbstractSyntaxTree ast =
         isParseOnly ? cel.parse(expression).getAst() : cel.compile(expression).getAst();
 
@@ -239,7 +245,7 @@ public class CelExtensionsTest {
             .setStandardFunctions(CelStandardFunctions.ALL_STANDARD_FUNCTIONS)
             .addLibraries(CelListsRuntimeLibrary.lists(), CelStringRuntimeLibrary.strings())
             .build();
-    String expression = "dyn('hello').reverse() == 'olleh' && dyn([1, 2]).reverse() == [2, 1]";
+    String expression = "(([['a']] + dyn(['hello']))[1]).reverse() == dyn('olleh')";
     CelAbstractSyntaxTree ast =
         isParseOnly ? compiler.parse(expression).getAst() : compiler.compile(expression).getAst();
 

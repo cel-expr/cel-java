@@ -33,6 +33,7 @@ import dev.cel.bundle.CelBuilder;
 import dev.cel.bundle.CelFactory;
 import dev.cel.common.CelAbstractSyntaxTree;
 import dev.cel.common.CelContainer;
+import dev.cel.common.CelErrorCode;
 import dev.cel.common.CelFunctionDecl;
 import dev.cel.common.CelOptions;
 import dev.cel.common.CelOverloadDecl;
@@ -2302,6 +2303,53 @@ public class CelOptionalLibraryTest {
         CelCompilerFactory.standardCelCompilerBuilder().addMacros(verifyPreconditionsMacro).build();
     assertThat(compiler.parse("verifyPreconditions()").getAst().getExpr().constant().booleanValue())
         .isTrue();
+  }
+
+  @Test
+  public void optionalIndex_narrowedAndIntegerKeyedOptionalContainers_evaluatesToTrue(
+      @TestParameter({
+            "dyn(dyn(optional.of(optional.of([2]))).orValue([1])[0]) == optional.of(2)",
+            "dyn(optional.of([2])).orValue({0: 1})[0] == 2",
+            "dyn(dyn(optional.of([2])).orValue(optional.of([1]))[0]) == 2",
+            "dyn(optional.of([2])).or(optional.of({0: 1}))[0] == optional.of(2)",
+            "dyn(dyn(optional.of(optional.of([2]))).orValue([1])[?0]) == optional.of(2)",
+            "optional.of({0: 2})[0] == optional.of(2)",
+            "optional.of({0: 2})[?0] == optional.of(2)",
+            "dyn(optional.of({0: 2}))[0] == optional.of(2)",
+            "dyn(optional.of({0: 2}))[?0] == optional.of(2)",
+            "dyn(dyn(optional.of(optional.of({0: 2}))).orValue([1])[0]) == optional.of(2)",
+            "TestAllTypes{}.?repeated_int64[dyn('a')] == optional.none()",
+            "TestAllTypes{}.?repeated_int64[?dyn('a')] == optional.none()",
+            "int(false ? timestamp(0) : (true ? dyn('42') : null)) == 42",
+          })
+          String source)
+      throws Exception {
+    TestCel cel = newCelBuilder().build();
+    Program program = cel.createProgram(compile(cel, source));
+
+    Object result = program.eval();
+
+    assertThat(result).isEqualTo(true);
+  }
+
+  @Test
+  public void optionalIndex_invalidRuntimeContainerOrKey_throwsOverloadNotFound(
+      @TestParameter({
+            "dyn(optional.of(42)).or(optional.of([1]))[0]",
+            "dyn(optional.of(42)).or(optional.of([1]))[?0]",
+            "dyn(optional.of([1])).or(optional.of({'a': 1}))['a']",
+            "dyn(optional.of([1])).or(optional.of({'a': 1}))[?'a']",
+            "(false ? optional.of([1]) : null)[0]",
+            "(false ? [1] : dyn(null))[?0]",
+          })
+          String source)
+      throws Exception {
+    TestCel cel = newCelBuilder().build();
+    Program program = cel.createProgram(compile(cel, source));
+
+    CelEvaluationException e = assertThrows(CelEvaluationException.class, program::eval);
+
+    assertThat(e.getErrorCode()).isEqualTo(CelErrorCode.OVERLOAD_NOT_FOUND);
   }
 
   /**

@@ -22,6 +22,7 @@ import com.google.errorprone.annotations.Immutable;
 import com.google.protobuf.MessageLite;
 import dev.cel.common.CelOptions;
 import dev.cel.common.Operator;
+import dev.cel.common.exceptions.CelOverloadNotFoundException;
 import dev.cel.common.values.CelByteString;
 import dev.cel.common.values.CelValue;
 import dev.cel.common.values.NullValue;
@@ -223,34 +224,31 @@ public final class CelOptionalRuntimeLibrary implements CelInternalLiteRuntimeLi
             Operator.OPTIONAL_INDEX.getFunction(),
             CelFunctionBinding.from(
                 "list_optindex_optional_int", List.class, Long.class, RuntimeHelpers::optIndexList),
-            CelFunctionBinding.from(
-                "optional_list_optindex_optional_int",
-                Optional.class,
-                Long.class,
-                CelOptionalRuntimeLibrary::indexOptionalList),
+            optionalIndexBinding(
+                "optional_list_optindex_optional_int", Operator.OPTIONAL_INDEX, runtimeEquality),
             CelFunctionBinding.from(
                 "map_optindex_optional_value", Map.class, Object.class, runtimeEquality::findInMap),
-            CelFunctionBinding.from(
-                "optional_map_optindex_optional_value",
-                Optional.class,
-                Object.class,
-                (optionalMap, key) -> indexOptionalMap(optionalMap, key, runtimeEquality))));
+            optionalIndexBinding(
+                "optional_map_optindex_optional_value", Operator.OPTIONAL_INDEX, runtimeEquality)));
 
     bindingBuilder.addAll(
         CelFunctionBinding.fromOverloads(
             Operator.INDEX.getFunction(),
-            CelFunctionBinding.from(
-                "optional_list_index_int",
-                Optional.class,
-                Long.class,
-                CelOptionalRuntimeLibrary::indexOptionalList),
-            CelFunctionBinding.from(
-                "optional_map_index_value",
-                Optional.class,
-                Object.class,
-                (optionalMap, key) -> indexOptionalMap(optionalMap, key, runtimeEquality))));
+            optionalIndexBinding("optional_list_index_int", Operator.INDEX, runtimeEquality),
+            optionalIndexBinding("optional_map_index_value", Operator.INDEX, runtimeEquality)));
 
     return bindingBuilder.build();
+  }
+
+  private static CelFunctionBinding optionalIndexBinding(
+      String overloadId, Operator operator, RuntimeEquality runtimeEquality) {
+    String functionName = operator.getFunction();
+    return CelFunctionBinding.from(
+        overloadId,
+        Optional.class,
+        Object.class,
+        (optionalContainer, key) ->
+            indexOptional(functionName, optionalContainer, key, runtimeEquality));
   }
 
   private static ImmutableList<Object> elideOptionalCollection(Collection<?> list) {
@@ -298,23 +296,22 @@ public final class CelOptionalRuntimeLibrary implements CelInternalLiteRuntimeLi
     return false;
   }
 
-  private static Object indexOptionalMap(
-      Optional<?> optionalMap, Object key, RuntimeEquality runtimeEquality) {
-    if (!optionalMap.isPresent()) {
+  private static Object indexOptional(
+      String functionName,
+      Optional<?> optionalContainer,
+      Object key,
+      RuntimeEquality runtimeEquality) {
+    if (!optionalContainer.isPresent()) {
       return Optional.empty();
     }
-
-    Map<?, ?> map = (Map<?, ?>) optionalMap.get();
-
-    return runtimeEquality.findInMap(map, key);
-  }
-
-  private static Object indexOptionalList(Optional<?> optionalList, long index) {
-    if (!optionalList.isPresent()) {
-      return Optional.empty();
+    Object container = optionalContainer.get();
+    if (container instanceof Map) {
+      return runtimeEquality.findInMap((Map<?, ?>) container, key);
     }
-    List<?> list = (List<?>) optionalList.get();
-    return RuntimeHelpers.optIndexList(list, index);
+    if (container instanceof List && key instanceof Long) {
+      return RuntimeHelpers.optIndexList((List<?>) container, (Long) key);
+    }
+    throw new CelOverloadNotFoundException(functionName);
   }
 
   private static Object listOptionalFirst(Collection<?> list) {

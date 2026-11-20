@@ -71,12 +71,23 @@ public final class DefaultDispatcher implements CelFunctionResolver {
       throws CelEvaluationException {
     int matchingOverloadCount = 0;
     CelResolvedOverload match = null;
+    DynamicDispatchOverload fallback = null;
     List<String> candidates = null;
     for (String overloadId : overloadIds) {
       CelResolvedOverload overload = overloads.get(overloadId);
       // If the overload is null, it means that the function was not registered; however, it is
       // possible that the overload refers to a late-bound function.
-      if (overload != null && overload.canHandle(args)) {
+      if (overload == null || overload.getDefinition() instanceof DynamicDispatchOverload) {
+        continue;
+      }
+      DynamicDispatchOverload overloadFallback = overload.getFallbackOverload();
+      if (overloadFallback != null) {
+        if (!overload.getFunctionName().equals(functionName)) {
+          continue;
+        }
+        fallback = overloadFallback;
+      }
+      if (overload.canHandle(args)) {
         if (++matchingOverloadCount > 1) {
           if (candidates == null) {
             candidates = new ArrayList<>();
@@ -88,6 +99,15 @@ public final class DefaultDispatcher implements CelFunctionResolver {
       }
     }
 
+    if (matchingOverloadCount == 1) {
+      return Optional.of(match);
+    }
+    if (fallback != null) {
+      FunctionBindingImpl dynamicMatch = fallback.findOverload(args);
+      if (dynamicMatch != null) {
+        return Optional.of(overloads.get(dynamicMatch.getOverloadId()));
+      }
+    }
     if (matchingOverloadCount > 1) {
       throw CelEvaluationExceptionBuilder.newBuilder(
               "Ambiguous overloads for function '%s'. Matching candidates: %s",
@@ -95,7 +115,7 @@ public final class DefaultDispatcher implements CelFunctionResolver {
           .setErrorCode(CelErrorCode.AMBIGUOUS_OVERLOAD)
           .build();
     }
-    return Optional.ofNullable(match);
+    return Optional.empty();
   }
 
   /**
@@ -208,16 +228,21 @@ public final class DefaultDispatcher implements CelFunctionResolver {
       for (Map.Entry<String, OverloadEntry> entry : overloads.entrySet()) {
         String overloadId = entry.getKey();
         OverloadEntry overloadEntry = entry.getValue();
-        CelFunctionOverload overloadImpl = overloadEntry.overload();
+        OverloadEntry functionEntry = overloads.get(overloadEntry.functionName());
+        DynamicDispatchOverload fallback =
+            functionEntry != null && functionEntry.overload() instanceof DynamicDispatchOverload
+                ? (DynamicDispatchOverload) functionEntry.overload()
+                : null;
 
         resolvedOverloads.put(
             overloadId,
             CelResolvedOverload.of(
                 overloadEntry.functionName(),
                 overloadId,
-                overloadImpl,
+                overloadEntry.overload(),
                 overloadEntry.isStrict(),
-                overloadEntry.argTypes()));
+                overloadEntry.argTypes(),
+                fallback));
       }
 
       return new DefaultDispatcher(resolvedOverloads.buildOrThrow());

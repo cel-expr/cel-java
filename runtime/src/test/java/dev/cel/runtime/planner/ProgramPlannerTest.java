@@ -22,6 +22,7 @@ import static dev.cel.common.CelOverloadDecl.newGlobalOverload;
 import static dev.cel.common.CelOverloadDecl.newMemberOverload;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.Assert.assertThrows;
+import static org.junit.Assume.assumeFalse;
 
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
@@ -94,6 +95,7 @@ import dev.cel.runtime.RuntimeEquality;
 import dev.cel.runtime.RuntimeHelpers;
 import dev.cel.runtime.standard.TypeFunction;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import org.junit.Test;
@@ -186,7 +188,8 @@ public final class ProgramPlannerTest {
               newFunctionDeclaration(
                   "late_bound_func",
                   newGlobalOverload(
-                      "late_bound_func_overload", SimpleType.STRING, SimpleType.STRING)))
+                      "late_bound_func_overload", SimpleType.STRING, SimpleType.STRING),
+                  newGlobalOverload("late_bound_func_int", SimpleType.STRING, SimpleType.INT)))
           .addVar("msg", StructTypeReference.create(TestAllTypes.getDescriptor().getFullName()))
           .addVar("map_var", MapType.create(SimpleType.STRING, SimpleType.DYN))
           .addVar("int_var", SimpleType.INT)
@@ -199,6 +202,22 @@ public final class ProgramPlannerTest {
                   "neg",
                   newGlobalOverload("neg_int", SimpleType.INT, SimpleType.INT),
                   newGlobalOverload("neg_double", SimpleType.DOUBLE, SimpleType.DOUBLE)),
+              newFunctionDeclaration(
+                  "func",
+                  newGlobalOverload(
+                      "func_int", SimpleType.INT, SimpleType.INT, SimpleType.INT, SimpleType.INT),
+                  newGlobalOverload(
+                      "func_str",
+                      SimpleType.INT,
+                      SimpleType.STRING,
+                      SimpleType.INT,
+                      SimpleType.INT)),
+              newFunctionDeclaration(
+                  "describe",
+                  newGlobalOverload(
+                      "describe_ints", SimpleType.STRING, ListType.create(SimpleType.INT)),
+                  newGlobalOverload(
+                      "describe_strs", SimpleType.STRING, ListType.create(SimpleType.STRING))),
               newFunctionDeclaration(
                   "cel.expr.conformance.proto3.power",
                   newGlobalOverload(
@@ -232,6 +251,7 @@ public final class ProgramPlannerTest {
             .includeFunctions(
                 StandardFunction.INDEX,
                 StandardFunction.LOGICAL_NOT,
+                StandardFunction.NEGATE,
                 StandardFunction.ADD,
                 StandardFunction.GREATER,
                 StandardFunction.GREATER_EQUALS,
@@ -239,6 +259,8 @@ public final class ProgramPlannerTest {
                 StandardFunction.LESS_EQUALS,
                 StandardFunction.DIVIDE,
                 StandardFunction.EQUALS,
+                StandardFunction.IN,
+                StandardFunction.INT,
                 StandardFunction.NOT_STRICTLY_FALSE,
                 StandardFunction.SIZE,
                 StandardFunction.MATCHES,
@@ -296,7 +318,18 @@ public final class ProgramPlannerTest {
             CelFunctionBinding.from(
                 "func_int",
                 ImmutableList.of(Long.class, Long.class, Long.class),
-                (args) -> (long) args.length)));
+                args -> (long) args.length),
+            CelFunctionBinding.from(
+                "func_str",
+                ImmutableList.of(String.class, Long.class, Long.class),
+                args -> (long) ((String) args[0]).length())));
+
+    addBindingsToDispatcher(
+        builder,
+        CelFunctionBinding.fromOverloads(
+            "describe",
+            CelFunctionBinding.from("describe_ints", List.class, unused -> "ints"),
+            CelFunctionBinding.from("describe_strs", List.class, unused -> "strs")));
 
     addBindingsToDispatcher(
         builder,
@@ -2892,6 +2925,72 @@ public final class ProgramPlannerTest {
     Object result = program.eval();
 
     assertThat(result).isEqualTo(expectedResult);
+  }
+
+  @Test
+  public void plan_call_narrowedDynOverloadFallback_dispatchesByRuntimeValueType(
+      @TestParameter({
+            "-([1] + dyn([1.5]))[1] == dyn(-1.5)",
+            "1 in ([{1: 2}] + dyn([[1]]))[1]",
+            "size((['a'] + dyn([[1, 2, 3]]))[1]) == 3",
+            "((['a'] + dyn([[1, 2, 3]]))[1]).size() == 3",
+            "int((['1'] + dyn([2.9]))[1]) == 2",
+            "func(([1] + dyn(['abcd']))[1], 2, 3) == 4",
+            "type(false ? TestAllTypes{} : (true ? dyn(1) : null)) == int",
+          })
+          String expression)
+      throws Exception {
+    Program program = PLANNER.plan(compile(expression));
+
+    Object result = program.eval();
+
+    assertThat(result).isEqualTo(true);
+  }
+
+  @Test
+  @TestParameters("{expression: 'neg(([1] + dyn([true]))[1])', fn: 'neg', checked: 'neg_int'}")
+  @TestParameters(
+      "{expression: 'func(([1] + dyn([true]))[1], 2, 3)', fn: 'func', checked: 'func_int'}")
+  public void plan_call_narrowedDynOverloadFallback_noMatchingOverload_preservesCheckedCandidate(
+      String expression, String fn, String checked) throws Exception {
+    assumeFalse(isParseOnly);
+    Program program = PLANNER.plan(compile(expression));
+
+    CelEvaluationException e = assertThrows(CelEvaluationException.class, program::eval);
+
+    assertThat(e)
+        .hasMessageThat()
+        .contains(
+            String.format(
+                "No matching overload for function '%s'. Overload candidates: %s", fn, checked));
+  }
+
+  @Test
+  @TestParameters("{expression: 'describe([])', expected: 'ints'}")
+  @TestParameters("{expression: \"describe(['a'])\", expected: 'strs'}")
+  public void plan_call_checkedErasedGenericOverload_preservesStaticSelection(
+      String expression, String expected) throws Exception {
+    assumeFalse(isParseOnly);
+    Program program = PLANNER.plan(compile(expression));
+
+    Object result = program.eval();
+
+    assertThat(result).isEqualTo(expected);
+  }
+
+  @Test
+  public void plan_call_lateBoundFunction_narrowedDynOverloadFallback() throws Exception {
+    Program program = PLANNER.plan(compile("late_bound_func((['a'] + dyn([42]))[1])"));
+    CelLateFunctionBindings lateBindings =
+        CelLateFunctionBindings.from(
+            CelFunctionBinding.fromOverloads(
+                "late_bound_func",
+                CelFunctionBinding.from("late_bound_func_overload", String.class, s -> "str:" + s),
+                CelFunctionBinding.from("late_bound_func_int", Long.class, n -> "int:" + n)));
+
+    Object result = program.eval(ImmutableMap.of(), lateBindings);
+
+    assertThat(result).isEqualTo("int:42");
   }
 
   private static ProgramPlanner newPlannerWithOptions(CelOptions options) {

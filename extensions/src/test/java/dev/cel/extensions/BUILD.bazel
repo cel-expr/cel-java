@@ -20,6 +20,7 @@ java_library(
         "//common:cel_validation_result",
         "//common:cel_var_decl",
         "//common:container",
+        "//common:error_codes",
         "//common:options",
         "//common/ast",
         "//common/exceptions:attribute_not_found",

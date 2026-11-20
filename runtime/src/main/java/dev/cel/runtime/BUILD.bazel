@@ -509,7 +509,6 @@ java_library(
         ":function_resolver",
         ":resolved_overload",
         "@maven//:com_google_errorprone_error_prone_annotations",
-        "@maven//:com_google_guava_guava",
     ],
 )
 
@@ -525,7 +524,6 @@ cel_android_library(
         ":function_resolver_android",
         ":resolved_overload_android",
         "@maven//:com_google_errorprone_error_prone_annotations",
-        "@maven_android//:com_google_guava_guava",
     ],
 )
 
@@ -753,6 +751,7 @@ java_library(
         "//common/exceptions:overload_not_found",
         "@maven//:com_google_errorprone_error_prone_annotations",
         "@maven//:com_google_guava_guava",
+        "@maven//:org_jspecify_jspecify",
     ],
 )
 
@@ -767,6 +766,7 @@ cel_android_library(
         "//common/annotations",
         "//common/exceptions:overload_not_found",
         "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:org_jspecify_jspecify",
         "@maven_android//:com_google_guava_guava",
     ],
 )
@@ -1254,6 +1254,7 @@ java_library(
         "//common/exceptions:overload_not_found",
         "@maven//:com_google_errorprone_error_prone_annotations",
         "@maven//:com_google_guava_guava",
+        "@maven//:org_jspecify_jspecify",
     ],
 )
 
@@ -1270,6 +1271,7 @@ cel_android_library(
         "//common/annotations",
         "//common/exceptions:overload_not_found",
         "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:org_jspecify_jspecify",
         "@maven_android//:com_google_guava_guava",
     ],
 )

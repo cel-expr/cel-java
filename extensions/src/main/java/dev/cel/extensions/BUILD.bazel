@@ -356,6 +356,7 @@ java_library(
     deps = [
         "//common:operator",
         "//common:options",
+        "//common/exceptions:overload_not_found",
         "//common/values",
         "//common/values:cel_byte_string",
         "//common/values:cel_value",
@@ -377,6 +378,7 @@ cel_android_library(
     deps = [
         "//common:operator_android",
         "//common:options",
+        "//common/exceptions:overload_not_found",
         "//common/values:cel_byte_string",
         "//common/values:cel_value_android",
         "//common/values:values_android",

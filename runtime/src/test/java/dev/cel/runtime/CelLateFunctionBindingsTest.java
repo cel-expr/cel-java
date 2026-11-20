@@ -17,6 +17,7 @@ package dev.cel.runtime;
 import static com.google.common.truth.Truth.assertThat;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.primitives.UnsignedLong;
 import dev.cel.common.CelErrorCode;
 import dev.cel.expr.conformance.proto3.TestAllTypes;
@@ -138,5 +139,33 @@ public final class CelLateFunctionBindingsTest {
         bindings.findOverloadMatchingArgs(
             "identity", ImmutableList.of("identity_msg"), new Object[] {null});
     assertThat(overload).isEmpty();
+  }
+
+  @Test
+  public void findOverload_parsedOnlyFromOverloads_scopesToMatchingFunctionName() throws Exception {
+    CelLateFunctionBindings bindings =
+        CelLateFunctionBindings.from(
+            ImmutableSet.<CelFunctionBinding>builder()
+                .addAll(
+                    CelFunctionBinding.fromOverloads(
+                        "fnA", CelFunctionBinding.from("fnA_str", String.class, s -> "A:" + s)))
+                .addAll(
+                    CelFunctionBinding.fromOverloads(
+                        "fnB", CelFunctionBinding.from("fnB_str", String.class, s -> "B:" + s)))
+                .addAll(
+                    CelFunctionBinding.fromOverloads(
+                        "fnC", CelFunctionBinding.from("fnC_int", Long.class, x -> x)))
+                .build());
+
+    Optional<CelResolvedOverload> fnBMatch =
+        bindings.findOverloadMatchingArgs("fnB", new Object[] {"hi"});
+    Optional<CelResolvedOverload> fnCMismatch =
+        bindings.findOverloadMatchingArgs("fnC", new Object[] {"hi"});
+    Optional<CelResolvedOverload> zeroArgMismatch =
+        bindings.findOverloadMatchingArgs("fnC", new Object[0]);
+
+    assertThat(fnBMatch.map(CelResolvedOverload::getOverloadId)).hasValue("fnB_str");
+    assertThat(fnCMismatch).isEmpty();
+    assertThat(zeroArgMismatch).isEmpty();
   }
 }

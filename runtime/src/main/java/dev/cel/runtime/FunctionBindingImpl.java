@@ -22,6 +22,7 @@ import com.google.errorprone.annotations.Immutable;
 import dev.cel.common.exceptions.CelOverloadNotFoundException;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import org.jspecify.annotations.Nullable;
 
 @Immutable
 final class FunctionBindingImpl implements InternalCelFunctionBinding {
@@ -174,42 +175,61 @@ final class FunctionBindingImpl implements InternalCelFunctionBinding {
 
     @Override
     public Object apply(Object[] args) throws CelEvaluationException {
-      for (FunctionBindingImpl overload : overloadBindings) {
-        if (CelFunctionOverload.canHandle(args, overload.getArgTypes(), overload.isStrict())) {
-          return overload.getDefinition().apply(args);
-        }
+      FunctionBindingImpl overload = findOverload(args);
+      if (overload != null) {
+        return overload.getDefinition().apply(args);
       }
-
-      throw new CelOverloadNotFoundException(
-          functionName,
-          overloadBindings.stream()
-              .map(CelFunctionBinding::getOverloadId)
-              .collect(toImmutableList()));
+      throw newOverloadNotFoundException();
     }
 
     @Override
     public Object apply(Object arg) throws CelEvaluationException {
-      for (FunctionBindingImpl overload : overloadBindings) {
-        if (CelFunctionOverload.canHandle(arg, overload.getArgTypes(), overload.isStrict())) {
-          return overload.getOptimizedDefinition().apply(arg);
-        }
+      FunctionBindingImpl overload = findOverload(arg);
+      if (overload != null) {
+        return overload.getOptimizedDefinition().apply(arg);
       }
-      throw new CelOverloadNotFoundException(
-          functionName,
-          overloadBindings.stream()
-              .map(CelFunctionBinding::getOverloadId)
-              .collect(toImmutableList()));
+      throw newOverloadNotFoundException();
     }
 
     @Override
     public Object apply(Object arg1, Object arg2) throws CelEvaluationException {
+      FunctionBindingImpl overload = findOverload(arg1, arg2);
+      if (overload != null) {
+        return overload.getOptimizedDefinition().apply(arg1, arg2);
+      }
+      throw newOverloadNotFoundException();
+    }
+
+    @Nullable FunctionBindingImpl findOverload(Object[] args) {
+      for (FunctionBindingImpl overload : overloadBindings) {
+        if (CelFunctionOverload.canHandle(args, overload.getArgTypes(), overload.isStrict())) {
+          return overload;
+        }
+      }
+      return null;
+    }
+
+    @Nullable FunctionBindingImpl findOverload(Object arg) {
+      for (FunctionBindingImpl overload : overloadBindings) {
+        if (CelFunctionOverload.canHandle(arg, overload.getArgTypes(), overload.isStrict())) {
+          return overload;
+        }
+      }
+      return null;
+    }
+
+    @Nullable FunctionBindingImpl findOverload(Object arg1, Object arg2) {
       for (FunctionBindingImpl overload : overloadBindings) {
         if (CelFunctionOverload.canHandle(
             arg1, arg2, overload.getArgTypes(), overload.isStrict())) {
-          return overload.getOptimizedDefinition().apply(arg1, arg2);
+          return overload;
         }
       }
-      throw new CelOverloadNotFoundException(
+      return null;
+    }
+
+    private CelOverloadNotFoundException newOverloadNotFoundException() {
+      return new CelOverloadNotFoundException(
           functionName,
           overloadBindings.stream()
               .map(CelFunctionBinding::getOverloadId)

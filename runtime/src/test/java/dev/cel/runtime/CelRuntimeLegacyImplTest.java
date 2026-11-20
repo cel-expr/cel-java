@@ -16,6 +16,8 @@ package dev.cel.runtime;
 
 import static com.google.common.truth.Truth.assertThat;
 import static com.google.common.util.concurrent.MoreExecutors.newDirectExecutorService;
+import static dev.cel.common.CelFunctionDecl.newFunctionDeclaration;
+import static dev.cel.common.CelOverloadDecl.newGlobalOverload;
 import static org.junit.Assert.assertThrows;
 
 import com.google.common.collect.ImmutableMap;
@@ -26,8 +28,10 @@ import com.google.protobuf.DescriptorProtos.FileDescriptorSet;
 import com.google.protobuf.DynamicMessage;
 import com.google.protobuf.Message;
 import dev.cel.common.CelAbstractSyntaxTree;
+import dev.cel.common.CelErrorCode;
 import dev.cel.common.CelException;
 import dev.cel.common.exceptions.CelDivideByZeroException;
+import dev.cel.common.types.SimpleType;
 import dev.cel.compiler.CelCompiler;
 import dev.cel.compiler.CelCompilerFactory;
 import dev.cel.expr.conformance.proto3.TestAllTypes;
@@ -39,6 +43,7 @@ import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
 
 @RunWith(JUnit4.class)
+@SuppressWarnings("deprecation") // Tests legacy runtime implementation.
 public final class CelRuntimeLegacyImplTest {
 
   @Test
@@ -235,5 +240,41 @@ public final class CelRuntimeLegacyImplTest {
         UnsupportedOperationException.class,
         () -> program.evalAsync(resolver, CelFunctionResolver.EMPTY));
     assertThrows(UnsupportedOperationException.class, () -> program.evalAsync((PartialVars) null));
+  }
+
+  @Test
+  public void eval_narrowedDynOverloadFallback_dispatchesByRuntimeValueType() throws Exception {
+    CelCompiler compiler = CelCompilerFactory.standardCelCompilerBuilder().build();
+    CelRuntime runtime = CelRuntimeFactory.legacyCelRuntimeBuilder().build();
+    CelRuntime.Program program =
+        runtime.createProgram(compiler.compile("-([1] + dyn([1.5]))[1]").getAst());
+
+    Object result = program.eval();
+
+    assertThat(result).isEqualTo(-1.5d);
+  }
+
+  @Test
+  public void eval_standaloneBindingsWithDuplicateRuntimeArgTypes_throwsAmbiguousOverload()
+      throws Exception {
+    CelCompiler compiler =
+        CelCompilerFactory.standardCelCompilerBuilder()
+            .addFunctionDeclarations(
+                newFunctionDeclaration(
+                    "dup",
+                    newGlobalOverload("dup_int", SimpleType.INT, SimpleType.INT),
+                    newGlobalOverload("dup_str", SimpleType.INT, SimpleType.STRING)))
+            .build();
+    CelRuntime runtime =
+        CelRuntimeFactory.legacyCelRuntimeBuilder()
+            .addFunctionBindings(
+                CelFunctionBinding.from("dup_int", Long.class, x -> x),
+                CelFunctionBinding.from("dup_str", Long.class, x -> x))
+            .build();
+    CelRuntime.Program program = runtime.createProgram(compiler.compile("dup(dyn(1))").getAst());
+
+    CelEvaluationException e = assertThrows(CelEvaluationException.class, program::eval);
+
+    assertThat(e.getErrorCode()).isEqualTo(CelErrorCode.AMBIGUOUS_OVERLOAD);
   }
 }
