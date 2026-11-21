@@ -450,6 +450,54 @@ public final class CelPolicyVerifierImplTest {
             "unrestricted_destination_allowed", CelVerificationResult.verified());
   }
 
+  private enum VariableReadTestCase {
+    INSIDE_SHADOWING_COMPREHENSION(
+        "[x]", "[999].all(x, variables.v.all(e, e == 999))", VerificationStatus.VIOLATED),
+    PAST_SHADOWING_ITERATION_VARIABLE(
+        "x", "[2].all(variables, .variables.v == 1)", VerificationStatus.VERIFIED),
+    TYPE("[int][x]", "variables.v == int", VerificationStatus.VIOLATED),
+    TYPE_ELEMENT("[int]", "variables.v.all(e, e == int)", VerificationStatus.VERIFIED),
+    LITERAL_PAST_UNROLL_LIMIT(
+        "[1, 2, 3, 4, 5, 6]", "variables.v.all(e, e > 0)", VerificationStatus.VERIFIED),
+    REPEATED_KEY("{x: 1, 1u: 2}", "variables.v.all(k, true)", VerificationStatus.VIOLATED);
+
+    private final String variable;
+    private final String assertion;
+    private final VerificationStatus expectedStatus;
+
+    VariableReadTestCase(String variable, String assertion, VerificationStatus expectedStatus) {
+      this.variable = variable;
+      this.assertion = assertion;
+      this.expectedStatus = expectedStatus;
+    }
+  }
+
+  @Test
+  public void verifyInvariants_variableRead(@TestParameter VariableReadTestCase testCase)
+      throws Exception {
+    CelPolicy policy =
+        PARSER.parse(
+            "name: variable_read_policy\n" //
+                + "rule:\n" //
+                + "  match:\n" //
+                + "    - output: 'true'\n" //
+                + "verification:\n" //
+                + "  variables:\n" //
+                + "    - v: '"
+                + testCase.variable
+                + "'\n" //
+                + "  invariants:\n" //
+                + "    - id: reads_variable\n" //
+                + "      assume: x == 1\n" //
+                + "      assert: '"
+                + testCase.assertion
+                + "'");
+
+    ImmutableMap<String, CelVerificationResult> results = VERIFIER.verifyInvariants(policy);
+
+    assertThat(results.get("reads_variable").status()).isEqualTo(testCase.expectedStatus);
+  }
+
   @Test
   public void verifyInvariants_invariantReferencesPolicyVariable_verified() throws Exception {
     String policySource =
@@ -502,31 +550,6 @@ public final class CelPolicyVerifierImplTest {
     ImmutableMap<String, CelVerificationResult> results = VERIFIER.verifyInvariants(policy);
 
     assertThat(results).containsExactly("ergonomic_inv", CelVerificationResult.verified());
-  }
-
-  @Test
-  public void verifyInvariants_literalListVariableBeyondUnrollLimit_verified() throws Exception {
-    String policySource =
-        "name: literal_list_policy\n" //
-            + "rule:\n" //
-            + "  variables:\n" //
-            + "    - xs: '[1, 2, 3, 4, 5, 6]'\n" //
-            + "  match:\n" //
-            + "    - output: 'true'\n" //
-            + "verification:\n" //
-            + "  invariants:\n" //
-            + "    - id: all_positive\n" //
-            + "      assert: variables.xs.all(x, x > 0)";
-    CelPolicy policy = PARSER.parse(policySource);
-    CelPolicyVerifier verifier =
-        CelPolicyVerifierFactory.newVerifier(
-                POLICY_COMPILER,
-                CelVerifierFactory.newVerifier(CEL).setComprehensionUnrollLimit(5).build())
-            .build();
-
-    ImmutableMap<String, CelVerificationResult> results = verifier.verifyInvariants(policy);
-
-    assertThat(results).containsExactly("all_positive", CelVerificationResult.verified());
   }
 
   @Test
