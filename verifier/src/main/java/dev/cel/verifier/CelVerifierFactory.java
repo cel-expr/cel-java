@@ -26,17 +26,9 @@ import dev.cel.runtime.CelRuntime;
 public final class CelVerifierFactory {
 
   /**
-   * Create a builder for configuring a {@link CelVerifier}.
-   *
-   * @deprecated Prefer passing a {@link Cel} environment using {@link #newVerifier(Cel)} to enable
-   *     canonicalization and expression re-typechecking during verification.
+   * Create a builder for configuring a {@link CelVerifier} with a CEL environment. The ASTs to
+   * verify must be compiled in {@code cel}.
    */
-  @Deprecated
-  public static CelVerifierBuilder newVerifier() {
-    return CelVerifierZ3Impl.newBuilder();
-  }
-
-  /** Create a builder for configuring a {@link CelVerifier} with a CEL environment. */
   public static CelVerifierBuilder newVerifier(Cel cel) {
     return CelVerifierZ3Impl.newBuilder(cel);
   }

@@ -243,7 +243,7 @@ final class CelAstToZ3Translator {
     }
     String name = ident.name();
     CelType type = ast.getTypeOrThrow(exprId);
-    if (type instanceof TypeType) {
+    if (type instanceof TypeType && !context.lookupSymbol(name).isPresent()) {
       TypeType typeType = (TypeType) type;
       if (typeType.type().kind() != CelKind.DYN) {
         return TranslatedValue.create(
