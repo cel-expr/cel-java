@@ -16,15 +16,13 @@ package dev.cel.verifier;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
-import static com.google.common.collect.ImmutableList.toImmutableList;
 
-import com.google.common.annotations.VisibleForTesting;
+import com.google.auto.value.AutoValue;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import com.google.errorprone.annotations.Immutable;
-import com.google.protobuf.Descriptors.Descriptor;
 import com.microsoft.z3.BoolExpr;
 import com.microsoft.z3.Context;
 import com.microsoft.z3.Model;
@@ -32,73 +30,32 @@ import com.microsoft.z3.Params;
 import com.microsoft.z3.Solver;
 import com.microsoft.z3.Status;
 import dev.cel.bundle.Cel;
-import dev.cel.bundle.CelFactory;
 import dev.cel.common.CelAbstractSyntaxTree;
-import dev.cel.common.internal.DefaultDescriptorPool;
-import dev.cel.common.internal.WellKnownProto;
-import dev.cel.common.types.CelType;
-import dev.cel.common.types.CelTypeProvider;
 import dev.cel.optimizer.CelOptimizationException;
 import dev.cel.optimizer.CelOptimizer;
 import dev.cel.optimizer.CelOptimizerFactory;
+import dev.cel.runtime.CelEvaluationException;
 import dev.cel.verifier.axioms.CelZ3FunctionAxiom;
 import dev.cel.verifier.axioms.CelZ3StandardAxioms;
 import java.time.Duration;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Function;
 
 /** Z3 implementation of the CelVerifier. */
 @Immutable
 final class CelVerifierZ3Impl implements CelVerifier {
 
-  @VisibleForTesting
-  static final CelTypeProvider EMPTY_TYPE_PROVIDER =
-      new CelTypeProvider() {
-        @Override
-        public ImmutableList<CelType> types() {
-          return ImmutableList.of();
-        }
-
-        @Override
-        public Optional<CelType> findType(String typeName) {
-          return Optional.empty();
-        }
-      };
-
-  private static final ImmutableList<Descriptor> WELL_KNOWN_DESCRIPTORS =
-      ImmutableList.of(
-              WellKnownProto.DURATION,
-              WellKnownProto.JSON_LIST_VALUE,
-              WellKnownProto.JSON_STRUCT_VALUE,
-              WellKnownProto.JSON_VALUE,
-              WellKnownProto.TIMESTAMP,
-              WellKnownProto.FLOAT_VALUE,
-              WellKnownProto.INT32_VALUE,
-              WellKnownProto.INT64_VALUE,
-              WellKnownProto.STRING_VALUE,
-              WellKnownProto.BOOL_VALUE,
-              WellKnownProto.BYTES_VALUE,
-              WellKnownProto.DOUBLE_VALUE,
-              WellKnownProto.UINT32_VALUE,
-              WellKnownProto.UINT64_VALUE)
-          .stream()
-          .map(DefaultDescriptorPool::getWellKnownProtoDescriptor)
-          .collect(toImmutableList());
-
   private final Duration timeout;
   private final int comprehensionUnrollLimit;
   private final ImmutableSet<String> unknownIdentifiers;
   private final CelZ3FunctionRegistry functionRegistry;
-  private final CelTypeProvider typeProvider;
+  private final boolean enableCegar;
 
   @SuppressWarnings("Immutable") // Cel environment is immutable, just not marked as such
   private final Cel cel;
-
-  static Builder newBuilder() {
-    return new Builder(
-        CelFactory.plannerCelBuilder().addMessageTypes(WELL_KNOWN_DESCRIPTORS).build());
-  }
 
   static Builder newBuilder(Cel cel) {
     return new Builder(checkNotNull(cel));
@@ -110,7 +67,7 @@ final class CelVerifierZ3Impl implements CelVerifier {
     private final ImmutableSet.Builder<String> unknownIdentifiers;
     private final ImmutableList.Builder<CelZ3FunctionAxiom> functionAxioms;
     private final Cel cel;
-    private CelTypeProvider typeProvider;
+    private boolean enableCegar;
 
     @Override
     @CanIgnoreReturnValue
@@ -131,16 +88,16 @@ final class CelVerifierZ3Impl implements CelVerifier {
 
     @Override
     @CanIgnoreReturnValue
-    public CelVerifierBuilder setTypeProvider(CelTypeProvider typeProvider) {
-      this.typeProvider = checkNotNull(typeProvider);
+    public CelVerifierBuilder setComprehensionUnrollLimit(int unrollLimit) {
+      checkArgument(unrollLimit >= 0, "unrollLimit must be non-negative");
+      this.comprehensionUnrollLimit = unrollLimit;
       return this;
     }
 
     @Override
     @CanIgnoreReturnValue
-    public CelVerifierBuilder setComprehensionUnrollLimit(int unrollLimit) {
-      checkArgument(unrollLimit >= 0, "unrollLimit must be non-negative");
-      this.comprehensionUnrollLimit = unrollLimit;
+    public CelVerifierBuilder enableCegar(boolean value) {
+      this.enableCegar = value;
       return this;
     }
 
@@ -169,7 +126,7 @@ final class CelVerifierZ3Impl implements CelVerifier {
           comprehensionUnrollLimit,
           unknownIdentifiers.build(),
           registry,
-          typeProvider,
+          enableCegar,
           cel);
     }
 
@@ -178,7 +135,6 @@ final class CelVerifierZ3Impl implements CelVerifier {
       this.comprehensionUnrollLimit = 5;
       this.unknownIdentifiers = ImmutableSet.builder();
       this.functionAxioms = ImmutableList.builder();
-      this.typeProvider = cel.getTypeProvider();
       this.cel = cel;
     }
   }
@@ -208,17 +164,19 @@ final class CelVerifierZ3Impl implements CelVerifier {
                 CanonicalizationOptimizer.newInstance(
                     CanonicalizationOptimizer.CanonicalizationOptions.newBuilder().build()))
             .build();
+    CelAbstractSyntaxTree canonicalA = astA;
+    CelAbstractSyntaxTree canonicalB = astB;
     try {
-      astA = optimizer.optimize(astA);
-      astB = optimizer.optimize(astB);
+      canonicalA = optimizer.optimize(astA);
+      canonicalB = optimizer.optimize(astB);
     } catch (CelOptimizationException e) {
       // Fall back to original ASTs if canonicalization or re-typechecking fails
     }
     try (Context ctx = new Context(ImmutableMap.of("model", "true"))) {
       CelAstToZ3Translator translator = newTranslator(ctx, /* parameterizeUnknowns= */ true);
 
-      TranslatedValue tvA = translator.translate(astA);
-      TranslatedValue tvB = translator.translate(astB);
+      TranslatedValue tvA = translator.translate(canonicalA);
+      TranslatedValue tvB = translator.translate(canonicalB);
 
       BoolExpr divergenceCondition = ctx.mkNot(ctx.mkEq(tvA.z3Expr(), tvB.z3Expr()));
       // Parameterized unknowns are keyed on the operation producing them, whereas CEL identifies
@@ -243,7 +201,19 @@ final class CelVerifierZ3Impl implements CelVerifier {
           /* unknownCondition= */ ctx.mkFalse(),
           /* isCounterexample= */ true,
           /* candidate= */ "a divergence",
-          /* exactMatchMessage= */ "Equivalence violation detected.");
+          /* exactMatchMessage= */ "Equivalence violation detected.",
+          runtimeCheck(
+              results -> {
+                Object value = results.get(0);
+                return value.equals(results.get(1))
+                    ? Optional.of(
+                        RuntimeOracle.isError(value)
+                            ? "evaluates both expressions to an error"
+                            : "evaluates both expressions to the same value")
+                    : Optional.empty();
+              },
+              astA,
+              astB));
     }
   }
 
@@ -295,7 +265,17 @@ final class CelVerifierZ3Impl implements CelVerifier {
           unknownCondition,
           /* isCounterexample= */ true,
           /* candidate= */ "a counterexample",
-          /* exactMatchMessage= */ String.format("%s violation detected.", subjectName));
+          /* exactMatchMessage= */ String.format("%s violation detected.", subjectName),
+          runtimeCheck(
+              boundSymbols,
+              results ->
+                  !results.get(0).equals(true)
+                      ? Optional.of("doesn't evaluate the assumption to true")
+                      : results.get(1).equals(true)
+                          ? Optional.of("evaluates the assertion to true")
+                          : Optional.empty(),
+              assumeAst,
+              assertAst));
     }
   }
 
@@ -316,7 +296,13 @@ final class CelVerifierZ3Impl implements CelVerifier {
             /* unknownCondition= */ ctx.mkFalse(),
             /* isCounterexample= */ true,
             /* candidate= */ "a counterexample",
-            /* exactMatchMessage= */ "Condition is not always true.");
+            /* exactMatchMessage= */ "Condition is not always true.",
+            runtimeCheck(
+                results ->
+                    results.get(0).equals(true)
+                        ? Optional.of("evaluates the condition to true")
+                        : Optional.empty(),
+                ast));
       }
       BoolExpr isUnmodeledUnknown = ctx.mkAnd(tv.isZ3Unknown(), tv.isApproximate());
       return search(
@@ -327,13 +313,21 @@ final class CelVerifierZ3Impl implements CelVerifier {
           isUnmodeledUnknown,
           /* isCounterexample= */ false,
           /* candidate= */ "a satisfying input",
-          /* exactMatchMessage= */ "Condition is satisfiable.");
+          /* exactMatchMessage= */ "Condition is satisfiable.",
+          runtimeCheck(
+              results ->
+                  results.get(0).equals(true)
+                      ? Optional.empty()
+                      : Optional.of("doesn't evaluate the condition to true"),
+              ast));
     }
   }
 
   /**
    * Searches for a {@code condition} match: first an exact one, then an approximate one, then an
-   * unmodeled result satisfying {@code unknownCondition} that may stand in for one.
+   * unmodeled result satisfying {@code unknownCondition} that may stand in for one. {@code
+   * runtimeCheck} checks a witness with the runtime, noting why if it couldn't. Confirming an
+   * approximate match doesn't count internal runtime errors.
    */
   private CelVerificationResult search(
       Context ctx,
@@ -343,7 +337,8 @@ final class CelVerifierZ3Impl implements CelVerifier {
       BoolExpr unknownCondition,
       boolean isCounterexample,
       String candidate,
-      String exactMatchMessage)
+      String exactMatchMessage,
+      RuntimeChecker runtimeCheck)
       throws CelVerificationException {
     Solver solver = newSolver(ctx);
     solver.add(translator.getTypeConstraints().toArray(new BoolExpr[0]));
@@ -353,9 +348,15 @@ final class CelVerifierZ3Impl implements CelVerifier {
     Status status = checkSat(solver, typeSystem, condition, ctx.mkNot(taint));
     if (status == Status.SATISFIABLE) {
       CelWitness witness = extractWitness(ctx, translator, solver.getModel());
-      return isCounterexample
-          ? CelVerificationResult.failed(exactMatchMessage, witness)
-          : CelVerificationResult.verified(exactMatchMessage, witness);
+      RuntimeCheck check = runtimeCheck.check(witness, /* countInternalErrors= */ true);
+      if (check.refutation().isPresent()) {
+        return refuted(
+            "Inconclusive: the verifier found what looked like " + candidate + ".",
+            candidate,
+            check.refutation().get(),
+            witness);
+      }
+      return match(isCounterexample, exactMatchMessage + check.note(), witness);
     } else if (status == Status.UNKNOWN) {
       // Depends on solver internals; not deterministically testable.
       return solverGaveUp(solver);
@@ -365,10 +366,20 @@ final class CelVerifierZ3Impl implements CelVerifier {
     status = checkSat(solver, typeSystem, condition);
     if (status == Status.SATISFIABLE) {
       Model model = solver.getModel();
-      return CelVerificationResult.inconclusive(
-          inconclusiveReason(candidate, translator, model, taint),
-          extractWitness(ctx, translator, model),
-          isCounterexample);
+      CelWitness witness = extractWitness(ctx, translator, model);
+      RuntimeCheck check = runtimeCheck.check(witness, /* countInternalErrors= */ false);
+      if (check.isMatch()) {
+        return match(
+            isCounterexample,
+            String.format(
+                "%s The CEL runtime confirmed %s the verifier approximated.",
+                exactMatchMessage, candidate),
+            witness);
+      }
+      String reason = inconclusiveReason(candidate, translator, model, taint);
+      return check.refutation().isPresent()
+          ? refuted(reason, candidate, check.refutation().get(), witness)
+          : CelVerificationResult.inconclusive(reason + check.note(), witness, isCounterexample);
     } else if (status == Status.UNKNOWN) {
       // Depends on solver internals; not deterministically testable.
       return solverGaveUp(solver);
@@ -387,6 +398,87 @@ final class CelVerifierZ3Impl implements CelVerifier {
     return isCounterexample
         ? CelVerificationResult.verified()
         : CelVerificationResult.failed("Condition is not satisfiable.");
+  }
+
+  private static CelVerificationResult match(
+      boolean isCounterexample, String reason, CelWitness witness) {
+    return isCounterexample
+        ? CelVerificationResult.failed(reason, witness)
+        : CelVerificationResult.verified(reason, witness);
+  }
+
+  private static CelVerificationResult refuted(
+      String reason, String candidate, String refutation, CelWitness witness) {
+    return CelVerificationResult.refuted(
+        String.format(
+            "%s The CEL runtime %s, so the input found isn't %s.", reason, refutation, candidate),
+        witness);
+  }
+
+  private interface RuntimeChecker {
+    RuntimeChecker UNCHECKED = (witness, countInternalErrors) -> RuntimeCheck.UNCHECKED;
+
+    RuntimeCheck check(CelWitness witness, boolean countInternalErrors);
+  }
+
+  @AutoValue
+  abstract static class RuntimeCheck {
+    private static final RuntimeCheck UNCHECKED =
+        new AutoValue_CelVerifierZ3Impl_RuntimeCheck(
+            /* isMatch= */ false, /* refutation= */ Optional.empty(), /* note= */ "");
+    private static final RuntimeCheck MATCH =
+        new AutoValue_CelVerifierZ3Impl_RuntimeCheck(
+            /* isMatch= */ true, /* refutation= */ Optional.empty(), /* note= */ "");
+
+    abstract boolean isMatch();
+
+    // What the runtime computed, when it refutes the witness.
+    abstract Optional<String> refutation();
+
+    abstract String note();
+
+    private static RuntimeCheck refuted(String refutation) {
+      return new AutoValue_CelVerifierZ3Impl_RuntimeCheck(
+          /* isMatch= */ false, Optional.of(refutation), /* note= */ "");
+    }
+
+    private static RuntimeCheck failed(String reason) {
+      return new AutoValue_CelVerifierZ3Impl_RuntimeCheck(
+          /* isMatch= */ false,
+          /* refutation= */ Optional.empty(),
+          " The CEL runtime couldn't check it: " + reason + (reason.endsWith(".") ? "" : "."));
+    }
+  }
+
+  private RuntimeChecker runtimeCheck(
+      Function<List<Object>, Optional<String>> refutation, CelAbstractSyntaxTree... asts) {
+    return runtimeCheck(ImmutableMap.of(), refutation, asts);
+  }
+
+  // Checks the witness's inputs with the runtime, if refinement is on and they're exact. Unknowns
+  // aren't inputs the runtime can take.
+  private RuntimeChecker runtimeCheck(
+      Map<String, CelAbstractSyntaxTree> boundSymbols,
+      Function<List<Object>, Optional<String>> refutation,
+      CelAbstractSyntaxTree... asts) {
+    if (!enableCegar || !unknownIdentifiers.isEmpty()) {
+      return RuntimeChecker.UNCHECKED;
+    }
+    return (witness, countInternalErrors) -> {
+      Optional<ImmutableMap<String, Object>> inputs = RuntimeOracle.exactInputs(witness);
+      if (!inputs.isPresent()) {
+        return RuntimeCheck.UNCHECKED;
+      }
+      try {
+        return refutation
+            .apply(
+                RuntimeOracle.evaluate(cel, inputs.get(), boundSymbols, countInternalErrors, asts))
+            .map(RuntimeCheck::refuted)
+            .orElse(RuntimeCheck.MATCH);
+      } catch (CelEvaluationException e) {
+        return RuntimeCheck.failed(e.getMessage());
+      }
+    };
   }
 
   // Throws on a timeout. Leaves the assertions in place unless they're unsatisfiable, so the model
@@ -440,7 +532,7 @@ final class CelVerifierZ3Impl implements CelVerifier {
         comprehensionUnrollLimit,
         unknownIdentifiers,
         functionRegistry,
-        typeProvider,
+        cel.getTypeProvider(),
         parameterizeUnknowns);
   }
 
@@ -467,13 +559,13 @@ final class CelVerifierZ3Impl implements CelVerifier {
       int comprehensionUnrollLimit,
       ImmutableSet<String> unknownIdentifiers,
       CelZ3FunctionRegistry functionRegistry,
-      CelTypeProvider typeProvider,
+      boolean enableCegar,
       Cel cel) {
     this.timeout = timeout;
     this.comprehensionUnrollLimit = comprehensionUnrollLimit;
     this.unknownIdentifiers = unknownIdentifiers;
     this.functionRegistry = functionRegistry;
-    this.typeProvider = typeProvider;
+    this.enableCegar = enableCegar;
     this.cel = cel;
   }
 }

@@ -18,7 +18,10 @@ import com.google.auto.value.AutoValue;
 import com.google.common.collect.ImmutableMap;
 import java.util.Optional;
 
-/** An input assignment found by the solver: a counterexample or a satisfying input. */
+/**
+ * An input assignment found by the solver: a counterexample, a satisfying input, or an input the
+ * CEL runtime refuted.
+ */
 @AutoValue
 public abstract class CelWitness {
 
