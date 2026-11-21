@@ -159,6 +159,8 @@ public final class CelVerifierZ3ImplTest {
 
   private enum IsSatisfiableTestCase {
     SATISFIABLE("x > 5", "x = (?:[6-9]|[1-9]\\d+)"),
+    OPTIONAL_OR_VALUE_SKIPS_APPROXIMATE_ALTERNATIVE(
+        "optional.of(x).orValue(int('123')) == 7", "x = 7"),
     DYNAMIC_ARITHMETIC("request == 1 && request + 2 == 3", "request = 1"),
     DYNAMIC_ARITHMETIC_UNARY("request == 1 && -request == -1", "request = 1"),
     GREATER_DOUBLE("d > 1.5", "d = "),
@@ -689,6 +691,11 @@ public final class CelVerifierZ3ImplTest {
   }
 
   private enum IsSatisfiableInconclusiveTestCase {
+    OPTIONAL_OR_VALUE_EMPTY_RECEIVER_APPROXIMATE_ALTERNATIVE(
+        "optional.none().orValue(int('123')) == 7"),
+    OPTIONAL_OR_VALUE_APPROXIMATE_RECEIVER("optional.of(int('123')).orValue(1) == 7"),
+    OPTIONAL_OR_EMPTY_RECEIVER_APPROXIMATE_ALTERNATIVE(
+        "optional.none().or(optional.of(int('123'))) == optional.of(7)"),
     // A list of nullable ints may hold null past the unroll limit.
     NULL_IN_NULLABLE_LIST_PAST_UNROLL_LIMIT(
         "size(nullable_int_list) == 6 && nullable_int_list[0] != null && nullable_int_list[1] !="
@@ -834,6 +841,7 @@ public final class CelVerifierZ3ImplTest {
   }
 
   private enum IsUnsatisfiableTestCase {
+    OPTIONAL_OR_NON_OPTIONAL_ALTERNATIVE("optional.none().or(dyn(x)) == dyn(x)"),
     DYN_MESSAGE_PRESENT_UNDECLARED_FIELD("dyn(test_all_types).unknown_field == 42"),
     REPEATED_FIELD_FROM_NON_LIST(
         "dyn_var == 42 && TestAllTypes{repeated_int64: dyn_var} == TestAllTypes{}"),
@@ -1225,6 +1233,9 @@ public final class CelVerifierZ3ImplTest {
     OPTIONAL_OF_EQ_OF_VAR("optional.of(x) == optional.of(x)"),
     OPTIONAL_OF_NEQ_OF_VAR("x != y ? optional.of(x) != optional.of(y) : true"),
     OPTIONAL_OR_VALUE_VAR("optional.of(x).orValue(y) == x"),
+    OPTIONAL_OR_VALUE_SKIPS_FAILING_ALTERNATIVE("optional.of(x).orValue(1 / 0) == x"),
+    OPTIONAL_OR_SKIPS_FAILING_ALTERNATIVE(
+        "optional.of(x).or(optional.of(1 / 0)) == optional.of(x)"),
     // Indexing follows the value, whatever type the checker narrowed it to.
     NARROWED_MAP_INDEXED_AS_LIST(
         "dyn_var == optional.of([2]) ? dyn_var.orValue({0: 1})[0] == 2 : true"),
@@ -1776,6 +1787,19 @@ public final class CelVerifierZ3ImplTest {
     CelVerificationResult result = verifier.verifyEquivalence(astA, astB);
 
     assertThat(result.status()).isEqualTo(VerificationStatus.INCONCLUSIVE);
+  }
+
+  @Test
+  public void verifyEquivalence_orValueOfNonOptionalWithUnknownAlternative_verified()
+      throws Exception {
+    CelVerifier verifier =
+        CelVerifierFactory.newVerifier(CEL).addUnknownIdentifier("unknown_var").build();
+    CelAbstractSyntaxTree astA = CEL.compile("dyn(1).orValue(unknown_var)").getAst();
+    CelAbstractSyntaxTree astB = CEL.compile("1 / 0").getAst();
+
+    CelVerificationResult result = verifier.verifyEquivalence(astA, astB);
+
+    assertThat(result.status()).isEqualTo(VerificationStatus.VERIFIED);
   }
 
   @Test
@@ -2514,6 +2538,9 @@ public final class CelVerifierZ3ImplTest {
   }
 
   private enum EquivalenceInconclusiveTestCase {
+    OPTIONAL_OR_VALUE_OF_TRUNCATED_RECEIVER(
+        "size(int_list) > 5 ? int_list.map(n, optional.none())[0].orValue(1) : 0",
+        "size(int_list) > 5 ? int_list.map(n, optional.none())[0].orValue(2) : 0"),
     // A list or map typed dyn holding NaN (e.g. `[NaN]`) differs from itself, so these do diverge,
     // but lists and maps typed dyn on both sides compare approximately.
     DYN_NAN_INPUT_AND_LITERAL("dyn_var != dyn_var ? 0.0 / 0.0 : dyn_var", "dyn_var"),
@@ -2641,6 +2668,7 @@ public final class CelVerifierZ3ImplTest {
   }
 
   private enum EquivalenceTestCase {
+    OPTIONAL_OR_VALUE_OF_NON_OPTIONAL("dyn(1).orValue(int('123'))", "1 / 0"),
     STRUCT_UNSET_TIMESTAMP_DEFAULT("TestAllTypes{}.single_timestamp", "timestamp(0)"),
     // Both are errors.
     STRUCT_UNSET_ANY_DEFAULT("TestAllTypes{}.single_any == null", "1 / 0 == 1"),
@@ -3188,6 +3216,8 @@ public final class CelVerifierZ3ImplTest {
     CROSS_TYPE_SYMBOLIC_INEQUALITY_INT_UINT("dyn(x) == dyn(u)", "false"),
     CROSS_TYPE_SYMBOLIC_INEQUALITY_UINT_INT("dyn(u) == dyn(x)", "false"),
     OPTIONAL_OR_VALUE_VIOLATION("optional.of(x).orValue(y)", "y"),
+    OPTIONAL_OR_VALUE_FAILING_ALTERNATIVE(
+        "optional.of(x).orValue(1 / 0)", "optional.of(y).orValue(1 / 0)"),
     OPTIONAL_VALUE_VIOLATION("optional.of(x).value()", "y"),
     LIST_OPTIONAL_ELEMENTS_COLLISION("[1, ?opt_var]", "[1, opt_var]"),
     CROSS_NUMERIC_EQUALITY_INT_DYN_VIOLATION("1 == request", "false"),

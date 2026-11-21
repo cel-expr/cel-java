@@ -65,6 +65,14 @@ final class CelZ3OperatorTranslator {
 
   Optional<TranslatedValue> translateFunctionCall(
       String functionName, List<TranslatedValue> args, long exprId, CelAbstractSyntaxTree ast) {
+    ImmutableList<String> overloadIds =
+        ast.getReference(exprId).map(CelReference::overloadIds).orElse(ImmutableList.of());
+    if (overloadIds.equals(ImmutableList.of("optional_or_optional"))) {
+      return Optional.of(translateOptionalOr(functionName, args, ast, /* unwrap= */ false));
+    }
+    if (overloadIds.equals(ImmutableList.of("optional_orValue_value"))) {
+      return Optional.of(translateOptionalOr(functionName, args, ast, /* unwrap= */ true));
+    }
     Optional<Operator> opOpt = Operator.findReverse(functionName);
     ImmutableList<Expr<?>> z3Args =
         args.stream().map(TranslatedValue::z3Expr).collect(toImmutableList());
@@ -236,6 +244,43 @@ final class CelZ3OperatorTranslator {
             ctx,
             context.isTruncatedMap(rhs),
             mayObserveTruncatedTypeConstraint(ast, lhsTv, rhsTv)));
+  }
+
+  /**
+   * Translates {@code receiver.or(alternative)}, or {@code orValue} if {@code unwrap}, which only
+   * evaluates the alternative if the receiver is empty.
+   */
+  private TranslatedValue translateOptionalOr(
+      String functionName, List<TranslatedValue> args, CelAbstractSyntaxTree ast, boolean unwrap) {
+    TranslatedValue receiver = args.get(0);
+    TranslatedValue alternative = args.get(1);
+    Expr<?> optRef = typeSystem.getOptionalRef(receiver.z3Expr());
+    TranslatedValue hasValue =
+        TranslatedValue.propagateStrict(
+            ctx,
+            typeSystem,
+            functionName,
+            typeSystem.withRuntimeError(
+                typeSystem.wrapBool(typeSystem.optHasValue(optRef)),
+                ctx.mkNot(typeSystem.isOptional(receiver.z3Expr()))),
+            receiver);
+    TranslatedValue present =
+        unwrap
+            ? TranslatedValue.create(typeSystem.getOptionalValue(optRef), typeSystem, ctx.mkFalse())
+            : receiver;
+    Expr<?> alt = alternative.z3Expr();
+    // `isUnknown` is untested: a model can't be forced to make an unknown input unknown.
+    TranslatedValue absent =
+        unwrap
+            ? alternative
+            : TranslatedValue.create(
+                ctx.mkITE(
+                    ctx.mkOr(typeSystem.isOptional(alt), typeSystem.isUnknown(alt)),
+                    alt,
+                    typeSystem.mkError()),
+                typeSystem,
+                alternative.isApproximate());
+    return translateConditional(ImmutableList.of(hasValue, present, absent), ast);
   }
 
   private BoolExpr mkTypeGuard(Expr<?> arg, CelType expectedType) {
