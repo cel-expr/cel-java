@@ -51,13 +51,6 @@ final class CelZ3ComprehensionTranslator {
   TranslatedValue translateComprehension(CelExpr celExpr, CelAbstractSyntaxTree ast) {
     CelComprehension comp = celExpr.comprehension();
     CelExpr iterRangeExpr = comp.iterRange();
-    if (iterRangeExpr.exprKind().getKind() == ExprKind.Kind.IDENT) {
-      iterRangeExpr =
-          context
-              .lookupSymbol(iterRangeExpr.ident().name())
-              .flatMap(TranslatedValue::celExpr)
-              .orElse(iterRangeExpr);
-    }
     List<IterationElement> iterationElements = new ArrayList<>();
     List<BoolExpr> taints = new ArrayList<>();
     List<Expr<?>> allRangeElems = new ArrayList<>();
@@ -86,6 +79,7 @@ final class CelZ3ComprehensionTranslator {
         allRangeElems.add(key);
         allRangeElems.add(value);
       }
+      allRangeElems.add(translateExpr(iterRangeExpr, ast).z3Expr());
     } else {
       return translateDynamicComprehension(celExpr, ast);
     }
@@ -182,18 +176,36 @@ final class CelZ3ComprehensionTranslator {
         isMap ? (ArrayExpr) typeSystem.getMapPresence(typeSystem.getMapRef(iterRange)) : null;
 
     BoolExpr isValidRange = isMap ? typeSystem.isMap(iterRange) : typeSystem.isList(iterRange);
+    int unrollLimit = unrollLimit(comp.iterRange());
     BoolExpr isTruncated =
         context.recordUnrollLimitApproximation(
-            ctx.mkAnd(isValidRange, ctx.mkGt(lengthExpr, ctx.mkInt(comprehensionUnrollLimit))));
+            ctx.mkAnd(isValidRange, ctx.mkGt(lengthExpr, ctx.mkInt(unrollLimit))));
     context.addUnmodeledResult(isTruncated);
 
     if (isAllMacro(comp) || isExistsMacro(comp)) {
       return unrollAllAndExists(
-          celExpr, ast, seq, lengthExpr, mapPresence, isTruncated, iterRangeTv);
+          celExpr, ast, seq, lengthExpr, mapPresence, isTruncated, iterRangeTv, unrollLimit);
     } else {
       return unrollMapAndFilter(
-          celExpr, ast, seq, lengthExpr, mapPresence, isTruncated, iterRangeTv);
+          celExpr, ast, seq, lengthExpr, mapPresence, isTruncated, iterRangeTv, unrollLimit);
     }
+  }
+
+  /** The size of the literal bound to {@code iterRange}, else the unroll limit. */
+  private int unrollLimit(CelExpr iterRange) {
+    if (iterRange.exprKind().getKind() != ExprKind.Kind.IDENT) {
+      return comprehensionUnrollLimit;
+    }
+    return context
+        .lookupSymbol(iterRange.ident().name())
+        .flatMap(TranslatedValue::celExpr)
+        .map(e ->
+            e.exprKind().getKind() == ExprKind.Kind.LIST
+                ? e.list().elements().size()
+                : e.exprKind().getKind() == ExprKind.Kind.MAP
+                    ? e.map().entries().size()
+                    : comprehensionUnrollLimit)
+        .orElse(comprehensionUnrollLimit);
   }
 
   private <T> T withIterationScope(
@@ -260,7 +272,8 @@ final class CelZ3ComprehensionTranslator {
       ArithExpr lengthExpr,
       ArrayExpr mapPresence,
       BoolExpr isTruncated,
-      TranslatedValue iterRangeTv) {
+      TranslatedValue iterRangeTv,
+      int unrollLimit) {
     CelComprehension comp = celExpr.comprehension();
     List<BoundedIteration> iterations = new ArrayList<>();
     TranslatedValue accuInitTv = translateExpr(comp.accuInit(), ast);
@@ -269,7 +282,7 @@ final class CelZ3ComprehensionTranslator {
     boolean isMap = mapPresence != null;
     boolean isTwoVar = !comp.iterVar2().isEmpty();
 
-    for (int i = 0; i < comprehensionUnrollLimit; i++) {
+    for (int i = 0; i < unrollLimit; i++) {
       IntExpr idx = ctx.mkInt(i);
       BoolExpr inBounds = ctx.mkLt(idx, lengthExpr);
       Expr<?> xVal = ctx.mkNth(seq, idx);
@@ -301,7 +314,8 @@ final class CelZ3ComprehensionTranslator {
       ArithExpr lengthExpr,
       ArrayExpr mapPresence,
       BoolExpr isTruncated,
-      TranslatedValue iterRangeTv) {
+      TranslatedValue iterRangeTv,
+      int unrollLimit) {
     CelComprehension comp = celExpr.comprehension();
     // For macros like map and filter, we must sequentially thread the accumulator through the loop
     TranslatedValue chainedAccuTv = translateExpr(comp.accuInit(), ast);
@@ -314,7 +328,7 @@ final class CelZ3ComprehensionTranslator {
     taints.add(chainedAccuTv.isApproximate());
     taints.add(iterRangeTv.isApproximate());
 
-    for (int i = 0; i < comprehensionUnrollLimit; i++) {
+    for (int i = 0; i < unrollLimit; i++) {
       IntExpr idx = ctx.mkInt(i);
       BoolExpr inBounds = ctx.mkLt(idx, lengthExpr);
       Expr<?> xVal = ctx.mkNth(seq, idx);

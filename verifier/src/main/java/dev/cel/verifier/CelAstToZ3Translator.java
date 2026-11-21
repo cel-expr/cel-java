@@ -243,11 +243,25 @@ final class CelAstToZ3Translator {
     }
     String name = ident.name();
     CelType type = ast.getTypeOrThrow(exprId);
-    if (type instanceof TypeType) {
+    if (type instanceof TypeType && !context.lookupSymbol(name).isPresent()) {
       TypeType typeType = (TypeType) type;
-      if (typeType.type().kind() != CelKind.DYN) {
+      // The spec says `dyn` doesn't exist at runtime; CEL-Java's legacy interpreter evaluates it to
+      // `type`.
+      if (name.equals("dyn")) {
         return TranslatedValue.create(
-            typeSystem.mkString(typeType.containingTypeName()), celExpr, typeSystem, ctx.mkFalse());
+            ctx.mkConst("!dyn", typeSystem.celValueSort()),
+            celExpr,
+            typeSystem,
+            context.recordApproximation(
+                "the `dyn` type as a value", /* condition= */ ctx.mkTrue()));
+      }
+      // `type` checks as type(dyn), like variables holding a type.
+      if (typeType.type().kind() != CelKind.DYN || name.equals("type")) {
+        return TranslatedValue.create(
+            typeSystem.mkType(typeType.containingTypeName()),
+            celExpr,
+            typeSystem,
+            /* isApproximate= */ ctx.mkFalse());
       }
     }
     TranslatedValue tv =
@@ -521,7 +535,7 @@ final class CelAstToZ3Translator {
    */
   private static boolean mayEmbedArgs(String functionName, CelType resultType) {
     return (!CelZ3OperatorTranslator.isStaticallyKnown(resultType)
-            || !resultType.parameters().isEmpty())
+            || (!resultType.parameters().isEmpty() && resultType.kind() != CelKind.TYPE))
         && !functionName.equals(Operator.INDEX.getFunction())
         && !functionName.equals(Operator.CONDITIONAL.getFunction());
   }

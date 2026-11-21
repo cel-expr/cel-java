@@ -19,7 +19,10 @@ import dev.cel.policy.CelPolicyCompiler;
 /** Factory class for producing policy verifiers. */
 public final class CelPolicyVerifierFactory {
 
-  /** Create a new {@link CelPolicyVerifierBuilder} instance. */
+  /**
+   * Create a new {@link CelPolicyVerifierBuilder} instance. {@code astVerifier} must be built from
+   * the same {@code Cel} environment as {@code compiler}.
+   */
   public static CelPolicyVerifierBuilder newVerifier(
       CelPolicyCompiler compiler, CelVerifier astVerifier) {
     return CelPolicyVerifierImpl.newBuilder(compiler, astVerifier);

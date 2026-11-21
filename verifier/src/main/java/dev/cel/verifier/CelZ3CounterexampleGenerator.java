@@ -18,6 +18,7 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.primitives.UnsignedLong;
 import com.microsoft.z3.ArrayExpr;
 import com.microsoft.z3.Context;
@@ -26,6 +27,7 @@ import com.microsoft.z3.FPNum;
 import com.microsoft.z3.FuncDecl;
 import com.microsoft.z3.IntNum;
 import com.microsoft.z3.Model;
+import dev.cel.common.internal.MapKeys;
 import dev.cel.common.internal.ProtoTimeUtils;
 import dev.cel.common.values.CelByteString;
 import dev.cel.common.values.NullValue;
@@ -39,6 +41,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.regex.Pattern;
 import java.util.stream.IntStream;
 
 /** Extracts {@link CelWitness}es from Z3 models. */
@@ -46,6 +49,10 @@ import java.util.stream.IntStream;
 final class CelZ3CounterexampleGenerator {
 
   private static final int MAX_ELEMENTS_TO_PRINT = 15;
+  private static final Pattern TYPE_NAME =
+      Pattern.compile("[A-Za-z_][A-Za-z0-9_]*(\\.[A-Za-z_][A-Za-z0-9_]*)*");
+  private static final ImmutableSet<String> RESERVED_TYPE_NAMES =
+      ImmutableSet.of("false", "in", "null", "true");
   private static final BigInteger NANOS_PER_SECOND =
       BigInteger.valueOf(CelZ3TypeSystem.NANOS_PER_SECOND);
 
@@ -125,6 +132,12 @@ final class CelZ3CounterexampleGenerator {
       return extractString(args[0], /* isBytes= */ false);
     } else if (decl.equals(typeSystem.bytesCons().ConstructorDecl())) {
       return extractString(args[0], /* isBytes= */ true);
+    } else if (decl.equals(typeSystem.typeCons().ConstructorDecl())) {
+      String name = args[0].getString();
+      return Value.inexact(
+          !RESERVED_TYPE_NAMES.contains(name) && TYPE_NAME.matcher(name).matches()
+              ? name
+              : "<type " + quote(decodeZ3String(name), /* isBytes= */ false) + ">");
     } else if (decl.equals(typeSystem.timestampCons().ConstructorDecl())) {
       BigInteger nanos = ((IntNum) args[0]).getBigInteger();
       BigInteger nanoAdjustment = nanos.mod(NANOS_PER_SECOND);
@@ -265,6 +278,7 @@ final class CelZ3CounterexampleGenerator {
     ImmutableMap.Builder<Object, Object> values = ImmutableMap.builder();
     List<String> entries = new ArrayList<>();
     Set<Expr<?>> seenKeys = new HashSet<>();
+    Set<Object> runtimeKeys = new HashSet<>();
     ArrayExpr keySet = ctx.mkConstArray(typeSystem.celValueSort(), ctx.mkFalse());
     for (long i = 0; i < limit; i++) {
       Expr<?> key = evaluate(ctx.mkNth(typeSystem.getMapKeys(mapRef), ctx.mkInt(i)));
@@ -276,7 +290,10 @@ final class CelZ3CounterexampleGenerator {
       Value keyValue = extract(key);
       Value value =
           extract(evaluate(ctx.mkSelect((ArrayExpr) typeSystem.getMapValues(mapRef), key)));
-      if (keyValue.runtimeValue.isPresent() && value.runtimeValue.isPresent()) {
+      if (keyValue.runtimeValue.isPresent()
+          && value.runtimeValue.isPresent()
+          && MapKeys.isValidKeyType(keyValue.runtimeValue.get())
+          && runtimeKeys.add(MapKeys.normalize(keyValue.runtimeValue.get()))) {
         values.put(keyValue.runtimeValue.get(), value.runtimeValue.get());
       } else {
         isExact = false;
