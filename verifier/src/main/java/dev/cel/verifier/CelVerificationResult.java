@@ -15,7 +15,6 @@
 package dev.cel.verifier;
 
 import com.google.auto.value.AutoValue;
-import java.util.Map;
 import java.util.Optional;
 
 /** Result object containing the outcome of a CEL AST verification check. */
@@ -41,13 +40,14 @@ public abstract class CelVerificationResult {
   public abstract String reason();
 
   /**
-   * Returns a detailed counterexample or satisfying model assignment, if one was found.
+   * Returns a detailed counterexample or satisfying model assignment, if one was found, or the
+   * input the CEL runtime refuted.
    */
   public abstract String counterexample();
 
   /**
-   * Returns the counterexample or satisfying input found by the solver, if any. Its variables are
-   * empty when the outcome doesn't depend on any input.
+   * Returns the counterexample or satisfying input found by the solver, if any, or the input the
+   * CEL runtime refuted. Its variables are empty when the outcome doesn't depend on any input.
    */
   public abstract Optional<CelWitness> witness();
 
@@ -87,6 +87,14 @@ public abstract class CelVerificationResult {
     return create(VerificationStatus.INCONCLUSIVE, reason, witness, isCounterexample);
   }
 
+  static CelVerificationResult refuted(String reason, CelWitness witness) {
+    return new AutoValue_CelVerificationResult(
+        VerificationStatus.INCONCLUSIVE,
+        reason,
+        witness.variables().isEmpty() ? "" : listInputs(" Input found:", witness),
+        Optional.of(witness));
+  }
+
   private static CelVerificationResult create(VerificationStatus status, String reason) {
     return new AutoValue_CelVerificationResult(status, reason, "", Optional.empty());
   }
@@ -108,18 +116,19 @@ public abstract class CelVerificationResult {
           : " (The expression is satisfiable unconditionally, regardless of input state)";
     }
 
-    StringBuilder sb = new StringBuilder();
-    if (isCounterexample) {
-      sb.append(isApproximate ? " Potential counterexample input:" : " Counterexample input:");
-    } else {
-      sb.append(isApproximate ? " Potential satisfying input:" : " Satisfying input:");
-    }
-    for (Map.Entry<String, CelWitness.Variable> variable : witness.variables().entrySet()) {
-      sb.append("\n  ")
-          .append(variable.getKey())
-          .append(" = ")
-          .append(variable.getValue().displayValue());
-    }
+    return listInputs(
+        isCounterexample
+            ? (isApproximate ? " Potential counterexample input:" : " Counterexample input:")
+            : (isApproximate ? " Potential satisfying input:" : " Satisfying input:"),
+        witness);
+  }
+
+  private static String listInputs(String label, CelWitness witness) {
+    StringBuilder sb = new StringBuilder(label);
+    witness
+        .variables()
+        .forEach((name, variable) ->
+            sb.append("\n  ").append(name).append(" = ").append(variable.displayValue()));
     return sb.toString();
   }
 }

@@ -18,8 +18,6 @@ import static dev.cel.extensions.CelOptionalLibrary.OptionalDeclaration.OPTIONAL
 import static dev.cel.extensions.CelOptionalLibrary.OptionalDeclaration.OPTIONAL_NONE;
 import static dev.cel.extensions.CelOptionalLibrary.OptionalDeclaration.OPTIONAL_OF;
 import static dev.cel.extensions.CelOptionalLibrary.OptionalDeclaration.OPTIONAL_OF_NON_ZERO_VALUE;
-import static dev.cel.extensions.CelOptionalLibrary.OptionalDeclaration.OPTIONAL_OR;
-import static dev.cel.extensions.CelOptionalLibrary.OptionalDeclaration.OPTIONAL_OR_VALUE;
 import static dev.cel.extensions.CelOptionalLibrary.OptionalDeclaration.OPTIONAL_VALUE;
 
 import com.google.common.base.Preconditions;
@@ -27,7 +25,6 @@ import com.google.common.collect.ImmutableList;
 import com.microsoft.z3.BoolExpr;
 import com.microsoft.z3.Context;
 import com.microsoft.z3.Expr;
-import com.microsoft.z3.FPExpr;
 import com.microsoft.z3.SeqExpr;
 import dev.cel.common.CelFunctionDecl;
 import dev.cel.common.CelOverloadDecl;
@@ -72,19 +69,6 @@ final class OptionalAxioms {
                 Expr<?> optRef = ts.getOptionalRef(val);
                 return Optional.of(
                     ctx.mkITE(ts.optHasValue(optRef), ts.getOptionalValue(optRef), ts.mkError()));
-              }),
-          createBinaryAxiom(
-              OPTIONAL_OR_VALUE,
-              (ctx, ts, sink, val, other) -> {
-                Expr<?> optRef = ts.getOptionalRef(val);
-                return Optional.of(
-                    ctx.mkITE(ts.optHasValue(optRef), ts.getOptionalValue(optRef), other));
-              }),
-          createBinaryAxiom(
-              OPTIONAL_OR,
-              (ctx, ts, sink, val, other) -> {
-                Expr<?> optRef = ts.getOptionalRef(val);
-                return Optional.of(ctx.mkITE(ts.optHasValue(optRef), val, other));
               }));
 
   private static BoolExpr isZeroValue(Context ctx, CelZ3TypeSystem ts, Expr<?> val) {
@@ -93,7 +77,7 @@ final class OptionalAxioms {
         ctx.mkAnd(ts.isBool(val), ctx.mkEq(ts.unwrapBool(val), ctx.mkFalse())),
         ctx.mkAnd(ts.isInt(val), ctx.mkEq(ts.getInt(val), ctx.mkInt(0))),
         ctx.mkAnd(ts.isUint(val), ctx.mkEq(ts.getUint(val), ctx.mkInt(0))),
-        ctx.mkAnd(ts.isDouble(val), ctx.mkFPIsZero((FPExpr) ts.getDouble(val))),
+        ctx.mkAnd(ts.isDouble(val), ctx.mkFPIsZero(ts.getDouble(val))),
         ctx.mkAnd(ts.isTimestamp(val), ctx.mkEq(ts.getTimestamp(val), ctx.mkInt(0))),
         ctx.mkAnd(ts.isDuration(val), ctx.mkEq(ts.getDuration(val), ctx.mkInt(0))),
         ctx.mkAnd(ts.isString(val), ctx.mkEq(ts.getString(val), ctx.mkString(""))),
@@ -113,25 +97,17 @@ final class OptionalAxioms {
   private static CelZ3FunctionAxiom createAxiom(
       CelFunctionDecl.Declarer declarer, CelZ3OverloadTranslator translator) {
     CelFunctionDecl functionDecl = declarer.functionDecl();
-    CelZ3FunctionAxiom.Builder builder = CelZ3FunctionAxiom.newBuilder(functionDecl);
-    builder.addOverloadTranslator(getSingleOverloadOrThrow(functionDecl), translator);
-    return builder.build();
+    return CelZ3FunctionAxiom.newBuilder(functionDecl)
+        .addOverloadTranslator(getSingleOverloadOrThrow(functionDecl), translator)
+        .build();
   }
 
   private static CelZ3FunctionAxiom createUnaryAxiom(
       CelFunctionDecl.Declarer declarer, CelZ3FunctionAxiom.UnaryTranslator translator) {
     CelFunctionDecl functionDecl = declarer.functionDecl();
-    CelZ3FunctionAxiom.Builder builder = CelZ3FunctionAxiom.newBuilder(functionDecl);
-    builder.addUnaryOverloadTranslator(getSingleOverloadOrThrow(functionDecl), translator);
-    return builder.build();
-  }
-
-  private static CelZ3FunctionAxiom createBinaryAxiom(
-      CelFunctionDecl.Declarer declarer, CelZ3FunctionAxiom.BinaryTranslator translator) {
-    CelFunctionDecl functionDecl = declarer.functionDecl();
-    CelZ3FunctionAxiom.Builder builder = CelZ3FunctionAxiom.newBuilder(functionDecl);
-    builder.addBinaryOverloadTranslator(getSingleOverloadOrThrow(functionDecl), translator);
-    return builder.build();
+    return CelZ3FunctionAxiom.newBuilder(functionDecl)
+        .addUnaryOverloadTranslator(getSingleOverloadOrThrow(functionDecl), translator)
+        .build();
   }
 
   private static CelOverloadDecl getSingleOverloadOrThrow(CelFunctionDecl functionDecl) {
