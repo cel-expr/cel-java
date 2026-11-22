@@ -142,3 +142,18 @@ java_test(
         "@maven//:junit_junit",
     ],
 )
+
+java_test(
+    name = "Exercise10Test",
+    srcs = ["Exercise10Test.java"],
+    test_class = "codelab.solutions.Exercise10Test",
+    deps = [
+        "//:java_truth",
+        "//codelab:solutions",
+        "//common:cel_ast",
+        "//runtime",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_testparameterinjector_test_parameter_injector",
+        "@maven//:junit_junit",
+    ],
+)
