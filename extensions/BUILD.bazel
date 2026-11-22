@@ -197,3 +197,30 @@ cel_android_library(
     name = "regex_runtime_library_android",
     exports = ["//extensions/src/main/java/dev/cel/extensions:regex_runtime_library_android"],
 )
+
+java_library(
+    name = "network_types",
+    exports = ["//extensions/src/main/java/dev/cel/extensions:network_types"],
+)
+
+cel_android_library(
+    name = "network_types_android",
+    exports = ["//extensions/src/main/java/dev/cel/extensions:network_types_android"],
+)
+
+java_library(
+    name = "network_compiler_library",
+    visibility = ["//:internal"],
+    exports = ["//extensions/src/main/java/dev/cel/extensions:network_compiler_library"],
+)
+
+java_library(
+    name = "network_runtime_library",
+    visibility = ["//:internal"],
+    exports = ["//extensions/src/main/java/dev/cel/extensions:network_runtime_library"],
+)
+
+cel_android_library(
+    name = "network_runtime_library_android",
+    exports = ["//extensions/src/main/java/dev/cel/extensions:network_runtime_library_android"],
+)
