@@ -23,6 +23,7 @@ java_library(
         "//common:container",
         "//common:error_codes",
         "//common:options",
+        "//common:proto_ast",
         "//common/ast",
         "//common/exceptions:attribute_not_found",
         "//common/exceptions:divide_by_zero",

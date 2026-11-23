@@ -39,6 +39,7 @@ import dev.cel.common.CelContainer;
 import dev.cel.common.CelDescriptorUtil;
 import dev.cel.common.CelErrorCode;
 import dev.cel.common.CelOptions;
+import dev.cel.common.CelProtoAbstractSyntaxTree;
 import dev.cel.common.CelSource;
 import dev.cel.common.CelSource.Extension;
 import dev.cel.common.CelSource.Extension.Component;
@@ -559,6 +560,33 @@ public final class ProgramPlannerTest {
   }
 
   @Test
+  public void planIdent_typeLiteral_ignoresSameNamedActivationEntry(
+      @TestParameter TypeLiteralTestCase testCase) throws Exception {
+    assumeFalse(isParseOnly);
+    CelAbstractSyntaxTree ast = compile(testCase.expression);
+    Program program = PLANNER.plan(ast);
+
+    TypeType result = (TypeType) program.eval(ImmutableMap.of(testCase.expression, "foo"));
+
+    assertThat(result).isEqualTo(testCase.type);
+  }
+
+  @Test
+  public void planIdent_serializedTypeLiteral_ignoresSameNamedActivationEntry(
+      @TestParameter TypeLiteralTestCase testCase) throws Exception {
+    assumeFalse(isParseOnly);
+    CelAbstractSyntaxTree ast =
+        CelProtoAbstractSyntaxTree.fromCheckedExpr(
+                CelProtoAbstractSyntaxTree.fromCelAst(compile(testCase.expression)).toCheckedExpr())
+            .getAst();
+    Program program = PLANNER.plan(ast);
+
+    TypeType result = (TypeType) program.eval(ImmutableMap.of(testCase.expression, "foo"));
+
+    assertThat(result).isEqualTo(testCase.type);
+  }
+
+  @Test
   public void planIdent_typeLiteral_equality(@TestParameter TypeLiteralTestCase testCase)
       throws Exception {
     // ex: type(bool) == type, type(TestAllTypes) == type
@@ -589,6 +617,20 @@ public final class ProgramPlannerTest {
 
     boolean result =
         (boolean) program.eval(ImmutableMap.of("type_var", TypeType.create(SimpleType.STRING)));
+
+    assertThat(result).isTrue();
+  }
+
+  @Test
+  public void planIdent_typeVariableNamedAfterType_readsActivation() throws Exception {
+    assumeFalse(isParseOnly);
+    CelCompiler compiler =
+        CEL_COMPILER.toCompilerBuilder().addVar("int", TypeType.create(SimpleType.DYN)).build();
+    CelAbstractSyntaxTree ast = compile(compiler, "int == string");
+    Program program = PLANNER.plan(ast);
+
+    boolean result =
+        (boolean) program.eval(ImmutableMap.of("int", TypeType.create(SimpleType.STRING)));
 
     assertThat(result).isTrue();
   }
@@ -2319,9 +2361,14 @@ public final class ProgramPlannerTest {
     DURATION("google.protobuf.Duration", SimpleType.DURATION),
     TIMESTAMP("google.protobuf.Timestamp", SimpleType.TIMESTAMP),
     OPTIONAL("optional_type", OptionalType.create(SimpleType.DYN)),
+    // TODO: Align the `type` literal's runtime value with type(type).
+    TYPE("type", SimpleType.DYN),
     PROTO_MESSAGE_TYPE(
         "cel.expr.conformance.proto3.TestAllTypes",
-        TYPE_PROVIDER.findType(TestAllTypes.getDescriptor().getFullName()).get());
+        TYPE_PROVIDER.findType(TestAllTypes.getDescriptor().getFullName()).get()),
+    ENUM_TYPE(
+        "cel.expr.conformance.proto3.GlobalEnum",
+        TYPE_PROVIDER.findType(GlobalEnum.getDescriptor().getFullName()).get());
 
     private final String expression;
     private final TypeType type;

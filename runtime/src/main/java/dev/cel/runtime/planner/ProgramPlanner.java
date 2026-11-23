@@ -51,6 +51,7 @@ import dev.cel.common.exceptions.CelRuntimeException;
 import dev.cel.common.types.CelKind;
 import dev.cel.common.types.CelType;
 import dev.cel.common.types.CelTypeProvider;
+import dev.cel.common.types.EnumType;
 import dev.cel.common.types.SimpleType;
 import dev.cel.common.types.StructTypeReference;
 import dev.cel.common.types.TypeType;
@@ -210,19 +211,42 @@ public final class ProgramPlanner {
       return localIdent;
     }
 
-    if (ctx.typeMap().get(expr.id()).kind().equals(CelKind.TYPE)) {
-      CelType type =
-          typeProvider
-              .findType(identName.startsWith(".") ? identName.substring(1) : identName)
-              .orElse(null);
-      if (type != null) {
-        // Coalesce type(type) into a sentinel to allow for erasure based type comparisons.
-        return EvalConstant.create(
-            expr, TypeType.create(type instanceof TypeType ? SimpleType.DYN : type));
-      }
-    }
+    return resolveTypeLiteral(identName, ctx.typeMap().get(expr.id()))
+        .<PlannedInterpretable>map(typeLiteral -> EvalConstant.create(expr, typeLiteral))
+        .orElseGet(
+            () -> EvalAttribute.create(expr, attributeFactory.newAbsoluteAttribute(identName)));
+  }
 
-    return EvalAttribute.create(expr, attributeFactory.newAbsoluteAttribute(identName));
+  /**
+   * Returns the type value that {@code identName} denotes if it is a type literal, or empty if it
+   * is a variable, including a declared variable that shares a type's name.
+   */
+  private Optional<TypeType> resolveTypeLiteral(String identName, @Nullable CelType checkedType) {
+    if (!(checkedType instanceof TypeType)) {
+      return Optional.empty();
+    }
+    CelType checkedTypeParam = ((TypeType) checkedType).type();
+    return typeProvider
+        .findType(identName.startsWith(".") ? identName.substring(1) : identName)
+        .filter(literalType -> isCheckedAs(literalType, checkedTypeParam))
+        // Coalesce type(type) into a sentinel to allow for erasure based type comparisons.
+        .map(literalType ->
+            TypeType.create(literalType instanceof TypeType ? SimpleType.DYN : literalType));
+  }
+
+  /**
+   * Returns whether the type checker types the literal for {@code literalType} as {@code
+   * type(checkedTypeParam)}.
+   */
+  private static boolean isCheckedAs(CelType literalType, CelType checkedTypeParam) {
+    if (literalType instanceof TypeType) {
+      // TODO: cel-java checks the `type` literal as type(dyn), while cel-go and
+      // cel-cpp check it as type(type).
+      return checkedTypeParam instanceof TypeType || checkedTypeParam.equals(SimpleType.DYN);
+    }
+    // Serialized checked expressions erase enum types to int.
+    return checkedTypeParam.name().equals(literalType.name())
+        || (literalType instanceof EnumType && checkedTypeParam.equals(SimpleType.INT));
   }
 
   private Optional<PlannedInterpretable> planLocalIdent(
