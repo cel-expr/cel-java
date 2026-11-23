@@ -34,36 +34,3 @@ __comprehension__(
   )~bool^logical_or,
   // Result
   @result~bool^@result)~bool
-
-Source: [1].all(int, type(int) == .int)
-declare app.config {
-  value int
-}
-=====>
-__comprehension__(
-  // Variable
-  int,
-  // Target
-  [
-    1~int
-  ]~list(int),
-  // Accumulator
-  @result,
-  // Init
-  true~bool,
-  // LoopCondition
-  @not_strictly_false(
-    @result~bool^@result
-  )~bool^not_strictly_false,
-  // LoopStep
-  _&&_(
-    @result~bool^@result,
-    _==_(
-      type(
-        int~int^int
-      )~type(int)^type,
-      .int~type(int)^.int
-    )~bool^equals
-  )~bool^logical_and,
-  // Result
-  @result~bool^@result)~bool

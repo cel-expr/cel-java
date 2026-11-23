@@ -97,8 +97,6 @@ public class Env {
    */
   private final ArrayList<DeclGroup> decls = new ArrayList<>();
 
-  private int comprehensionScopeCount = 0;
-
   /** A map from expression ids into references resolved for the overall tree so far. */
   private final Map<Long, CelReference> referenceMap = new LinkedHashMap<>();
 
@@ -292,18 +290,6 @@ public class Env {
   public void exitScope() {
     Preconditions.checkState(!decls.isEmpty(), "Cannot exit top-level environment scope");
     decls.remove(decls.size() - 1);
-  }
-
-  /** Enters a scope for comprehension variables, which leading-dot identifiers skip. */
-  void enterComprehensionScope() {
-    enterScope();
-    comprehensionScopeCount++;
-  }
-
-  /** Exits a scope entered with {@link #enterComprehensionScope}. */
-  void exitComprehensionScope() {
-    exitScope();
-    comprehensionScopeCount--;
   }
 
   /** Return the current scope depth for the environment. */
@@ -515,7 +501,7 @@ public class Env {
     }
 
     for (String cand : container.resolveCandidateNames(name)) {
-      CelVarDecl decl = tryLookupCelIdent(cand, name.startsWith("."));
+      CelVarDecl decl = tryLookupCelIdent(cand);
       if (decl != null) {
         return decl;
       }
@@ -524,9 +510,9 @@ public class Env {
     return null;
   }
 
-  private @Nullable CelVarDecl tryLookupCelIdent(String cand, boolean skipComprehensionScopes) {
+  private @Nullable CelVarDecl tryLookupCelIdent(String cand) {
     // First determine whether we know this name already.
-    CelVarDecl decl = findIdentDecl(cand, skipComprehensionScopes);
+    CelVarDecl decl = findIdentDecl(cand);
     if (decl != null) {
       return decl;
     }
@@ -764,14 +750,10 @@ public class Env {
     builder.addOverloads(overload);
   }
 
-  /**
-   * Search for the named identifier declaration, optionally skipping the comprehension scopes on
-   * top of the stack.
-   */
-  private @Nullable CelVarDecl findIdentDecl(String name, boolean skipComprehensionScopes) {
-    int topScope = decls.size() - 1 - (skipComprehensionScopes ? comprehensionScopeCount : 0);
-    for (int i = topScope; i >= 0; i--) {
-      CelVarDecl ident = decls.get(i).getIdent(name);
+  /** Search for the named identifier declaration. */
+  private @Nullable CelVarDecl findIdentDecl(String name) {
+    for (DeclGroup declGroup : Lists.reverse(decls)) {
+      CelVarDecl ident = declGroup.getIdent(name);
       if (ident != null) {
         return ident;
       }
