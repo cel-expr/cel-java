@@ -194,6 +194,7 @@ public final class ProgramPlannerTest {
           .addVar("map_var", MapType.create(SimpleType.STRING, SimpleType.DYN))
           .addVar("int_var", SimpleType.INT)
           .addVar("dyn_var", SimpleType.DYN)
+          .addVar("type_var", TypeType.create(SimpleType.DYN))
           .addVar("really.long.abbr.ident", SimpleType.DYN)
           .addFunctionDeclarations(
               newFunctionDeclaration("zero", newGlobalOverload("zero_overload", SimpleType.INT)),
@@ -565,6 +566,46 @@ public final class ProgramPlannerTest {
     Program program = PLANNER.plan(ast);
 
     boolean result = (boolean) program.eval();
+
+    assertThat(result).isTrue();
+  }
+
+  @Test
+  @TestParameters("{expression: '[int].all(t, t == int)'}")
+  @TestParameters("{expression: '[string].all(int, int == string)'}")
+  public void planIdent_typeValuedLocal(String expression) throws Exception {
+    CelAbstractSyntaxTree ast = compile(expression);
+    Program program = PLANNER.plan(ast);
+
+    boolean result = (boolean) program.eval();
+
+    assertThat(result).isTrue();
+  }
+
+  @Test
+  public void planIdent_typeValuedVariable() throws Exception {
+    CelAbstractSyntaxTree ast = compile("type_var == string");
+    Program program = PLANNER.plan(ast);
+
+    boolean result =
+        (boolean) program.eval(ImmutableMap.of("type_var", TypeType.create(SimpleType.STRING)));
+
+    assertThat(result).isTrue();
+  }
+
+  @Test
+  @TestParameters("{expression: 'type([1]) == list', key: 'list'}")
+  @TestParameters(
+      "{expression: '[1].all(cel, type(TestAllTypes{}) =="
+          + " .cel.expr.conformance.proto3.TestAllTypes)', key:"
+          + " 'cel.expr.conformance.proto3.TestAllTypes'}")
+  public void planIdent_typeLiteral_notShadowedByActivation(String expression, String key)
+      throws Exception {
+    assumeFalse(isParseOnly);
+    CelAbstractSyntaxTree ast = compile(expression);
+    Program program = PLANNER.plan(ast);
+
+    boolean result = (boolean) program.eval(ImmutableMap.of(key, "foo"));
 
     assertThat(result).isTrue();
   }

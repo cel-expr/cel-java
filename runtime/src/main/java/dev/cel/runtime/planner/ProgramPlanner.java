@@ -66,7 +66,6 @@ import dev.cel.runtime.RuntimeEquality;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.NoSuchElementException;
 import java.util.Optional;
 import org.jspecify.annotations.Nullable;
 
@@ -205,29 +204,25 @@ public final class ProgramPlanner {
       return planConstant(expr, identRef.value().get());
     }
 
-    CelType type = ctx.typeMap().get(expr.id());
-    if (type.kind().equals(CelKind.TYPE)) {
-      TypeType identType =
-          typeProvider
-              .findType(identRef.name())
-              .map(
-                  t ->
-                      (t instanceof TypeType)
-                          // Coalesce all type(foo) "type" into a sentinel runtime type to allow for
-                          // erasure based type comparisons
-                          ? TypeType.create(SimpleType.DYN)
-                          : TypeType.create(t))
-              .orElseThrow(
-                  () ->
-                      new NoSuchElementException(
-                          "Reference to an undefined type: " + identRef.name()));
-      return EvalConstant.create(expr, identType);
+    String identName = identRef.name();
+    PlannedInterpretable localIdent = planLocalIdent(expr, identName, ctx).orElse(null);
+    if (localIdent != null) {
+      return localIdent;
     }
 
-    String identName = identRef.name();
-    return planLocalIdent(expr, identName, ctx)
-        .orElseGet(
-            () -> EvalAttribute.create(expr, attributeFactory.newAbsoluteAttribute(identName)));
+    if (ctx.typeMap().get(expr.id()).kind().equals(CelKind.TYPE)) {
+      CelType type =
+          typeProvider
+              .findType(identName.startsWith(".") ? identName.substring(1) : identName)
+              .orElse(null);
+      if (type != null) {
+        // Coalesce type(type) into a sentinel to allow for erasure based type comparisons.
+        return EvalConstant.create(
+            expr, TypeType.create(type instanceof TypeType ? SimpleType.DYN : type));
+      }
+    }
+
+    return EvalAttribute.create(expr, attributeFactory.newAbsoluteAttribute(identName));
   }
 
   private Optional<PlannedInterpretable> planLocalIdent(
