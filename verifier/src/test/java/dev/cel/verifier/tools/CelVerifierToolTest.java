@@ -22,7 +22,6 @@ import com.google.common.collect.ImmutableMap;
 import dev.cel.common.types.CelType;
 import dev.cel.common.types.ListType;
 import dev.cel.common.types.MapType;
-import dev.cel.common.types.OptionalType;
 import dev.cel.common.types.SimpleType;
 import dev.cel.verifier.CelVerificationResult;
 import dev.cel.verifier.CelVerificationResult.VerificationStatus;
@@ -137,7 +136,7 @@ public final class CelVerifierToolTest {
             "--var",
             "d:duration",
             "--var",
-            "opt:optional<int>",
+            "opt:optional_type<int>",
             "-fmt",
             "json");
 
@@ -152,78 +151,10 @@ public final class CelVerifierToolTest {
   }
 
   @Test
-  public void parseVariables_success() {
-    ImmutableMap<String, CelType> vars =
-        VerificationOptions.parseVariables(
-            Arrays.asList(
-                "x:int",
-                "role:string",
-                "is_admin:bool",
-                "tags:list<string>",
-                "scores:map<string, int>",
-                "created_at:timestamp",
-                "timeout:duration",
-                "opt_user:optional<string>"));
-
-    assertThat(vars).containsEntry("x", SimpleType.INT);
-    assertThat(vars).containsEntry("role", SimpleType.STRING);
-    assertThat(vars).containsEntry("is_admin", SimpleType.BOOL);
-    assertThat(vars).containsEntry("tags", ListType.create(SimpleType.STRING));
-    assertThat(vars).containsEntry("scores", MapType.create(SimpleType.STRING, SimpleType.INT));
-    assertThat(vars).containsEntry("created_at", SimpleType.TIMESTAMP);
-    assertThat(vars).containsEntry("timeout", SimpleType.DURATION);
-    assertThat(vars).containsEntry("opt_user", OptionalType.create(SimpleType.STRING));
-  }
-
-  @Test
-  public void parseVariables_allTypesIncludingDyn() {
-    ImmutableMap<String, CelType> vars =
-        VerificationOptions.parseVariables(
-            Arrays.asList(
-                "u:uint",
-                "d:double",
-                "fl:float",
-                "b:bytes",
-                "dyn_val:dyn",
-                "flag:boolean",
-                "t:google.protobuf.timestamp",
-                "dur:google.protobuf.duration",
-                "opt:optional<int>",
-                "nested_list:list<dyn>",
-                "nested_map:map<string, dyn>"));
-
-    assertThat(vars).containsEntry("u", SimpleType.UINT);
-    assertThat(vars).containsEntry("d", SimpleType.DOUBLE);
-    assertThat(vars).containsEntry("fl", SimpleType.DOUBLE);
-    assertThat(vars).containsEntry("b", SimpleType.BYTES);
-    assertThat(vars).containsEntry("dyn_val", SimpleType.DYN);
-    assertThat(vars).containsEntry("flag", SimpleType.BOOL);
-    assertThat(vars).containsEntry("t", SimpleType.TIMESTAMP);
-    assertThat(vars).containsEntry("dur", SimpleType.DURATION);
-    assertThat(vars).containsEntry("opt", OptionalType.create(SimpleType.INT));
-    assertThat(vars).containsEntry("nested_list", ListType.create(SimpleType.DYN));
-    assertThat(vars).containsEntry("nested_map", MapType.create(SimpleType.STRING, SimpleType.DYN));
-  }
-
-  @Test
   public void parseVariables_invalidFormat_throws() {
     assertThrows(
         IllegalArgumentException.class,
         () -> VerificationOptions.parseVariables(Arrays.asList("x_no_colon")));
-  }
-
-  @Test
-  public void parseVariables_unsupportedType_throws() {
-    IllegalArgumentException ex =
-        assertThrows(
-            IllegalArgumentException.class,
-            () -> VerificationOptions.parseVariables(Arrays.asList("x:foo_bar")));
-
-    assertThat(ex)
-        .hasMessageThat()
-        .contains(
-            "Supported types: int, uint, string, bool, double, bytes, dyn, timestamp,"
-                + " duration, list<T>, map<K, V>, optional<T>.");
   }
 
   @Test

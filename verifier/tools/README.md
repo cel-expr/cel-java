@@ -84,12 +84,13 @@ Supported types:
 *   Well-known types: `timestamp`, `duration`
 *   List types: `list<T>` (e.g., `--var "tags:list<string>"`)
 *   Map types: `map<K, V>` (e.g., `--var "scores:map<string, int>"`)
-*   Optional types: `optional<T>` (e.g., `--var "opt_flag:optional<bool>"`)
+*   Optional types: `optional_type<T>` (e.g.,
+    `--var "opt_flag:optional_type<bool>"`)
 *   Protobuf types: Coming soon
 
 Examples:
 ```bash
---var "role:string" --var "port:int" --var "tags:list<string>" --var "created_at:timestamp" --var "opt_flag:optional<bool>"
+--var "role:string" --var "port:int" --var "tags:list<string>" --var "created_at:timestamp" --var "opt_flag:optional_type<bool>"
 ```
 
 ### Unknown Identifiers (`--unknown`, `-u`)

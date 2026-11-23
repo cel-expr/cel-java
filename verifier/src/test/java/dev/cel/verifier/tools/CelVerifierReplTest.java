@@ -85,7 +85,7 @@ public final class CelVerifierReplTest {
     assertThat(output[0]).contains("Query: valid <expression>");
     assertThat(output[0]).contains("Query: equiv <expression1> <=> <expression2>");
     assertThat(output[0]).contains("Well-known types: timestamp, duration");
-    assertThat(output[0]).contains("Optional types:   optional<T>");
+    assertThat(output[0]).contains("Optional types:   optional_type<T>");
     assertThat(output[0]).contains("Protobuf types:   coming soon");
   }
 
@@ -99,7 +99,7 @@ public final class CelVerifierReplTest {
             ":var tags list<string>",
             ":var created_at timestamp",
             ":var timeout duration",
-            ":var opt_user optional<string>",
+            ":var opt_user optional_type<string>",
             ":vars",
             ":quit");
 
@@ -239,7 +239,7 @@ public final class CelVerifierReplTest {
   public void repl_optionalQueries() throws Exception {
     String[] output =
         runReplWithCommands(
-            ":var opt_val optional<int>",
+            ":var opt_val optional_type<int>",
             "sat opt_val.hasValue() && opt_val.value() > 100",
             "sat !opt_val.hasValue()",
             ":quit");
@@ -276,13 +276,15 @@ public final class CelVerifierReplTest {
             ":var",
             ":var invalid_spec",
             ":var x foo_type",
+            ":var o optional_type",
             ":unknown",
             "invalid + + syntax",
             ":quit");
 
     assertThat(output[1]).contains("Unknown command: :unknowncommand");
     assertThat(output[1]).contains("Usage: :var <name> <type>");
-    assertThat(output[1]).contains("Unsupported type");
+    assertThat(output[1]).contains("Undefined type name: foo_type");
+    assertThat(output[1]).contains("Optional type must have exactly 1 parameter");
     assertThat(output[1]).contains("Usage: :unknown <identifier>");
     assertThat(output[1]).contains("Compilation error");
   }

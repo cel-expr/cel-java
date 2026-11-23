@@ -722,9 +722,12 @@ public abstract class CelEnvironment {
 
     /**
      * Parses a type specifier shorthand string (e.g. {@code "list<int>"}, {@code "map<string,
-     * dyn>"}, {@code "list<~T>"}) into a {@link TypeDecl}.
+     * dyn>"}, {@code "list<~T>"}) into a {@link TypeDecl}. Type names are resolved later, by {@link
+     * #toCelType(CelTypeProvider)}.
+     *
+     * @throws IllegalArgumentException if {@code typeSpecifier} is malformed
      */
-    static TypeDecl parse(String typeSpecifier) {
+    public static TypeDecl parse(String typeSpecifier) {
       return TypeSpecifierParser.parse(typeSpecifier);
     }
 

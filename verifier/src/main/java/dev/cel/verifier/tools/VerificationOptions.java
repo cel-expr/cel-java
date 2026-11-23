@@ -17,18 +17,17 @@ package dev.cel.verifier.tools;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Sets;
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
+import dev.cel.bundle.CelEnvironment.TypeDecl;
+import dev.cel.common.types.CelKind;
 import dev.cel.common.types.CelType;
-import dev.cel.common.types.ListType;
-import dev.cel.common.types.MapType;
-import dev.cel.common.types.NullableType;
-import dev.cel.common.types.OptionalType;
-import dev.cel.common.types.SimpleType;
+import dev.cel.common.types.CelTypeProvider;
+import dev.cel.common.types.ProtoMessageTypeProvider;
 import java.time.Duration;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 
 /** Configuration options for CEL verification CLI operations. */
@@ -43,6 +42,10 @@ final class VerificationOptions {
   static final Duration DEFAULT_TIMEOUT = Duration.ofSeconds(10);
   static final int DEFAULT_COMPREHENSION_UNROLL_LIMIT = 5;
   static final OutputFormat DEFAULT_OUTPUT_FORMAT = OutputFormat.TEXT;
+  private static final CelTypeProvider EMPTY_TYPE_PROVIDER =
+      ProtoMessageTypeProvider.newBuilder().build();
+  private static final ImmutableSet<CelKind> UNDECLARABLE_KINDS =
+      Sets.immutableEnumSet(CelKind.NULL_TYPE, CelKind.TYPE, CelKind.TYPE_PARAM);
 
   private final Duration timeout;
   private final int comprehensionUnrollLimit;
@@ -141,130 +144,20 @@ final class VerificationOptions {
         throw new IllegalArgumentException(
             "Invalid variable specification: '" + varSpec + "'. Variable name cannot be empty.");
       }
-      String typeStr = parts[1].trim().toLowerCase(Locale.US);
-      CelType type = parseCelType(typeStr);
-      vars.put(name, type);
+      vars.put(name, parseCelType(parts[1]));
     }
     return ImmutableMap.copyOf(vars);
   }
 
   static CelType parseCelType(String typeStr) {
-    // TODO: Replace with shorthand type parser once it is available.
-    Preconditions.checkNotNull(typeStr, "Type string cannot be null.");
-    String str = typeStr.trim().toLowerCase(Locale.US);
-
-    if (str.startsWith("list<") && str.endsWith(">")) {
-      // Strip "list<" prefix and trailing ">" to extract the element type "T".
-      String inner = str.substring("list<".length(), str.length() - 1).trim();
-      CelType elemType = parseCelType(inner);
-      return ListType.create(elemType);
-    }
-
-    if (str.startsWith("map<") && str.endsWith(">")) {
-      // Strip "map<" prefix and trailing ">" to extract the key and value types "K, V".
-      String inner = str.substring("map<".length(), str.length() - 1).trim();
-      List<String> parts = splitGenericArgs(inner);
-      if (parts.size() != 2) {
-        throw new IllegalArgumentException(
-            "Invalid map type format: '"
-                + typeStr
-                + "'. Expected format 'map<key_type, value_type>' (e.g., 'map<string, int>').");
-      }
-      CelType keyType = parseCelType(parts.get(0));
-      CelType valueType = parseCelType(parts.get(1));
-      return MapType.create(keyType, valueType);
-    }
-
-    if (str.startsWith("optional<") && str.endsWith(">")) {
-      // Strip "optional<" prefix and trailing ">" to extract the wrapped type "T".
-      String inner = str.substring("optional<".length(), str.length() - 1).trim();
-      CelType elemType = parseCelType(inner);
-      return OptionalType.create(elemType);
-    }
-
-    if (str.startsWith("optional_type<") && str.endsWith(">")) {
-      // Strip "optional_type<" prefix and trailing ">" to extract the wrapped type "T".
-      String inner = str.substring("optional_type<".length(), str.length() - 1).trim();
-      CelType elemType = parseCelType(inner);
-      return OptionalType.create(elemType);
-    }
-
-    switch (str) {
-      case "int":
-        return SimpleType.INT;
-      case "uint":
-        return SimpleType.UINT;
-      case "string":
-        return SimpleType.STRING;
-      case "bool":
-      case "boolean":
-        return SimpleType.BOOL;
-      case "double":
-      case "float":
-        return SimpleType.DOUBLE;
-      case "bytes":
-        return SimpleType.BYTES;
-      case "dyn":
-        return SimpleType.DYN;
-      case "timestamp":
-      case "google.protobuf.timestamp":
-        return SimpleType.TIMESTAMP;
-      case "duration":
-      case "google.protobuf.duration":
-        return SimpleType.DURATION;
-      case "google.protobuf.value":
-        return SimpleType.DYN;
-      case "google.protobuf.struct":
-        return MapType.create(SimpleType.STRING, SimpleType.DYN);
-      case "google.protobuf.listvalue":
-        return ListType.create(SimpleType.DYN);
-      case "google.protobuf.boolvalue":
-        return NullableType.create(SimpleType.BOOL);
-      case "google.protobuf.bytesvalue":
-        return NullableType.create(SimpleType.BYTES);
-      case "google.protobuf.doublevalue":
-      case "google.protobuf.floatvalue":
-        return NullableType.create(SimpleType.DOUBLE);
-      case "google.protobuf.int32value":
-      case "google.protobuf.int64value":
-        return NullableType.create(SimpleType.INT);
-      case "google.protobuf.uint32value":
-      case "google.protobuf.uint64value":
-        return NullableType.create(SimpleType.UINT);
-      case "google.protobuf.stringvalue":
-        return NullableType.create(SimpleType.STRING);
-      default:
-        // TODO: Support protobuf message types (coming soon).
-        throw new IllegalArgumentException(
-            "Unsupported type for CLI variable declaration: '"
-                + typeStr
-                + "'. Supported types: int, uint, string, bool, double, bytes, dyn, timestamp,"
-                + " duration, list<T>, map<K, V>, optional<T>.");
-    }
+    CelType type = TypeDecl.parse(typeStr).toCelType(EMPTY_TYPE_PROVIDER);
+    checkDeclarable(type);
+    return type;
   }
 
-  private static List<String> splitGenericArgs(String inner) {
-    List<String> result = new ArrayList<>();
-    int depth = 0;
-    StringBuilder current = new StringBuilder();
-    for (int i = 0; i < inner.length(); i++) {
-      char c = inner.charAt(i);
-      if (c == '<') {
-        depth++;
-        current.append(c);
-      } else if (c == '>') {
-        depth--;
-        current.append(c);
-      } else if (c == ',' && depth == 0) {
-        result.add(current.toString().trim());
-        current.setLength(0);
-      } else {
-        current.append(c);
-      }
-    }
-    if (current.length() > 0) {
-      result.add(current.toString().trim());
-    }
-    return result;
+  private static void checkDeclarable(CelType type) {
+    Preconditions.checkArgument(
+        !UNDECLARABLE_KINDS.contains(type.kind()), "Unsupported variable type: %s", type.name());
+    type.parameters().forEach(VerificationOptions::checkDeclarable);
   }
 }

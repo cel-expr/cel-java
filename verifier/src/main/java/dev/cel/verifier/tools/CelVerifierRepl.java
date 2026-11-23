@@ -280,12 +280,11 @@ final class CelVerifierRepl {
       return;
     }
     String name = parts[0].trim();
-    String typeStr = parts[1].trim();
     try {
-      CelType type = VerificationOptions.parseCelType(typeStr);
+      CelType type = VerificationOptions.parseCelType(parts[1]);
       sessionVars.put(name, type);
       out.println("Variable declared: " + name + " : " + CelTypes.format(type));
-    } catch (IllegalArgumentException e) {
+    } catch (IllegalArgumentException | IllegalStateException e) {
       err.println(e.getMessage());
     }
   }
@@ -320,7 +319,9 @@ final class CelVerifierRepl {
                 + " (google.protobuf.*)");
         out.println("  - List types:       list<T> (e.g., list<int>, list<string>)");
         out.println("  - Map types:        map<K,V> (e.g., map<string,int>, map<string,string>)");
-        out.println("  - Optional types:   optional<T> (e.g., optional<string>, optional<int>)");
+        out.println(
+            "  - Optional types:   optional_type<T> (e.g., optional_type<string>,"
+                + " optional_type<int>)");
         out.println("  - Protobuf types:   coming soon");
         out.println();
         out.println("Examples:");
@@ -330,7 +331,7 @@ final class CelVerifierRepl {
         out.println("  cel-verifier> :var tags list<string>");
         out.println("  cel-verifier> :var created_at timestamp");
         out.println("  cel-verifier> :var timeout duration");
-        out.println("  cel-verifier> :var opt_flag optional<bool>");
+        out.println("  cel-verifier> :var opt_flag optional_type<bool>");
         out.println("  cel-verifier> :var count google.protobuf.Int64Value");
         break;
       case "unknown":

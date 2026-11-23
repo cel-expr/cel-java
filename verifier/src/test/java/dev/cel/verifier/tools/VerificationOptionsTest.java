@@ -94,9 +94,9 @@ public final class VerificationOptionsTest {
                 "flag:bool",
                 "created_at:timestamp",
                 "timeout:duration",
-                "opt_user:optional<string>",
-                "opt_list:optional<list<int>>",
-                "opt_map:optional<map<string, int>>"));
+                "opt_user:optional_type<string>",
+                "opt_list:optional_type<list<int>>",
+                "opt_map:optional_type<map<string, int>>"));
 
     assertThat(vars)
         .containsExactly(
@@ -111,21 +111,11 @@ public final class VerificationOptionsTest {
   }
 
   @Test
-  public void parseCelType_timestampAndDuration() {
-    assertThat(VerificationOptions.parseCelType("timestamp")).isEqualTo(SimpleType.TIMESTAMP);
-    assertThat(VerificationOptions.parseCelType("google.protobuf.timestamp"))
-        .isEqualTo(SimpleType.TIMESTAMP);
+  public void parseCelType_wellKnownTypes() {
     assertThat(VerificationOptions.parseCelType("google.protobuf.Timestamp"))
         .isEqualTo(SimpleType.TIMESTAMP);
-    assertThat(VerificationOptions.parseCelType("duration")).isEqualTo(SimpleType.DURATION);
-    assertThat(VerificationOptions.parseCelType("google.protobuf.duration"))
-        .isEqualTo(SimpleType.DURATION);
     assertThat(VerificationOptions.parseCelType("google.protobuf.Duration"))
         .isEqualTo(SimpleType.DURATION);
-  }
-
-  @Test
-  public void parseCelType_wellKnownTypes() {
     assertThat(VerificationOptions.parseCelType("google.protobuf.Value")).isEqualTo(SimpleType.DYN);
     assertThat(VerificationOptions.parseCelType("google.protobuf.Struct"))
         .isEqualTo(MapType.create(SimpleType.STRING, SimpleType.DYN));
@@ -149,23 +139,20 @@ public final class VerificationOptionsTest {
         .isEqualTo(NullableType.create(SimpleType.UINT));
     assertThat(VerificationOptions.parseCelType("google.protobuf.StringValue"))
         .isEqualTo(NullableType.create(SimpleType.STRING));
-    assertThrows(
-        IllegalArgumentException.class,
-        () -> VerificationOptions.parseCelType("google.protobuf.Any"));
+    assertThat(VerificationOptions.parseCelType("google.protobuf.Any")).isEqualTo(SimpleType.ANY);
   }
 
   @Test
-  public void parseCelType_optionalTypes() {
-    assertThat(VerificationOptions.parseCelType("optional<int>"))
-        .isEqualTo(OptionalType.create(SimpleType.INT));
-    assertThat(VerificationOptions.parseCelType("optional<string>"))
-        .isEqualTo(OptionalType.create(SimpleType.STRING));
-    assertThat(VerificationOptions.parseCelType("optional_type<bool>"))
-        .isEqualTo(OptionalType.create(SimpleType.BOOL));
-    assertThat(VerificationOptions.parseCelType("optional<optional<int>>"))
-        .isEqualTo(OptionalType.create(OptionalType.create(SimpleType.INT)));
-    assertThat(VerificationOptions.parseCelType("map<string, optional<int>>"))
-        .isEqualTo(MapType.create(SimpleType.STRING, OptionalType.create(SimpleType.INT)));
+  public void parseCelType_undeclarableType_throwsException() {
+    IllegalArgumentException e =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> VerificationOptions.parseCelType("map<string, ~T>"));
+
+    assertThat(e).hasMessageThat().isEqualTo("Unsupported variable type: T");
+    assertThrows(IllegalArgumentException.class, () -> VerificationOptions.parseCelType("null"));
+    assertThrows(
+        IllegalArgumentException.class, () -> VerificationOptions.parseCelType("type<int>"));
   }
 
   @Test
@@ -201,10 +188,6 @@ public final class VerificationOptionsTest {
     IllegalArgumentException ex =
         assertThrows(
             IllegalArgumentException.class, () -> VerificationOptions.parseVariables(specs));
-    assertThat(ex)
-        .hasMessageThat()
-        .contains(
-            "Supported types: int, uint, string, bool, double, bytes, dyn, timestamp,"
-                + " duration, list<T>, map<K, V>, optional<T>.");
+    assertThat(ex).hasMessageThat().contains("Undefined type name: unknown_type");
   }
 }
