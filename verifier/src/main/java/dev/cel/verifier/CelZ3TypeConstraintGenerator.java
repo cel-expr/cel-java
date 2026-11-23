@@ -194,6 +194,9 @@ final class CelZ3TypeConstraintGenerator {
 
       return CelZ3Exprs.mkAndFlattened(ctx, boundsAndTypes);
     }
+    if (type.kind() == CelKind.TYPE) {
+      return typeSystem.isType(val);
+    }
     if (type.kind() == CelKind.STRUCT) {
       return ctx.mkAnd(
           typeSystem.isMessage(val),

@@ -100,6 +100,10 @@ public final class CelZ3TypeSystem {
   private static final String IS_STRING = "isString";
   private static final String GET_STRING = "getString";
 
+  private static final String CONS_TYPE = "CelType";
+  private static final String IS_TYPE = "isType";
+  private static final String GET_TYPE = "getType";
+
   private static final String CONS_BYTES = "Bytes";
   private static final String IS_BYTES = "isBytes";
   private static final String GET_BYTES = "getBytes";
@@ -168,6 +172,7 @@ public final class CelZ3TypeSystem {
   private final Constructor doubleCons;
   private final Constructor stringCons;
   private final Constructor bytesCons;
+  private final Constructor typeCons;
   private final Constructor timestampCons;
   private final Constructor durationCons;
   private final Constructor errorCons;
@@ -262,6 +267,10 @@ public final class CelZ3TypeSystem {
 
   Constructor bytesCons() {
     return bytesCons;
+  }
+
+  Constructor typeCons() {
+    return typeCons;
   }
 
   Constructor timestampCons() {
@@ -433,6 +442,21 @@ public final class CelZ3TypeSystem {
   /** Creates a CelValue containing a string. */
   public Expr<?> mkString(String val) {
     return ctx.mkApp(stringCons.ConstructorDecl(), ctx.mkString(val));
+  }
+
+  /** Creates a CelValue for the type named {@code name}. */
+  public Expr<?> mkType(String name) {
+    return wrapType(ctx.mkString(name));
+  }
+
+  /** Wraps a Z3 string type name into a CelValue type. */
+  public Expr<?> wrapType(Expr<?> name) {
+    return ctx.mkApp(typeCons.ConstructorDecl(), name);
+  }
+
+  /** Checks if the given CelValue is a type. */
+  public BoolExpr isType(Expr<?> val) {
+    return (BoolExpr) ctx.mkApp(typeCons.getTesterDecl(), val);
   }
 
   /** Creates a CelValue containing bytes. */
@@ -1113,6 +1137,9 @@ public final class CelZ3TypeSystem {
     this.bytesCons =
         ctx.mkConstructor(
             CONS_BYTES, IS_BYTES, new String[] {GET_BYTES}, new Sort[] {ctx.getStringSort()}, null);
+    this.typeCons =
+        ctx.mkConstructor(
+            CONS_TYPE, IS_TYPE, new String[] {GET_TYPE}, new Sort[] {ctx.getStringSort()}, null);
     this.timestampCons =
         ctx.mkConstructor(
             CONS_TIMESTAMP,
@@ -1173,6 +1200,7 @@ public final class CelZ3TypeSystem {
               this.doubleCons,
               this.stringCons,
               this.bytesCons,
+              this.typeCons,
               this.timestampCons,
               this.durationCons,
               this.errorCons,
