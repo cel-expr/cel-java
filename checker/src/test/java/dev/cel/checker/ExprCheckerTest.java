@@ -33,11 +33,13 @@ import dev.cel.common.CelContainer;
 import dev.cel.common.CelMutableAst;
 import dev.cel.common.CelProtoAbstractSyntaxTree;
 import dev.cel.common.CelProtoDeclConverter;
+import dev.cel.common.CelVarDecl;
 import dev.cel.common.ast.CelConstant;
 import dev.cel.common.internal.EnvVisitable;
 import dev.cel.common.internal.EnvVisitor;
 import dev.cel.common.internal.Errors;
 import dev.cel.common.types.CelType;
+import dev.cel.common.types.CelTypeProvider;
 import dev.cel.common.types.ListType;
 import dev.cel.common.types.MapType;
 import dev.cel.common.types.NullableType;
@@ -227,6 +229,33 @@ public class ExprCheckerTest extends CelBaselineTestCase {
     declareVariable("app.config", SimpleType.INT);
     source = "[0].exists(app, .app.config == 1)";
     runTest();
+
+    source = "[1].all(int, type(int) == .int)";
+    runTest();
+  }
+
+  @Test
+  @SuppressWarnings("deprecation") // ExprChecker is used directly to add a non-comprehension scope.
+  public void referenceAbsolute_declInNonComprehensionScope() throws Exception {
+    source = "[1].all(x, .x == 'a') && .x == 'a'";
+    CelTypeProvider typeProvider = ProtoMessageTypeProvider.newBuilder().build();
+    prepareCompiler(typeProvider);
+    Errors errors = new Errors("<input>", source);
+    Env env = Env.standard(errors, typeProvider, null, TEST_OPTIONS);
+    env.enterScope();
+    env.add(CelVarDecl.newVarDeclaration("x", SimpleType.STRING));
+
+    CelAbstractSyntaxTree ast =
+        ExprChecker.typecheck(
+            env, container, celCompiler.parse(source).getAst(), Optional.absent());
+
+    testOutput().println(errors.getAllErrorsAsString());
+    testOutput()
+        .println(
+            CelDebug.toAdornedDebugString(
+                CelProtoAbstractSyntaxTree.fromCelAst(ast).getExpr(),
+                new CheckedExprAdorner(
+                    CelProtoAbstractSyntaxTree.fromCelAst(ast).toCheckedExpr())));
   }
 
   @Test

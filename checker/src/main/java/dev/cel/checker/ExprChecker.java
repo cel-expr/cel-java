@@ -535,10 +535,10 @@ public final class ExprChecker {
     }
 
     // Declare accumulation variable on outer scope.
-    env.enterScope();
+    env.enterComprehensionScope();
     env.add(CelVarDecl.newVarDeclaration(compre.accuVar(), accuType));
     // Declare iteration variable on inner scope.
-    env.enterScope();
+    env.enterComprehensionScope();
     env.add(CelVarDecl.newVarDeclaration(compre.iterVar(), varType));
     if (!Strings.isNullOrEmpty(compre.iterVar2())) {
       env.add(CelVarDecl.newVarDeclaration(compre.iterVar2(), varType2));
@@ -548,9 +548,9 @@ public final class ExprChecker {
     visit(compre.loopStep());
     assertType(compre.loopStep(), accuType);
     // Forget iteration variable, as result expression must only depend on accu.
-    env.exitScope();
+    env.exitComprehensionScope();
     visit(compre.result());
-    env.exitScope();
+    env.exitComprehensionScope();
 
     env.setType(expr, inferenceContext.specialize(env.getType(compre.result())));
   }
