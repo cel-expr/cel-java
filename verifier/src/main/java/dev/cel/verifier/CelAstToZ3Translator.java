@@ -243,17 +243,33 @@ final class CelAstToZ3Translator {
     }
     String name = ident.name();
     CelType type = ast.getTypeOrThrow(exprId);
-    if (type instanceof TypeType) {
-      TypeType typeType = (TypeType) type;
-      if (typeType.type().kind() != CelKind.DYN) {
-        return TranslatedValue.create(
-            typeSystem.mkString(typeType.containingTypeName()), celExpr, typeSystem, ctx.mkFalse());
-      }
-    }
     TranslatedValue tv =
         context.computeSymbolIfAbsent(
             name,
             n -> {
+              // Nothing binds `n`, so if it's typed type(T), it names T (e.g. `int`).
+              if (type instanceof TypeType) {
+                TypeType typeType = (TypeType) type;
+                if (typeType.type().kind() != CelKind.DYN) {
+                  return TranslatedValue.create(
+                      typeSystem.mkType(typeType.containingTypeName()),
+                      typeSystem,
+                      /* isApproximate= */ ctx.mkFalse());
+                }
+                // `type`, `dyn` and variables holding a type all check as type(dyn).
+                if (n.equals("type")) {
+                  return TranslatedValue.create(
+                      typeSystem.mkType("type"), typeSystem, /* isApproximate= */ ctx.mkFalse());
+                }
+                if (n.equals("dyn")) {
+                  // The spec says `dyn` has no value at runtime.
+                  return TranslatedValue.create(
+                      ctx.mkConst("!dyn", typeSystem.celValueSort()),
+                      typeSystem,
+                      context.recordApproximation(
+                          "the `dyn` type as a value", /* condition= */ ctx.mkTrue()));
+                }
+              }
               Expr<?> v = ctx.mkConst(n, typeSystem.celValueSort());
               context.addInputVariable(v, type);
 
@@ -521,7 +537,7 @@ final class CelAstToZ3Translator {
    */
   private static boolean mayEmbedArgs(String functionName, CelType resultType) {
     return (!CelZ3OperatorTranslator.isStaticallyKnown(resultType)
-            || !resultType.parameters().isEmpty())
+            || (!resultType.parameters().isEmpty() && resultType.kind() != CelKind.TYPE))
         && !functionName.equals(Operator.INDEX.getFunction())
         && !functionName.equals(Operator.CONDITIONAL.getFunction());
   }
