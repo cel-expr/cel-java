@@ -1,4 +1,5 @@
 load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
+load("@rules_proto//proto:defs.bzl", "proto_descriptor_set")
 load(":cel_verifier.bzl", "cel_verifier_test")
 
 package(
@@ -72,6 +73,20 @@ cel_verifier_test(
     expected_status = ["VIOLATED"],
     policy_file = "testdata/violated_policy.yaml",
     variables = {"role": "string"},
+)
+
+proto_descriptor_set(
+    name = "test_all_types_fds",
+    testonly = True,
+    deps = ["@cel_conformance//proto/cel/expr/conformance/proto3:test_all_types_proto"],
+)
+
+cel_verifier_test(
+    name = "test_proto_message_test",
+    command = "check-valid",
+    expression = "has(msg.single_nested_message) || msg.single_nested_message.bb == 0",
+    file_descriptor_set = ":test_all_types_fds",
+    variables = {"msg": "cel.expr.conformance.proto3.TestAllTypes"},
 )
 
 bzl_library(

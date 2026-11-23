@@ -18,6 +18,8 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 
 import com.google.common.base.Ascii;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
+import com.google.protobuf.Descriptors.FileDescriptor;
 import dev.cel.common.CelValidationException;
 import dev.cel.common.types.CelType;
 import dev.cel.common.types.CelTypes;
@@ -45,7 +47,7 @@ final class CelVerifierRepl {
 
   private CelVerifierRepl() {}
 
-  static int runInteractiveRepl() {
+  static int runInteractiveRepl(ImmutableSet<FileDescriptor> fileDescriptors) {
     LineReader lineReader = null;
     BufferedReader fallbackReader = null;
     try {
@@ -58,15 +60,25 @@ final class CelVerifierRepl {
     } catch (Exception e) {
       fallbackReader = new BufferedReader(new InputStreamReader(System.in, UTF_8));
     }
-    return runReplInternal(lineReader, fallbackReader, System.out, System.err);
+    return runReplInternal(fileDescriptors, lineReader, fallbackReader, System.out, System.err);
   }
 
-  static int runRepl(BufferedReader reader, PrintStream out, PrintStream err) {
-    return runReplInternal(null, reader, out, err);
+  static int runRepl(
+      ImmutableSet<FileDescriptor> fileDescriptors,
+      BufferedReader reader,
+      PrintStream out,
+      PrintStream err) {
+    return runReplInternal(fileDescriptors, null, reader, out, err);
   }
 
   private static int runReplInternal(
-      LineReader lineReader, BufferedReader fallbackReader, PrintStream out, PrintStream err) {
+      ImmutableSet<FileDescriptor> fileDescriptors,
+      LineReader lineReader,
+      BufferedReader fallbackReader,
+      PrintStream out,
+      PrintStream err) {
+    VerificationOptions typeOptions =
+        VerificationOptions.builder().setFileDescriptors(fileDescriptors).build();
     out.println("============================================================");
     out.println(" CEL Verification REPL");
     out.println(" Type :help for commands, :quit to exit.");
@@ -138,7 +150,7 @@ final class CelVerifierRepl {
             err.println(
                 "Usage: :var <name> <type> (e.g. :var role string, :var scores map<string,int>)");
           } else {
-            handleVarCommand(arg, sessionVars, out, err);
+            handleVarCommand(arg, typeOptions, sessionVars, out, err);
           }
           continue;
         }
@@ -207,6 +219,7 @@ final class CelVerifierRepl {
               .setTimeout(Duration.ofSeconds(timeoutSeconds))
               .setComprehensionUnrollLimit(unrollLimit)
               .setUnknownIdentifiers(unknownIdentifiers)
+              .setFileDescriptors(fileDescriptors)
               .build();
 
       try {
@@ -273,7 +286,11 @@ final class CelVerifierRepl {
   }
 
   private static void handleVarCommand(
-      String arg, Map<String, CelType> sessionVars, PrintStream out, PrintStream err) {
+      String arg,
+      VerificationOptions typeOptions,
+      Map<String, CelType> sessionVars,
+      PrintStream out,
+      PrintStream err) {
     String[] parts = arg.split("\\s+", 2);
     if (parts.length != 2) {
       err.println("Usage: :var <name> <type> (e.g. :var role string, :var scores map<string,int>)");
@@ -281,7 +298,7 @@ final class CelVerifierRepl {
     }
     String name = parts[0].trim();
     try {
-      CelType type = VerificationOptions.parseCelType(parts[1]);
+      CelType type = typeOptions.parseCelType(parts[1]);
       sessionVars.put(name, type);
       out.println("Variable declared: " + name + " : " + CelTypes.format(type));
     } catch (IllegalArgumentException | IllegalStateException e) {
@@ -322,7 +339,9 @@ final class CelVerifierRepl {
         out.println(
             "  - Optional types:   optional_type<T> (e.g., optional_type<string>,"
                 + " optional_type<int>)");
-        out.println("  - Protobuf types:   coming soon");
+        out.println(
+            "  - Protobuf types:   message and enum names from repl --file_descriptor_set"
+                + " (enums are int)");
         out.println();
         out.println("Examples:");
         out.println("  cel-verifier> :var role string");

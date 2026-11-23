@@ -17,6 +17,9 @@ package dev.cel.verifier.tools;
 import static com.google.common.truth.Truth.assertThat;
 import static java.nio.charset.StandardCharsets.UTF_8;
 
+import com.google.common.collect.ImmutableSet;
+import com.google.protobuf.Descriptors.FileDescriptor;
+import dev.cel.expr.conformance.proto3.TestAllTypes;
 import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
@@ -34,8 +37,13 @@ public final class CelVerifierReplTest {
     System.setProperty("z3.skipLibraryLoad", "true");
   }
 
-  @SuppressWarnings({"PreferCharsetOverload", "JdkObsolete"})
   private String[] runReplWithCommands(String... commands) throws Exception {
+    return runReplWithCommands(ImmutableSet.of(), commands);
+  }
+
+  @SuppressWarnings({"PreferCharsetOverload", "JdkObsolete"})
+  private String[] runReplWithCommands(
+      ImmutableSet<FileDescriptor> fileDescriptors, String... commands) throws Exception {
     String input = String.join("\n", commands) + "\n";
     BufferedReader reader = new BufferedReader(new StringReader(input));
     ByteArrayOutputStream outStream = new ByteArrayOutputStream();
@@ -43,11 +51,28 @@ public final class CelVerifierReplTest {
     PrintStream out = new PrintStream(outStream, true, UTF_8.name());
     PrintStream err = new PrintStream(errStream, true, UTF_8.name());
 
-    CelVerifierRepl.runRepl(reader, out, err);
+    CelVerifierRepl.runRepl(fileDescriptors, reader, out, err);
 
     return new String[] {
       new String(outStream.toByteArray(), UTF_8), new String(errStream.toByteArray(), UTF_8)
     };
+  }
+
+  @Test
+  public void repl_protoTypesFromDescriptorSet() throws Exception {
+    String[] output =
+        runReplWithCommands(
+            ImmutableSet.of(TestAllTypes.getDescriptor().getFile()),
+            ":var msg cel.expr.conformance.proto3.TestAllTypes",
+            ":var e cel.expr.conformance.proto3.TestAllTypes.NestedEnum",
+            "valid has(msg.single_nested_message) || msg.single_nested_message.bb == 0",
+            ":quit");
+
+    assertThat(output[0])
+        .contains("Variable declared: msg : cel.expr.conformance.proto3.TestAllTypes");
+    assertThat(output[0]).contains("Variable declared: e : int");
+    assertThat(output[0]).contains("[VERIFIED]");
+    assertThat(output[1]).isEmpty();
   }
 
   @Test
@@ -86,7 +111,7 @@ public final class CelVerifierReplTest {
     assertThat(output[0]).contains("Query: equiv <expression1> <=> <expression2>");
     assertThat(output[0]).contains("Well-known types: timestamp, duration");
     assertThat(output[0]).contains("Optional types:   optional_type<T>");
-    assertThat(output[0]).contains("Protobuf types:   coming soon");
+    assertThat(output[0]).contains("Protobuf types:   message and enum names");
   }
 
   @Test

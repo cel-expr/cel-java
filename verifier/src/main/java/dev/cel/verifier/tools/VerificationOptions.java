@@ -15,20 +15,25 @@
 package dev.cel.verifier.tools;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
+import com.google.protobuf.Descriptors.FileDescriptor;
 import dev.cel.bundle.CelEnvironment.TypeDecl;
 import dev.cel.common.types.CelKind;
 import dev.cel.common.types.CelType;
 import dev.cel.common.types.CelTypeProvider;
+import dev.cel.common.types.EnumType;
 import dev.cel.common.types.ProtoMessageTypeProvider;
+import dev.cel.common.types.SimpleType;
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /** Configuration options for CEL verification CLI operations. */
 final class VerificationOptions {
@@ -42,8 +47,6 @@ final class VerificationOptions {
   static final Duration DEFAULT_TIMEOUT = Duration.ofSeconds(10);
   static final int DEFAULT_COMPREHENSION_UNROLL_LIMIT = 5;
   static final OutputFormat DEFAULT_OUTPUT_FORMAT = OutputFormat.TEXT;
-  private static final CelTypeProvider EMPTY_TYPE_PROVIDER =
-      ProtoMessageTypeProvider.newBuilder().build();
   private static final ImmutableSet<CelKind> UNDECLARABLE_KINDS =
       Sets.immutableEnumSet(CelKind.NULL_TYPE, CelKind.TYPE, CelKind.TYPE_PARAM);
 
@@ -51,6 +54,8 @@ final class VerificationOptions {
   private final int comprehensionUnrollLimit;
   private final ImmutableList<String> unknownIdentifiers;
   private final OutputFormat outputFormat;
+  private final ImmutableSet<FileDescriptor> fileDescriptors;
+  private final CelTypeProvider typeProvider;
 
   Duration getTimeout() {
     return timeout;
@@ -68,6 +73,10 @@ final class VerificationOptions {
     return outputFormat;
   }
 
+  ImmutableSet<FileDescriptor> getFileDescriptors() {
+    return fileDescriptors;
+  }
+
   static Builder builder() {
     return new Builder();
   }
@@ -78,6 +87,7 @@ final class VerificationOptions {
     private int comprehensionUnrollLimit = DEFAULT_COMPREHENSION_UNROLL_LIMIT;
     private ImmutableList<String> unknownIdentifiers = ImmutableList.of();
     private OutputFormat outputFormat = DEFAULT_OUTPUT_FORMAT;
+    private ImmutableSet<FileDescriptor> fileDescriptors = ImmutableSet.of();
 
     @CanIgnoreReturnValue
     Builder setTimeout(Duration timeout) {
@@ -104,9 +114,15 @@ final class VerificationOptions {
       return this;
     }
 
+    @CanIgnoreReturnValue
+    Builder setFileDescriptors(Iterable<FileDescriptor> fileDescriptors) {
+      this.fileDescriptors = ImmutableSet.copyOf(fileDescriptors);
+      return this;
+    }
+
     VerificationOptions build() {
       return new VerificationOptions(
-          timeout, comprehensionUnrollLimit, unknownIdentifiers, outputFormat);
+          timeout, comprehensionUnrollLimit, unknownIdentifiers, outputFormat, fileDescriptors);
     }
   }
 
@@ -114,18 +130,38 @@ final class VerificationOptions {
       Duration timeout,
       int comprehensionUnrollLimit,
       ImmutableList<String> unknownIdentifiers,
-      OutputFormat outputFormat) {
+      OutputFormat outputFormat,
+      ImmutableSet<FileDescriptor> fileDescriptors) {
     this.timeout = timeout;
     this.comprehensionUnrollLimit = comprehensionUnrollLimit;
     this.unknownIdentifiers = unknownIdentifiers;
     this.outputFormat = outputFormat;
+    this.fileDescriptors = fileDescriptors;
+    this.typeProvider =
+        enumsAsInt(
+            ProtoMessageTypeProvider.newBuilder().addFileDescriptors(fileDescriptors).build());
+  }
+
+  // The type checker reads enum fields and constants as int, but leaves enum-typed variables as is.
+  private static CelTypeProvider enumsAsInt(CelTypeProvider provider) {
+    return new CelTypeProvider() {
+      @Override
+      public ImmutableCollection<CelType> types() {
+        return provider.types();
+      }
+
+      @Override
+      public Optional<CelType> findType(String typeName) {
+        return provider.findType(typeName).map(t -> t instanceof EnumType ? SimpleType.INT : t);
+      }
+    };
   }
 
   /**
    * Helper utility to parse CLI variable definitions formatted as "name:type" (e.g. "x:int",
    * "role:string", "is_admin:bool").
    */
-  static ImmutableMap<String, CelType> parseVariables(List<String> varSpecs) {
+  ImmutableMap<String, CelType> parseVariables(List<String> varSpecs) {
     if (varSpecs == null || varSpecs.isEmpty()) {
       return ImmutableMap.of();
     }
@@ -149,8 +185,8 @@ final class VerificationOptions {
     return ImmutableMap.copyOf(vars);
   }
 
-  static CelType parseCelType(String typeStr) {
-    CelType type = TypeDecl.parse(typeStr).toCelType(EMPTY_TYPE_PROVIDER);
+  CelType parseCelType(String typeStr) {
+    CelType type = TypeDecl.parse(typeStr).toCelType(typeProvider);
     checkDeclarable(type);
     return type;
   }
