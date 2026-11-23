@@ -75,7 +75,9 @@ VALIDATOR_TARGETS = [
     "//validator/src/main/java/dev/cel/validator:ast_validator",
     "//validator/src/main/java/dev/cel/validator:validator_builder",
     "//validator/src/main/java/dev/cel/validator:validator_impl",
+    "//validator/src/main/java/dev/cel/validator/validators:ast_depth_limit_validator",
     "//validator/src/main/java/dev/cel/validator/validators:bind_nesting_limit_validator",
+    "//validator/src/main/java/dev/cel/validator/validators:comprehension_nesting_limit_validator",
     "//validator/src/main/java/dev/cel/validator/validators:duration",
     "//validator/src/main/java/dev/cel/validator/validators:homogeneous_literal",
     "//validator/src/main/java/dev/cel/validator/validators:regex",
@@ -132,6 +134,7 @@ EXTENSION_TARGETS = [
 BUNDLE_TARGETS = [
     "//bundle/src/main/java/dev/cel/bundle:cel",
     "//bundle/src/main/java/dev/cel/bundle:environment",
+    "//bundle/src/main/java/dev/cel/bundle:environment_exporter",
     "//bundle/src/main/java/dev/cel/bundle:environment_yaml_parser",
 ]
 
