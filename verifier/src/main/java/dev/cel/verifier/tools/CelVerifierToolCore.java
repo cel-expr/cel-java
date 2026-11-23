@@ -74,7 +74,7 @@ final class CelVerifierToolCore {
   static CelVerificationResult checkSatisfiable(
       String expression, Map<String, CelType> variables, VerificationOptions options)
       throws Exception {
-    CelCompiler compiler = buildCompiler(variables);
+    CelCompiler compiler = buildCompiler(variables, options);
     CelAbstractSyntaxTree ast = compiler.compile(expression).getAst();
     CelVerifier verifier = buildVerifier(variables, options);
     return verifier.isSatisfiable(ast);
@@ -84,7 +84,7 @@ final class CelVerifierToolCore {
   static CelVerificationResult checkValid(
       String expression, Map<String, CelType> variables, VerificationOptions options)
       throws Exception {
-    CelCompiler compiler = buildCompiler(variables);
+    CelCompiler compiler = buildCompiler(variables, options);
     CelAbstractSyntaxTree ast = compiler.compile(expression).getAst();
     CelVerifier verifier = buildVerifier(variables, options);
     return verifier.isAlwaysTrue(ast);
@@ -97,7 +97,7 @@ final class CelVerifierToolCore {
       Map<String, CelType> variables,
       VerificationOptions options)
       throws Exception {
-    CelCompiler compiler = buildCompiler(variables);
+    CelCompiler compiler = buildCompiler(variables, options);
     CelAbstractSyntaxTree astA = compiler.compile(expressionA).getAst();
     CelAbstractSyntaxTree astB = compiler.compile(expressionB).getAst();
     CelVerifier verifier = buildVerifier(variables, options);
@@ -130,11 +130,12 @@ final class CelVerifierToolCore {
     return policyVerifier.verifyEquivalence(policyA, policyB);
   }
 
-  static CelCompiler buildCompiler(Map<String, CelType> variables) {
+  static CelCompiler buildCompiler(Map<String, CelType> variables, VerificationOptions options) {
     CelCompilerBuilder builder =
         CelCompilerFactory.standardCelCompilerBuilder()
             .setStandardMacros(CelStandardMacro.STANDARD_MACROS)
             .addMessageTypes(WELL_KNOWN_DESCRIPTORS)
+            .addFileTypes(options.getFileDescriptors())
             .addLibraries(
                 CelExtensions.bindings(),
                 CelExtensions.comprehensions(),
@@ -152,11 +153,12 @@ final class CelVerifierToolCore {
     return builder.build();
   }
 
-  static Cel buildCel(Map<String, CelType> variables) {
+  static Cel buildCel(Map<String, CelType> variables, VerificationOptions options) {
     CelBuilder celBuilder =
         CelFactory.plannerCelBuilder()
             .setStandardMacros(CelStandardMacro.STANDARD_MACROS)
             .addMessageTypes(WELL_KNOWN_DESCRIPTORS)
+            .addFileTypes(options.getFileDescriptors())
             .addCompilerLibraries(
                 CelExtensions.optional(),
                 CelExtensions.bindings(),
@@ -171,7 +173,7 @@ final class CelVerifierToolCore {
 
   static CelVerifier buildVerifier(Map<String, CelType> variables, VerificationOptions options) {
     CelVerifierBuilder builder =
-        CelVerifierFactory.newVerifier(buildCel(variables))
+        CelVerifierFactory.newVerifier(buildCel(variables, options))
             .setTimeout(options.getTimeout())
             .setComprehensionUnrollLimit(options.getComprehensionUnrollLimit());
 
@@ -183,7 +185,7 @@ final class CelVerifierToolCore {
 
   private static CelPolicyVerifier buildPolicyVerifier(
       Map<String, CelType> variables, VerificationOptions options) {
-    Cel celBundle = buildCel(variables);
+    Cel celBundle = buildCel(variables, options);
     CelPolicyCompiler policyCompiler =
         CelPolicyCompilerFactory.newPolicyCompiler(celBundle).build();
     CelVerifier astVerifier = buildVerifier(variables, options);

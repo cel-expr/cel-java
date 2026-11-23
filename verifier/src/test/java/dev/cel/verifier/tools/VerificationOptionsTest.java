@@ -19,12 +19,14 @@ import static org.junit.Assert.assertThrows;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import dev.cel.common.types.CelKind;
 import dev.cel.common.types.CelType;
 import dev.cel.common.types.ListType;
 import dev.cel.common.types.MapType;
 import dev.cel.common.types.NullableType;
 import dev.cel.common.types.OptionalType;
 import dev.cel.common.types.SimpleType;
+import dev.cel.expr.conformance.proto3.TestAllTypes;
 import dev.cel.verifier.tools.VerificationOptions.OutputFormat;
 import java.time.Duration;
 import org.junit.Test;
@@ -33,6 +35,7 @@ import org.junit.runners.JUnit4;
 
 @RunWith(JUnit4.class)
 public final class VerificationOptionsTest {
+  private static final VerificationOptions OPTIONS = VerificationOptions.builder().build();
 
   @Test
   public void defaultOptions() {
@@ -87,7 +90,7 @@ public final class VerificationOptionsTest {
   @Test
   public void parseVariables_validSpecs() {
     ImmutableMap<String, CelType> vars =
-        VerificationOptions.parseVariables(
+        OPTIONS.parseVariables(
             ImmutableList.of(
                 "x:int",
                 "name:string",
@@ -112,73 +115,79 @@ public final class VerificationOptionsTest {
 
   @Test
   public void parseCelType_wellKnownTypes() {
-    assertThat(VerificationOptions.parseCelType("google.protobuf.Timestamp"))
-        .isEqualTo(SimpleType.TIMESTAMP);
-    assertThat(VerificationOptions.parseCelType("google.protobuf.Duration"))
-        .isEqualTo(SimpleType.DURATION);
-    assertThat(VerificationOptions.parseCelType("google.protobuf.Value")).isEqualTo(SimpleType.DYN);
-    assertThat(VerificationOptions.parseCelType("google.protobuf.Struct"))
+    assertThat(OPTIONS.parseCelType("google.protobuf.Timestamp")).isEqualTo(SimpleType.TIMESTAMP);
+    assertThat(OPTIONS.parseCelType("google.protobuf.Duration")).isEqualTo(SimpleType.DURATION);
+    assertThat(OPTIONS.parseCelType("google.protobuf.Value")).isEqualTo(SimpleType.DYN);
+    assertThat(OPTIONS.parseCelType("google.protobuf.Struct"))
         .isEqualTo(MapType.create(SimpleType.STRING, SimpleType.DYN));
-    assertThat(VerificationOptions.parseCelType("google.protobuf.ListValue"))
+    assertThat(OPTIONS.parseCelType("google.protobuf.ListValue"))
         .isEqualTo(ListType.create(SimpleType.DYN));
-    assertThat(VerificationOptions.parseCelType("google.protobuf.BoolValue"))
+    assertThat(OPTIONS.parseCelType("google.protobuf.BoolValue"))
         .isEqualTo(NullableType.create(SimpleType.BOOL));
-    assertThat(VerificationOptions.parseCelType("google.protobuf.BytesValue"))
+    assertThat(OPTIONS.parseCelType("google.protobuf.BytesValue"))
         .isEqualTo(NullableType.create(SimpleType.BYTES));
-    assertThat(VerificationOptions.parseCelType("google.protobuf.DoubleValue"))
+    assertThat(OPTIONS.parseCelType("google.protobuf.DoubleValue"))
         .isEqualTo(NullableType.create(SimpleType.DOUBLE));
-    assertThat(VerificationOptions.parseCelType("google.protobuf.FloatValue"))
+    assertThat(OPTIONS.parseCelType("google.protobuf.FloatValue"))
         .isEqualTo(NullableType.create(SimpleType.DOUBLE));
-    assertThat(VerificationOptions.parseCelType("google.protobuf.Int32Value"))
+    assertThat(OPTIONS.parseCelType("google.protobuf.Int32Value"))
         .isEqualTo(NullableType.create(SimpleType.INT));
-    assertThat(VerificationOptions.parseCelType("google.protobuf.Int64Value"))
+    assertThat(OPTIONS.parseCelType("google.protobuf.Int64Value"))
         .isEqualTo(NullableType.create(SimpleType.INT));
-    assertThat(VerificationOptions.parseCelType("google.protobuf.UInt32Value"))
+    assertThat(OPTIONS.parseCelType("google.protobuf.UInt32Value"))
         .isEqualTo(NullableType.create(SimpleType.UINT));
-    assertThat(VerificationOptions.parseCelType("google.protobuf.UInt64Value"))
+    assertThat(OPTIONS.parseCelType("google.protobuf.UInt64Value"))
         .isEqualTo(NullableType.create(SimpleType.UINT));
-    assertThat(VerificationOptions.parseCelType("google.protobuf.StringValue"))
+    assertThat(OPTIONS.parseCelType("google.protobuf.StringValue"))
         .isEqualTo(NullableType.create(SimpleType.STRING));
-    assertThat(VerificationOptions.parseCelType("google.protobuf.Any")).isEqualTo(SimpleType.ANY);
+    assertThat(OPTIONS.parseCelType("google.protobuf.Any")).isEqualTo(SimpleType.ANY);
+  }
+
+  @Test
+  public void parseCelType_protoTypes() {
+    VerificationOptions options =
+        VerificationOptions.builder()
+            .setFileDescriptors(ImmutableList.of(TestAllTypes.getDescriptor().getFile()))
+            .build();
+
+    CelType message = options.parseCelType("cel.expr.conformance.proto3.TestAllTypes");
+    CelType optionalEnum =
+        options.parseCelType("optional_type<cel.expr.conformance.proto3.TestAllTypes.NestedEnum>");
+
+    assertThat(message.kind()).isEqualTo(CelKind.STRUCT);
+    assertThat(message.name()).isEqualTo("cel.expr.conformance.proto3.TestAllTypes");
+    assertThat(optionalEnum).isEqualTo(OptionalType.create(SimpleType.INT));
   }
 
   @Test
   public void parseCelType_undeclarableType_throwsException() {
     IllegalArgumentException e =
-        assertThrows(
-            IllegalArgumentException.class,
-            () -> VerificationOptions.parseCelType("map<string, ~T>"));
+        assertThrows(IllegalArgumentException.class, () -> OPTIONS.parseCelType("map<string, ~T>"));
 
     assertThat(e).hasMessageThat().isEqualTo("Unsupported variable type: T");
-    assertThrows(IllegalArgumentException.class, () -> VerificationOptions.parseCelType("null"));
-    assertThrows(
-        IllegalArgumentException.class, () -> VerificationOptions.parseCelType("type<int>"));
+    assertThrows(IllegalArgumentException.class, () -> OPTIONS.parseCelType("null"));
+    assertThrows(IllegalArgumentException.class, () -> OPTIONS.parseCelType("type<int>"));
   }
 
   @Test
   public void parseCelType_parenthesesSyntax_throwsException() {
-    assertThrows(
-        IllegalArgumentException.class, () -> VerificationOptions.parseCelType("optional(int)"));
-    assertThrows(
-        IllegalArgumentException.class,
-        () -> VerificationOptions.parseCelType("optional_type(bool)"));
-    assertThrows(
-        IllegalArgumentException.class, () -> VerificationOptions.parseCelType("list(string)"));
-    assertThrows(
-        IllegalArgumentException.class, () -> VerificationOptions.parseCelType("map(string, int)"));
+    assertThrows(IllegalArgumentException.class, () -> OPTIONS.parseCelType("optional(int)"));
+    assertThrows(IllegalArgumentException.class, () -> OPTIONS.parseCelType("optional_type(bool)"));
+    assertThrows(IllegalArgumentException.class, () -> OPTIONS.parseCelType("list(string)"));
+    assertThrows(IllegalArgumentException.class, () -> OPTIONS.parseCelType("map(string, int)"));
   }
 
   @Test
   public void parseVariables_nullOrEmpty_returnsEmptyMap() {
-    assertThat(VerificationOptions.parseVariables(null)).isEmpty();
-    assertThat(VerificationOptions.parseVariables(ImmutableList.of())).isEmpty();
+    assertThat(OPTIONS.parseVariables(null)).isEmpty();
+    assertThat(OPTIONS.parseVariables(ImmutableList.of())).isEmpty();
   }
 
   @Test
   public void parseVariables_invalidSpec_throwsException() {
     ImmutableList<String> specs = ImmutableList.of("invalid_spec_without_colon");
 
-    assertThrows(IllegalArgumentException.class, () -> VerificationOptions.parseVariables(specs));
+    assertThrows(IllegalArgumentException.class, () -> OPTIONS.parseVariables(specs));
   }
 
   @Test
@@ -186,8 +195,7 @@ public final class VerificationOptionsTest {
     ImmutableList<String> specs = ImmutableList.of("x:unknown_type");
 
     IllegalArgumentException ex =
-        assertThrows(
-            IllegalArgumentException.class, () -> VerificationOptions.parseVariables(specs));
+        assertThrows(IllegalArgumentException.class, () -> OPTIONS.parseVariables(specs));
     assertThat(ex).hasMessageThat().contains("Undefined type name: unknown_type");
   }
 }

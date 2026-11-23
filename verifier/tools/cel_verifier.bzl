@@ -30,6 +30,7 @@ def _make_verifier_args(
         expression = None,
         expression_b = None,
         policy_file = None,
+        file_descriptor_set = None,
         variables = {},
         unknowns = [],
         timeout = 10,
@@ -61,6 +62,11 @@ def _make_verifier_args(
         args.append("$(rootpath %s)" % policy_file)
         srcs.append(policy_file)
 
+    if file_descriptor_set:
+        args.append("--file_descriptor_set")
+        args.append("$(rootpath %s)" % file_descriptor_set)
+        srcs.append(file_descriptor_set)
+
     for var_name, var_type in variables.items():
         args.append("--var")
         args.append("%s:%s" % (var_name, var_type))
@@ -86,6 +92,7 @@ def cel_verifier_test(
         expression = None,
         expression_b = None,
         policy_file = None,
+        file_descriptor_set = None,
         variables = {},
         unknowns = [],
         timeout = 10,
@@ -106,6 +113,8 @@ def cel_verifier_test(
       expression: str CEL expression to verify (required for check-sat, check-valid, verify-equiv)
       expression_b: str second CEL expression for equivalence check (required for verify-equiv)
       policy_file: label of a YAML policy file to verify (required for verify-policy)
+      file_descriptor_set: label of a transitive FileDescriptorSet (e.g., a proto_descriptor_set
+        target) declaring the protobuf types used by variables
       variables: dict of var_name -> type_string (e.g., {"port": "int"})
       unknowns: list of str unknown identifiers
       timeout: int solver timeout in seconds (default 10)
@@ -120,6 +129,7 @@ def cel_verifier_test(
         expression = expression,
         expression_b = expression_b,
         policy_file = policy_file,
+        file_descriptor_set = file_descriptor_set,
         variables = variables,
         unknowns = unknowns,
         timeout = timeout,
