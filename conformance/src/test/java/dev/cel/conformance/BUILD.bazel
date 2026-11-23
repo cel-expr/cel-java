@@ -169,10 +169,6 @@ _TESTS_TO_SKIP_LEGACY = _TESTS_TO_SKIP_COMMON + [
     # Skip until fixed.
     "fields/qualified_identifier_resolution/map_value_repeat_key_heterogeneous",
 
-    # Legacy DefaultDispatcher throws ambiguous overload between optional_list_index_int /
-    # optional_map_index_value (and optional_*_optindex_*) when indexing a dyn optional.
-    "optionals/optionals/dyn_optional_nested_or_value_index,dyn_optional_or_value_optindex",
-
     # com.google.protobuf.TextFormat does not conform to the spec. Unknown enum values are supposed
     # to be allowed in proto3. Currently they are rejected.
     # "enums/legacy_proto3/select_big",
