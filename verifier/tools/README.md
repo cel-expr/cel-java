@@ -86,11 +86,24 @@ Supported types:
 *   Map types: `map<K, V>` (e.g., `--var "scores:map<string, int>"`)
 *   Optional types: `optional_type<T>` (e.g.,
     `--var "opt_flag:optional_type<bool>"`)
-*   Protobuf types: Coming soon
+*   Protobuf types: fully qualified message and enum names (e.g.,
+    `--var "msg:my.pkg.MyMessage"`), declared by `--file_descriptor_set`. Enum
+    variables are `int`, as in CEL.
 
 Examples:
 ```bash
 --var "role:string" --var "port:int" --var "tags:list<string>" --var "created_at:timestamp" --var "opt_flag:optional_type<bool>"
+```
+
+### Protobuf Descriptors (`--file_descriptor_set`)
+
+Load protobuf message and enum types from a binary `FileDescriptorSet` that
+includes all imports (alias: `--transitive_descriptor_set`). Build one with
+`protoc --include_imports --descriptor_set_out=types.pb my/pkg/types.proto`, or
+with a `proto_descriptor_set` rule in Bazel:
+
+```bash
+--file_descriptor_set types.pb --var "msg:my.pkg.MyMessage"
 ```
 
 ### Unknown Identifiers (`--unknown`, `-u`)

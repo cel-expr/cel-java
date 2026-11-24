@@ -15,6 +15,9 @@
 package dev.cel.verifier.tools;
 
 import com.google.common.collect.ImmutableMap;
+import com.google.protobuf.DescriptorProtos.FileDescriptorSet;
+import com.google.protobuf.ExtensionRegistry;
+import dev.cel.common.CelDescriptorUtil;
 import dev.cel.common.CelValidationException;
 import dev.cel.common.types.CelType;
 import dev.cel.policy.CelPolicyValidationException;
@@ -22,6 +25,7 @@ import dev.cel.verifier.CelVerificationResult;
 import dev.cel.verifier.CelVerificationResult.VerificationStatus;
 import dev.cel.verifier.tools.VerificationOptions.OutputFormat;
 import java.io.File;
+import java.io.IOException;
 import java.io.OutputStreamWriter;
 import java.io.PrintWriter;
 import java.nio.charset.StandardCharsets;
@@ -116,6 +120,11 @@ public final class CelVerifierTool implements Runnable {
         description = "Output format: TEXT or JSON (default: TEXT)")
     String outputFormatStr = VerificationOptions.DEFAULT_OUTPUT_FORMAT.name();
 
+    @Option(
+        names = {"--file_descriptor_set", "--transitive_descriptor_set"},
+        description = "Path to a FileDescriptorSet with the protobuf types used by variables")
+    String fileDescriptorSetPath = "";
+
     @FunctionalInterface
     protected interface CommandAction {
       int execute(VerificationOptions options, ImmutableMap<String, CelType> vars) throws Exception;
@@ -128,7 +137,7 @@ public final class CelVerifierTool implements Runnable {
     protected int executeCommand(String errorPrefix, CommandAction action) {
       try {
         VerificationOptions options = getOptions();
-        ImmutableMap<String, CelType> vars = VerificationOptions.parseVariables(variables);
+        ImmutableMap<String, CelType> vars = options.parseVariables(variables);
         return action.execute(options, vars);
       } catch (CelValidationException e) {
         err().println("Compilation error:\n" + e.getMessage());
@@ -142,19 +151,31 @@ public final class CelVerifierTool implements Runnable {
       }
     }
 
-    protected VerificationOptions getOptions() {
+    protected VerificationOptions getOptions() throws IOException {
       OutputFormat format = OutputFormat.TEXT;
       try {
         format = OutputFormat.valueOf(outputFormatStr.toUpperCase(Locale.US));
       } catch (IllegalArgumentException e) {
         err().println("Invalid output format '" + outputFormatStr + "'. Defaulting to TEXT.");
       }
-      return VerificationOptions.builder()
-          .setTimeout(Duration.ofSeconds(timeoutSeconds))
-          .setComprehensionUnrollLimit(comprehensionUnrollLimit)
-          .setUnknownIdentifiers(unknownIdentifiers)
-          .setOutputFormat(format)
-          .build();
+      VerificationOptions.Builder builder =
+          VerificationOptions.builder()
+              .setTimeout(Duration.ofSeconds(timeoutSeconds))
+              .setComprehensionUnrollLimit(comprehensionUnrollLimit)
+              .setUnknownIdentifiers(unknownIdentifiers)
+              .setOutputFormat(format);
+      if (!fileDescriptorSetPath.isEmpty()) {
+        try {
+          builder.setFileDescriptors(
+              CelDescriptorUtil.getFileDescriptorsFromFileDescriptorSet(
+                  FileDescriptorSet.parseFrom(
+                      Files.readAllBytes(new File(fileDescriptorSetPath).toPath()),
+                      ExtensionRegistry.getEmptyRegistry())));
+        } catch (IOException e) {
+          throw new IOException("Failed to read file descriptor set: " + fileDescriptorSetPath, e);
+        }
+      }
+      return builder.build();
     }
 
     protected int handleSingleResult(CelVerificationResult result, OutputFormat format) {

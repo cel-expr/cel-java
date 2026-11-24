@@ -43,6 +43,8 @@ import org.jline.terminal.TerminalBuilder;
 /** Interactive REPL shell for CEL formal verification. */
 final class CelVerifierRepl {
 
+  private static final VerificationOptions DEFAULT_OPTIONS = VerificationOptions.builder().build();
+
   private CelVerifierRepl() {}
 
   static int runInteractiveRepl() {
@@ -281,7 +283,7 @@ final class CelVerifierRepl {
     }
     String name = parts[0].trim();
     try {
-      CelType type = VerificationOptions.parseCelType(parts[1]);
+      CelType type = DEFAULT_OPTIONS.parseCelType(parts[1]);
       sessionVars.put(name, type);
       out.println("Variable declared: " + name + " : " + CelTypes.format(type));
     } catch (IllegalArgumentException | IllegalStateException e) {

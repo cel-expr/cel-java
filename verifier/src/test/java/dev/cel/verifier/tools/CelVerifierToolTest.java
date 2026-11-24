@@ -19,10 +19,13 @@ import static org.junit.Assert.assertThrows;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.protobuf.DescriptorProtos.FileDescriptorSet;
 import dev.cel.common.types.CelType;
 import dev.cel.common.types.ListType;
 import dev.cel.common.types.MapType;
 import dev.cel.common.types.SimpleType;
+import dev.cel.expr.conformance.proto2.TestAllTypesProto;
+import dev.cel.expr.conformance.proto3.TestAllTypes;
 import dev.cel.verifier.CelVerificationResult;
 import dev.cel.verifier.CelVerificationResult.VerificationStatus;
 import java.io.File;
@@ -42,6 +45,7 @@ import picocli.CommandLine;
 
 @RunWith(JUnit4.class)
 public final class CelVerifierToolTest {
+  private static final VerificationOptions OPTIONS = VerificationOptions.builder().build();
 
   @Rule public TemporaryFolder tempFolder = new TemporaryFolder();
 
@@ -58,6 +62,78 @@ public final class CelVerifierToolTest {
     cmd.setErr(pw);
     cmd.execute(args);
     return out.toString();
+  }
+
+  private String writeTestAllTypesDescriptorSet() throws Exception {
+    File file = tempFolder.newFile("test_all_types.pb");
+    Files.write(
+        file.toPath(),
+        FileDescriptorSet.newBuilder()
+            .addFile(TestAllTypes.getDescriptor().getFile().toProto())
+            .addFile(TestAllTypesProto.getDescriptor().toProto())
+            .build()
+            .toByteArray());
+    return file.getAbsolutePath();
+  }
+
+  @Test
+  public void celVerifierTool_checkValid_unsetMessageFieldReadsDefault() throws Exception {
+    String output =
+        executeToolWithOutput(
+            "check-valid",
+            "--expr",
+            "has(msg.single_nested_message) || msg.single_nested_message.bb == 0",
+            "--var",
+            "msg:cel.expr.conformance.proto3.TestAllTypes",
+            "--file_descriptor_set",
+            writeTestAllTypesDescriptorSet());
+
+    assertThat(output).contains("[VERIFIED]");
+  }
+
+  @Test
+  public void celVerifierTool_verifyEquiv_proto2ScalarPresence() throws Exception {
+    String output =
+        executeToolWithOutput(
+            "verify-equiv",
+            "--expr1",
+            "has(msg.single_int64)",
+            "--expr2",
+            "msg.single_int64 != 0",
+            "--var",
+            "msg:cel.expr.conformance.proto2.TestAllTypes",
+            "--transitive_descriptor_set",
+            writeTestAllTypesDescriptorSet());
+
+    assertThat(output).contains("[VIOLATED]");
+  }
+
+  @Test
+  public void celVerifierTool_verifyEquiv_protoEnumVariable() throws Exception {
+    String output =
+        executeToolWithOutput(
+            "verify-equiv",
+            "--expr1",
+            "e == cel.expr.conformance.proto3.TestAllTypes.NestedEnum.BAR",
+            "--expr2",
+            "e == 1",
+            "--var",
+            "e:cel.expr.conformance.proto3.TestAllTypes.NestedEnum",
+            "--file_descriptor_set",
+            writeTestAllTypesDescriptorSet());
+
+    assertThat(output).contains("[VERIFIED]");
+  }
+
+  @Test
+  public void celVerifierTool_missingFileDescriptorSet_error() {
+    String output =
+        executeToolWithOutput(
+            "check-sat", "--expr", "true", "--file_descriptor_set", "missing_descriptor_set.pb");
+
+    assertThat(output)
+        .contains(
+            "Verification error: Failed to read file descriptor set: missing_descriptor_set.pb");
   }
 
   @Test
@@ -153,27 +229,26 @@ public final class CelVerifierToolTest {
   @Test
   public void parseVariables_invalidFormat_throws() {
     assertThrows(
-        IllegalArgumentException.class,
-        () -> VerificationOptions.parseVariables(Arrays.asList("x_no_colon")));
+        IllegalArgumentException.class, () -> OPTIONS.parseVariables(Arrays.asList("x_no_colon")));
   }
 
   @Test
   public void parseVariables_invalidMapFormat_throws() {
     assertThrows(
         IllegalArgumentException.class,
-        () -> VerificationOptions.parseVariables(Arrays.asList("x:map<string>")));
+        () -> OPTIONS.parseVariables(Arrays.asList("x:map<string>")));
   }
 
   @Test
   public void parseVariables_emptyOrNull_returnsEmptyMap() {
-    assertThat(VerificationOptions.parseVariables(null)).isEmpty();
-    assertThat(VerificationOptions.parseVariables(ImmutableList.of())).isEmpty();
+    assertThat(OPTIONS.parseVariables(null)).isEmpty();
+    assertThat(OPTIONS.parseVariables(ImmutableList.of())).isEmpty();
   }
 
   @Test
   public void parseVariables_nestedTypes() {
     ImmutableMap<String, CelType> vars =
-        VerificationOptions.parseVariables(
+        OPTIONS.parseVariables(
             Arrays.asList(
                 "nested_map:map<string, map<string, int>>",
                 "nested_list_map:map<string, list<int>>"));
@@ -189,19 +264,15 @@ public final class CelVerifierToolTest {
 
   @Test
   public void parseVariables_emptyString_throws() {
+    assertThrows(IllegalArgumentException.class, () -> OPTIONS.parseVariables(Arrays.asList("")));
     assertThrows(
-        IllegalArgumentException.class,
-        () -> VerificationOptions.parseVariables(Arrays.asList("")));
-    assertThrows(
-        IllegalArgumentException.class,
-        () -> VerificationOptions.parseVariables(Arrays.asList("   ")));
+        IllegalArgumentException.class, () -> OPTIONS.parseVariables(Arrays.asList("   ")));
   }
 
   @Test
   public void parseVariables_nullElement_throws() {
     assertThrows(
-        NullPointerException.class,
-        () -> VerificationOptions.parseVariables(Arrays.asList((String) null)));
+        NullPointerException.class, () -> OPTIONS.parseVariables(Arrays.asList((String) null)));
   }
 
   @Test
@@ -264,7 +335,7 @@ public final class CelVerifierToolTest {
     VerificationOptions options =
         VerificationOptions.builder().setTimeout(Duration.ofSeconds(5)).build();
     ImmutableMap<String, CelType> vars =
-        VerificationOptions.parseVariables(
+        options.parseVariables(
             Arrays.asList("x:int", "w:google.protobuf.Int64Value", "s:google.protobuf.Struct"));
 
     assertThat(
