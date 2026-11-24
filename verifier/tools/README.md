@@ -159,6 +159,9 @@ parameters for every query.
 bazel run //verifier/tools:cel_verifier_tool -- repl
 ```
 
+Pass `--file_descriptor_set <path>` to `repl` to declare protobuf message and
+enum variables with `:var`.
+
 ### REPL Commands
 
 | Command | Description | Example |

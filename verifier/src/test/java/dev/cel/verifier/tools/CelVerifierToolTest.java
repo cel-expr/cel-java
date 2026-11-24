@@ -19,6 +19,7 @@ import static org.junit.Assert.assertThrows;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.protobuf.DescriptorProtos.FileDescriptorProto;
 import com.google.protobuf.DescriptorProtos.FileDescriptorSet;
 import dev.cel.common.types.CelType;
 import dev.cel.common.types.ListType;
@@ -133,7 +134,31 @@ public final class CelVerifierToolTest {
 
     assertThat(output)
         .contains(
-            "Verification error: Failed to read file descriptor set: missing_descriptor_set.pb");
+            "Verification error: Failed to read file descriptor set 'missing_descriptor_set.pb'");
+  }
+
+  @Test
+  public void celVerifierTool_repl_withFileDescriptorSet_exitsAtEndOfInput() throws Exception {
+    int exitCode =
+        new CommandLine(new CelVerifierTool())
+            .execute("repl", "--file_descriptor_set", writeTestAllTypesDescriptorSet());
+
+    assertThat(exitCode).isEqualTo(CelVerifierTool.EXIT_CODE_VERIFIED);
+  }
+
+  @Test
+  public void celVerifierTool_repl_unresolvedFileDescriptorSet_error() throws Exception {
+    File file = tempFolder.newFile("unresolved.pb");
+    Files.write(
+        file.toPath(),
+        FileDescriptorSet.newBuilder()
+            .addFile(FileDescriptorProto.newBuilder().setName("a.proto").addDependency("b.proto"))
+            .build()
+            .toByteArray());
+
+    String output = executeToolWithOutput("repl", "--file_descriptor_set", file.getAbsolutePath());
+
+    assertThat(output).contains("unresolved proto file: b.proto");
   }
 
   @Test

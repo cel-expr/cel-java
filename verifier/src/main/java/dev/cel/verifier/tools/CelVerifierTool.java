@@ -15,7 +15,9 @@
 package dev.cel.verifier.tools;
 
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.protobuf.DescriptorProtos.FileDescriptorSet;
+import com.google.protobuf.Descriptors.FileDescriptor;
 import com.google.protobuf.ExtensionRegistry;
 import dev.cel.common.CelDescriptorUtil;
 import dev.cel.common.CelValidationException;
@@ -38,6 +40,7 @@ import java.util.concurrent.Callable;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.IVersionProvider;
+import picocli.CommandLine.Mixin;
 import picocli.CommandLine.Model.CommandSpec;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Spec;
@@ -74,6 +77,28 @@ public final class CelVerifierTool implements Runnable {
   @Override
   public void run() {
     spec.commandLine().usage(spec.commandLine().getOut());
+  }
+
+  /** The protobuf descriptor set option, shared by all commands. */
+  static final class DescriptorSetOption {
+    @Option(
+        names = {"--file_descriptor_set", "--transitive_descriptor_set"},
+        description = "Path to a FileDescriptorSet with the protobuf types used by variables")
+    String path = "";
+
+    ImmutableSet<FileDescriptor> load() throws IOException {
+      if (path.isEmpty()) {
+        return ImmutableSet.of();
+      }
+      try {
+        return CelDescriptorUtil.getFileDescriptorsFromFileDescriptorSet(
+            FileDescriptorSet.parseFrom(
+                Files.readAllBytes(new File(path).toPath()), ExtensionRegistry.getEmptyRegistry()));
+      } catch (IOException | RuntimeException e) {
+        throw new IOException(
+            "Failed to read file descriptor set '" + path + "': " + e.getMessage(), e);
+      }
+    }
   }
 
   /** Options shared across all verification commands. */
@@ -120,10 +145,7 @@ public final class CelVerifierTool implements Runnable {
         description = "Output format: TEXT or JSON (default: TEXT)")
     String outputFormatStr = VerificationOptions.DEFAULT_OUTPUT_FORMAT.name();
 
-    @Option(
-        names = {"--file_descriptor_set", "--transitive_descriptor_set"},
-        description = "Path to a FileDescriptorSet with the protobuf types used by variables")
-    String fileDescriptorSetPath = "";
+    @Mixin DescriptorSetOption descriptorSet = new DescriptorSetOption();
 
     @FunctionalInterface
     protected interface CommandAction {
@@ -158,24 +180,13 @@ public final class CelVerifierTool implements Runnable {
       } catch (IllegalArgumentException e) {
         err().println("Invalid output format '" + outputFormatStr + "'. Defaulting to TEXT.");
       }
-      VerificationOptions.Builder builder =
-          VerificationOptions.builder()
-              .setTimeout(Duration.ofSeconds(timeoutSeconds))
-              .setComprehensionUnrollLimit(comprehensionUnrollLimit)
-              .setUnknownIdentifiers(unknownIdentifiers)
-              .setOutputFormat(format);
-      if (!fileDescriptorSetPath.isEmpty()) {
-        try {
-          builder.setFileDescriptors(
-              CelDescriptorUtil.getFileDescriptorsFromFileDescriptorSet(
-                  FileDescriptorSet.parseFrom(
-                      Files.readAllBytes(new File(fileDescriptorSetPath).toPath()),
-                      ExtensionRegistry.getEmptyRegistry())));
-        } catch (IOException e) {
-          throw new IOException("Failed to read file descriptor set: " + fileDescriptorSetPath, e);
-        }
-      }
-      return builder.build();
+      return VerificationOptions.builder()
+          .setTimeout(Duration.ofSeconds(timeoutSeconds))
+          .setComprehensionUnrollLimit(comprehensionUnrollLimit)
+          .setUnknownIdentifiers(unknownIdentifiers)
+          .setOutputFormat(format)
+          .setFileDescriptors(descriptorSet.load())
+          .build();
     }
 
     protected int handleSingleResult(CelVerificationResult result, OutputFormat format) {
@@ -321,9 +332,18 @@ public final class CelVerifierTool implements Runnable {
   @Command(name = "repl", description = "Launch interactive CEL Formal Verification REPL shell")
   static class ReplCommand implements Callable<Integer> {
 
+    @Spec private CommandSpec spec;
+
+    @Mixin DescriptorSetOption descriptorSet = new DescriptorSetOption();
+
     @Override
     public Integer call() {
-      return CelVerifierRepl.runInteractiveRepl();
+      try {
+        return CelVerifierRepl.runInteractiveRepl(descriptorSet.load());
+      } catch (IOException e) {
+        spec.commandLine().getErr().println(e.getMessage());
+        return EXIT_CODE_ERROR;
+      }
     }
   }
 
