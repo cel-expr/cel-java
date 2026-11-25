@@ -106,6 +106,41 @@ public class CelRuntimeTest {
   }
 
   @Test
+  public void evaluate_intOfMinIntDouble_returnsMinInt() throws Exception {
+    Cel cel = runtimeFlavor.builder().build();
+
+    Object result = cel.createProgram(cel.compile("int(-9223372036854775808.0)").getAst()).eval();
+
+    assertThat(result).isEqualTo(Long.MIN_VALUE);
+  }
+
+  @Test
+  public void evaluate_intOfBelowMinIntDouble_throws() throws Exception {
+    Cel cel = runtimeFlavor.builder().build();
+    CelRuntime.Program program =
+        cel.createProgram(cel.compile("int(-9223372036854777856.0)").getAst());
+
+    CelEvaluationException e = assertThrows(CelEvaluationException.class, program::eval);
+    assertThat(e.getErrorCode()).isEqualTo(CelErrorCode.NUMERIC_OVERFLOW);
+    assertThat(e).hasMessageThat().contains("double is out of range for int");
+  }
+
+  @Test
+  public void evaluate_intOfMinIntDouble_exactRangeDisabled_throws() throws Exception {
+    Cel cel =
+        runtimeFlavor
+            .builder()
+            .setOptions(CelOptions.current().enableExactDoubleToIntRange(false).build())
+            .build();
+    CelRuntime.Program program =
+        cel.createProgram(cel.compile("int(-9223372036854775808.0)").getAst());
+
+    CelEvaluationException e = assertThrows(CelEvaluationException.class, program::eval);
+    assertThat(e.getErrorCode()).isEqualTo(CelErrorCode.NUMERIC_OVERFLOW);
+    assertThat(e).hasMessageThat().contains("double is out of range for int");
+  }
+
+  @Test
   public void evaluate_v1alpha1CheckedExpr() throws Exception {
     // Note: v1alpha1 proto support exists only to help migrate existing consumers.
     // New users of CEL should use the canonical protos instead (I.E: dev.cel.expr)

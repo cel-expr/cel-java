@@ -72,20 +72,21 @@ public final class IntFunction extends CelStandardFunction {
                 });
           }
         }),
-    DOUBLE_TO_INT64(
-        (celOptions, runtimeEquality) ->
-            CelFunctionBinding.from(
-                "double_to_int64",
-                Double.class,
-                (Double arg) -> {
-                  if (celOptions.errorOnIntWrap()) {
-                    return RuntimeHelpers.doubleToLongChecked(arg)
-                        .orElseThrow(
-                            () ->
-                                new CelNumericOverflowException("double is out of range for int"));
-                  }
-                  return arg.longValue();
-                })),
+    DOUBLE_TO_INT64((celOptions, runtimeEquality) ->
+        CelFunctionBinding.from(
+            "double_to_int64",
+            Double.class,
+            (Double arg) -> {
+              if (celOptions.errorOnIntWrap()) {
+                if (celOptions.enableExactDoubleToIntRange() && arg == (double) Long.MIN_VALUE) {
+                  return Long.MIN_VALUE;
+                }
+                return RuntimeHelpers.doubleToLongChecked(arg)
+                    .orElseThrow(
+                        () -> new CelNumericOverflowException("double is out of range for int"));
+              }
+              return arg.longValue();
+            })),
     STRING_TO_INT64(
         (celOptions, runtimeEquality) ->
             CelFunctionBinding.from(
