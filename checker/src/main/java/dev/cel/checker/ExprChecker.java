@@ -548,9 +548,9 @@ public final class ExprChecker {
     visit(compre.loopStep());
     assertType(compre.loopStep(), accuType);
     // Forget iteration variable, as result expression must only depend on accu.
-    env.exitComprehensionScope();
+    env.exitScope();
     visit(compre.result());
-    env.exitComprehensionScope();
+    env.exitScope();
 
     env.setType(expr, inferenceContext.specialize(env.getType(compre.result())));
   }
@@ -562,21 +562,18 @@ public final class ExprChecker {
   }
 
   /**
-   * Returns the reference name, prefixed with a leading dot only if disambiguation is needed.
-   * Disambiguation is needed when: the original name had a leading dot, and there's a local
-   * variable that would shadow the resolved name.
+   * Returns the reference name, prefixed with a leading dot when a comprehension variable would
+   * otherwise shadow the resolved name.
    */
   private String maybeDisambiguate(String originalName, String resolvedName) {
-    if (!originalName.startsWith(".")) {
+    if (originalName.equals(resolvedName)) {
       return resolvedName;
     }
-    String simpleName = originalName.substring(1);
-    int dotIndex = simpleName.indexOf('.');
-    String localName = dotIndex > 0 ? simpleName.substring(0, dotIndex) : simpleName;
-    if (env.tryLookupCelIdentFromLocalScopes(localName) != null) {
-      return "." + resolvedName;
-    }
-    return resolvedName;
+    int dotIndex = resolvedName.indexOf('.');
+    String localName = dotIndex > 0 ? resolvedName.substring(0, dotIndex) : resolvedName;
+    return env.tryLookupCelIdentFromLocalScopes(localName) != null
+        ? "." + resolvedName
+        : resolvedName;
   }
 
   private OverloadResolution resolveOverload(

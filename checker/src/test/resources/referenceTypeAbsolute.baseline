@@ -36,9 +36,6 @@ __comprehension__(
   @result~bool^@result)~bool
 
 Source: [1].all(int, type(int) == .int)
-declare app.config {
-  value int
-}
 =====>
 __comprehension__(
   // Variable
@@ -63,6 +60,93 @@ __comprehension__(
         int~int^int
       )~type(int)^type,
       .int~type(int)^.int
+    )~bool^equals
+  )~bool^logical_and,
+  // Result
+  @result~bool^@result)~bool
+
+Source: [1].exists(x, [2].exists(y, .x == 'a'))
+declare x {
+  value string
+}
+=====>
+__comprehension__(
+  // Variable
+  x,
+  // Target
+  [
+    1~int
+  ]~list(int),
+  // Accumulator
+  @result,
+  // Init
+  false~bool,
+  // LoopCondition
+  @not_strictly_false(
+    !_(
+      @result~bool^@result
+    )~bool^logical_not
+  )~bool^not_strictly_false,
+  // LoopStep
+  _||_(
+    @result~bool^@result,
+    __comprehension__(
+      // Variable
+      y,
+      // Target
+      [
+        2~int
+      ]~list(int),
+      // Accumulator
+      @result,
+      // Init
+      false~bool,
+      // LoopCondition
+      @not_strictly_false(
+        !_(
+          @result~bool^@result
+        )~bool^logical_not
+      )~bool^not_strictly_false,
+      // LoopStep
+      _||_(
+        @result~bool^@result,
+        _==_(
+          .x~string^.x,
+          "a"~string
+        )~bool^equals
+      )~bool^logical_or,
+      // Result
+      @result~bool^@result)~bool
+  )~bool^logical_or,
+  // Result
+  @result~bool^@result)~bool
+
+Source: [1].all(b, a == 'a')
+declare b {
+  value string
+}
+=====>
+__comprehension__(
+  // Variable
+  b,
+  // Target
+  [
+    1~int
+  ]~list(int),
+  // Accumulator
+  @result,
+  // Init
+  true~bool,
+  // LoopCondition
+  @not_strictly_false(
+    @result~bool^@result
+  )~bool^not_strictly_false,
+  // LoopStep
+  _&&_(
+    @result~bool^@result,
+    _==_(
+      .b~string^.b,
+      "a"~string
     )~bool^equals
   )~bool^logical_and,
   // Result

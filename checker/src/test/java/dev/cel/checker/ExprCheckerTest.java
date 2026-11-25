@@ -33,13 +33,11 @@ import dev.cel.common.CelContainer;
 import dev.cel.common.CelMutableAst;
 import dev.cel.common.CelProtoAbstractSyntaxTree;
 import dev.cel.common.CelProtoDeclConverter;
-import dev.cel.common.CelVarDecl;
 import dev.cel.common.ast.CelConstant;
 import dev.cel.common.internal.EnvVisitable;
 import dev.cel.common.internal.EnvVisitor;
 import dev.cel.common.internal.Errors;
 import dev.cel.common.types.CelType;
-import dev.cel.common.types.CelTypeProvider;
 import dev.cel.common.types.ListType;
 import dev.cel.common.types.MapType;
 import dev.cel.common.types.NullableType;
@@ -51,6 +49,7 @@ import dev.cel.common.types.StructTypeReference;
 import dev.cel.common.types.TypeParamType;
 import dev.cel.common.types.TypeType;
 import dev.cel.expr.conformance.proto3.TestAllTypes;
+import dev.cel.extensions.CelExtensions;
 import dev.cel.parser.CelMacro;
 import dev.cel.testing.CelAdorner;
 import dev.cel.testing.CelBaselineTestCase;
@@ -75,14 +74,18 @@ public class ExprCheckerTest extends CelBaselineTestCase {
                 TestAllTypes.getDescriptor().getFile(),
                 dev.cel.expr.conformance.proto2.TestAllTypes.getDescriptor().getFile()));
     if (ast != null) {
-      testOutput()
-          .println(
-              CelDebug.toAdornedDebugString(
-                  CelProtoAbstractSyntaxTree.fromCelAst(ast).getExpr(),
-                  new CheckedExprAdorner(
-                      CelProtoAbstractSyntaxTree.fromCelAst(ast).toCheckedExpr())));
+      printCheckedAst(ast);
     }
     testOutput().println();
+  }
+
+  private void printCheckedAst(CelAbstractSyntaxTree ast) {
+    testOutput()
+        .println(
+            CelDebug.toAdornedDebugString(
+                CelProtoAbstractSyntaxTree.fromCelAst(ast).getExpr(),
+                new CheckedExprAdorner(
+                    CelProtoAbstractSyntaxTree.fromCelAst(ast).toCheckedExpr())));
   }
 
   @SuppressWarnings("CheckReturnValue")
@@ -230,32 +233,29 @@ public class ExprCheckerTest extends CelBaselineTestCase {
     source = "[0].exists(app, .app.config == 1)";
     runTest();
 
+    clearAllDeclarations();
     source = "[1].all(int, type(int) == .int)";
+    runTest();
+
+    declareVariable("x", SimpleType.STRING);
+    source = "[1].exists(x, [2].exists(y, .x == 'a'))";
+    runTest();
+
+    clearAllDeclarations();
+    declareVariable("b", SimpleType.STRING);
+    container = CelContainer.newBuilder().addAlias("a", "b").build();
+    source = "[1].all(b, a == 'a')";
     runTest();
   }
 
   @Test
-  @SuppressWarnings("deprecation") // ExprChecker is used directly to add a non-comprehension scope.
-  public void referenceAbsolute_declInNonComprehensionScope() throws Exception {
-    source = "[1].all(x, .x == 'a') && .x == 'a'";
-    CelTypeProvider typeProvider = ProtoMessageTypeProvider.newBuilder().build();
-    prepareCompiler(typeProvider);
-    Errors errors = new Errors("<input>", source);
-    Env env = Env.standard(errors, typeProvider, null, TEST_OPTIONS);
-    env.enterScope();
-    env.add(CelVarDecl.newVarDeclaration("x", SimpleType.STRING));
+  public void referenceAbsolute_bindVariable() throws Exception {
+    declareVariable("x", SimpleType.STRING);
+    source = "cel.bind(x, 1, .x)";
+    prepareCompiler(ProtoMessageTypeProvider.newBuilder().build());
+    celCompiler = celCompiler.toCompilerBuilder().addLibraries(CelExtensions.bindings()).build();
 
-    CelAbstractSyntaxTree ast =
-        ExprChecker.typecheck(
-            env, container, celCompiler.parse(source).getAst(), Optional.absent());
-
-    testOutput().println(errors.getAllErrorsAsString());
-    testOutput()
-        .println(
-            CelDebug.toAdornedDebugString(
-                CelProtoAbstractSyntaxTree.fromCelAst(ast).getExpr(),
-                new CheckedExprAdorner(
-                    CelProtoAbstractSyntaxTree.fromCelAst(ast).toCheckedExpr())));
+    printCheckedAst(celCompiler.compile(source).getAst());
   }
 
   @Test
@@ -926,12 +926,7 @@ public class ExprCheckerTest extends CelBaselineTestCase {
     descriptorBuilder.addFile(StandaloneGlobalEnum.getDescriptor().getFile().toProto());
     CelAbstractSyntaxTree ast = prepareTest(descriptorBuilder.build());
     if (ast != null) {
-      testOutput()
-          .println(
-              CelDebug.toAdornedDebugString(
-                  CelProtoAbstractSyntaxTree.fromCelAst(ast).getExpr(),
-                  new CheckedExprAdorner(
-                      CelProtoAbstractSyntaxTree.fromCelAst(ast).toCheckedExpr())));
+      printCheckedAst(ast);
     }
   }
 

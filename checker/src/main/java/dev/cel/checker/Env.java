@@ -97,8 +97,6 @@ public class Env {
    */
   private final ArrayList<DeclGroup> decls = new ArrayList<>();
 
-  private int comprehensionScopeCount = 0;
-
   /** A map from expression ids into references resolved for the overall tree so far. */
   private final Map<Long, CelReference> referenceMap = new LinkedHashMap<>();
 
@@ -140,7 +138,7 @@ public class Env {
       CelTypeProvider celTypeProvider,
       @Nullable TypeProvider legacyTypeProvider,
       CelOptions celOptions) {
-    return new Env(errors, celTypeProvider, legacyTypeProvider, new DeclGroup(), celOptions);
+    return new Env(errors, celTypeProvider, legacyTypeProvider, new DeclGroup(false), celOptions);
   }
 
   /**
@@ -285,7 +283,7 @@ public class Env {
    * scope (overloads from different scopes are not merged).
    */
   public void enterScope() {
-    decls.add(new DeclGroup());
+    decls.add(new DeclGroup(false));
   }
 
   /** Exits a previously opened scope, forgetting all declarations created in this scope. */
@@ -294,16 +292,9 @@ public class Env {
     decls.remove(decls.size() - 1);
   }
 
-  /** Enters a scope for comprehension variables, which leading-dot identifiers skip. */
+  /** Enters a scope for comprehension variables, which shadow all other declarations. */
   void enterComprehensionScope() {
-    enterScope();
-    comprehensionScopeCount++;
-  }
-
-  /** Exits a scope entered with {@link #enterComprehensionScope}. */
-  void exitComprehensionScope() {
-    exitScope();
-    comprehensionScopeCount--;
+    decls.add(new DeclGroup(true));
   }
 
   /** Return the current scope depth for the environment. */
@@ -515,7 +506,7 @@ public class Env {
     }
 
     for (String cand : container.resolveCandidateNames(name)) {
-      CelVarDecl decl = tryLookupCelIdent(cand, name.startsWith("."));
+      CelVarDecl decl = tryLookupCelIdent(cand);
       if (decl != null) {
         return decl;
       }
@@ -524,9 +515,9 @@ public class Env {
     return null;
   }
 
-  private @Nullable CelVarDecl tryLookupCelIdent(String cand, boolean skipComprehensionScopes) {
+  private @Nullable CelVarDecl tryLookupCelIdent(String cand) {
     // First determine whether we know this name already.
-    CelVarDecl decl = findIdentDecl(cand, skipComprehensionScopes);
+    CelVarDecl decl = findIdentDecl(cand, /* comprehensionScopes= */ false);
     if (decl != null) {
       return decl;
     }
@@ -603,19 +594,7 @@ public class Env {
    * <p>Returns {@code null} if not found in local scopes.
    */
   @Nullable CelVarDecl tryLookupCelIdentFromLocalScopes(String name) {
-    int firstUserSpaceScope = 2;
-    // Iterate from the top of the stack down to the first local scope.
-    // Note that:
-    // Scope 0: Standard environment
-    // Scope 1: User defined environment
-    // Scope 2 and onwards: comprehension scopes
-    for (int i = decls.size() - 1; i >= firstUserSpaceScope; i--) {
-      CelVarDecl ident = decls.get(i).getIdent(name);
-      if (ident != null) {
-        return ident;
-      }
-    }
-    return null;
+    return findIdentDecl(name, /* comprehensionScopes= */ true);
   }
 
   /**
@@ -764,14 +743,13 @@ public class Env {
     builder.addOverloads(overload);
   }
 
-  /**
-   * Search for the named identifier declaration, optionally skipping the comprehension scopes on
-   * top of the stack.
-   */
-  private @Nullable CelVarDecl findIdentDecl(String name, boolean skipComprehensionScopes) {
-    int topScope = decls.size() - 1 - (skipComprehensionScopes ? comprehensionScopeCount : 0);
-    for (int i = topScope; i >= 0; i--) {
-      CelVarDecl ident = decls.get(i).getIdent(name);
+  /** Search for the named identifier declaration in either comprehension or other scopes. */
+  private @Nullable CelVarDecl findIdentDecl(String name, boolean comprehensionScopes) {
+    for (DeclGroup declGroup : Lists.reverse(decls)) {
+      if (declGroup.isComprehensionScope != comprehensionScopes) {
+        continue;
+      }
+      CelVarDecl ident = declGroup.getIdent(name);
       if (ident != null) {
         return ident;
       }
@@ -992,6 +970,7 @@ public class Env {
 
     private final Map<String, CelVarDecl> idents;
     private final Map<String, CelFunctionDecl> functions;
+    private final boolean isComprehensionScope;
 
     /**
      * Get an immutable map of the identifiers in the {@code DeclGroup} keyed by declaration name.
@@ -1025,9 +1004,10 @@ public class Env {
       functions.put(function.name(), function);
     }
 
-    private DeclGroup() {
+    private DeclGroup(boolean isComprehensionScope) {
       this.idents = new HashMap<>();
       this.functions = new HashMap<>();
+      this.isComprehensionScope = isComprehensionScope;
     }
   }
 

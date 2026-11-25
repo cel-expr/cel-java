@@ -1,0 +1,20 @@
+Source: cel.bind(x, 1, .x)
+declare x {
+  value string
+}
+=====>
+__comprehension__(
+  // Variable
+  #unused,
+  // Target
+  []~list(dyn),
+  // Accumulator
+  x,
+  // Init
+  1~int,
+  // LoopCondition
+  false~bool,
+  // LoopStep
+  x~int^x,
+  // Result
+  .x~string^.x)~string
