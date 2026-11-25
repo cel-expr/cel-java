@@ -120,34 +120,3 @@ __comprehension__(
   )~bool^logical_or,
   // Result
   @result~bool^@result)~bool
-
-Source: [1].all(b, a == 'a')
-declare b {
-  value string
-}
-=====>
-__comprehension__(
-  // Variable
-  b,
-  // Target
-  [
-    1~int
-  ]~list(int),
-  // Accumulator
-  @result,
-  // Init
-  true~bool,
-  // LoopCondition
-  @not_strictly_false(
-    @result~bool^@result
-  )~bool^not_strictly_false,
-  // LoopStep
-  _&&_(
-    @result~bool^@result,
-    _==_(
-      .b~string^.b,
-      "a"~string
-    )~bool^equals
-  )~bool^logical_and,
-  // Result
-  @result~bool^@result)~bool

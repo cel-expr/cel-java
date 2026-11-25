@@ -240,8 +240,10 @@ public class ExprCheckerTest extends CelBaselineTestCase {
     declareVariable("x", SimpleType.STRING);
     source = "[1].exists(x, [2].exists(y, .x == 'a'))";
     runTest();
+  }
 
-    clearAllDeclarations();
+  @Test
+  public void referenceAbsolute_aliasShadowedByComprehension() throws Exception {
     declareVariable("b", SimpleType.STRING);
     container = CelContainer.newBuilder().addAlias("a", "b").build();
     source = "[1].all(b, a == 'a')";
