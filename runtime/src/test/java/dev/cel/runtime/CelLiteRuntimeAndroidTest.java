@@ -919,6 +919,9 @@ public class CelLiteRuntimeAndroidTest {
   private enum CelOptionsTestCase {
     UNSIGNED_LONG_DISABLED(newBaseTestOptions().enableUnsignedLongs(false).build()),
     UNWRAP_WKT_DISABLED(newBaseTestOptions().unwrapWellKnownTypesOnFunctionDispatch(false).build()),
+    @SuppressWarnings("deprecation") // Test only - verifying the deprecated option is rejected
+    NATIVE_VALUES_DISABLED(
+        newBaseTestOptions().evaluateCanonicalTypesToNativeValues(false).build()),
     ;
 
     private final CelOptions celOptions;

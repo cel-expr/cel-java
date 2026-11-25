@@ -51,6 +51,7 @@ CelOptions options = CelOptions.current()
     // .unwrapWellKnownTypesOnFunctionDispatch(...)
     // .enableTimestampEpoch(...)
     // .enableHeterogeneousNumericComparisons(...)
+    // .evaluateCanonicalTypesToNativeValues(...)
     .build();
 
 CelRuntime runtime = CelRuntimeFactory.plannerRuntimeBuilder()
