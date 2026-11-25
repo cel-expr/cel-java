@@ -56,7 +56,7 @@ properties about your expressions.
     runtime partial evaluation.
 
 ```java
-CelVerifier verifier = CelVerifierFactory.newVerifier()
+CelVerifier verifier = CelVerifierFactory.newVerifier(cel)
     .addUnknownIdentifier("request.headers") // Exclude unknown fields from failure paths
     .build();
 ```
@@ -85,10 +85,10 @@ The following example demonstrates how to verify if two CEL expressions
 are logically equivalent.
 
 ```java
+import dev.cel.bundle.Cel;
+import dev.cel.bundle.CelFactory;
 import dev.cel.common.CelAbstractSyntaxTree;
 import dev.cel.common.types.SimpleType;
-import dev.cel.compiler.CelCompiler;
-import dev.cel.compiler.CelCompilerFactory;
 import dev.cel.verifier.CelVerificationException;
 import dev.cel.verifier.CelVerificationResult;
 import dev.cel.verifier.CelVerificationResult.VerificationStatus;
@@ -98,16 +98,16 @@ import java.time.Duration;
 
 public class VerifierExample {
   public static void main(String[] args) throws Exception {
-    CelCompiler compiler = CelCompilerFactory.standardCelCompilerBuilder()
+    Cel cel = CelFactory.plannerCelBuilder()
         .addVar("x", SimpleType.INT)
         .build();
 
     // Compile two logically equivalent expressions
-    CelAbstractSyntaxTree astA = compiler.compile("x > 10").getAst();
-    CelAbstractSyntaxTree astB = compiler.compile("10 < x").getAst();
+    CelAbstractSyntaxTree astA = cel.compile("x > 10").getAst();
+    CelAbstractSyntaxTree astB = cel.compile("10 < x").getAst();
 
     // Create and configure the verifier
-    CelVerifier verifier = CelVerifierFactory.newVerifier()
+    CelVerifier verifier = CelVerifierFactory.newVerifier(cel)
         .setTimeout(Duration.ofSeconds(2))
         .build();
 
@@ -142,7 +142,8 @@ public class VerifierExample {
 
 ### 2. Policy Equivalence Verification
 
-You can also verify the equivalence of two structured CEL Policies.
+You can also verify the equivalence of two structured CEL Policies. Build the
+policy compiler and the AST verifier from the same `Cel` environment.
 
 ```java
 import dev.cel.bundle.Cel;
@@ -176,7 +177,7 @@ public class PolicyVerifierExample {
       CelPolicyCompilerFactory.newPolicyCompiler(CEL).build();
 
   // Verifiers are immutable and thread-safe, making them safe to store as static constants
-  private static final CelVerifier AST_VERIFIER = CelVerifierFactory.newVerifier().build();
+  private static final CelVerifier AST_VERIFIER = CelVerifierFactory.newVerifier(CEL).build();
 
   private static final CelPolicyVerifier POLICY_VERIFIER =
       CelPolicyVerifierFactory.newVerifier(POLICY_COMPILER, AST_VERIFIER).build();
@@ -245,10 +246,10 @@ provides concrete satisfying model assignments (witness/test case generation),
 and `result.witness()` exposes them as CEL runtime values.
 
 ```java
+import dev.cel.bundle.Cel;
+import dev.cel.bundle.CelFactory;
 import dev.cel.common.CelAbstractSyntaxTree;
 import dev.cel.common.types.SimpleType;
-import dev.cel.compiler.CelCompiler;
-import dev.cel.compiler.CelCompilerFactory;
 import dev.cel.verifier.CelVerificationResult;
 import dev.cel.verifier.CelVerificationResult.VerificationStatus;
 import dev.cel.verifier.CelVerifier;
@@ -256,16 +257,16 @@ import dev.cel.verifier.CelVerifierFactory;
 
 public class SatisfiabilityExample {
   public static void main(String[] args) throws Exception {
-    CelCompiler compiler = CelCompilerFactory.standardCelCompilerBuilder()
+    Cel cel = CelFactory.plannerCelBuilder()
         .addVar("role", SimpleType.STRING)
         .addVar("port", SimpleType.INT)
         .build();
 
     // Check if an authorization condition can ever be met
     CelAbstractSyntaxTree ast =
-        compiler.compile("role == 'editor' && port > 1024 && port < 65535").getAst();
+        cel.compile("role == 'editor' && port > 1024 && port < 65535").getAst();
 
-    CelVerifier verifier = CelVerifierFactory.newVerifier().build();
+    CelVerifier verifier = CelVerifierFactory.newVerifier(cel).build();
     CelVerificationResult result = verifier.isSatisfiable(ast);
 
     switch (result.status()) {
@@ -322,7 +323,7 @@ public class InvariantsExample {
   private static final CelPolicyCompiler POLICY_COMPILER =
       CelPolicyCompilerFactory.newPolicyCompiler(CEL).build();
 
-  private static final CelVerifier AST_VERIFIER = CelVerifierFactory.newVerifier().build();
+  private static final CelVerifier AST_VERIFIER = CelVerifierFactory.newVerifier(CEL).build();
 
   private static final CelPolicyVerifier POLICY_VERIFIER =
       CelPolicyVerifierFactory.newVerifier(POLICY_COMPILER, AST_VERIFIER).build();
@@ -407,6 +408,18 @@ configure this to a reasonable duration for your specific use case using
 by the Z3 solver during its search phase.
 If the solver times out, the verifier will throw a `CelVerificationException`
 which should be explicitly caught and handled by the caller.
+
+### Validating Counterexamples with the CEL Runtime
+
+`enableCegar(true)` checks the inputs the solver finds with the CEL
+runtime of the verifier's environment: a confirmed `INCONCLUSIVE` counterexample
+(or satisfying input) becomes `VIOLATED` (or `VERIFIED`), and any refuted one
+becomes `INCONCLUSIVE` with no witness. Only exact inputs are checked, when no unknown
+identifiers are registered; when the runtime can't evaluate them (e.g. a
+function has no binding), the message says why. The runtime must follow the CEL
+spec (e.g. `CelOptions.DEFAULT`, which has no iteration limit), and a function
+with bindings must have one for each overload, which is synchronous,
+deterministic and doesn't throw.
 
 ### Comprehensions and Bounded Model Checking
 
