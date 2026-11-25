@@ -178,20 +178,24 @@ final class CelZ3TranslationContext {
   }
 
   void bindSymbol(String name, TranslatedValue value) {
-    localScope.put(name, value);
+    symbolTable.put(name, value);
   }
 
   Optional<TranslatedValue> lookupSymbol(String name) {
-    return Optional.ofNullable(localScope.get(name));
+    TranslatedValue local = localScope.get(name);
+    return Optional.ofNullable(local != null ? local : symbolTable.get(globalName(name)));
   }
 
   TranslatedValue computeSymbolIfAbsent(
       String rawName, Function<String, TranslatedValue> mappingFunction) {
-    if (!rawName.startsWith(".") && localScope.containsKey(rawName)) {
+    if (localScope.containsKey(rawName)) {
       return localScope.get(rawName);
     }
-    return symbolTable.computeIfAbsent(
-        rawName.startsWith(".") ? rawName.substring(1) : rawName, mappingFunction);
+    return symbolTable.computeIfAbsent(globalName(rawName), mappingFunction);
+  }
+
+  private static String globalName(String name) {
+    return name.startsWith(".") ? name.substring(1) : name;
   }
 
   /** Binds {@code varName} to {@code value} while running {@code action}, then restores it. */
