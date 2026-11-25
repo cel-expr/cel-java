@@ -163,9 +163,27 @@ public final class CelCheckerLegacyImpl implements CelChecker, EnvVisitable {
     }
   }
 
+  /**
+   * Returns the shared scope holding the standard declarations, or {@code null} when standard
+   * declarations are disabled or could not be added without errors.
+   */
+  @VisibleForTesting
+  Env.@Nullable DeclGroup standardScope() {
+    if (overriddenStandardDeclarations != null) {
+      return Env.standardScope(overriddenStandardDeclarations);
+    }
+    if (standardEnvironmentEnabled) {
+      return Env.standardScope(Env.standardDeclarations(celOptions));
+    }
+    return null;
+  }
+
   private Env getEnv(Errors errors) {
     Env env;
-    if (overriddenStandardDeclarations != null) {
+    Env.DeclGroup standardScope = standardScope();
+    if (standardScope != null) {
+      env = Env.fromStandardScope(standardScope, errors, celTypeProvider, typeProvider, celOptions);
+    } else if (overriddenStandardDeclarations != null) {
       env =
           Env.standard(
               overriddenStandardDeclarations, errors, celTypeProvider, typeProvider, celOptions);

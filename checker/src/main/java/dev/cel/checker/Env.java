@@ -21,6 +21,9 @@ import dev.cel.expr.Expr;
 import dev.cel.expr.Type;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
+import com.google.common.cache.CacheBuilder;
+import com.google.common.cache.CacheLoader;
+import com.google.common.cache.LoadingCache;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -58,6 +61,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -116,6 +121,20 @@ public class Env {
           .disableCelStandardEquality(false)
           .enableNamespacedDeclarations(false)
           .build();
+
+  /**
+   * Standard declarations derived from {@link CelOptions}, keyed by {@link
+   * #standardDeclarationsKey}.
+   */
+  private static final ConcurrentMap<Integer, CelStandardDeclarations> STANDARD_DECLARATIONS =
+      new ConcurrentHashMap<>();
+
+  /**
+   * Immutable scopes holding standard declarations, keyed by the identity of the declarations they
+   * hold. Empty when adding the declarations reported errors.
+   */
+  private static final LoadingCache<CelStandardDeclarations, Optional<DeclGroup>> STANDARD_SCOPES =
+      CacheBuilder.newBuilder().weakKeys().build(CacheLoader.from(Env::buildStandardScope));
 
   /**
    * @deprecated Do not use. This exists for compatibility reasons. Migrate to CEL-Java fluent APIs.
@@ -208,11 +227,72 @@ public class Env {
       CelOptions celOptions) {
     Env env = Env.unconfigured(errors, celTypeProvider, legacyTypeProvider, celOptions);
     // Isolate the standard declarations into their own scope for forward compatibility.
-    celStandardDeclaration.functionDecls().forEach(env::add);
-    celStandardDeclaration.identifierDecls().forEach(env::add);
+    env.addStandardDeclarations(celStandardDeclaration);
 
     env.enterScope();
     return env;
+  }
+
+  /**
+   * Returns the standard declarations derived from {@code celOptions}, shared by all options
+   * deriving the same declarations.
+   */
+  static CelStandardDeclarations standardDeclarations(CelOptions celOptions) {
+    return STANDARD_DECLARATIONS.computeIfAbsent(
+        standardDeclarationsKey(celOptions), unused -> newStandardDeclarations(celOptions));
+  }
+
+  /** Must account for every option read by {@link #newStandardDeclarations}. */
+  private static int standardDeclarationsKey(CelOptions celOptions) {
+    return (celOptions.enableUnsignedLongs() ? 1 : 0) | (celOptions.enableTimestampEpoch() ? 2 : 0);
+  }
+
+  /**
+   * Returns an immutable scope holding {@code celStandardDeclarations}, built once and shared by
+   * environments created with {@link #fromStandardScope}. Returns {@code null} if adding the
+   * declarations reported errors.
+   */
+  static @Nullable DeclGroup standardScope(CelStandardDeclarations celStandardDeclarations) {
+    return STANDARD_SCOPES.getUnchecked(celStandardDeclarations).orElse(null);
+  }
+
+  private static Optional<DeclGroup> buildStandardScope(
+      CelStandardDeclarations celStandardDeclarations) {
+    Errors errors = new Errors("", "");
+    // Adding declarations does not depend on the type providers or options.
+    Env env = Env.unconfigured(errors, EMPTY_TYPE_PROVIDER, null, CelOptions.DEFAULT);
+    env.addStandardDeclarations(celStandardDeclarations);
+    if (errors.getErrorCount() > 0) {
+      return Optional.empty();
+    }
+    return Optional.of(env.getDeclGroup().immutableCopy());
+  }
+
+  /**
+   * Creates an {@code Env} value configured with a standard scope returned by {@link
+   * #standardScope}. Equivalent to {@link #standard} without having to add the standard
+   * declarations again.
+   */
+  static Env fromStandardScope(
+      DeclGroup standardScope,
+      Errors errors,
+      CelTypeProvider celTypeProvider,
+      @Nullable TypeProvider legacyTypeProvider,
+      CelOptions celOptions) {
+    Env env =
+        new Env(
+            errors,
+            celTypeProvider,
+            legacyTypeProvider,
+            DeclGroup.layeredOn(standardScope),
+            celOptions);
+    env.enterScope();
+    return env;
+  }
+
+  private void addStandardDeclarations(CelStandardDeclarations celStandardDeclarations) {
+    celStandardDeclarations.functionDecls().forEach(this::add);
+    celStandardDeclarations.identifierDecls().forEach(this::add);
   }
 
   @Deprecated
@@ -994,20 +1074,27 @@ public class Env {
     private final Map<String, CelFunctionDecl> functions;
 
     /**
+     * Immutable group whose declarations are visible through this one, unless this group holds a
+     * declaration with the same name.
+     */
+    private final @Nullable DeclGroup base;
+
+    /**
      * Get an immutable map of the identifiers in the {@code DeclGroup} keyed by declaration name.
      */
     public ImmutableMap<String, CelVarDecl> getIdents() {
-      return ImmutableMap.copyOf(idents);
+      return base == null ? ImmutableMap.copyOf(idents) : merge(base.idents, idents);
     }
 
     /** Get an immutable map of the functions in the {@code DeclGroup} keyed by declaration name. */
     public ImmutableMap<String, CelFunctionDecl> getFunctions() {
-      return ImmutableMap.copyOf(functions);
+      return base == null ? ImmutableMap.copyOf(functions) : merge(base.functions, functions);
     }
 
     /** Get an identifier declaration by {@code name}. Returns {@code null} if absent. */
     public @Nullable CelVarDecl getIdent(String name) {
-      return idents.get(name);
+      CelVarDecl ident = idents.get(name);
+      return ident == null && base != null ? base.getIdent(name) : ident;
     }
 
     /** Put an identifier declaration into the {@code DeclGroup}. */
@@ -1017,7 +1104,8 @@ public class Env {
 
     /** Get a function declaration by {@code name}. Returns {@code null} if absent. */
     public @Nullable CelFunctionDecl getFunction(String name) {
-      return functions.get(name);
+      CelFunctionDecl function = functions.get(name);
+      return function == null && base != null ? base.getFunction(name) : function;
     }
 
     /** Put a function declaration into the {@code DeclGroup}. */
@@ -1025,9 +1113,43 @@ public class Env {
       functions.put(function.name(), function);
     }
 
+    /**
+     * Returns an immutable copy of this {@code DeclGroup}, which can be safely shared across
+     * environments and threads.
+     */
+    private DeclGroup immutableCopy() {
+      return new DeclGroup(
+          ImmutableMap.copyOf(idents), ImmutableMap.copyOf(functions), /* base= */ null);
+    }
+
+    /**
+     * Returns a new mutable {@code DeclGroup} exposing the declarations of the immutable {@code
+     * base} group, where new declarations are only added to the new group.
+     */
+    private static DeclGroup layeredOn(DeclGroup base) {
+      Preconditions.checkArgument(base.base == null, "base group must not be layered");
+      return new DeclGroup(new HashMap<>(), new HashMap<>(), base);
+    }
+
+    private static <V> ImmutableMap<String, V> merge(
+        Map<String, V> base, Map<String, V> overrides) {
+      return ImmutableMap.<String, V>builderWithExpectedSize(base.size() + overrides.size())
+          .putAll(base)
+          .putAll(overrides)
+          .buildKeepingLast();
+    }
+
     private DeclGroup() {
-      this.idents = new HashMap<>();
-      this.functions = new HashMap<>();
+      this(new HashMap<>(), new HashMap<>(), /* base= */ null);
+    }
+
+    private DeclGroup(
+        Map<String, CelVarDecl> idents,
+        Map<String, CelFunctionDecl> functions,
+        @Nullable DeclGroup base) {
+      this.idents = idents;
+      this.functions = functions;
+      this.base = base;
     }
   }
 
