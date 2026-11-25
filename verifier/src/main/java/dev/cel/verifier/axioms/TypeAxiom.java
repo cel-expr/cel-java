@@ -52,19 +52,20 @@ final class TypeAxiom {
     return CelZ3Exprs.SwitchBuilder.newBuilder(ctx)
         .addCase(
             typeSystem.isStruct(val),
-            typeSystem.wrapString(typeSystem.getMsgTypeName(typeSystem.getMessageRef(val))))
-        .addCase(typeSystem.isOptional(val), typeSystem.mkString(OptionalType.NAME))
-        .addCase(typeSystem.isNull(val), typeSystem.mkString(SimpleType.NULL_TYPE.name()))
-        .addCase(typeSystem.isTimestamp(val), typeSystem.mkString(SimpleType.TIMESTAMP.name()))
-        .addCase(typeSystem.isDuration(val), typeSystem.mkString(SimpleType.DURATION.name()))
-        .addCase(typeSystem.isMap(val), typeSystem.mkString(TYPE_NAME_MAP))
-        .addCase(typeSystem.isList(val), typeSystem.mkString(TYPE_NAME_LIST))
-        .addCase(typeSystem.isBytes(val), typeSystem.mkString(SimpleType.BYTES.name()))
-        .addCase(typeSystem.isString(val), typeSystem.mkString(SimpleType.STRING.name()))
-        .addCase(typeSystem.isDouble(val), typeSystem.mkString(SimpleType.DOUBLE.name()))
-        .addCase(typeSystem.isUint(val), typeSystem.mkString(SimpleType.UINT.name()))
-        .addCase(typeSystem.isInt(val), typeSystem.mkString(SimpleType.INT.name()))
-        .addCase(typeSystem.isBool(val), typeSystem.mkString(SimpleType.BOOL.name()))
+            typeSystem.wrapType(typeSystem.getMsgTypeName(typeSystem.getMessageRef(val))))
+        .addCase(typeSystem.isOptional(val), typeSystem.mkType(OptionalType.NAME))
+        .addCase(typeSystem.isNull(val), typeSystem.mkType(SimpleType.NULL_TYPE.name()))
+        .addCase(typeSystem.isTimestamp(val), typeSystem.mkType(SimpleType.TIMESTAMP.name()))
+        .addCase(typeSystem.isDuration(val), typeSystem.mkType(SimpleType.DURATION.name()))
+        .addCase(typeSystem.isMap(val), typeSystem.mkType(TYPE_NAME_MAP))
+        .addCase(typeSystem.isList(val), typeSystem.mkType(TYPE_NAME_LIST))
+        .addCase(typeSystem.isBytes(val), typeSystem.mkType(SimpleType.BYTES.name()))
+        .addCase(typeSystem.isString(val), typeSystem.mkType(SimpleType.STRING.name()))
+        .addCase(typeSystem.isDouble(val), typeSystem.mkType(SimpleType.DOUBLE.name()))
+        .addCase(typeSystem.isUint(val), typeSystem.mkType(SimpleType.UINT.name()))
+        .addCase(typeSystem.isInt(val), typeSystem.mkType(SimpleType.INT.name()))
+        .addCase(typeSystem.isBool(val), typeSystem.mkType(SimpleType.BOOL.name()))
+        .addCase(typeSystem.isType(val), typeSystem.mkType("type"))
         .build(typeSystem.mkError());
   }
 
