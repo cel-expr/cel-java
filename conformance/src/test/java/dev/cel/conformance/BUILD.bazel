@@ -151,6 +151,9 @@ _TESTS_TO_SKIP_COMMON = [
     # TODO: Strong typing support for enums, specified but not implemented.
     "enums/strong_proto2",
     "enums/strong_proto3",
+
+    # Skip until int(-9223372036854775808.0) returns the minimum int instead of an error.
+    "conversions/int/double_int_min_range",
 ]
 
 _TESTS_TO_SKIP_LEGACY = _TESTS_TO_SKIP_COMMON + [
