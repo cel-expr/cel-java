@@ -1894,6 +1894,22 @@ public final class CelImplTest {
   }
 
   @Test
+  @SuppressWarnings("deprecation") // Test only - verifying the deprecated option is rejected
+  public void planner_evaluateCanonicalTypesToNativeValuesDisabled_throws() {
+    CelRuntimeBuilder runtimeBuilder =
+        CelRuntimeFactory.plannerRuntimeBuilder()
+            .setOptions(CelOptions.current().evaluateCanonicalTypesToNativeValues(false).build());
+
+    IllegalArgumentException e =
+        assertThrows(IllegalArgumentException.class, runtimeBuilder::build);
+
+    assertThat(e)
+        .hasMessageThat()
+        .isEqualTo(
+            "Misconfigured CelOptions: evaluateCanonicalTypesToNativeValues cannot be disabled.");
+  }
+
+  @Test
   @SuppressWarnings("unchecked") // test only
   public void program_evaluateCanonicalTypesToNativeTypesDisabled_producesProtoValues()
       throws Exception {

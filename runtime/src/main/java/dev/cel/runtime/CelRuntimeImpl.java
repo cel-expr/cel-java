@@ -452,6 +452,10 @@ public abstract class CelRuntimeImpl implements CelRuntime {
                 + "enableTimestampEpoch cannot be disabled. Subset the environment instead using"
                 + " setStandardFunctions method.");
       }
+      if (!celOptions.evaluateCanonicalTypesToNativeValues()) {
+        throw new IllegalArgumentException(
+            prefix + "evaluateCanonicalTypesToNativeValues cannot be disabled.");
+      }
     }
 
     abstract CelRuntimeImpl autoBuild();

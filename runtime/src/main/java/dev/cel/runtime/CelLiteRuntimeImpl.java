@@ -170,6 +170,10 @@ final class CelLiteRuntimeImpl implements CelLiteRuntime {
         throw new IllegalArgumentException(
             prefix + "unwrapWellKnownTypesOnFunctionDispatch cannot be disabled.");
       }
+      if (!celOptions.evaluateCanonicalTypesToNativeValues()) {
+        throw new IllegalArgumentException(
+            prefix + "evaluateCanonicalTypesToNativeValues cannot be disabled.");
+      }
     }
 
     private static void addBindingToDispatcher(
