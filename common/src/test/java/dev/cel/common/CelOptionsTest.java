@@ -37,6 +37,7 @@ public final class CelOptionsTest {
     assertThat(CelOptions.current().build().enableUnknownTracking()).isFalse();
     assertThat(CelOptions.current().build().enablePrattParser()).isFalse();
     assertThat(CelOptions.current().build().enableIeee754ContainerEquality()).isTrue();
+    assertThat(CelOptions.current().build().enableExactDoubleToIntRange()).isTrue();
   }
 
   @Test

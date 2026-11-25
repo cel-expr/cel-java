@@ -129,6 +129,8 @@ public abstract class CelOptions {
 
   public abstract boolean enableIeee754ContainerEquality();
 
+  public abstract boolean enableExactDoubleToIntRange();
+
   public abstract int maxRegexProgramSize();
 
   public abstract Builder toBuilder();
@@ -175,6 +177,7 @@ public abstract class CelOptions {
         .enableComprehension(true)
         .enableTimestampOverflowCheck(true)
         .enableIeee754ContainerEquality(true)
+        .enableExactDoubleToIntRange(true)
         .maxRegexProgramSize(-1);
   }
 
@@ -545,6 +548,12 @@ public abstract class CelOptions {
      * short-circuiting on {@code x == y} (enabled by default).
      */
     public abstract Builder enableIeee754ContainerEquality(boolean value);
+
+    /**
+     * Converts {@code -9223372036854775808.0} (-2^63) to the minimum int in {@code int(double)}
+     * (enabled by default).
+     */
+    public abstract Builder enableExactDoubleToIntRange(boolean value);
 
     public abstract CelOptions build();
   }
