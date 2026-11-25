@@ -173,6 +173,165 @@ public class CelCheckerLegacyImplTest {
   }
 
   @Test
+  public void standardScope_sameConfiguration_sharedAcrossCheckers() {
+    CelCheckerLegacyImpl celChecker =
+        (CelCheckerLegacyImpl) CelCompilerFactory.standardCelCheckerBuilder().build();
+    CelCheckerLegacyImpl otherChecker =
+        (CelCheckerLegacyImpl)
+            CelCompilerFactory.standardCelCheckerBuilder()
+                .addVarDeclarations(CelVarDecl.newVarDeclaration("x", SimpleType.INT))
+                .build();
+    CelCheckerLegacyImpl derivedChecker =
+        (CelCheckerLegacyImpl)
+            celChecker
+                .toCheckerBuilder()
+                .addVarDeclarations(CelVarDecl.newVarDeclaration("y", SimpleType.INT))
+                .build();
+
+    assertThat(celChecker.standardScope()).isNotNull();
+    assertThat(otherChecker.standardScope()).isSameInstanceAs(celChecker.standardScope());
+    assertThat(derivedChecker.standardScope()).isSameInstanceAs(celChecker.standardScope());
+  }
+
+  @Test
+  public void standardScope_unrelatedOptionChanged_shared() {
+    CelOptions options = CelOptions.current().build();
+    CelCheckerLegacyImpl celChecker =
+        (CelCheckerLegacyImpl)
+            CelCompilerFactory.standardCelCheckerBuilder().setOptions(options).build();
+    CelCheckerLegacyImpl otherChecker =
+        (CelCheckerLegacyImpl)
+            CelCompilerFactory.standardCelCheckerBuilder()
+                .setOptions(
+                    options.toBuilder().populateMacroCalls(!options.populateMacroCalls()).build())
+                .build();
+
+    assertThat(otherChecker.standardScope()).isSameInstanceAs(celChecker.standardScope());
+  }
+
+  @Test
+  public void check_timestampEpochOption_appliesToStandardScope(@TestParameter boolean enabled)
+      throws Exception {
+    CelChecker celChecker =
+        CelCompilerFactory.standardCelCheckerBuilder()
+            .setOptions(CelOptions.current().enableTimestampEpoch(enabled).build())
+            .build();
+    CelCompiler parser = CelCompilerFactory.standardCelCompilerBuilder().build();
+
+    assertThat(celChecker.check(parser.parse("timestamp(1)").getAst()).hasError())
+        .isEqualTo(!enabled);
+  }
+
+  @Test
+  public void standardScope_sameStandardDeclarations_shared() {
+    CelStandardDeclarations standardDeclarations =
+        CelStandardDeclarations.newBuilder().includeFunctions(StandardFunction.ADD).build();
+    CelCheckerLegacyImpl celChecker =
+        (CelCheckerLegacyImpl)
+            CelCompilerFactory.standardCelCheckerBuilder()
+                .setStandardEnvironmentEnabled(false)
+                .setStandardDeclarations(standardDeclarations)
+                .build();
+    CelCheckerLegacyImpl otherChecker =
+        (CelCheckerLegacyImpl)
+            CelCompilerFactory.standardCelCheckerBuilder()
+                .setStandardEnvironmentEnabled(false)
+                .setStandardDeclarations(standardDeclarations)
+                .build();
+
+    assertThat(otherChecker.standardScope()).isSameInstanceAs(celChecker.standardScope());
+  }
+
+  @Test
+  public void check_standardDeclarations_onlyDeclaresIncludedFunctions() throws Exception {
+    CelChecker celChecker =
+        CelCompilerFactory.standardCelCheckerBuilder()
+            .setStandardEnvironmentEnabled(false)
+            .setStandardDeclarations(
+                CelStandardDeclarations.newBuilder().includeFunctions(StandardFunction.ADD).build())
+            .build();
+    CelCompiler parser = CelCompilerFactory.standardCelCompilerBuilder().build();
+
+    assertThat(celChecker.check(parser.parse("1 + 2").getAst()).hasError()).isFalse();
+    assertThat(celChecker.check(parser.parse("1 - 2").getAst()).hasError()).isTrue();
+  }
+
+  @Test
+  public void standardScope_standardEnvironmentDisabled_isNull() {
+    CelCheckerLegacyImpl celChecker =
+        (CelCheckerLegacyImpl)
+            CelCompilerFactory.standardCelCheckerBuilder()
+                .setStandardEnvironmentEnabled(false)
+                .build();
+
+    assertThat(celChecker.standardScope()).isNull();
+  }
+
+  @Test
+  public void standardScope_isImmutable() {
+    CelCheckerLegacyImpl celChecker =
+        (CelCheckerLegacyImpl) CelCompilerFactory.standardCelCheckerBuilder().build();
+
+    assertThrows(
+        UnsupportedOperationException.class,
+        () ->
+            celChecker.standardScope().putIdent(CelVarDecl.newVarDeclaration("x", SimpleType.INT)));
+  }
+
+  @Test
+  public void check_checkersSharingStandardScope_doNotShareDeclarations() throws Exception {
+    CelChecker withX =
+        CelCompilerFactory.standardCelCheckerBuilder()
+            .addVarDeclarations(CelVarDecl.newVarDeclaration("x", SimpleType.INT))
+            .build();
+    CelChecker withY =
+        CelCompilerFactory.standardCelCheckerBuilder()
+            .addVarDeclarations(CelVarDecl.newVarDeclaration("y", SimpleType.STRING))
+            .build();
+    CelCompiler parser = CelCompilerFactory.standardCelCompilerBuilder().build();
+
+    assertThat(withX.check(parser.parse("x + 1").getAst()).hasError()).isFalse();
+    assertThat(withY.check(parser.parse("y + 'a'").getAst()).hasError()).isFalse();
+    assertThat(withY.check(parser.parse("x + 1").getAst()).hasError()).isTrue();
+    assertThat(withX.check(parser.parse("y + 'a'").getAst()).hasError()).isTrue();
+  }
+
+  @Test
+  public void check_checkersSharingStandardScope_doNotShareResolvedTypes() throws Exception {
+    CelCheckerLegacyImpl celChecker =
+        (CelCheckerLegacyImpl) CelCompilerFactory.standardCelCheckerBuilder().build();
+    CelCheckerLegacyImpl withMessageTypes =
+        (CelCheckerLegacyImpl)
+            CelCompilerFactory.standardCelCheckerBuilder()
+                .addMessageTypes(TestAllTypes.getDescriptor())
+                .build();
+    CelCompiler parser = CelCompilerFactory.standardCelCompilerBuilder().build();
+    CelAbstractSyntaxTree ast = parser.parse("cel.expr.conformance.proto3.TestAllTypes{}").getAst();
+
+    assertThat(withMessageTypes.standardScope()).isSameInstanceAs(celChecker.standardScope());
+    assertThat(withMessageTypes.check(ast).hasError()).isFalse();
+    assertThat(celChecker.check(ast).hasError()).isTrue();
+  }
+
+  @Test
+  public void check_userDeclarationWithStandardSignature_shadowsStandardFunction()
+      throws Exception {
+    CelChecker celChecker =
+        CelCompilerFactory.standardCelCheckerBuilder()
+            .addFunctionDeclarations(
+                CelFunctionDecl.newFunctionDeclaration(
+                    "size",
+                    CelOverloadDecl.newMemberOverload(
+                        "custom_string_size", SimpleType.DOUBLE, SimpleType.STRING)))
+            .build();
+    CelCompiler parser = CelCompilerFactory.standardCelCompilerBuilder().build();
+
+    CelAbstractSyntaxTree ast = celChecker.check(parser.parse("'abc'.size()").getAst()).getAst();
+
+    assertThat(ast.getResultType()).isEqualTo(SimpleType.DOUBLE);
+  }
+
+  @Test
   public void check_wellKnownTypeStructCreation_withLegacyTypeProvider_success() throws Exception {
     TypeProvider legacyTypeProvider =
         new DescriptorTypeProvider(ImmutableList.of(Duration.getDescriptor()));
